@@ -25,8 +25,25 @@ module.exports = {
           danger: "#7F1D1D",
         },
       },
+      spacing: {
+        aeXs: 4,
+        aeSm: 8,
+        aeMd: 16,
+        aeLg: 24,
+        aeXl: 32,
+        aeXxl: 40,
+        aeXxxl: 48,
+        aeCardGap: 12,
+        aeScreenPadding: 16,
+        aeContentBottom: 96,
+      },
+      borderRadius: {
+        aeChip: 10,
+        aeCard: 16,
+        aeModal: 24,
+        aeFull: 9999,
+      },
     },
   },
   plugins: [],
 };
-

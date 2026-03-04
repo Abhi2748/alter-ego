@@ -4,9 +4,13 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
+    "start:clear": "expo start --clear",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web"
+  },
+  "overrides": {
+    "react-native-worklets": "0.5.1"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",

@@ -1,0 +1,16 @@
+# Python
+alter-ego-backend/venv/
+alter-ego-backend/__pycache__/
+alter-ego-backend/*.pyc
+alter-ego-backend/.env
+
+# Node
+alter-ego-mobile/node_modules/
+alter-ego-mobile/.expo/
+
+# System
+.DS_Store
+*.log
+
+# Python version
+.python-version

@@ -6,7 +6,9 @@ alter-ego-backend/.env
 
 # Node
 alter-ego-mobile/node_modules/
-alter-ego-mobile/.expo/
+
+# Expo local state (keep in Git; only cache folder is ignored)
+alter-ego-mobile/.expo/cache/
 
 # System
 .DS_Store

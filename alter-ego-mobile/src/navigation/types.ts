@@ -9,10 +9,12 @@ export type RootStackParamList = {
   Main: undefined;
 };
 
+import type { OnboardingAnswers } from "../context/OnboardingAnswersContext";
+
 export type OnboardingStackParamList = {
   OnboardingFraming: undefined;
-  OnboardingQuestion: { questionNumber: number } | undefined;
-  ArchetypeReveal: undefined;
+  OnboardingQuestion: { questionNumber: number; fromBack?: boolean } | undefined;
+  ArchetypeReveal: { answers?: OnboardingAnswers };
   TwinIntroduction: undefined;
 };
 

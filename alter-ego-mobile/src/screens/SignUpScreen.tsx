@@ -203,7 +203,7 @@ export function SignUpScreen() {
           <View style={styles.buttonsSection}>
             <View style={styles.buttonsInner}>
             <AuthButton
-              onPress={() => console.log("Continue with Apple")}
+            onPress={() => navigation.replace("Onboarding")}
               icon={<Ionicons name="logo-apple" size={20} color="#000000" />}
               label="Continue with Apple"
               variant="apple"

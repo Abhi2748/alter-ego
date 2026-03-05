@@ -29,6 +29,7 @@ export const COLORS = {
 
   // States
   danger: "#7F1D1D",
+  core: "#7F1D1D",
   success: "#8B5CF6",
 
   // Glass surfaces

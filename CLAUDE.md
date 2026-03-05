@@ -122,7 +122,8 @@ export const COLORS = {
   muted:        '#6B7280',   // timestamps, metadata, subtext
 
   // States
-  danger:       '#7F1D1D',   // error, pet warning — NEVER bright red
+  danger:       '#7F1D1D',   // error, pet warning, Core mission left edge — NEVER bright red
+  core:         '#7F1D1D',   // alias of danger — Core mission card left edge ONLY
   success:      '#8B5CF6',   // success = violet glow, NEVER green
 
   // Glass surfaces
@@ -139,7 +140,7 @@ ae: {
   border: '#2A3050', violet: '#8B5CF6', violetDeep: '#6D28D9',
   violetGlow: '#A78BFA', violetLine: '#C084FC', ember: '#F97316',
   emberGlow: '#FB923C', text: '#E5E7EB', text2: '#9CA3AF',
-  muted: '#6B7280', danger: '#7F1D1D',
+  muted: '#6B7280', danger: '#7F1D1D', core: '#7F1D1D',
 }
 ```
 
@@ -264,7 +265,7 @@ export const GRADIENTS = {
 ```typescript
 export const HEATMAP_LEVELS = ['#111827', '#312E81', '#4C1D95', '#6D28D9', '#A78BFA'];
 // Level 0 = no activity, Level 4 = full completion
-// Cell size: 12×12px (Home), 14×14px (Profile Streak tab)
+// Cell size: 14×14px (Profile Streak tab ONLY — heatmap removed from Home screen)
 // Cell gap: 3px, Cell radius: 3px
 ```
 
@@ -359,8 +360,9 @@ All components live in `src/components/`. Props interfaces must stay stable — 
 |---|---|---|
 | PrimaryButton | label, onPress, disabled, loading, icon | §2.1 |
 | OnboardingOptionCard | label, selected, onSelect | §2.2 |
-| MissionCard | title, category, difficulty, xpValue, petFoodValue, status, onComplete | §2.2 |
+| MissionCard | title, category, difficulty, xpValue, petFoodValue, status, onComplete, missionType | §2.2 |
 | LeaderboardRowCard | rank, username, stageTitle, characterStage, petStage, streak, powerScore, isOwnRow | §2.2 |
+| TypeChip | type ('core'\|'interest'\|'personal'\|'recovery') | §2.2 |
 | DifficultyChip | level ('Easy'\|'Medium'\|'Hard') | §2.3 |
 | TextInput | value, onChange, placeholder, maxLength | §2.4 |
 | Slider | value, onChange, min, max, step | §2.4 |
@@ -368,7 +370,7 @@ All components live in `src/components/`. Props interfaces must stay stable — 
 | BottomNavBar | activeTab, onTabPress | §2.6 |
 | TopBar | username, stageTitle, powerScore | §2.7 |
 | BottomSheet | visible, onClose, children | §2.8 |
-| TwinAlertStrip | message, hasNewMessage, onPress | §2.9 |
+| TwinAlertStrip | message, hasNewMessage, onPress, twinThumbnailUri | §2.9 |
 | StreakHeatmap | data (365 day array) | §2.10 |
 | OnboardingProgressBar | questionNumber (1-10) | §2.11 |
 | SkeletonLoader | width, height, radius | §2.12 |
@@ -393,8 +395,9 @@ All components live in `src/components/`. Props interfaces must stay stable — 
 - Regression: Days 1–29 frozen + pet sad + full recovery possible. Day 30+: dynamic penalty.
 
 ### Shadow Twin System
-- Twin always exactly one week of consistent behaviour ahead in XP and pet stage.
-- Gap never closes. When user gets close, Twin dynamically pushes further ahead.
+- Twin starts one week of consistent behaviour ahead in XP and pet stage.
+- Gap recalculates dynamically every 3 days based on actual user performance — NOT a fixed offset.
+- Gap never fully closes. When user performs well, gap narrows but Twin adapts.
 - Rule-based simulation for XP/pet. LLM (GPT-4o-mini) for all chat.
 - Chat scope: discipline, motivation, growth, reflection ONLY. Off-topic: "That won't make you stronger."
 - Personality starts from Archetype. Adapts silently via user tone ratings.
@@ -415,6 +418,11 @@ All components live in `src/components/`. Props interfaces must stay stable — 
 - No proof of completion in MVP. Swipe right or checkbox only.
 - System missions: same day deadline. User missions: up to 24h max.
 - Recovery missions: triggered after 2+ missed days, scaled to streak history.
+- 3 mission types: Core (mandatory daily, red left edge #7F1D1D), Interest (scheduled by user, violet left edge #8B5CF6), Personal (user-created, no left edge).
+- Home screen mission sections: CORE → TODAY'S FOCUS (Interest) → PERSONAL. Always in this order.
+- Section headers: Core = #7F1D1D, Interest = #8B5CF6, Personal = #6B7280.
+- "Schedule" tappable link on TODAY'S FOCUS header → InterestSchedulePickerModal.
+- "+ Add" tappable link on PERSONAL header → AddMissionModal.
 
 ### Reward Economy
 - Two types: XP (levels character) + Pet Food (grows pet). No coins.

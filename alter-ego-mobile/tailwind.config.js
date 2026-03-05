@@ -23,6 +23,7 @@ module.exports = {
           text2: "#9CA3AF",
           muted: "#6B7280",
           danger: "#7F1D1D",
+          core: "#7F1D1D",
         },
       },
       spacing: {

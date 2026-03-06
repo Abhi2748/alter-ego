@@ -324,7 +324,7 @@ Root Stack
 ├── SignUpScreen
 ├── OnboardingStack
 │   ├── OnboardingFramingScreen
-│   ├── OnboardingQuestionScreen  (reusable, used for Q1–Q10)
+│   ├── OnboardingQuestionScreen  (reusable, used for Q1–Q13)
 │   ├── ArchetypeRevealScreen
 │   └── TwinIntroductionScreen    (resets stack on Enter → MainTabNavigator)
 └── MainTabNavigator
@@ -341,6 +341,18 @@ Modal screens (pushed over tabs, not tabs themselves):
 ├── PaywallScreen          (Modal, non-dismissable, shown at Day 14+)
 └── RankCardScreen         (pushed from Profile or Leaderboard)
 ```
+**React Navigation theme — REQUIRED in NavigationContainer:**
+```javascript
+const navTheme = {
+  ...DefaultTheme,
+  colors: { ...DefaultTheme.colors, background: '#0D0F1A', card: '#0D0F1A' },
+};
+<NavigationContainer theme={navTheme}>
+```
+Every screen must use LinearGradient as its ROOT element (not a View wrapper around LinearGradient).
+- Correct:  `<LinearGradient colors={['#0D0F1A','#07080F']} style={{flex:1}}>`
+- Wrong:    `<View style={{flex:1}}><LinearGradient ...>`
+The outer View breaks safe area and lets the navigator card colour show through.
 
 **Bottom nav specifics:**
 - 5 tabs. Tab 3 (Twin) is a raised circular button — not a standard tab.
@@ -372,7 +384,7 @@ All components live in `src/components/`. Props interfaces must stay stable — 
 | BottomSheet | visible, onClose, children | §2.8 |
 | TwinAlertStrip | message, hasNewMessage, onPress, twinThumbnailUri | §2.9 |
 | StreakHeatmap | data (365 day array) | §2.10 |
-| OnboardingProgressBar | questionNumber (1-10) | §2.11 |
+| OnboardingProgressBar | questionNumber (1-13) | §2.11 |
 | SkeletonLoader | width, height, radius | §2.12 |
 | EmptyState | type, message | §2.13 |
 | PetAnimation | stage (1-8), isHappy, size | Part 2 §2.3 |

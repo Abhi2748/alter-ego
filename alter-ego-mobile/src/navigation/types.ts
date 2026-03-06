@@ -15,7 +15,7 @@ export type OnboardingStackParamList = {
   OnboardingFraming: undefined;
   OnboardingQuestion: { questionNumber: number; fromBack?: boolean } | undefined;
   ArchetypeReveal: { answers?: OnboardingAnswers };
-  TwinIntroduction: undefined;
+  TwinIntroduction: { archetype?: string; twinFirstMessage?: string; gender?: "male" | "female" | "other" } | undefined;
 };
 
 export type MainTabParamList = {

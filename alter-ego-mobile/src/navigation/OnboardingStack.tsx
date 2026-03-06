@@ -22,7 +22,11 @@ export function OnboardingStack() {
         <Stack.Screen name="OnboardingFraming" component={OnboardingFramingScreen} />
         <Stack.Screen name="OnboardingQuestion" component={OnboardingQuestionScreen} />
         <Stack.Screen name="ArchetypeReveal" component={ArchetypeRevealScreen} />
-        <Stack.Screen name="TwinIntroduction" component={TwinIntroductionScreen} />
+        <Stack.Screen
+          name="TwinIntroduction"
+          component={TwinIntroductionScreen}
+          options={{ headerShown: false, title: "" }}
+        />
       </Stack.Navigator>
     </OnboardingAnswersProvider>
   );

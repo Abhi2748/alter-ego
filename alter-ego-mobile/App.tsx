@@ -9,9 +9,18 @@ import {
 } from "@expo-google-fonts/inter";
 import { StatusBar } from "expo-status-bar";
 import { View, ActivityIndicator } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { RootStack } from "./src/navigation/RootStack";
 import { COLORS } from "./src/constants/theme";
+
+// Suppress React 19 ref warning from dependencies (e.g. React Navigation) until they support ref-as-prop
+const originalError = console.error;
+console.error = (...args: unknown[]) => {
+  const msg = typeof args[0] === "string" ? args[0] : String(args[0]);
+  if (msg.includes("Accessing element.ref was removed in React 19")) return;
+  originalError.apply(console, args);
+};
 
 const navTheme = {
   ...DefaultTheme,
@@ -40,9 +49,11 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer theme={navTheme}>
-      <StatusBar style="light" />
-      <RootStack />
-    </NavigationContainer>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <NavigationContainer theme={navTheme}>
+        <StatusBar style="light" />
+        <RootStack />
+      </NavigationContainer>
+    </GestureHandlerRootView>
   );
 }

@@ -1,5 +1,6 @@
 import React from "react";
-import { View, Text, Pressable, Platform } from "react-native";
+import { View, Text, Platform } from "react-native";
+import { TouchableOpacity } from "react-native-gesture-handler";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "../constants/theme";
@@ -42,8 +43,9 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
         if (isTwin) {
           return (
             <View key={name} style={{ width: 72, alignItems: "center", justifyContent: "center" }}>
-              <Pressable
+              <TouchableOpacity
                 onPress={() => navigation.navigate(name)}
+                activeOpacity={0.7}
                 style={{
                   width: TWIN_BUTTON_SIZE,
                   height: TWIN_BUTTON_SIZE,
@@ -68,16 +70,17 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
                 >
                   Twin
                 </Text>
-              </Pressable>
+              </TouchableOpacity>
             </View>
           );
         }
 
         return (
-          <Pressable
+          <TouchableOpacity
             key={name}
             onPress={() => navigation.navigate(name)}
-            style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 8 }}
+            activeOpacity={0.7}
+            style={{ flex: 1, alignItems: "center", justifyContent: "center", minHeight: 44, paddingVertical: 8 }}
             accessibilityRole="button"
             accessibilityState={isFocused ? { selected: true } : {}}
           >
@@ -90,7 +93,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             >
               {tabLabels[name] ?? name}
             </Text>
-          </Pressable>
+          </TouchableOpacity>
         );
       })}
     </View>

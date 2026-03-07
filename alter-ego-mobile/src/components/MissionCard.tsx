@@ -101,8 +101,9 @@ export default function MissionCard({
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
   const pressed = useSharedValue(0);
-  const SWIPE_THRESHOLD = 0.6;
+  const SWIPE_THRESHOLD = 0.4;
   const cardWidth = useSharedValue(300);
+  const MAX_SWIPE = 200;
 
   const leftEdgeColor =
     status === "complete"
@@ -113,11 +114,13 @@ export default function MissionCard({
 
   const panGesture = Gesture.Pan()
     .enabled(status === "pending")
+    .activeOffsetX(10)
+    .failOffsetY([-15, 15])
     .onUpdate((e) => {
       if (e.translationX < 0) return;
-      translateX.value = Math.min(e.translationX, 120);
+      translateX.value = Math.min(e.translationX, MAX_SWIPE);
     })
-    .onEnd((e) => {
+    .onEnd(() => {
       const threshold = cardWidth.value * SWIPE_THRESHOLD;
       if (translateX.value >= threshold) {
         runOnJS(onComplete)();
@@ -184,24 +187,18 @@ export default function MissionCard({
                 style={[
                   styles.title,
                   isComplete && styles.titleMuted,
-                  isExpired && styles.titleStrikethrough,
+                  (isComplete || isExpired) && styles.titleStrikethrough,
                 ]}
                 numberOfLines={2}
                 ellipsizeMode="tail"
               >
                 {title}
               </Text>
-              <Text style={styles.category}>{category}</Text>
+              <View style={styles.categoryRow}>
+                <TypeChip missionType={missionType} interestName={interestName} />
+              </View>
             </View>
             <View style={styles.right}>
-              <TypeChip missionType={missionType} interestName={interestName} />
-              {isComplete ? (
-                <View style={styles.checkWrap}>
-                  <Ionicons name="checkmark-circle" size={20} color={COLORS.violet} />
-                </View>
-              ) : (
-                <DifficultyChip level={difficulty} />
-              )}
               <View style={styles.badgesRow}>
                 <View style={styles.badge}>
                   <Ionicons name="star" size={12} color={COLORS.violetGlow} />
@@ -212,6 +209,15 @@ export default function MissionCard({
                   <Ionicons name="leaf" size={12} color="#F59E0B" />
                   <Text style={styles.petFoodText}>{petFoodValue}</Text>
                 </View>
+              </View>
+              <View style={styles.difficultyRow}>
+                {isComplete ? (
+                  <View style={styles.checkWrap}>
+                    <Ionicons name="checkmark-circle" size={20} color={COLORS.violet} />
+                  </View>
+                ) : (
+                  <DifficultyChip level={difficulty} />
+                )}
               </View>
             </View>
           </View>
@@ -258,21 +264,32 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   right: {
+    flexDirection: "column",
     alignItems: "flex-end",
+    justifyContent: "space-between",
     gap: 6,
   },
+  difficultyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   title: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 16,
-    fontWeight: "500",
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    fontWeight: "600",
     color: COLORS.text,
-    marginBottom: 2,
+    marginBottom: 6,
   },
   titleMuted: {
     color: COLORS.muted,
   },
   titleStrikethrough: {
     textDecorationLine: "line-through",
+  },
+  categoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   category: {
     fontFamily: "Inter_500Medium",
@@ -329,6 +346,17 @@ const styles = StyleSheet.create({
     paddingLeft: SPACING.md,
     backgroundColor: "rgba(139,92,246,0.08)",
     borderRadius: RADIUS.card,
+  },
+  doneOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    paddingLeft: SPACING.md,
+    borderRadius: RADIUS.card,
+    pointerEvents: "none",
   },
   doneText: {
     fontFamily: "Inter_600SemiBold",

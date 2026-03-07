@@ -14,7 +14,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { COLORS, GRADIENTS, ANIMATIONS } from "../constants/theme";
 
-const BAR_WIDTH = 280;
+const DEFAULT_BAR_WIDTH = 280;
 const BAR_HEIGHT = 8;
 const BAR_RADIUS = 8;
 const HOLD_BEFORE_STAGE_COMPLETE_MS = 300;
@@ -23,6 +23,8 @@ export interface XPProgressBarProps {
   currentXP: number;
   nextStageXP: number;
   nextStageName: string;
+  /** Bar width in px. Default 280; e.g. 240 for Titles. */
+  width?: number;
   /** Called when bar reaches 100% and after 300ms hold. Parent shows evolution then updates stage. */
   onStageComplete?: () => void;
   /** Ref for imperative animateXpGain(). React 19: ref is a regular prop. */
@@ -37,9 +39,11 @@ export function XPProgressBar({
   currentXP,
   nextStageXP,
   nextStageName,
+  width = DEFAULT_BAR_WIDTH,
   onStageComplete,
   ref,
 }: XPProgressBarProps) {
+  const barWidth = width;
   const ratio =
     nextStageXP > 0 ? Math.min(1, currentXP / nextStageXP) : 0;
   const progress = useSharedValue(ratio);
@@ -89,11 +93,11 @@ export function XPProgressBar({
   );
 
   const fillAnimatedStyle = useAnimatedStyle(() => ({
-    width: progress.value * BAR_WIDTH,
-  }), []);
+    width: progress.value * barWidth,
+  }), [barWidth]);
 
   return (
-    <View style={styles.wrapper}>
+    <View style={[styles.wrapper, { width: barWidth }]}>
       <View style={styles.labels}>
         <Text style={styles.xpLabel} numberOfLines={1}>
           XP {currentXP.toLocaleString()}
@@ -117,9 +121,7 @@ export function XPProgressBar({
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    width: BAR_WIDTH,
-  },
+  wrapper: {},
   labels: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -138,7 +140,6 @@ const styles = StyleSheet.create({
     maxWidth: "60%",
   },
   track: {
-    width: BAR_WIDTH,
     height: BAR_HEIGHT,
     borderRadius: BAR_RADIUS,
     backgroundColor: COLORS.surface2,

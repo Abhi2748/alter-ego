@@ -69,6 +69,8 @@ export type MissionCardProps = {
   missionType: MissionType;
   /** For interest type, the display name e.g. "Fitness". */
   interestName?: string;
+  /** When provided, tap opens this (e.g. Journal Editor); swipe to complete is disabled. */
+  onPress?: () => void;
 };
 
 function TypeChip({
@@ -97,6 +99,7 @@ export default function MissionCard({
   onComplete,
   missionType,
   interestName,
+  onPress,
 }: MissionCardProps) {
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -164,6 +167,7 @@ export default function MissionCard({
       <Pressable
         onPressIn={onPressIn}
         onPressOut={onPressOut}
+        onPress={onPress}
         style={styles.outer}
         onLayout={(e) => {
           cardWidth.value = e.nativeEvent.layout.width;

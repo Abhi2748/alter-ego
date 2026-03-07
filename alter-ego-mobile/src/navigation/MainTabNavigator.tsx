@@ -5,7 +5,7 @@ import { HomeScreen } from "../screens/HomeScreen";
 import { LeaderboardScreen } from "../screens/LeaderboardScreen";
 import { TwinComparisonScreen } from "../screens/TwinComparisonScreen";
 import { WeeklyReportScreen } from "../screens/WeeklyReportScreen";
-import { ProfileScreen } from "../screens/ProfileScreen";
+import { ProfileStack } from "./ProfileStack";
 import { CustomTabBar } from "./CustomTabBar";
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -20,7 +20,7 @@ export function MainTabNavigator() {
       <Tab.Screen name="Leaderboard" component={LeaderboardScreen} />
       <Tab.Screen name="Twin" component={TwinComparisonScreen} />
       <Tab.Screen name="Report" component={WeeklyReportScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Profile" component={ProfileStack} />
     </Tab.Navigator>
   );
 }

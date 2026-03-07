@@ -5,7 +5,9 @@
 import React, { useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
+import type { RouteProp } from "@react-navigation/native";
+import type { MainTabParamList } from "../navigation/types";
 import { TopBar } from "../components/TopBar";
 import { XPProgressBar, XPProgressBarRef } from "../components/XPProgressBar";
 import { TwinAlertStrip } from "../components/TwinAlertStrip";
@@ -13,6 +15,7 @@ import { PetAnimation } from "../components/PetAnimation";
 import MissionCard from "../components/MissionCard";
 import type { MissionType, MissionStatus } from "../components/MissionCard";
 import { AddMissionModal } from "../components/AddMissionModal";
+import { InterestSchedulePickerModal } from "../components/InterestSchedulePickerModal";
 import { COLORS, SPACING, GRADIENTS } from "../constants/theme";
 
 const CHARACTER_WIDTH = 140;
@@ -22,6 +25,8 @@ const PET_SIZE = 70;
 const HERO_HEIGHT = CHARACTER_HEIGHT + 8 + 20 + 8 + 16;
 const SECTION_GAP = 24;
 const CONTENT_PADDING_BOTTOM = 96;
+/** Same significant gap as Twin Comparison (character zone below title bar). */
+const HERO_TOP_GAP = 32;
 
 type PlaceholderMission = {
   id: string;
@@ -100,6 +105,7 @@ const INITIAL_DISPLAY_XP = 3240;
 
 export function HomeScreen() {
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<MainTabParamList, "Home">>();
   const xpBarRef = useRef<XPProgressBarRef>(null);
 
   const [displayXP, setDisplayXP] = useState(INITIAL_DISPLAY_XP);
@@ -107,6 +113,10 @@ export function HomeScreen() {
   const [interestMissions, setInterestMissions] = useState(INTEREST_MISSIONS);
   const [personalMissions, setPersonalMissions] = useState(PERSONAL_INITIAL);
   const [addModalVisible, setAddModalVisible] = useState(false);
+  const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
+  /** Today's Focus interest schedule: day indices 0–6 (Mon–Sun). Default e.g. Mon, Wed, Fri. */
+  const [focusInterestSchedule, setFocusInterestSchedule] = useState<number[]>([0, 2, 4]);
+  const focusInterestName = "Fitness";
 
   const triggerXpBarAnimation = () => {
     setTimeout(() => xpBarRef.current?.animateXpGain(), 0);
@@ -157,6 +167,20 @@ export function HomeScreen() {
     navigation.navigate("Twin");
   };
 
+  useFocusEffect(
+    React.useCallback(() => {
+      if (route.params?.journalJustCompleted) {
+        handleCompleteCore("core-1");
+        navigation.setParams({ journalJustCompleted: undefined });
+      }
+    }, [route.params?.journalJustCompleted])
+  );
+
+  const handleSaveFocusSchedule = (schedule: number[]) => {
+    setFocusInterestSchedule(schedule);
+    // In Phase 2: send updated schedule to Planner Agent
+  };
+
   return (
     <LinearGradient
       colors={GRADIENTS.background.colors}
@@ -179,8 +203,8 @@ export function HomeScreen() {
           showsVerticalScrollIndicator={false}
           bounces={true}
         >
-        {/* Zone 1: Hero (220px) */}
-        <View style={styles.hero}>
+        {/* Zone 1: Hero — significant gap from title bar (matches Twin Comparison) */}
+        <View style={[styles.hero, { marginTop: HERO_TOP_GAP }]}>
           <View style={styles.heroRow}>
             <View style={styles.characterPlaceholder} />
             <View style={styles.petWrap}>
@@ -223,6 +247,11 @@ export function HomeScreen() {
                   status={m.status}
                   onComplete={() => handleCompleteCore(m.id)}
                   missionType={m.missionType}
+                  onPress={
+                    m.title === "Daily Journal"
+                      ? () => navigation.navigate("JournalEditor")
+                      : undefined
+                  }
                 />
               ))}
             </View>
@@ -234,7 +263,7 @@ export function HomeScreen() {
               <Text style={[styles.sectionHeader, styles.focusHeader]}>TODAY'S FOCUS</Text>
               <Pressable
                 style={styles.scheduleLink}
-                onPress={() => {}}
+                onPress={() => setScheduleModalVisible(true)}
                 hitSlop={8}
               >
                 <Text style={styles.scheduleLinkText}>Schedule</Text>
@@ -294,6 +323,13 @@ export function HomeScreen() {
         visible={addModalVisible}
         onClose={() => setAddModalVisible(false)}
         onAdd={handleAddMission}
+      />
+      <InterestSchedulePickerModal
+        visible={scheduleModalVisible}
+        onClose={() => setScheduleModalVisible(false)}
+        interestName={focusInterestName}
+        currentSchedule={focusInterestSchedule}
+        onSave={handleSaveFocusSchedule}
       />
     </LinearGradient>
   );

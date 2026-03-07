@@ -1,12 +1,22 @@
 /**
  * Leaderboard Row Card §2.2 — Rank, character thumbnail, pet icon, name, streak, power score.
+ * Card appear animation §3.2: opacity 0→1, translateY +12→0, stagger by index × 40ms.
  */
 
-import React from "react";
+import React, { useEffect } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
-import { COLORS, SPACING } from "../constants/theme";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withDelay,
+  withTiming,
+  Easing,
+} from "react-native-reanimated";
+import { COLORS, SPACING, ANIMATIONS } from "../constants/theme";
+
+const STAGGER_MS = 40;
+const CARD_APPEAR_MS = 200;
 
 const ROW_HEIGHT = 72;
 const CARD_RADIUS = 12;
@@ -14,19 +24,18 @@ const RANK_WIDTH = 40;
 const THUMB_SIZE = 48;
 const PET_SIZE = 24;
 const PET_OVERLAP = 6;
-const FLAME_SIZE = 20;
 const OWN_ROW_LEFT_EDGE = 3;
 
 const RANK_TINT: Record<number, string> = {
-  1: "#F59E0B",
-  2: "#9CA3AF",
+  1: "#FFD700",
+  2: "#C0C0C0",
   3: "#CD7F32",
 };
 
-const RANK_TINT_5: Record<number, string> = {
-  1: "rgba(245, 158, 11, 0.05)",
-  2: "rgba(156, 163, 175, 0.05)",
-  3: "rgba(205, 127, 50, 0.05)",
+const RANK_LEFT_TINT: Record<number, string> = {
+  1: "rgba(255, 215, 0, 0.06)",
+  2: "rgba(192, 192, 192, 0.06)",
+  3: "rgba(205, 127, 50, 0.06)",
 };
 
 export interface LeaderboardRowCardProps {
@@ -38,6 +47,12 @@ export interface LeaderboardRowCardProps {
   streak: number;
   powerScore: number;
   isOwnRow?: boolean;
+  /** Optional index for stagger animation; omit to skip animation. */
+  animationIndex?: number;
+}
+
+function formatPowerScore(n: number): string {
+  return n.toLocaleString();
 }
 
 export function LeaderboardRowCard({
@@ -49,20 +64,43 @@ export function LeaderboardRowCard({
   streak,
   powerScore,
   isOwnRow = false,
+  animationIndex,
 }: LeaderboardRowCardProps) {
+  const opacity = useSharedValue(animationIndex === undefined ? 1 : 0);
+  const translateY = useSharedValue(animationIndex === undefined ? 0 : 12);
+
+  useEffect(() => {
+    if (animationIndex === undefined) return;
+    const delay = Math.min(animationIndex * STAGGER_MS, ANIMATIONS.staggerMax);
+    const easing = Easing.out(Easing.quad);
+    opacity.value = withDelay(
+      delay,
+      withTiming(1, { duration: CARD_APPEAR_MS, easing })
+    );
+    translateY.value = withDelay(
+      delay,
+      withTiming(0, { duration: CARD_APPEAR_MS, easing })
+    );
+  }, [animationIndex]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
+
   const rankTint = RANK_TINT[rank];
   const isTop3 = rank >= 1 && rank <= 3;
 
   const top3Gradient =
     isTop3 && rankTint
       ? {
-          colors: [COLORS.surface, RANK_TINT_5[rank], COLORS.surface] as const,
+          colors: [RANK_LEFT_TINT[rank], COLORS.surface] as const,
           start: { x: 0, y: 0.5 },
           end: { x: 1, y: 0.5 },
         }
       : null;
 
-  return (
+  const cardContent = (
     <View
       style={[
         styles.card,
@@ -123,13 +161,17 @@ export function LeaderboardRowCard({
           </Text>
         </View>
         <View style={styles.streakBlock}>
-          <Ionicons name="flame" size={FLAME_SIZE} color={COLORS.ember} />
-          <Text style={styles.streakNum}>{streak}</Text>
+          <Text style={styles.streakNum}>🔥{streak}</Text>
         </View>
-        <Text style={styles.powerScore}>{powerScore}</Text>
+        <Text style={styles.powerScore}>{formatPowerScore(powerScore)}</Text>
       </View>
     </View>
   );
+
+  if (animationIndex !== undefined) {
+    return <Animated.View style={animatedStyle}>{cardContent}</Animated.View>;
+  }
+  return cardContent;
 }
 
 const styles = StyleSheet.create({
@@ -237,7 +279,7 @@ const styles = StyleSheet.create({
   streakNum: {
     fontFamily: "Inter_700Bold",
     fontSize: 14,
-    color: COLORS.text,
+    color: COLORS.ember,
   },
   powerScore: {
     fontFamily: "Inter_700Bold",

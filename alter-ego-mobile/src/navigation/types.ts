@@ -19,7 +19,7 @@ export type OnboardingStackParamList = {
 };
 
 export type MainTabParamList = {
-  Home: undefined;
+  Home: { journalJustCompleted?: boolean } | undefined;
   Leaderboard: undefined;
   Twin: undefined;
   Report: undefined;
@@ -29,4 +29,18 @@ export type MainTabParamList = {
 export type MainStackParamList = {
   MainTabs: undefined;
   Settings: undefined;
+  TwinChat: undefined;
+  RankCard: undefined;
+  Paywall: undefined;
+  JournalEditor:
+    | undefined
+    | { viewMode?: "edit" | "read"; entryDate?: string; entryText?: string };
+};
+
+export type ProfileStackParamList = {
+  ProfileMain: undefined;
+  ProfileStats: undefined;
+  ProfileStreak: undefined;
+  ProfileTitles: undefined;
+  ProfileInterests: undefined;
 };

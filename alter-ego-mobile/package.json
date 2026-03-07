@@ -14,9 +14,11 @@
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.15.5",
     "@react-navigation/native": "^7.1.33",
     "@react-navigation/stack": "^7.8.4",
+    "@shopify/react-native-skia": "2.2.12",
     "@types/react": "~19.1.10",
     "expo": "~54.0.0",
     "expo-blur": "~15.0.8",
@@ -30,7 +32,8 @@
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "victory-native": "^41.20.2"
   },
   "private": true,
   "devDependencies": {

@@ -1,9 +1,10 @@
 /**
  * Onboarding answers accumulated Q1→Q13. Consumed by OnboardingQuestionScreen
- * and passed to ArchetypeRevealScreen after Q13.
+ * and passed to ArchetypeRevealScreen after Q13. archetype_content from POST /onboarding.
  */
 
 import React, { createContext, useContext, useCallback, useState } from "react";
+import type { ArchetypeContent } from "../utils/api";
 
 export type OnboardingAnswers = {
   gender?: "male" | "female" | "other";
@@ -26,6 +27,9 @@ type OnboardingAnswersContextValue = {
   answers: OnboardingAnswers;
   updateAnswer: (key: keyof OnboardingAnswers, value: OnboardingAnswers[keyof OnboardingAnswers]) => void;
   getAnswer: (key: keyof OnboardingAnswers) => OnboardingAnswers[keyof OnboardingAnswers];
+  /** Set after POST /onboarding; read by ArchetypeRevealScreen. */
+  archetypeContent: ArchetypeContent | null;
+  setArchetypeContent: (content: ArchetypeContent | null) => void;
 };
 
 const defaultAnswers: OnboardingAnswers = {};
@@ -34,6 +38,7 @@ const Context = createContext<OnboardingAnswersContextValue | null>(null);
 
 export function OnboardingAnswersProvider({ children }: { children: React.ReactNode }) {
   const [answers, setAnswers] = useState<OnboardingAnswers>(defaultAnswers);
+  const [archetypeContent, setArchetypeContent] = useState<ArchetypeContent | null>(null);
 
   const updateAnswer = useCallback((key: keyof OnboardingAnswers, value: OnboardingAnswers[keyof OnboardingAnswers]) => {
     setAnswers((prev) => ({ ...prev, [key]: value }));
@@ -48,6 +53,8 @@ export function OnboardingAnswersProvider({ children }: { children: React.ReactN
     answers,
     updateAnswer,
     getAnswer,
+    archetypeContent,
+    setArchetypeContent,
   };
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

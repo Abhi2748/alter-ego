@@ -1,32 +1,29 @@
 /**
- * Character Evolution Overlay — Phase 1 simplified.
- * Modal: fade-in 300ms, show stage name + placeholder, auto-dismiss after 2500ms, fade-out 300ms.
- * Full 6-phase Reanimated animation in Phase 3.
+ * Character Evolution Overlay — 6-phase cinematic (CLAUDE §6, plan Phase D).
+ * Phase 1: backdrop fade in. 2: title scale in. 3: character placeholder. 4: hold. 5: fade out → onClose.
+ * Total ~ANIMATIONS.evolution (2400ms).
  */
 
-import React, { useEffect, useRef } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  Dimensions,
-} from "react-native";
+import React, { useEffect } from "react";
+import { View, Text, StyleSheet, Modal } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
+  withDelay,
   runOnJS,
   Easing,
 } from "react-native-reanimated";
-import { COLORS, SPACING, RADIUS } from "../constants/theme";
-
-const FADE_IN_MS = 300;
-const FADE_OUT_MS = 300;
-const SHOW_DURATION_MS = 2500;
+import { COLORS, SPACING, RADIUS, ANIMATIONS } from "../constants/theme";
 
 const CHAR_PLACEHOLDER_W = 160;
 const CHAR_PLACEHOLDER_H = 220;
+
+const PHASE1_MS = 400;
+const PHASE2_MS = 400;
+const PHASE3_MS = 400;
+const PHASE4_HOLD_MS = 800;
+const PHASE5_MS = 400;
 
 export interface CharacterEvolutionOverlayProps {
   visible: boolean;
@@ -40,67 +37,81 @@ export function CharacterEvolutionOverlay({
   onClose,
   stageName,
 }: CharacterEvolutionOverlayProps) {
-  const opacity = useSharedValue(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const startFadeOut = () => {
-    opacity.value = withTiming(
-      0,
-      { duration: FADE_OUT_MS, easing: Easing.in(Easing.ease) },
-      (finished) => {
-        if (finished) runOnJS(onClose)();
-      }
-    );
-  };
+  const backdropOpacity = useSharedValue(0);
+  const titleOpacity = useSharedValue(0);
+  const titleScale = useSharedValue(0.85);
+  const charOpacity = useSharedValue(0);
+  const charScale = useSharedValue(0.9);
 
   useEffect(() => {
     if (!visible) {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-      opacity.value = 0;
+      backdropOpacity.value = 0;
+      titleOpacity.value = 0;
+      titleScale.value = 0.85;
+      charOpacity.value = 0;
+      charScale.value = 0.9;
       return;
     }
 
-    opacity.value = 0;
-    opacity.value = withTiming(1, {
-      duration: FADE_IN_MS,
-      easing: Easing.out(Easing.ease),
-    });
+    const easeOut = Easing.out(Easing.ease);
+    const easeInOut = Easing.inOut(Easing.ease);
 
-    timeoutRef.current = setTimeout(() => {
-      timeoutRef.current = null;
-      startFadeOut();
-    }, SHOW_DURATION_MS);
+    backdropOpacity.value = withTiming(1, { duration: PHASE1_MS, easing: easeOut });
 
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-    };
+    titleOpacity.value = withDelay(
+      PHASE1_MS,
+      withTiming(1, { duration: PHASE2_MS, easing: easeOut })
+    );
+    titleScale.value = withDelay(
+      PHASE1_MS,
+      withTiming(1, { duration: PHASE2_MS, easing: easeOut })
+    );
+
+    charOpacity.value = withDelay(
+      PHASE1_MS + PHASE2_MS,
+      withTiming(1, { duration: PHASE3_MS, easing: easeOut })
+    );
+    charScale.value = withDelay(
+      PHASE1_MS + PHASE2_MS,
+      withTiming(1, { duration: PHASE3_MS, easing: easeInOut })
+    );
+
+    const totalBeforeFade = PHASE1_MS + PHASE2_MS + PHASE3_MS + PHASE4_HOLD_MS;
+    backdropOpacity.value = withDelay(
+      totalBeforeFade,
+      withTiming(
+        0,
+        { duration: PHASE5_MS, easing: Easing.in(Easing.ease) },
+        (finished) => {
+          if (finished) runOnJS(onClose)();
+        }
+      )
+    );
+    titleOpacity.value = withDelay(totalBeforeFade, withTiming(0, { duration: PHASE5_MS, easing: Easing.in(Easing.ease) }));
+    charOpacity.value = withDelay(totalBeforeFade, withTiming(0, { duration: PHASE5_MS, easing: Easing.in(Easing.ease) }));
   }, [visible]);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
+  const titleStyle = useAnimatedStyle(() => ({
+    opacity: titleOpacity.value,
+    transform: [{ scale: titleScale.value }],
+  }));
+  const charStyle = useAnimatedStyle(() => ({
+    opacity: charOpacity.value,
+    transform: [{ scale: charScale.value }],
   }));
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      statusBarTranslucent
-    >
+    <Modal visible={visible} transparent animationType="none" statusBarTranslucent>
       {visible ? (
-        <Animated.View style={[styles.backdrop, animatedStyle]}>
+        <Animated.View style={[styles.backdrop, backdropStyle]}>
           <View style={styles.content}>
-            <Text style={styles.stageName}>{stageName}</Text>
-            <View
+            <Animated.Text style={[styles.stageName, titleStyle]}>{stageName}</Animated.Text>
+            <Animated.View
               style={[
                 styles.charPlaceholder,
                 { width: CHAR_PLACEHOLDER_W, height: CHAR_PLACEHOLDER_H },
+                charStyle,
               ]}
             />
           </View>

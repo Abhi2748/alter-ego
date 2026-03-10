@@ -1,8 +1,8 @@
 /**
- * Twin Comparison Screen — Screen 17 v1.1. Tab 3. User vs Twin side by side, fracture line, gap pill, dialogue, chat button.
+ * Twin Comparison Screen — Screen 17 v1.1. Tab 3. Wired to real twin_state (Twin Design §5.1, §5.2, 1.34).
  */
 
-import React from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,13 +10,16 @@ import {
   Pressable,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { PetAnimation } from "../components/PetAnimation";
 import { COLORS, SPACING, RADIUS, GRADIENTS, SHADOWS } from "../constants/theme";
+import { supabase } from "../utils/supabase";
+import { getTwinComparison, type TwinComparisonOut } from "../utils/api";
 
 const TOP_BAR_HEIGHT = 48;
 const CHAR_ZONE_HEIGHT = 280;
@@ -47,27 +50,70 @@ const PET_STAGE_NAMES: Record<number, string> = {
 export function TwinComparisonScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const [comparison, setComparison] = useState<TwinComparisonOut | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const contentPaddingBottom =
     SECTION_GAP + CHAT_BUTTON_HEIGHT + BOTTOM_ABOVE_NAV + NAV_BAR_HEIGHT + insets.bottom;
 
-  // Placeholder data (Screen 17)
-  const userStreak = 14;
-  const twinStreak = 21;
-  const userPowerScore = 1240;
-  const twinPowerScore = 1890;
-  const userPetStage = 4; // Wolf
-  const twinPetStage = 5; // Snow Leopard (always 1 stage ahead)
-  const gapDays = 7; // v1.1: dynamic
-  const userPetHappy = true;
-  const twinMessage =
-    "Seven days. That's the gap. I've completed every mission you skipped. The question isn't whether you can close it. It's whether you'll decide to.";
+  const fetchComparison = useCallback(async () => {
+    try {
+      setError(null);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setLoading(false);
+        return;
+      }
+      const data = await getTwinComparison(session.access_token);
+      setComparison(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load comparison");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      fetchComparison();
+    }, [fetchComparison])
+  );
 
   const formatPowerScore = (n: number) => n.toLocaleString();
 
   const openTwinChat = () => {
     (navigation as any).navigate("TwinChat");
   };
+
+  // Derived from real data or fallbacks for loading/error
+  const userStreak = comparison?.user_streak ?? 0;
+  const twinStreak = comparison?.twin_streak ?? 0;
+  const userPowerScore = comparison?.user_power_score ?? 0;
+  const twinPowerScore = comparison?.twin_power_score ?? 0;
+  const userPetStage = comparison?.user_pet_stage ?? 0;
+  const twinPetStage = comparison?.twin_pet_stage ?? 0;
+  const gapDays = comparison?.gap_days ?? null;
+  const twinMessage = comparison?.strip_message ?? null;
+  const gapLine = comparison?.gap_line ?? "";
+  const userPetHappy = true;
+
+  if (loading && !comparison) {
+    return (
+      <LinearGradient
+        colors={GRADIENTS.background.colors}
+        start={GRADIENTS.background.start}
+        end={GRADIENTS.background.end}
+        style={[styles.container, styles.centered]}
+      >
+        <View style={[styles.topBar, { paddingTop: insets.top, height: insets.top + TOP_BAR_HEIGHT }]}>
+          <Text style={styles.topBarTitle}>Shadow Twin</Text>
+        </View>
+        <ActivityIndicator size="large" color={COLORS.violet} style={styles.loader} />
+      </LinearGradient>
+    );
+  }
 
   return (
     <LinearGradient
@@ -89,6 +135,15 @@ export function TwinComparisonScreen() {
         <Text style={styles.topBarTitle}>Shadow Twin</Text>
       </View>
 
+      {error && !comparison ? (
+        <View style={styles.errorWrap}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable onPress={() => { setLoading(true); fetchComparison(); }} style={styles.retryButton}>
+            <Text style={styles.retryLabel}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPaddingBottom }]}
@@ -107,9 +162,15 @@ export function TwinComparisonScreen() {
                 <Text style={styles.charLabel}>YOU</Text>
               </View>
               <View style={[styles.petWrap, { marginTop: CHAR_TO_PET_GAP }]}>
-                <View style={styles.petUserDarker}>
-                  <PetAnimation stage={userPetStage} isHappy={userPetHappy} size={PET_SIZE} />
-                </View>
+                {userPetStage > 0 ? (
+                  <View style={styles.petUserDarker}>
+                    <PetAnimation stage={userPetStage} isHappy={userPetHappy} size={PET_SIZE} />
+                  </View>
+                ) : (
+                  <View style={[styles.charPlaceholder, styles.petPlaceholder]}>
+                    <Text style={styles.charLabel}>—</Text>
+                  </View>
+                )}
               </View>
             </View>
           </View>
@@ -133,7 +194,13 @@ export function TwinComparisonScreen() {
                 <Text style={styles.charLabel}>TWIN</Text>
               </View>
               <View style={[styles.petWrap, { marginTop: CHAR_TO_PET_GAP }]}>
-                <PetAnimation stage={twinPetStage} isHappy={true} size={PET_SIZE} />
+                {twinPetStage > 0 ? (
+                  <PetAnimation stage={twinPetStage} isHappy={true} size={PET_SIZE} />
+                ) : (
+                  <View style={[styles.charPlaceholder, styles.petPlaceholder]}>
+                    <Text style={styles.charLabel}>—</Text>
+                  </View>
+                )}
               </View>
             </View>
           </View>
@@ -149,14 +216,18 @@ export function TwinComparisonScreen() {
             </View>
             <View style={styles.statCol}>
               <Text style={styles.statLabel}>POWER SCORE</Text>
-              <Text style={styles.powerUser}>{formatPowerScore(userPowerScore)}</Text>
+              <Text style={styles.powerUser}>
+                {comparison?.user_power_score != null ? formatPowerScore(comparison.user_power_score) : "—"}
+              </Text>
               <Text style={styles.powerVs}>vs</Text>
-              <Text style={styles.powerTwin}>{formatPowerScore(twinPowerScore)}</Text>
+              <Text style={styles.powerTwin}>
+                {comparison?.twin_power_score != null ? formatPowerScore(comparison.twin_power_score) : "—"}
+              </Text>
             </View>
             <View style={styles.statCol}>
               <Text style={styles.statLabel}>COMPANION</Text>
-              <Text style={styles.petStageUser}>{PET_STAGE_NAMES[userPetStage] ?? "—"}</Text>
-              <Text style={styles.petStageTwin}>{PET_STAGE_NAMES[twinPetStage] ?? "—"}</Text>
+              <Text style={styles.petStageUser}>{comparison?.user_pet_stage_name ?? PET_STAGE_NAMES[userPetStage] ?? "—"}</Text>
+              <Text style={styles.petStageTwin}>{comparison?.twin_pet_stage_name ?? PET_STAGE_NAMES[twinPetStage] ?? "—"}</Text>
             </View>
           </View>
         </View>
@@ -165,15 +236,26 @@ export function TwinComparisonScreen() {
         <View style={[styles.gapPillWrap, { marginVertical: SECTION_GAP }]}>
           <View style={styles.gapPill}>
             <Ionicons name="time-outline" size={14} color={COLORS.violetLine} style={styles.gapIcon} />
-            <Text style={styles.gapText}>Gap: {gapDays} Days</Text>
+            <Text style={styles.gapText}>
+              Gap: {gapDays != null ? `${gapDays} Days` : "—"}
+            </Text>
           </View>
         </View>
+
+        {/* (C.1) Concrete gap line (1.34): Your Twin has [pet] and [XP] XP. You have [pet] and [XP] XP. */}
+        {gapLine ? (
+          <View style={styles.gapLineWrap}>
+            <Text style={styles.gapLineText}>{gapLine}</Text>
+          </View>
+        ) : null}
 
         {/* (D) Twin dialogue card — display only */}
         <View style={styles.dialogueWrap}>
           <View style={styles.dialogueCard}>
             <Text style={styles.dialogueLabel}>Your Twin</Text>
-            <Text style={styles.dialogueMessage}>{twinMessage}</Text>
+            <Text style={styles.dialogueMessage}>
+              {twinMessage ?? "Your rival is you — one week ahead. Show up and close the gap."}
+            </Text>
           </View>
         </View>
 
@@ -202,6 +284,34 @@ export function TwinComparisonScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  centered: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loader: {
+    marginTop: SPACING.xl,
+  },
+  errorWrap: {
+    padding: SPACING.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  errorText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.text2,
+    textAlign: "center",
+  },
+  retryButton: {
+    marginTop: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+  },
+  retryLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: COLORS.violet,
   },
   scroll: {
     flex: 1,
@@ -369,6 +479,21 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
     color: COLORS.violetLine,
+  },
+  gapLineWrap: {
+    width: "100%",
+    marginBottom: SECTION_GAP,
+    paddingHorizontal: SPACING.xs,
+  },
+  gapLineText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.text2,
+    textAlign: "center",
+  },
+  petPlaceholder: {
+    width: PET_SIZE,
+    height: PET_SIZE,
   },
   dialogueWrap: {
     width: "100%",

@@ -58,19 +58,33 @@ const DIFFICULTY_CHIP_STYLES: Record<
 
 export type AddMissionDifficulty = "Easy" | "Medium" | "Hard";
 
+export type SuggestedTier = {
+  suggested_difficulty: AddMissionDifficulty;
+  xp_value: number;
+  pet_food_value: number;
+};
+
 export interface AddMissionModalProps {
   visible: boolean;
   onClose: () => void;
   onAdd: (title: string, difficulty: AddMissionDifficulty) => void;
+  /** Optional: call to get suggested tier from title. User sees tier before saving and can adjust. */
+  onSuggestTier?: (title: string) => Promise<SuggestedTier | null>;
 }
 
 export function AddMissionModal({
   visible,
   onClose,
   onAdd,
+  onSuggestTier,
 }: AddMissionModalProps) {
   const [title, setTitle] = useState("");
   const [difficulty, setDifficulty] = useState<AddMissionDifficulty>("Easy");
+  const [suggestedTier, setSuggestedTier] = useState<SuggestedTier | null>(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addLoading, setAddLoading] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
 
@@ -90,7 +104,28 @@ export function AddMissionModal({
     setInputFocused(false);
     setTitle("");
     setDifficulty("Easy");
+    setSuggestedTier(null);
+    setSuggestError(null);
+    setAddError(null);
     onClose();
+  };
+
+  const handleSuggestTier = async () => {
+    const t = title.trim();
+    if (!t || !onSuggestTier) return;
+    setSuggestLoading(true);
+    setSuggestError(null);
+    try {
+      const result = await onSuggestTier(t);
+      if (result) {
+        setSuggestedTier(result);
+        setDifficulty(result.suggested_difficulty);
+      }
+    } catch (e) {
+      setSuggestError(e instanceof Error ? e.message : "Could not suggest tier");
+    } finally {
+      setSuggestLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -164,11 +199,25 @@ export function AddMissionModal({
     }, SHEET_ANIM_OUT_MS + 100);
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     const t = title.trim();
     if (!t) return;
-    onAdd(t, difficulty);
-    finishClose();
+    setAddError(null);
+    const result = onAdd(t, difficulty);
+    const promise = result != null && typeof (result as Promise<void>).then === "function" ? (result as Promise<void>) : null;
+    if (promise) {
+      setAddLoading(true);
+      try {
+        await promise;
+        finishClose();
+      } catch (e) {
+        setAddError(e instanceof Error ? e.message : "Failed to add mission");
+      } finally {
+        setAddLoading(false);
+      }
+    } else {
+      finishClose();
+    }
   };
 
   // Never unmount Modal: use visible prop so native layer properly dismisses and doesn't leave
@@ -210,7 +259,28 @@ export function AddMissionModal({
               <Text style={styles.charCount}>
                 {title.length}/{TITLE_MAX_LENGTH}
               </Text>
-              {/* §2.3 — Difficulty chip picker: Easy / Medium / Hard, single select */}
+              {/* Suggest tier: user sees assigned XP before saving (§5.1) */}
+              {onSuggestTier && title.trim().length >= 2 && (
+                <View style={styles.suggestRow}>
+                  <Pressable
+                    onPress={handleSuggestTier}
+                    disabled={suggestLoading}
+                    style={[styles.suggestBtn, suggestLoading && styles.suggestBtnDisabled]}
+                  >
+                    <Text style={styles.suggestBtnText}>
+                      {suggestLoading ? "…" : "Suggest tier"}
+                    </Text>
+                  </Pressable>
+                  {suggestError ? (
+                    <Text style={styles.suggestError}>{suggestError}</Text>
+                  ) : suggestedTier ? (
+                    <Text style={styles.suggestedValue}>
+                      {suggestedTier.suggested_difficulty} — {suggestedTier.xp_value} XP, {suggestedTier.pet_food_value} PF
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+              {/* §2.3 — Difficulty chip picker: Easy / Medium / Hard, single select. User can adjust after suggestion. */}
               <Text style={styles.difficultyLabel}>Difficulty</Text>
               <View style={styles.difficultyRow}>
                 {(["Easy", "Medium", "Hard"] as const).map((d) => {
@@ -235,19 +305,20 @@ export function AddMissionModal({
                   );
                 })}
               </View>
+              {addError ? <Text style={styles.suggestError}>{addError}</Text> : null}
               <Pressable
                 onPress={handleAdd}
-                disabled={!title.trim()}
+                disabled={!title.trim() || addLoading}
                 style={({ pressed }) => [styles.addWrap, pressed && styles.addPressed]}
               >
                 <LinearGradient
                   colors={GRADIENTS.button.colors}
                   start={GRADIENTS.button.start}
                   end={GRADIENTS.button.end}
-                  style={[styles.addBtn, !title.trim() && styles.addDisabled]}
+                  style={[styles.addBtn, (!title.trim() || addLoading) && styles.addDisabled]}
                 >
-                  <Text style={[styles.addLabel, !title.trim() && styles.addLabelDisabled]}>
-                    Add Mission
+                  <Text style={[styles.addLabel, (!title.trim() || addLoading) && styles.addLabelDisabled]}>
+                    {addLoading ? "Adding…" : "Add Mission"}
                   </Text>
                 </LinearGradient>
               </Pressable>
@@ -380,5 +451,38 @@ const styles = StyleSheet.create({
   },
   addLabelDisabled: {
     color: COLORS.muted,
+  },
+  suggestRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: SPACING.md,
+    flexWrap: "wrap",
+  },
+  suggestBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: RADIUS.chip,
+    backgroundColor: "rgba(139,92,246,0.2)",
+    borderWidth: 1,
+    borderColor: COLORS.violet,
+  },
+  suggestBtnDisabled: {
+    opacity: 0.6,
+  },
+  suggestBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: COLORS.violet,
+  },
+  suggestedValue: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: COLORS.text2,
+  },
+  suggestError: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: COLORS.danger,
   },
 });

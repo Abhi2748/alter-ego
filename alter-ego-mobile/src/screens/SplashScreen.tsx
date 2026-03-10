@@ -112,7 +112,7 @@ export function SplashScreen() {
 
       {/* Tagline: 65% from top, opacity 1200–1700ms */}
       <Animated.Text style={[styles.tagline, taglineAnimatedStyle]} pointerEvents="none">
-        The you that showed up every day. Meet them.
+        Your rival is you — one week ahead.
       </Animated.Text>
 
       {/* Fade to black: 2200–2500ms */}

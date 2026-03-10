@@ -71,6 +71,10 @@ export type MissionCardProps = {
   interestName?: string;
   /** When provided, tap opens this (e.g. Journal Editor); swipe to complete is disabled. */
   onPress?: () => void;
+  /** Optional index for stagger appear animation (opacity + translateY). */
+  appearIndex?: number;
+  /** Per-mission streak count. 0 = no badge. Badge shown only for Core/Interest when >= 2. */
+  missionStreak?: number;
 };
 
 function TypeChip({
@@ -100,13 +104,38 @@ export default function MissionCard({
   missionType,
   interestName,
   onPress,
+  appearIndex,
+  missionStreak = 0,
 }: MissionCardProps) {
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
   const pressed = useSharedValue(0);
+  const appearOpacity = useSharedValue(typeof appearIndex === "number" ? 0 : 1);
+  const appearTranslateY = useSharedValue(typeof appearIndex === "number" ? 12 : 0);
+  const completedOpacity = useSharedValue(status === "complete" ? 0.6 : 1);
   const SWIPE_THRESHOLD = 0.4;
   const cardWidth = useSharedValue(300);
   const MAX_SWIPE = 200;
+
+  React.useEffect(() => {
+    completedOpacity.value = status === "complete" ? 0.6 : 1;
+  }, [status]);
+
+  React.useEffect(() => {
+    if (typeof appearIndex !== "number") return;
+    const delay = Math.min(appearIndex * ANIMATIONS.staggerDelay, ANIMATIONS.staggerMax);
+    const t = setTimeout(() => {
+      appearOpacity.value = withTiming(1, {
+        duration: ANIMATIONS.cardAppear,
+        easing: Easing.out(Easing.ease),
+      });
+      appearTranslateY.value = withTiming(0, {
+        duration: ANIMATIONS.cardAppear,
+        easing: Easing.out(Easing.ease),
+      });
+    }, delay);
+    return () => clearTimeout(t);
+  }, [appearIndex]);
 
   const leftEdgeColor =
     status === "complete"
@@ -127,7 +156,10 @@ export default function MissionCard({
       const threshold = cardWidth.value * SWIPE_THRESHOLD;
       if (translateX.value >= threshold) {
         runOnJS(onComplete)();
-        translateX.value = withSpring(0, { damping: 15, stiffness: 200 });
+        translateX.value = withTiming(0, {
+          duration: ANIMATIONS.missionSwipe,
+          easing: Easing.out(Easing.ease),
+        });
       } else {
         translateX.value = withSpring(0, { damping: 15, stiffness: 200 });
       }
@@ -136,7 +168,9 @@ export default function MissionCard({
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     backgroundColor: pressed.value === 1 ? "#1A2030" : COLORS.surface,
     borderColor: pressed.value === 1 ? "rgba(139,92,246,0.3)" : COLORS.border,
+    opacity: appearOpacity.value * completedOpacity.value,
     transform: [
+      { translateY: appearTranslateY.value },
       { scale: scale.value },
       { translateX: translateX.value },
     ],
@@ -185,45 +219,41 @@ export default function MissionCard({
             cardAnimatedStyle,
           ]}
         >
-          <View style={styles.row}>
-            <View style={styles.left}>
-              <Text
-                style={[
-                  styles.title,
-                  isComplete && styles.titleMuted,
-                  (isComplete || isExpired) && styles.titleStrikethrough,
-                ]}
-                numberOfLines={2}
-                ellipsizeMode="tail"
-              >
-                {title}
-              </Text>
-              <View style={styles.categoryRow}>
-                <TypeChip missionType={missionType} interestName={interestName} />
+          <View style={styles.titleRow}>
+            <Text
+              style={[
+                styles.title,
+                isComplete && styles.titleMuted,
+                (isComplete || isExpired) && styles.titleStrikethrough,
+              ]}
+              numberOfLines={2}
+              ellipsizeMode="tail"
+            >
+              {title}
+            </Text>
+            {missionStreak >= 2 &&
+              (missionType === "core" || missionType === "interest") && (
+                <Text style={styles.streakBadgeText}>🔥{missionStreak}</Text>
+              )}
+          </View>
+          <View style={styles.metaRow}>
+            <TypeChip missionType={missionType} interestName={interestName} />
+            <View style={styles.rewards}>
+              <View style={styles.badge}>
+                <Ionicons name="star" size={12} color={COLORS.violetGlow} />
+                <Text style={styles.xpText}>{xpValue}</Text>
+              </View>
+              <View style={styles.badge}>
+                <Ionicons name="leaf" size={12} color={COLORS.text2} />
+                <Text style={styles.petFoodText}>{petFoodValue}</Text>
               </View>
             </View>
-            <View style={styles.right}>
-              <View style={styles.badgesRow}>
-                <View style={styles.badge}>
-                  <Ionicons name="star" size={12} color={COLORS.violetGlow} />
-                  <Text style={styles.xpText}>{xpValue}</Text>
-                </View>
-                <View style={styles.badgeGap} />
-                <View style={styles.badge}>
-                  <Ionicons name="leaf" size={12} color="#F59E0B" />
-                  <Text style={styles.petFoodText}>{petFoodValue}</Text>
-                </View>
-              </View>
-              <View style={styles.difficultyRow}>
-                {isComplete ? (
-                  <View style={styles.checkWrap}>
-                    <Ionicons name="checkmark-circle" size={20} color={COLORS.violet} />
-                  </View>
-                ) : (
-                  <DifficultyChip level={difficulty} />
-                )}
-              </View>
-            </View>
+            <View style={styles.metaSpacer} />
+            {isComplete ? (
+              <Ionicons name="checkmark-circle" size={22} color={COLORS.violet} />
+            ) : (
+              <DifficultyChip level={difficulty} />
+            )}
           </View>
         </Animated.View>
         <Animated.View style={[styles.doneOverlay, doneOverlayStyle]} pointerEvents="none">
@@ -236,17 +266,17 @@ export default function MissionCard({
 
 const styles = StyleSheet.create({
   outer: {
-    minHeight: 72,
+    minHeight: 80,
     position: "relative",
   },
   card: {
-    minHeight: 72,
-    flexDirection: "row",
+    minHeight: 80,
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: RADIUS.card,
-    padding: SPACING.cardPadding,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.cardPadding,
     ...SHADOWS.card,
   },
   cardComplete: {
@@ -255,34 +285,21 @@ const styles = StyleSheet.create({
   cardExpired: {
     opacity: 0.5,
   },
-  row: {
-    flex: 1,
+  titleRow: {
     flexDirection: "row",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    alignItems: "center",
-  },
-  left: {
-    flex: 1,
-    marginRight: SPACING.sm,
-    justifyContent: "center",
-    minWidth: 0,
-  },
-  right: {
-    flexDirection: "column",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: 6,
-  },
-  difficultyRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   title: {
+    flex: 1,
+    minWidth: 0,
     fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "600",
     color: COLORS.text,
-    marginBottom: 6,
+    lineHeight: 22,
   },
   titleMuted: {
     color: COLORS.muted,
@@ -290,16 +307,21 @@ const styles = StyleSheet.create({
   titleStrikethrough: {
     textDecorationLine: "line-through",
   },
-  categoryRow: {
+  streakBadgeText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.ember,
+  },
+  metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    flexWrap: "wrap",
+    gap: SPACING.sm,
   },
-  category: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    fontWeight: "500",
-    color: COLORS.muted,
+  metaSpacer: {
+    flex: 1,
+    minWidth: 8,
   },
   typeChip: {
     borderWidth: 1,
@@ -312,21 +334,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
   },
-  checkWrap: {
-    padding: 2,
-  },
-  badgesRow: {
+  rewards: {
     flexDirection: "row",
     alignItems: "center",
-    gap: SPACING.sm,
+    gap: SPACING.md,
   },
   badge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-  },
-  badgeGap: {
-    width: SPACING.sm,
   },
   xpText: {
     fontFamily: "Inter_700Bold",
@@ -338,7 +354,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 12,
     fontWeight: "700",
-    color: "#F59E0B",
+    color: COLORS.text2,
   },
   doneOverlayBg: {
     position: "absolute",

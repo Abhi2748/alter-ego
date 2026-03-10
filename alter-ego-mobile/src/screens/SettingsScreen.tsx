@@ -1,9 +1,9 @@
 /**
  * Settings Screen §22 (v1.1). Accessed from Profile header.
- * Header: glass, chevron-back, "Settings". Five rows: Anonymous Mode (switch), Notifications (→ system), Streak Freezes (badge), Twin Tone History (→ modal), Delete Account (danger + alert).
+ * Rows: Anonymous Mode, Notifications, Notification Frequency (segmented Low|Medium|High), Streak Freezes, Twin Tone History, Delete Account, etc.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Alert,
   Linking,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
@@ -20,6 +21,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, GRADIENTS, RADIUS } from "../constants/theme";
 import { ToneHistoryModal } from "../components/ToneHistoryModal";
 import { MilestoneAchievementCard } from "../components/MilestoneAchievementCard";
+
+const NUDGE_FREQUENCY_KEY = "nudge_frequency";
+export type NudgeFrequency = "low" | "medium" | "high";
+const NUDGE_FREQUENCY_DEFAULT: NudgeFrequency = "medium";
 
 const ROW_HEIGHT = 56;
 const ROW_PADDING_H = 16;
@@ -35,8 +40,27 @@ export function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const [anonymousMode, setAnonymousMode] = useState(false);
+  const [nudgeFrequency, setNudgeFrequency] = useState<NudgeFrequency>(NUDGE_FREQUENCY_DEFAULT);
   const [toneHistoryVisible, setToneHistoryVisible] = useState(false);
   const [milestonePreviewVisible, setMilestonePreviewVisible] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(NUDGE_FREQUENCY_KEY);
+        if (stored === "low" || stored === "medium" || stored === "high") {
+          setNudgeFrequency(stored);
+        }
+      } catch (_) {}
+    })();
+  }, []);
+
+  const setNudgeFrequencyAndSave = useCallback(async (value: NudgeFrequency) => {
+    setNudgeFrequency(value);
+    try {
+      await AsyncStorage.setItem(NUDGE_FREQUENCY_KEY, value);
+    } catch (_) {}
+  }, []);
 
   const openNotifications = useCallback(() => {
     Linking.openSettings();
@@ -110,7 +134,68 @@ export function SettingsScreen() {
           <Ionicons name="chevron-forward" size={CHEVRON_SIZE} color={COLORS.muted} />
         </Pressable>
 
-        {/* Row 3 — Streak Freezes (display only) */}
+        {/* Row 3 — Notification Frequency (segmented: Low | Medium | High) */}
+        <View style={styles.row}>
+          <Ionicons
+            name="notifications-outline"
+            size={ICON_SIZE}
+            color={ICON_COLOR}
+            style={styles.rowIcon}
+          />
+          <Text style={[styles.rowLabel, styles.rowLabelFlex]}>Notification Frequency</Text>
+          <View style={styles.segmentedWrap}>
+            <Pressable
+              style={[
+                styles.segmentedSegment,
+                nudgeFrequency === "low" && styles.segmentedSegmentActive,
+              ]}
+              onPress={() => setNudgeFrequencyAndSave("low")}
+            >
+              <Text
+                style={[
+                  styles.segmentedText,
+                  nudgeFrequency === "low" && styles.segmentedTextActive,
+                ]}
+              >
+                Low
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.segmentedSegment,
+                nudgeFrequency === "medium" && styles.segmentedSegmentActive,
+              ]}
+              onPress={() => setNudgeFrequencyAndSave("medium")}
+            >
+              <Text
+                style={[
+                  styles.segmentedText,
+                  nudgeFrequency === "medium" && styles.segmentedTextActive,
+                ]}
+              >
+                Medium
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.segmentedSegment,
+                nudgeFrequency === "high" && styles.segmentedSegmentActive,
+              ]}
+              onPress={() => setNudgeFrequencyAndSave("high")}
+            >
+              <Text
+                style={[
+                  styles.segmentedText,
+                  nudgeFrequency === "high" && styles.segmentedTextActive,
+                ]}
+              >
+                High
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Row 4 — Streak Freezes (display only) */}
         <View style={styles.row}>
           <Ionicons
             name="snow-outline"
@@ -129,7 +214,7 @@ export function SettingsScreen() {
           </View>
         </View>
 
-        {/* Row 4 — Twin Tone History */}
+        {/* Row 5 — Twin Tone History */}
         <Pressable style={styles.row} onPress={openToneHistory}>
           <Ionicons
             name="heart-outline"
@@ -146,7 +231,7 @@ export function SettingsScreen() {
           <Ionicons name="chevron-forward" size={CHEVRON_SIZE} color={COLORS.muted} />
         </Pressable>
 
-        {/* Row 5 — Delete Account */}
+        {/* Row 6 — Delete Account */}
         <Pressable style={styles.row} onPress={deleteAccount}>
           <Ionicons
             name="trash-outline"
@@ -209,9 +294,10 @@ export function SettingsScreen() {
       <MilestoneAchievementCard
         visible={milestonePreviewVisible}
         onClose={() => setMilestonePreviewVisible(false)}
-        achievementName="7-Day Streak"
-        subText="You're building something real."
-        earnedBadge="Earned: 1 Streak Freeze"
+        interestName="Fitness"
+        milestoneNumber={7}
+        milestoneName="7 Days of Fitness"
+        twinCongratulation="Seven days. You showed up. That's how the gap closes."
       />
     </LinearGradient>
   );
@@ -266,6 +352,31 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 16,
     color: COLORS.danger,
+  },
+  segmentedWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  segmentedSegment: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: RADIUS.chip,
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  segmentedSegmentActive: {
+    backgroundColor: "rgba(139,92,246,0.15)",
+    borderColor: COLORS.violet,
+  },
+  segmentedText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: COLORS.muted,
+  },
+  segmentedTextActive: {
+    color: COLORS.violet,
   },
   rowSubLabel: {
     fontFamily: "Inter_400Regular",

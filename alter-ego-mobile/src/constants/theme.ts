@@ -135,6 +135,7 @@ export const ANIMATIONS = {
   cardAppear: 200,
   transition: 260,
   missionBurst: 450,
+  missionSwipe: 200,
   twinkPulse: 600,
   xpFill: 260,
   evolution: 2400,

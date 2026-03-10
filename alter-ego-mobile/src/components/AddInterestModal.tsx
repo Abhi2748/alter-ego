@@ -50,9 +50,11 @@ export function AddInterestModal({
   const backdropOpacity = useSharedValue(0);
   const sheetHeight = Dimensions.get("window").height * MAX_HEIGHT_RATIO;
   const prevVisibleRef = useRef(visible);
+  const closingFromInsideRef = useRef(false);
   const showContent = visible || isClosing;
 
   const finishClose = () => {
+    closingFromInsideRef.current = true;
     setIsClosing(false);
     setName("");
     onClose();
@@ -75,7 +77,10 @@ export function AddInterestModal({
   }, [visible]);
 
   useEffect(() => {
-    if (prevVisibleRef.current === true && !visible) setIsClosing(true);
+    if (prevVisibleRef.current === true && !visible) {
+      if (!closingFromInsideRef.current) setIsClosing(true);
+      closingFromInsideRef.current = false;
+    }
     prevVisibleRef.current = visible;
   }, [visible]);
 

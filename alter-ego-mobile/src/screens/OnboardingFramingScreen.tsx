@@ -102,6 +102,7 @@ export function OnboardingFramingScreen() {
 
   const primaryOpacity = useSharedValue(0);
   const secondaryOpacity = useSharedValue(0);
+  const subtitleOpacity = useSharedValue(0);
 
   useEffect(() => {
     const easeOut = Easing.out(Easing.ease);
@@ -115,6 +116,11 @@ export function OnboardingFramingScreen() {
       800,
       withTiming(1, { duration: 400, easing: easeOut })
     );
+
+    subtitleOpacity.value = withDelay(
+      1200,
+      withTiming(1, { duration: 400, easing: easeOut })
+    );
   }, []);
 
   const primaryStyle = useAnimatedStyle(() => ({
@@ -123,6 +129,10 @@ export function OnboardingFramingScreen() {
 
   const secondaryStyle = useAnimatedStyle(() => ({
     opacity: secondaryOpacity.value,
+  }));
+
+  const subtitleStyle = useAnimatedStyle(() => ({
+    opacity: subtitleOpacity.value,
   }));
 
   const buttonScale = useSharedValue(1);
@@ -156,6 +166,9 @@ export function OnboardingFramingScreen() {
           </Animated.Text>
           <Animated.Text style={[styles.secondaryText, secondaryStyle]}>
             We build identities.
+          </Animated.Text>
+          <Animated.Text style={[styles.subtitleText, subtitleStyle]}>
+            We don&apos;t count perfect days. We count the ones you showed up.
           </Animated.Text>
         </View>
 
@@ -226,6 +239,14 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     textAlign: "center",
     marginTop: SPACING.sm,
+  },
+  subtitleText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    color: COLORS.text2,
+    textAlign: "center",
+    marginTop: SPACING.lg,
+    paddingHorizontal: SPACING.md,
   },
   bottomSection: {
     position: "absolute",

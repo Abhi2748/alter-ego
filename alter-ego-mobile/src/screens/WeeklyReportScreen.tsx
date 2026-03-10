@@ -1,20 +1,21 @@
 /**
  * Weekly Report Screen — Part 3B Screen 20. Tab 4.
- * Past reports saved; new report on top when Sunday. Next report countdown on non-Sunday.
- * Tap a past report to view full report (compare weeks).
+ * Fetches GET /api/v1/agents/weekly-report on tab focus. Maps sections to UI.
+ * Empty state when no report; loading + error/retry.
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { PetAnimation } from "../components/PetAnimation";
 import { SecondaryButton } from "../components/SecondaryButton";
@@ -22,23 +23,26 @@ import {
   COLORS,
   SPACING,
   GRADIENTS,
-  HEATMAP_LEVELS,
 } from "../constants/theme";
+import { supabase } from "../utils/supabase";
+import { getWeeklyReport, type WeeklyReportRow } from "../utils/api";
 
 const HEADER_HEIGHT = 56;
 const CARD_RADIUS = 24;
 const CARD_PADDING = 24;
 const BLOCK_GAP = 20;
-const MINI_CELL_SIZE = 16;
-const MINI_CELL_GAP = 3;
 const CONTENT_PADDING_BOTTOM = 96;
+
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const CHART_HEIGHT = 120;
 
 export type ReportData = {
   powerDelta: number;
   powerScore: number;
   streak: number;
   longestThisMonth: number;
-  miniLevels: number[];
+  /** Completion % per day Mon–Sun (0–100). Used for day-of-week bar chart. */
+  dayOfWeekCompletion: number[];
   petStage: number;
   petHappy: boolean;
   petStageName: string;
@@ -49,6 +53,8 @@ export type ReportData = {
   winText: string;
   focusText: string;
   twinMessage: string;
+  /** Section 5: Next week (one sentence). */
+  nextWeek?: string;
 };
 
 export type SavedReport = {
@@ -78,32 +84,118 @@ function getNextSundayLabel(): { days: number; label: string } {
   return { days, label };
 }
 
-/** Mini 7-day heatmap row */
-function MiniHeatmap({ levels }: { levels: number[] }) {
-  const list = levels.length >= 7 ? levels.slice(-7) : [...Array(7).fill(0), ...levels].slice(-7);
+/** Day-of-week completion bar chart. 7 bars Mon–Sun, best day highlighted. */
+function DayOfWeekChart({ data }: { data: number[] }) {
+  const values = data.length >= 7 ? data.slice(0, 7) : [...data, ...Array(7 - data.length).fill(0)];
+  const maxVal = Math.max(...values, 1);
+  const bestDayIndex = values.indexOf(maxVal);
+
   return (
-    <View style={miniHeatmapStyles.row}>
-      {list.map((level, i) => (
-        <View
-          key={i}
-          style={[
-            miniHeatmapStyles.cell,
-            {
-              width: MINI_CELL_SIZE,
-              height: MINI_CELL_SIZE,
-              borderRadius: 3,
-              backgroundColor: HEATMAP_LEVELS[Math.min(4, Math.max(0, level))],
-            },
-          ]}
-        />
-      ))}
+    <View style={dayChartStyles.wrap}>
+      <Text style={dayChartStyles.sectionLabel}>YOUR BEST DAYS</Text>
+      <View style={dayChartStyles.chartRow}>
+        {values.map((pct, i) => {
+          const heightPct = Math.min(100, Math.max(0, pct)) / 100;
+          const isBest = i === bestDayIndex;
+          return (
+            <View key={i} style={dayChartStyles.barCol}>
+              <View style={dayChartStyles.track}>
+                <View
+                  style={[
+                    dayChartStyles.barFillWrap,
+                    { height: `${heightPct * 100}%` },
+                  ]}
+                >
+                  {isBest ? (
+                    <View
+                      style={[
+                        dayChartStyles.barFill,
+                        { backgroundColor: COLORS.violet },
+                      ]}
+                    />
+                  ) : (
+                    <LinearGradient
+                      colors={[COLORS.violetDeep, COLORS.violet]}
+                      start={{ x: 0.5, y: 1 }}
+                      end={{ x: 0.5, y: 0 }}
+                      style={dayChartStyles.barFill}
+                    />
+                  )}
+                </View>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+      <View style={dayChartStyles.labelsRow}>
+        {DAY_LABELS.map((label, i) => (
+          <View key={i} style={dayChartStyles.labelCol}>
+            <Text style={dayChartStyles.dayLabel}>{label}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
 
-const miniHeatmapStyles = StyleSheet.create({
-  row: { flexDirection: "row", gap: MINI_CELL_GAP, marginTop: 8 },
-  cell: {},
+const dayChartStyles = StyleSheet.create({
+  wrap: { marginTop: 12 },
+  sectionLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 11,
+    fontWeight: "600",
+    color: COLORS.muted,
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  chartRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    height: CHART_HEIGHT,
+    gap: 4,
+  },
+  barCol: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    minWidth: 0,
+  },
+  track: {
+    width: "100%",
+    height: CHART_HEIGHT,
+    backgroundColor: COLORS.surface2,
+    borderRadius: 4,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+  },
+  barFillWrap: {
+    width: "100%",
+    minHeight: 2,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  barFill: {
+    width: "100%",
+    flex: 1,
+    borderRadius: 4,
+  },
+  labelsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 4,
+    marginTop: 6,
+  },
+  labelCol: {
+    flex: 1,
+    alignItems: "center",
+    minWidth: 0,
+  },
+  dayLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.muted,
+  },
 });
 
 /** Single report card (8 blocks). Reused for list detail and for "This week". */
@@ -121,7 +213,7 @@ function ReportCard({
     powerScore,
     streak,
     longestThisMonth,
-    miniLevels,
+    dayOfWeekCompletion,
     petStage,
     petHappy,
     petStageName,
@@ -132,6 +224,7 @@ function ReportCard({
     winText,
     focusText,
     twinMessage,
+    nextWeek,
   } = data;
 
   return (
@@ -155,7 +248,7 @@ function ReportCard({
           <Text style={reportCardStyles.streakTitle}>🔥{streak} day streak</Text>
         </View>
         <Text style={reportCardStyles.streakSub}>Longest this month: {longestThisMonth} days</Text>
-        <MiniHeatmap levels={miniLevels} />
+        <DayOfWeekChart data={dayOfWeekCompletion} />
       </View>
 
       <View style={reportCardStyles.block}>
@@ -202,6 +295,13 @@ function ReportCard({
           <Text style={reportCardStyles.twinMessage}>{twinMessage}</Text>
         </View>
       </View>
+
+      {nextWeek ? (
+        <View style={reportCardStyles.block}>
+          <Text style={reportCardStyles.blockLabel}>NEXT WEEK</Text>
+          <Text style={reportCardStyles.narrative}>{nextWeek}</Text>
+        </View>
+      ) : null}
 
       {showReturnButton && onReturn && (
         <SecondaryButton label="Return" onPress={onReturn} width={200} style={reportCardStyles.returnBtn} />
@@ -290,68 +390,69 @@ const reportCardStyles = StyleSheet.create({
   returnBtn: { marginTop: 8 },
 });
 
-function createReportData(overrides: Partial<ReportData> = {}): ReportData {
+/** Map API weekly report row to ReportData for ReportCard. */
+function mapReportToData(row: WeeklyReportRow): ReportData {
+  const d = row.this_week_data ?? {};
+  const missionsCompleted = d.missions_completed ?? 0;
+  const missionsTotal = d.missions_total ?? 0;
+  const coreComplete = d.core_days_complete ?? 0;
+  const coreTotal = d.core_days_total ?? 0;
+  const xp = d.xp_earned ?? 0;
+  const pf = d.pet_food_earned ?? 0;
+  const streak = d.current_streak ?? 0;
+  const streakStatus = d.streak_status ?? "";
+  const stageName = d.character_stage_name ?? "—";
+  const stageChange = d.stage_change_this_week ?? "";
+  const petName = d.pet_name ?? "—";
+  const petStage = d.pet_stage ?? 0;
+  const petChange = d.pet_change_this_week ?? "";
+  const narrativeParts: string[] = [];
+  if (missionsTotal > 0) {
+    narrativeParts.push(`You completed ${missionsCompleted} of ${missionsTotal} missions this week.`);
+  }
+  narrativeParts.push(`Core: ${coreComplete} of ${coreTotal} days complete.`);
+  narrativeParts.push(`${xp} XP earned this week. ${pf} Pet Food earned.`);
+  if (streakStatus === "BROKEN_AND_RESET") {
+    narrativeParts.push(`Streak reset this week. Current: ${streak} days.`);
+  } else {
+    narrativeParts.push(`Current streak: ${streak} days.`);
+  }
+  narrativeParts.push(stageChange && stageChange !== "NO" ? `Stage upgraded this week: ${stageName}.` : `Stage: ${stageName} (Stage ${d.character_stage ?? 1}).`);
+  narrativeParts.push(petChange && petChange !== "NO" ? `Pet evolved this week: ${petName}.` : `Pet: ${petName} (Stage ${petStage}).`);
+  const wins = row.wins ?? [];
+  const slipped = row.slipped ?? [];
+  const focusContent = row.keep_watching ?? slipped[0] ?? "";
+  const twinParagraph = row.twin_paragraph ?? "";
+  const twinClosing = row.twin_closing ?? "";
   return {
-    powerDelta: 340,
-    powerScore: 1580,
-    streak: 12,
-    longestThisMonth: 14,
-    miniLevels: [2, 3, 4, 3, 4, 4, 3],
-    petStage: 3,
+    powerDelta: 0,
+    powerScore: 0,
+    streak,
+    longestThisMonth: streak,
+    dayOfWeekCompletion: d.day_of_week_completion ?? [0, 0, 0, 0, 0, 0, 0],
+    petStage,
     petHappy: true,
-    petStageName: "Fox",
-    petSubtext: "12 days to Wolf",
-    gapDays: 7,
-    gapClosed: true,
-    narrative:
-      "You completed 18 of 21 missions this week. Your streak held. The gap with your Twin closed by a single day — the first time it has moved in your favour. Small, but real.",
-    winText: "You completed your hardest mission 5 days in a row.",
-    focusText:
-      "Complete every system mission before 12pm. You've been letting them slide to evening.",
-    twinMessage: "One day closer. Not enough. But it's something.",
-    ...overrides,
+    petStageName: petName,
+    petSubtext: petChange && petChange !== "NO" ? petChange : "",
+    gapDays: 0,
+    gapClosed: false,
+    narrative: narrativeParts.join(" "),
+    winText: wins.length > 0 ? wins.join(" ") : "—",
+    focusText: focusContent,
+    twinMessage: [twinParagraph, twinClosing].filter(Boolean).join("\n") || "—",
+    nextWeek: row.next_week ?? undefined,
   };
 }
 
-/** Placeholder saved reports (in real app from backend). Most recent first. */
-function getSeedReports(isSunday: boolean): SavedReport[] {
-  const base: SavedReport[] = [
-    {
-      id: "r1",
-      weekKey: "2026-03-02",
-      weekLabel: "Feb 24 – Mar 2, 2026",
-      data: createReportData({ powerScore: 1580, streak: 12 }),
-    },
-    {
-      id: "r2",
-      weekKey: "2026-02-23",
-      weekLabel: "Feb 17 – Feb 23, 2026",
-      data: createReportData({ powerScore: 1240, streak: 9, gapClosed: false }),
-    },
-    {
-      id: "r3",
-      weekKey: "2026-02-16",
-      weekLabel: "Feb 10 – Feb 16, 2026",
-      data: createReportData({ powerScore: 1120, streak: 5 }),
-    },
-  ];
-  if (isSunday) {
-    const now = new Date();
-    const sun = new Date(now);
-    const mon = new Date(sun);
-    mon.setDate(sun.getDate() - 6);
-    const weekLabel = `${mon.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${sun.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${sun.getFullYear()}`;
-    return [
-      {
-        id: "this-week",
-        weekKey: sun.toISOString().slice(0, 10).replace(/-/g, "-"),
-        weekLabel,
-        data: createReportData(),
-      },
-      ...base,
-    ];
+function formatWeekLabel(weekStart: string): string {
+  try {
+    const start = new Date(weekStart + "T00:00:00");
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${start.getFullYear()}`;
+  } catch {
+    return weekStart;
   }
-  return base;
 }
 
 export function WeeklyReportScreen() {
@@ -361,8 +462,39 @@ export function WeeklyReportScreen() {
   const isSunday = now.getDay() === 0;
   const { days: daysUntilSunday, label: nextSundayLabel } = getNextSundayLabel();
 
-  const [reports] = useState<SavedReport[]>(() => getSeedReports(isSunday));
+  const [report, setReport] = useState<WeeklyReportRow | null>(null);
+  const [lastWeek, setLastWeek] = useState<WeeklyReportRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedReport, setSelectedReport] = useState<SavedReport | null>(null);
+
+  const fetchReport = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setReport(null);
+        setLastWeek(null);
+        return;
+      }
+      const res = await getWeeklyReport(session.access_token);
+      setReport(res.report ?? null);
+      setLastWeek(res.last_week ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load report");
+      setReport(null);
+      setLastWeek(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchReport();
+    }, [fetchReport])
+  );
 
   const handleReturnToList = () => {
     (navigation as any).navigate("Home");
@@ -371,6 +503,26 @@ export function WeeklyReportScreen() {
   const handleBackFromDetail = () => {
     setSelectedReport(null);
   };
+
+  const reports: SavedReport[] = [];
+  if (report) {
+    reports.push({
+      id: report.id,
+      weekKey: report.week_start,
+      weekLabel: formatWeekLabel(report.week_start),
+      data: mapReportToData(report),
+    });
+  }
+  if (lastWeek) {
+    reports.push({
+      id: lastWeek.id,
+      weekKey: lastWeek.week_start,
+      weekLabel: formatWeekLabel(lastWeek.week_start),
+      data: mapReportToData(lastWeek),
+    });
+  }
+  const hasReport = report != null;
+  const pastReports = reports.slice(1);
 
   if (selectedReport) {
     return (
@@ -446,43 +598,73 @@ export function WeeklyReportScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {!isSunday && (
-          <View style={styles.nextReportBanner}>
-            <Ionicons name="calendar-outline" size={20} color={COLORS.violet} />
-            <View style={styles.nextReportTextWrap}>
-              <Text style={styles.nextReportTitle}>Next report</Text>
-              <Text style={styles.nextReportSub}>
-                {daysUntilSunday === 0
-                  ? "Today"
-                  : daysUntilSunday === 1
-                    ? "Tomorrow"
-                    : `In ${daysUntilSunday} days`}
-                {daysUntilSunday <= 1 ? "" : ` — ${nextSundayLabel}`}
-              </Text>
+        {loading && (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color={COLORS.violet} />
+            <Text style={styles.loadingText}>Loading report…</Text>
+          </View>
+        )}
+
+        {!loading && error && (
+          <View style={styles.errorWrap}>
+            <Text style={styles.errorText}>{error}</Text>
+            <SecondaryButton label="Retry" onPress={fetchReport} width={160} />
+          </View>
+        )}
+
+        {!loading && !error && !hasReport && (
+          <View style={styles.emptyCard}>
+            <Ionicons name="document-text-outline" size={40} color={COLORS.muted} />
+            <Text style={styles.emptyTitle}>Your first report arrives this Sunday</Text>
+            <Text style={styles.emptySub}>
+              After your first week, we’ll generate a report every Sunday. Check back then.
+            </Text>
+          </View>
+        )}
+
+        {!loading && !error && hasReport && (
+          <>
+            {!isSunday && (
+              <View style={styles.nextReportBanner}>
+                <Ionicons name="calendar-outline" size={20} color={COLORS.violet} />
+                <View style={styles.nextReportTextWrap}>
+                  <Text style={styles.nextReportTitle}>Next report</Text>
+                  <Text style={styles.nextReportSub}>
+                    {daysUntilSunday === 0
+                      ? "Today"
+                      : daysUntilSunday === 1
+                        ? "Tomorrow"
+                        : `In ${daysUntilSunday} days`}
+                    {daysUntilSunday <= 1 ? "" : ` — ${nextSundayLabel}`}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>THIS WEEK</Text>
+              <ReportCard data={reports[0].data} />
             </View>
-          </View>
-        )}
 
-        {isSunday && reports.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>THIS WEEK</Text>
-            <ReportCard data={reports[0].data} />
-          </View>
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>PAST REPORTS</Text>
+              {pastReports.length === 0 ? (
+                <Text style={styles.noPastText}>No past reports yet.</Text>
+              ) : (
+                pastReports.map((r) => (
+                  <Pressable
+                    key={r.id}
+                    style={({ pressed }) => [styles.pastReportRow, pressed && styles.pastReportRowPressed]}
+                    onPress={() => setSelectedReport(r)}
+                  >
+                    <Text style={styles.pastReportWeek}>{r.weekLabel}</Text>
+                    <Ionicons name="chevron-forward" size={20} color={COLORS.muted} />
+                  </Pressable>
+                ))
+              )}
+            </View>
+          </>
         )}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>PAST REPORTS</Text>
-          {(isSunday ? reports.slice(1) : reports).map((report) => (
-            <Pressable
-              key={report.id}
-              style={({ pressed }) => [styles.pastReportRow, pressed && styles.pastReportRowPressed]}
-              onPress={() => setSelectedReport(report)}
-            >
-              <Text style={styles.pastReportWeek}>{report.weekLabel}</Text>
-              <Ionicons name="chevron-forward" size={20} color={COLORS.muted} />
-            </Pressable>
-          ))}
-        </View>
       </ScrollView>
     </LinearGradient>
   );
@@ -585,5 +767,53 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 15,
     color: COLORS.text,
+  },
+  loadingWrap: {
+    paddingVertical: SPACING.xxl,
+    alignItems: "center",
+    gap: SPACING.md,
+  },
+  loadingText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.muted,
+  },
+  errorWrap: {
+    paddingVertical: SPACING.xl,
+    alignItems: "center",
+    gap: SPACING.md,
+  },
+  errorText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.text2,
+    textAlign: "center",
+  },
+  emptyCard: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: CARD_RADIUS,
+    padding: CARD_PADDING,
+    alignItems: "center",
+    gap: SPACING.md,
+  },
+  emptyTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 18,
+    color: COLORS.text,
+    textAlign: "center",
+  },
+  emptySub: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.muted,
+    textAlign: "center",
+  },
+  noPastText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.muted,
+    marginBottom: 8,
   },
 });

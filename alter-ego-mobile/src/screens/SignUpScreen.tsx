@@ -1,17 +1,20 @@
 /**
- * SignUpScreen — Screen 02
- * First interactive screen. Three auth buttons (Apple, Google, Email), logo, particle
- * background. Buttons are placeholders (onPress logs to console). On successful auth
- * → navigates to OnboardingFramingScreen. See CLAUDE.md §7 + Screen 02 spec.
+ * SignUpScreen — Screen 02. Auth wired to Supabase.
+ * Apple / Google (OAuth) + Email (magic link). New user → INSERT users + character_state etc. → Onboarding.
+ * Existing user → Main. Error toast: #7F1D1D bg, white text.
  */
 
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Dimensions,
   Pressable,
+  Alert,
+  Modal,
+  TextInput,
+  ActivityIndicator,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
@@ -20,6 +23,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
+import * as WebBrowser from "expo-web-browser";
+import { makeRedirectUri } from "expo-auth-session";
+import * as QueryParams from "expo-auth-session/build/QueryParams";
+import { useURL } from "expo-linking";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -28,17 +35,22 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { COLORS, RADIUS, SPACING, ANIMATIONS } from "../constants/theme";
+import { supabase } from "../utils/supabase";
+
+WebBrowser.maybeCompleteAuthSession();
 
 // -----------------------------------------------------------------------------
-// Constants & particle helpers (seeded random for stable positions)
+// Constants & particle helpers
 // -----------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const PARTICLE_COLORS = ["#8B5CF6", "#6D28D9", "#A78BFA"] as const;
 const PARTICLE_SEED = 42;
 const PARTICLE_COUNT = 28;
+const TOAST_DURATION_MS = 4000;
+const ERROR_TOAST_BG = "#7F1D1D";
+const ERROR_TOAST_TEXT = "#FFFFFF";
 
-/** Seeded RNG so particle positions are stable across mounts. */
 function createSeededRandom(seed: number) {
   return () => {
     seed = (seed * 9301 + 49297) % 233280;
@@ -58,7 +70,6 @@ type ParticleConfig = {
   duration: number;
 };
 
-/** Generate 24–32 dot configs: position, color (30–60% opacity), size 3–4px, animation params. */
 function getParticleConfigs(): ParticleConfig[] {
   const random = createSeededRandom(PARTICLE_SEED);
   const configs: ParticleConfig[] = [];
@@ -77,10 +88,6 @@ function getParticleConfigs(): ParticleConfig[] {
   }
   return configs;
 }
-
-// -----------------------------------------------------------------------------
-// Particle dot — single animated dot (Reanimated, 8–16px drift, easeInOut loop)
-// -----------------------------------------------------------------------------
 
 function ParticleDot({ config }: { config: ParticleConfig }) {
   const phase = useSharedValue(0);
@@ -122,7 +129,7 @@ function ParticleDot({ config }: { config: ParticleConfig }) {
 }
 
 // -----------------------------------------------------------------------------
-// Auth button — Apple (white) or Google/Email (dark), press scale 0.97 (CLAUDE §6)
+// Auth button
 // -----------------------------------------------------------------------------
 
 function AuthButton({
@@ -130,11 +137,13 @@ function AuthButton({
   icon,
   label,
   variant,
+  loading,
 }: {
   onPress: () => void;
   icon: React.ReactNode;
   label: string;
   variant: "apple" | "google" | "email";
+  loading?: boolean;
 }) {
   const scale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => ({
@@ -148,8 +157,9 @@ function AuthButton({
   return (
     <Pressable
       onPress={onPress}
+      disabled={loading}
       onPressIn={() => {
-        scale.value = withTiming(ANIMATIONS.pressScale, { duration: ANIMATIONS.pressIn });
+        if (!loading) scale.value = withTiming(ANIMATIONS.pressScale, { duration: ANIMATIONS.pressIn });
       }}
       onPressOut={() => {
         scale.value = withTiming(1, { duration: ANIMATIONS.pressOut });
@@ -157,8 +167,14 @@ function AuthButton({
       style={styles.buttonWrapper}
     >
       <Animated.View style={[styles.buttonInner, buttonStyle, animatedStyle]}>
-        <View style={styles.buttonIcon}>{icon}</View>
-        <Text style={[styles.buttonLabel, labelStyle]}>{label}</Text>
+        {loading ? (
+          <ActivityIndicator size="small" color={isApple ? "#000000" : COLORS.text} />
+        ) : (
+          <>
+            <View style={styles.buttonIcon}>{icon}</View>
+            <Text style={[styles.buttonLabel, labelStyle]}>{label}</Text>
+          </>
+        )}
       </Animated.View>
     </Pressable>
   );
@@ -170,92 +186,284 @@ function AuthButton({
 
 type Nav = StackNavigationProp<RootStackParamList, "SignUp">;
 
+function createSessionFromUrl(url: string) {
+  const { params, errorCode } = QueryParams.getQueryParams(url);
+  if (errorCode) throw new Error(errorCode);
+  const access_token = params.access_token;
+  const refresh_token = params.refresh_token;
+  if (!access_token) return null;
+  return supabase.auth.setSession({ access_token, refresh_token });
+}
+
 export function SignUpScreen() {
   const navigation = useNavigation<Nav>();
   const particleConfigs = useMemo(() => getParticleConfigs(), []);
+
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loadingProvider, setLoadingProvider] = useState<"apple" | "google" | "email" | null>(null);
+  const [emailModalVisible, setEmailModalVisible] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
+
+  const redirectTo = makeRedirectUri({ scheme: "alterego", path: "auth" });
+
+  const showError = useCallback((message: string) => {
+    setErrorMessage(message);
+    setTimeout(() => setErrorMessage(null), TOAST_DURATION_MS);
+  }, []);
+
+  const ensureUserAndNavigate = useCallback(
+    async (userId: string, email: string | undefined) => {
+      const { data: existing } = await supabase.from("users").select("id").eq("id", userId).maybeSingle();
+      if (existing) {
+        navigation.replace("Main");
+        return;
+      }
+      const { error: userError } = await supabase.from("users").insert({
+        id: userId,
+        email: email ?? null,
+        trial_start_date: new Date().toISOString(),
+      });
+      if (userError) {
+        showError(userError.message);
+        return;
+      }
+      await supabase.from("character_state").insert({
+        user_id: userId,
+        stage: 1,
+        total_xp: 0,
+      });
+      await supabase.from("pet_state").insert({
+        user_id: userId,
+        stage: 0,
+        total_pet_food: 0,
+      });
+      await supabase.from("twin_state").insert({
+        user_id: userId,
+        twin_xp: 0,
+        twin_character_stage: 1,
+        twin_pet_stage: 0,
+        streak: 0,
+      });
+      navigation.replace("Onboarding");
+    },
+    [navigation, showError]
+  );
+
+  const performOAuth = useCallback(
+    async (provider: "apple" | "google") => {
+      setLoadingProvider(provider);
+      setErrorMessage(null);
+      try {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider,
+          options: { redirectTo, skipBrowserRedirect: true },
+        });
+        if (error) throw error;
+        if (!data?.url) {
+          showError("Could not start sign in");
+          return;
+        }
+        const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+        if (res.type === "success" && res.url) {
+          const { error: sessionError } = await createSessionFromUrl(res.url);
+          if (sessionError) throw sessionError;
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData?.session?.user) {
+            await ensureUserAndNavigate(
+              sessionData.session.user.id,
+              sessionData.session.user.email ?? undefined
+            );
+          }
+        } else if (res.type === "cancel") {
+          // user closed browser, no error
+        } else {
+          showError("Sign in was cancelled or failed");
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Sign in failed";
+        showError(msg);
+      } finally {
+        setLoadingProvider(null);
+      }
+    },
+    [redirectTo, ensureUserAndNavigate, showError]
+  );
+
+  const sendMagicLink = useCallback(async () => {
+    const email = emailInput.trim();
+    if (!email) return;
+    setEmailSending(true);
+    setErrorMessage(null);
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: redirectTo },
+      });
+      if (error) throw error;
+      setEmailModalVisible(false);
+      setEmailInput("");
+      Alert.alert(
+        "Check your email",
+        "We sent you a sign-in link. Open it to continue.",
+        [{ text: "OK" }]
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to send link";
+      showError(msg);
+    } finally {
+      setEmailSending(false);
+    }
+  }, [emailInput, redirectTo, showError]);
+
+  // Handle deep link when user opens app from magic link
+  const incomingUrl = useURL();
+  useEffect(() => {
+    if (!incomingUrl || !incomingUrl.includes("access_token")) return;
+    (async () => {
+      try {
+        const { error } = await createSessionFromUrl(incomingUrl);
+        if (error) throw error;
+        const { data } = await supabase.auth.getSession();
+        if (data?.session?.user)
+          await ensureUserAndNavigate(data.session.user.id, data.session.user.email ?? undefined);
+      } catch (_) {
+        showError("Invalid or expired link");
+      }
+    })();
+  }, [incomingUrl, ensureUserAndNavigate, showError]);
 
   return (
     <>
       <StatusBar style="light" />
       <View style={styles.root}>
-        {/* Background: gradient #0D0F1A → #07080F (CLAUDE §5.6) */}
         <LinearGradient
           colors={[COLORS.bg1, COLORS.bg0]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0 }}
           end={{ x: 0, y: 1 }}
         />
-        {/* Particle layer: absolute, behind content */}
         <View style={[StyleSheet.absoluteFill, styles.particleContainer]} pointerEvents="none">
           {particleConfigs.map((config, i) => (
             <ParticleDot key={i} config={config} />
           ))}
         </View>
 
+        {errorMessage ? (
+          <Pressable
+            style={styles.toast}
+            onPress={() => setErrorMessage(null)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.toastText}>{errorMessage}</Text>
+          </Pressable>
+        ) : null}
+
         <SafeAreaView style={styles.safeContent} edges={["top", "left", "right", "bottom"]}>
-          {/* Logo block: ~180px from top, not vertically centered */}
           <View style={styles.logoSection}>
             <Text style={styles.logo}>ALTER EGO</Text>
             <Text style={styles.subtitle}>The Adaptive Discipline Engine</Text>
           </View>
 
-          {/* Buttons: absolutely positioned at bottom */}
           <View style={styles.buttonsSection}>
             <View style={styles.buttonsInner}>
-            <AuthButton
-            onPress={() => navigation.replace("Onboarding")}
-              icon={<Ionicons name="logo-apple" size={20} color="#000000" />}
-              label="Continue with Apple"
-              variant="apple"
-            />
-            <AuthButton
-              onPress={() => console.log("Continue with Google")}
-              icon={<Ionicons name="logo-google" size={20} color={COLORS.text} />}
-              label="Continue with Google"
-              variant="google"
-            />
-            <AuthButton
-              onPress={() => console.log("Continue with Email")}
-              icon={<Ionicons name="mail-outline" size={20} color={COLORS.text2} />}
-              label="Continue with Email"
-              variant="email"
-            />
+              <AuthButton
+                onPress={() => performOAuth("apple")}
+                icon={<Ionicons name="logo-apple" size={20} color="#000000" />}
+                label="Continue with Apple"
+                variant="apple"
+                loading={loadingProvider === "apple"}
+              />
+              <AuthButton
+                onPress={() => performOAuth("google")}
+                icon={<Ionicons name="logo-google" size={20} color={COLORS.text} />}
+                label="Continue with Google"
+                variant="google"
+                loading={loadingProvider === "google"}
+              />
+              <AuthButton
+                onPress={() => setEmailModalVisible(true)}
+                icon={<Ionicons name="mail-outline" size={20} color={COLORS.text2} />}
+                label="Continue with Email"
+                variant="email"
+                loading={loadingProvider === "email"}
+              />
 
-            <Text style={styles.legal}>
-              By continuing you agree to our{" "}
-              <Text
-                style={styles.legalLink}
-                onPress={() => console.log("Terms")}
-                suppressHighlighting
-              >
-                Terms
-              </Text>{" "}
-              and{" "}
-              <Text
-                style={styles.legalLink}
-                onPress={() => console.log("Privacy Policy")}
-                suppressHighlighting
-              >
-                Privacy Policy
+              <Text style={styles.learnCopy}>
+                We'll learn how you work. Your only job: show up.
               </Text>
-            </Text>
+
+              <Text style={styles.legal}>
+                By continuing you agree to our{" "}
+                <Text style={styles.legalLink} onPress={() => {}} suppressHighlighting>Terms</Text> and{" "}
+                <Text style={styles.legalLink} onPress={() => {}} suppressHighlighting>Privacy Policy</Text>
+              </Text>
             </View>
           </View>
         </SafeAreaView>
       </View>
+
+      <Modal visible={emailModalVisible} transparent animationType="fade">
+        <Pressable style={styles.modalBackdrop} onPress={() => setEmailModalVisible(false)}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Continue with Email</Text>
+            <Text style={styles.modalHint}>We'll send you a sign-in link</Text>
+            <TextInput
+              style={styles.emailInput}
+              placeholder="you@example.com"
+              placeholderTextColor={COLORS.muted}
+              value={emailInput}
+              onChangeText={setEmailInput}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!emailSending}
+            />
+            <View style={styles.modalButtons}>
+              <Pressable
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setEmailModalVisible(false)}
+              >
+                <Text style={styles.modalBtnCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalBtn, styles.modalBtnSend]}
+                onPress={sendMagicLink}
+                disabled={emailSending || !emailInput.trim()}
+              >
+                {emailSending ? (
+                  <ActivityIndicator size="small" color={COLORS.text} />
+                ) : (
+                  <Text style={styles.modalBtnSendText}>Send link</Text>
+                )}
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-  particleContainer: {
-    overflow: "hidden",
-  },
-  particleDot: {
+  root: { flex: 1 },
+  particleContainer: { overflow: "hidden" },
+  particleDot: { position: "absolute" },
+  toast: {
     position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: ERROR_TOAST_BG,
+    paddingVertical: 12,
+    paddingHorizontal: SPACING.screenPadding,
+    zIndex: 10,
+  },
+  toastText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    color: ERROR_TOAST_TEXT,
+    textAlign: "center",
   },
   safeContent: {
     flex: 1,
@@ -263,7 +471,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     paddingHorizontal: SPACING.screenPadding,
   },
-  // Logo: ~180px from top of screen (not vertically centered)
   logoSection: {
     flex: 0,
     alignItems: "center",
@@ -285,7 +492,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginTop: SPACING.sm,
   },
-  // Auth buttons: absolutely positioned at bottom, paddingBottom 48
   buttonsSection: {
     position: "absolute",
     bottom: 0,
@@ -295,15 +501,9 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
     alignItems: "center",
   },
-  buttonsInner: {
-    maxWidth: 358,
-    width: "100%",
-  },
-  buttonWrapper: {
-    marginBottom: SPACING.cardGap,
-  },
+  buttonsInner: { maxWidth: 358, width: "100%" },
+  buttonWrapper: { marginBottom: SPACING.cardGap },
   buttonInner: {
-    // Height 56px, radius 16; icon left 20px, label centered
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -311,28 +511,23 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.card,
     position: "relative",
   },
-  buttonApple: {
-    backgroundColor: "#FFFFFF",
-  },
+  buttonApple: { backgroundColor: "#FFFFFF" },
   buttonDark: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.surface2,
   },
-  buttonIcon: {
-    position: "absolute",
-    left: 20,
-  },
-  buttonLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  labelApple: {
-    color: "#000000",
-  },
-  labelDark: {
-    color: COLORS.text,
+  buttonIcon: { position: "absolute", left: 20 },
+  buttonLabel: { fontFamily: "Inter_600SemiBold", fontSize: 16, fontWeight: "600" },
+  labelApple: { color: "#000000" },
+  labelDark: { color: COLORS.text },
+  learnCopy: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    fontWeight: "400",
+    color: COLORS.text2,
+    textAlign: "center",
+    marginTop: SPACING.sm,
   },
   legal: {
     fontFamily: "Inter_400Regular",
@@ -342,8 +537,57 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: SPACING.md,
   },
-  legalLink: {
-    color: COLORS.violet,
+  legalLink: { color: COLORS.violet },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: SPACING.screenPadding,
   },
-  // Legal: Terms & Privacy Policy tappable (placeholder onPress)
+  modalContent: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.modal,
+    padding: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  modalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  modalHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.text2,
+    marginBottom: SPACING.md,
+  },
+  emailInput: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    color: COLORS.text,
+    backgroundColor: COLORS.bg1,
+    borderRadius: RADIUS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 12,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  modalButtons: { flexDirection: "row", gap: SPACING.sm, justifyContent: "flex-end" },
+  modalBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: RADIUS.card,
+    minWidth: 80,
+    alignItems: "center",
+  },
+  modalBtnCancel: { backgroundColor: COLORS.surface2 },
+  modalBtnCancelText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text2 },
+  modalBtnSend: { backgroundColor: COLORS.violet },
+  modalBtnSendText: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.text },
 });

@@ -15,6 +15,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -34,6 +35,8 @@ import { ONBOARDING_QUESTIONS, genderOptionToValue } from "../constants/onboardi
 import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
 import type { OnboardingAnswers } from "../context/OnboardingAnswersContext";
 import { OnboardingProgressBar } from "../components/OnboardingProgressBar";
+import { supabase } from "../utils/supabase";
+import { postOnboarding } from "../utils/api";
 import { OnboardingOptionCard } from "../components/OnboardingOptionCard";
 import { OnboardingSlider } from "../components/OnboardingSlider";
 import { COLORS, SPACING, RADIUS, ANIMATIONS, SHADOWS } from "../constants/theme";
@@ -221,20 +224,60 @@ export function OnboardingQuestionScreen() {
     return currentAnswer !== undefined && currentAnswer !== null && currentAnswer !== "";
   }, [config, isSlider, isMulti, currentAnswer, getAnswer]);
 
-  const handleNext = useCallback(() => {
+  const [submitting, setSubmitting] = useState(false);
+  const { setArchetypeContent } = useOnboardingAnswers();
+
+  const handleNext = useCallback(async () => {
     if (!hasAnswer() || !config || transitionToIndex !== null) return;
     if (currentQuestionIndex < 13) {
       setQuestionState((prev) => ({ ...prev, transitionToIndex: prev.currentQuestionIndex + 1 }));
-    } else {
-      // Pass a snapshot so arrays are copied and the object is the final state at Q13
-      const snapshot: OnboardingAnswers = {
-        ...answers,
-        interests: answers.interests ? [...answers.interests] : undefined,
-        quitTargets: answers.quitTargets ? [...answers.quitTargets] : undefined,
-      };
-      navigation.replace("ArchetypeReveal", { answers: snapshot });
+      return;
     }
-  }, [currentQuestionIndex, config, hasAnswer, transitionToIndex, navigation, answers]);
+    const snapshot: OnboardingAnswers = {
+      ...answers,
+      interests: answers.interests ? [...answers.interests] : undefined,
+      quitTargets: answers.quitTargets ? [...answers.quitTargets] : undefined,
+    };
+    setSubmitting(true);
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const interestsList = Array.isArray(snapshot.interests) ? snapshot.interests : [];
+      if (interestsList.includes("Something else") && snapshot.interestOther) {
+        interestsList[interestsList.indexOf("Something else")] = snapshot.interestOther;
+      }
+      const payload = {
+        answers: {
+          gender: snapshot.gender,
+          ageRange: snapshot.ageRange,
+          situation: snapshot.situation,
+          reason: snapshot.reason,
+          taskApproach: snapshot.taskApproach,
+          offTrack: snapshot.offTrack,
+          motivation: snapshot.motivation,
+          autonomy: snapshot.autonomy,
+          comparison: snapshot.comparison,
+          interests: snapshot.interests,
+          quitTargets: snapshot.quitTargets,
+          dailyHours: snapshot.dailyHours,
+          commitmentTimeline: snapshot.commitmentTimeline,
+        },
+        interests: interestsList.filter(Boolean),
+        quit_targets: Array.isArray(snapshot.quitTargets) ? snapshot.quitTargets : [],
+        available_hours_per_day: typeof snapshot.dailyHours === "number" ? snapshot.dailyHours : 1,
+        gender: snapshot.gender ?? null,
+      };
+      const response = await postOnboarding(payload, token);
+      setArchetypeContent(response.archetype_content);
+      navigation.replace("ArchetypeReveal", { answers: snapshot });
+    } catch (e) {
+      console.error("Onboarding submit failed", e);
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+  }, [currentQuestionIndex, config, hasAnswer, transitionToIndex, navigation, answers, setArchetypeContent]);
 
   const handleBack = useCallback(() => {
     if (currentQuestionIndex <= 1 || transitionToIndex !== null) return;
@@ -484,9 +527,9 @@ export function OnboardingQuestionScreen() {
           <View style={styles.bottomSection}>
             <Pressable
               onPress={handleNext}
-              disabled={!hasAnswer() || isTransitioning}
+              disabled={!hasAnswer() || isTransitioning || submitting}
               onPressIn={() => {
-                buttonScale.value = withTiming(ANIMATIONS.pressScale, { duration: ANIMATIONS.pressIn });
+                if (!submitting) buttonScale.value = withTiming(ANIMATIONS.pressScale, { duration: ANIMATIONS.pressIn });
               }}
               onPressOut={() => {
                 buttonScale.value = withTiming(1, { duration: ANIMATIONS.pressOut });
@@ -498,14 +541,18 @@ export function OnboardingQuestionScreen() {
                   colors={["#6D28D9", "#8B5CF6"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={[styles.buttonGradient, !hasAnswer() && styles.buttonDisabled]}
+                  style={[styles.buttonGradient, (!hasAnswer() || submitting) && styles.buttonDisabled]}
                 >
-                  <Text style={[styles.buttonLabel, !hasAnswer() && styles.buttonLabelDisabled]}>
-                    {currentQuestionIndex < 13 ? "Next" : "Continue"}
-                  </Text>
+                  {submitting ? (
+                    <ActivityIndicator size="small" color={COLORS.text} />
+                  ) : (
+                    <Text style={[styles.buttonLabel, !hasAnswer() && styles.buttonLabelDisabled]}>
+                      {currentQuestionIndex < 13 ? "Next" : "Continue"}
+                    </Text>
+                  )}
                 </LinearGradient>
               </Animated.View>
-          </Pressable>
+            </Pressable>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>

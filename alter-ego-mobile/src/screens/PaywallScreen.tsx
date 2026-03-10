@@ -16,6 +16,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+} from "react-native-reanimated";
 import { PetAnimation } from "../components/PetAnimation";
 import {
   COLORS,
@@ -23,6 +28,7 @@ import {
   GRADIENTS,
   RADIUS,
   SHADOWS,
+  ANIMATIONS,
 } from "../constants/theme";
 
 const CHAR_W = 120;
@@ -48,6 +54,10 @@ const PLACEHOLDER_PET_STAGE = 2;
 export function PaywallScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const ctaScale = useSharedValue(1);
+  const ctaAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: ctaScale.value }],
+  }));
 
   const handleSubscribe = () => {
     console.log("[Paywall] Continue for $9/month — RevenueCat purchase flow (Phase 4)");
@@ -113,10 +123,10 @@ export function PaywallScreen() {
           </View>
         </View>
 
-        {/* Trial end message */}
-        <Text style={styles.headline}>Your trial has ended.</Text>
+        {/* Trial end message — factor + 14-day learning */}
+        <Text style={styles.headline}>You showed up 14 days.</Text>
         <Text style={styles.subhead}>
-          Your streak. Your companion. Your progress. All still here.
+          We've learned how you work. Continue with a plan that fits you.
         </Text>
 
         {/* Price card — 24px below message */}
@@ -136,19 +146,27 @@ export function PaywallScreen() {
           </View>
         </View>
 
-        {/* CTA — 24px below price card */}
+        {/* CTA — 24px below price card — press scale */}
         <Pressable
           onPress={handleSubscribe}
-          style={({ pressed }) => [styles.ctaWrap, pressed && styles.ctaPressed]}
+          onPressIn={() => {
+            ctaScale.value = withTiming(ANIMATIONS.pressScale, { duration: ANIMATIONS.pressIn });
+          }}
+          onPressOut={() => {
+            ctaScale.value = withTiming(1, { duration: ANIMATIONS.pressOut });
+          }}
+          style={styles.ctaWrap}
         >
-          <LinearGradient
-            colors={GRADIENTS.button.colors}
-            start={GRADIENTS.button.start}
-            end={GRADIENTS.button.end}
-            style={[styles.ctaBtn, SHADOWS.button]}
-          >
-            <Text style={styles.ctaLabel}>Continue for $9/month</Text>
-          </LinearGradient>
+          <Animated.View style={[styles.ctaBtnWrap, ctaAnimatedStyle]}>
+            <LinearGradient
+              colors={GRADIENTS.button.colors}
+              start={GRADIENTS.button.start}
+              end={GRADIENTS.button.end}
+              style={[styles.ctaBtn, SHADOWS.button]}
+            >
+              <Text style={styles.ctaLabel}>Continue for $9/month</Text>
+            </LinearGradient>
+          </Animated.View>
         </Pressable>
 
         <Pressable
@@ -290,7 +308,10 @@ const styles = StyleSheet.create({
     width: "100%",
     marginBottom: SPACING.sm,
   },
-  ctaPressed: { opacity: 0.9 },
+  ctaBtnWrap: {
+    width: "100%",
+    height: CTA_HEIGHT,
+  },
   ctaBtn: {
     height: CTA_HEIGHT,
     borderRadius: RADIUS.card,

@@ -1,10 +1,10 @@
 /**
- * Screen 14 — Archetype Reveal. Oracle processes 3s, then reveals archetype.
- * Phase A: Processing (3000ms). Phase B: Reveal sequence (ms-precise). First Shadow Twin hint.
+ * Screen 14 — Archetype Reveal. Content from POST /onboarding (archetype_content).
+ * Phase A: Processing (3000ms). Phase B: Reveal sequence. Twin first message at 2200ms.
  */
 
 import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -19,6 +19,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { Pressable } from "react-native";
 import type { OnboardingStackParamList } from "../navigation/types";
+import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
 import { COLORS, SPACING, RADIUS, GRADIENTS, SHADOWS } from "../constants/theme";
 
 const PROCESSING_DURATION_MS = 3000;
@@ -28,52 +29,6 @@ const DOT_RING_RADIUS = 36;
 const ROTATION_DURATION_MS = 1200;
 const PULSE_STAGGER_MS = 150;
 
-type ArchetypeKey =
-  | "The Restless Creator"
-  | "The Reluctant Achiever"
-  | "The Structured Climber"
-  | "The Lone Wolf"
-  | "The Social Performer";
-
-const ARCHETYPE_CONTENT: Record<
-  ArchetypeKey,
-  { description: string; twinFirstMessage: string }
-> = {
-  "The Restless Creator": {
-    description:
-      "You work in bursts. High energy, then silence. The gap between your potential and your output frustrates you most.",
-    twinFirstMessage:
-      '"Finally. I\'ve been waiting. My streak is already ahead of yours — but you knew that."',
-  },
-  "The Reluctant Achiever": {
-    description:
-      "You know exactly what you're capable of. The problem is starting. Perfectionism and procrastination wear the same mask.",
-    twinFirstMessage:
-      '"I\'m glad you\'re here. We have a long way to grow. Let\'s see what you\'re actually made of."',
-  },
-  "The Structured Climber": {
-    description:
-      "You thrive with a plan. Uncertainty is your only real enemy. Given the right system, you execute without hesitation.",
-    twinFirstMessage:
-      '"Good. I\'m already a week ahead. Close the gap — if you actually do the work."',
-  },
-  "The Lone Wolf": {
-    description:
-      "You don't need external validation. But sometimes you drift without an anchor. You work best when the mission feels personally chosen.",
-    twinFirstMessage:
-      '"You came. I\'ve been here. The gap is yours to decide what to do with."',
-  },
-  "The Social Performer": {
-    description:
-      "Visibility drives you. You perform best when someone is watching. The leaderboard will be uncomfortable — and motivating.",
-    twinFirstMessage:
-      '"Finally. My companion is already evolving. Yours is still waiting to be born. Keep up."',
-  },
-};
-
-// Phase 1: hardcode. Wire algorithm in Phase 2.
-const PLACEHOLDER_ARCHETYPE: ArchetypeKey = "The Reluctant Achiever";
-
 type Nav = StackNavigationProp<OnboardingStackParamList, "ArchetypeReveal">;
 type Route = RouteProp<OnboardingStackParamList, "ArchetypeReveal">;
 
@@ -81,12 +36,14 @@ export function ArchetypeRevealScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
   const answers = route.params?.answers;
+  const { archetypeContent } = useOnboardingAnswers();
 
   const [phase, setPhase] = useState<"processing" | "reveal">("processing");
   const revealStartRef = useRef<number>(0);
 
-  const archetype: ArchetypeKey = PLACEHOLDER_ARCHETYPE;
-  const { description, twinFirstMessage } = ARCHETYPE_CONTENT[archetype];
+  const archetype = archetypeContent?.archetype ?? "";
+  const description = archetypeContent?.description ?? "";
+  const twinFirstMessage = archetypeContent?.twin_first_message ?? "";
 
   // Phase A: processing indicator
   const rotation = useSharedValue(0);
@@ -147,6 +104,24 @@ export function ArchetypeRevealScreen() {
     return () => clearTimeout(t);
   }, []);
 
+  if (!archetypeContent) {
+    return (
+      <LinearGradient
+        colors={[COLORS.bg1, COLORS.bg0]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={styles.gradientRoot}
+      >
+        <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color={COLORS.violet} />
+            <Text style={styles.loadingText}>Loading your results...</Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
+
   useEffect(() => {
     if (phase !== "reveal") return;
     const easeOut = Easing.out(Easing.ease);
@@ -177,10 +152,10 @@ export function ArchetypeRevealScreen() {
       900,
       withTiming(1, { duration: 400, easing: easeOut })
     );
-    // 1300–1800ms: Twin silhouette 0→0.15
+    // 1300–1800ms: Twin silhouette — very subtle (no purple wash)
     twinSilhouetteOpacity.value = withDelay(
       1300,
-      withTiming(0.15, { duration: 500, easing: easeOut })
+      withTiming(0.04, { duration: 500, easing: easeOut })
     );
     // 1800–2200ms: Twin message
     twinMessageOpacity.value = withDelay(
@@ -238,16 +213,7 @@ export function ArchetypeRevealScreen() {
           <Text style={styles.twinMessage}>{twinFirstMessage}</Text>
         </Animated.View>
         <Animated.View style={[styles.enterButtonWrap, enterButtonAnimatedStyle]}>
-          <Pressable
-            onPress={() =>
-              navigation.navigate("TwinIntroduction", {
-                archetype: archetype,
-                twinFirstMessage: twinFirstMessage,
-                gender: answers?.gender ?? "male",
-              })
-            }
-            style={styles.enterButton}
-          >
+          <Pressable onPress={handleEnter} style={styles.enterButton}>
             <LinearGradient
               colors={GRADIENTS.button.colors}
               start={GRADIENTS.button.start}
@@ -341,30 +307,32 @@ const styles = StyleSheet.create({
   },
   youAre: {
     fontFamily: "Inter_500Medium",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "500",
     color: COLORS.muted,
-    letterSpacing: 2,
+    letterSpacing: 2.5,
     textTransform: "uppercase",
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   archetypeName: {
     fontFamily: "Inter_700Bold",
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: "700",
     color: COLORS.text,
     letterSpacing: -0.5,
     textAlign: "center",
     marginBottom: SPACING.md,
+    paddingHorizontal: SPACING.sm,
   },
   description: {
     fontFamily: "Inter_400Regular",
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "400",
     color: COLORS.text2,
     textAlign: "center",
-    maxWidth: 300,
-    marginBottom: SPACING.lg,
+    maxWidth: 320,
+    lineHeight: 22,
+    marginBottom: SPACING.xl,
   },
   twinSilhouette: {
     ...StyleSheet.absoluteFillObject,
@@ -372,28 +340,37 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
   twinMessageCard: {
-    backgroundColor: "#141824",
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 24,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.violet,
+    borderRadius: RADIUS.card,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.md,
     marginBottom: SPACING.lg,
     width: "100%",
-    borderLeftWidth: 3,
-    borderLeftColor: "#8B5CF6",
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   twinMessageLabel: {
     fontFamily: "Inter_500Medium",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "500",
-    color: "#8B5CF6",
-    marginBottom: 8,
+    color: COLORS.muted,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginBottom: SPACING.sm,
   },
   twinMessage: {
-    fontFamily: "Inter_400Regular_Italic",
+    fontFamily: "Inter_400Regular",
     fontSize: 15,
     fontWeight: "400",
-    color: "#E5E7EB",
+    color: COLORS.text,
     fontStyle: "italic",
+    textAlign: "center",
+    lineHeight: 22,
   },
   enterButtonWrap: {
     width: "100%",
@@ -417,6 +394,18 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 16,
     fontWeight: "600",
-    color: "#F3F4F6",
+    color: COLORS.text,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: SPACING.screenPadding,
+  },
+  loadingText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.text2,
+    marginTop: SPACING.md,
   },
 });

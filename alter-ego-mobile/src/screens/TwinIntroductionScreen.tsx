@@ -1,10 +1,11 @@
 /**
  * Screen 15 — Twin Introduction. Shadow Twin fully introduced. User and Twin side by side.
  * Gap established. Last screen before main app. No back button.
+ * Gender is not used for any visual — character art is always character_1_male (analytics only).
  */
 
 import React, { useEffect, useLayoutEffect } from "react";
-import { View, Text, StyleSheet, Dimensions, Pressable } from "react-native";
+import { View, Text, StyleSheet, Dimensions, Pressable, Image } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp, CommonActions } from "@react-navigation/native";
@@ -35,9 +36,10 @@ export function TwinIntroductionScreen() {
   const route = useRoute<Route>();
   const insets = useSafeAreaInsets();
   const params = route.params;
-  const gender = params?.gender ?? "male";
   const username = "You";
   const twinFirstMessage = params?.twinFirstMessage ?? DEFAULT_TWIN_MESSAGE;
+  // Character art: always character_1_male (gender is for analytics only, not visual)
+  const characterSource = require("../../assets/images/characters/character_1_male.png");
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false, title: "" });
@@ -134,14 +136,9 @@ export function TwinIntroductionScreen() {
             </Animated.View>
 
             <Animated.View style={[styles.half, styles.rightHalf, twinStyle]}>
-              <LinearGradient
-                colors={["#252A3D", "#1E2333"]}
-                style={styles.charPlaceholderTwin}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-              >
-                <Text style={styles.placeholderLabelTwin}>YOUR TWIN</Text>
-              </LinearGradient>
+              <View style={styles.charWrap}>
+                <Image source={characterSource} style={styles.charImage} resizeMode="cover" />
+              </View>
               <Text style={styles.twinLabel}>Shadow Twin</Text>
               <Text style={styles.stageTwin}>The Focused</Text>
             </Animated.View>
@@ -151,7 +148,7 @@ export function TwinIntroductionScreen() {
         <View style={styles.centerContent}>
           <View style={styles.gapLine} />
           <Animated.Text style={[styles.gapText, gapTextStyle]}>
-            Your Twin is already 7 days ahead.
+            Your rival is you — one week ahead.
           </Animated.Text>
           <View style={styles.gapBelow} />
 
@@ -159,6 +156,12 @@ export function TwinIntroductionScreen() {
             <Text style={styles.twinCardLabel}>Your Twin</Text>
             <Text style={styles.twinCardMessage}>{twinFirstMessage}</Text>
           </Animated.View>
+          <Text style={styles.fourteenDayCopy}>
+            Your first 14 days we learn how you work best. You just show up.
+          </Text>
+          <Text style={styles.transparencyCopy}>
+            We use how you use the app to personalize your experience. We don't sell your data.
+          </Text>
         </View>
 
         <Animated.View style={[styles.buttonWrap, { bottom: insets.bottom + 32 }, buttonStyle]}>
@@ -200,31 +203,16 @@ const styles = StyleSheet.create({
   },
   leftHalf: {},
   rightHalf: {},
-  charPlaceholder: {
+  charWrap: {
     width: CHAR_PLACEHOLDER_WIDTH,
     height: CHAR_PLACEHOLDER_HEIGHT,
     borderRadius: RADIUS.card,
-    alignItems: "center",
-    justifyContent: "center",
+    overflow: "hidden",
+    backgroundColor: COLORS.surface,
   },
-  charPlaceholderTwin: {
+  charImage: {
     width: CHAR_PLACEHOLDER_WIDTH,
     height: CHAR_PLACEHOLDER_HEIGHT,
-    borderRadius: RADIUS.card,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  placeholderLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    fontWeight: "600",
-    color: COLORS.text2,
-  },
-  placeholderLabelTwin: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    fontWeight: "600",
-    color: COLORS.text2,
   },
   userName: {
     fontFamily: "Inter_400Regular",
@@ -306,6 +294,24 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: "#E5E7EB",
     fontStyle: "italic",
+  },
+  fourteenDayCopy: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    fontWeight: "400",
+    color: COLORS.text2,
+    textAlign: "center",
+    marginTop: SPACING.lg,
+    paddingHorizontal: SPACING.sm,
+  },
+  transparencyCopy: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    fontWeight: "400",
+    color: COLORS.muted,
+    textAlign: "center",
+    marginTop: SPACING.md,
+    paddingHorizontal: SPACING.sm,
   },
   buttonWrap: {
     position: "absolute",

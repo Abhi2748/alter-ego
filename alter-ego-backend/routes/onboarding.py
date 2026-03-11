@@ -1,5 +1,6 @@
-"""POST /onboarding — receive answers, run archetype scoring, store users + discipline_dna, generate initial missions."""
-from fastapi import APIRouter, Depends, HTTPException
+"""POST /onboarding — receive answers, run archetype scoring, store users + discipline_dna, generate initial missions.
+   GET /onboarding/check-username — check if username is available (unique)."""
+from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timezone
 
 from models.onboarding import OnboardingPayload, OnboardingResponse, MissionInResponse, ArchetypeContent
@@ -11,15 +12,44 @@ from agents.planner import generate_initial_missions
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
 
+@router.get("/check-username")
+async def check_username(
+    username: str = Query(..., min_length=1, max_length=32),
+    user_id: str = Depends(get_user_id),
+):
+    """Return 200 if username is available (not taken by another user). 409 if taken.
+    Same user_id is allowed to keep their username. Comparison is case-sensitive."""
+    supabase = get_supabase()
+    un = username.strip()
+    if not un:
+        raise HTTPException(status_code=400, detail="Username required")
+    r = supabase.table("users").select("id").eq("username", un).execute()
+    existing = (r.data or [])
+    if not existing:
+        return {"available": True}
+    if len(existing) == 1 and str(existing[0].get("id")) == str(user_id):
+        return {"available": True}
+    raise HTTPException(status_code=409, detail="Username already taken")
+
+
 @router.post("", response_model=OnboardingResponse)
 async def post_onboarding(payload: OnboardingPayload, user_id: str = Depends(get_user_id)):
     supabase = get_supabase()
     now_iso = datetime.now(timezone.utc).isoformat()
 
+    # 0) Username uniqueness (if provided)
+    if payload.username:
+        un = (payload.username or "").strip()
+        if un:
+            r = supabase.table("users").select("id").ilike("username", un.lower()).execute()
+            existing = (r.data or [])
+            if existing and str(existing[0].get("id")) != str(user_id):
+                raise HTTPException(status_code=409, detail="Username already taken")
+
     # 1) Archetype scoring from answers (§3.1)
     archetype, discipline_dna = score_archetype(payload.answers or {})
 
-    # 2) Upsert users: archetype, discipline_dna, interests, quit_targets, hours, gender, trial_start_date
+    # 2) Upsert users: username, archetype, discipline_dna, interests, quit_targets, hours, gender, trial_start_date
     users_payload = {
         "id": user_id,
         "archetype": archetype,
@@ -31,6 +61,8 @@ async def post_onboarding(payload: OnboardingPayload, user_id: str = Depends(get
         "trial_start_date": now_iso,
         "subscription_status": "trial",
     }
+    if payload.username and (payload.username or "").strip():
+        users_payload["username"] = (payload.username or "").strip()
     supabase.table("users").upsert(users_payload, on_conflict="id").execute()
 
     # 3) Ensure character_state, pet_state, twin_state exist (upsert = insert or update)

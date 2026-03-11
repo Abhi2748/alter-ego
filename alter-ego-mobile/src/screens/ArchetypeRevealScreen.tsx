@@ -1,10 +1,10 @@
 /**
- * Screen 14 — Archetype Reveal. Content from POST /onboarding (archetype_content).
- * Phase A: Processing (3000ms). Phase B: Reveal sequence. Twin first message at 2200ms.
+ * Archetype Reveal. After questions: show "Building your Discipline DNA", POST /onboarding, then reveal.
+ * Phase A: Processing (while POST runs). Phase B: Reveal + 14-day framing. Enter → Twin Introduction.
  */
 
-import React, { useEffect, useState, useRef } from "react";
-import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import { View, Text, StyleSheet, ActivityIndicator, Alert, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -20,9 +20,14 @@ import Animated, {
 import { Pressable } from "react-native";
 import type { OnboardingStackParamList } from "../navigation/types";
 import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
+import type { OnboardingAnswers, OnboardingInterestItem } from "../context/OnboardingAnswersContext";
 import { COLORS, SPACING, RADIUS, GRADIENTS, SHADOWS } from "../constants/theme";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../utils/supabase";
+import { postOnboarding } from "../utils/api";
 
-const PROCESSING_DURATION_MS = 3000;
+const ONBOARDING_DRAFT_KEY = "@alter_ego_onboarding_draft";
+
 const DOT_COUNT = 8;
 const DOT_SIZE = 6;
 const DOT_RING_RADIUS = 36;
@@ -32,25 +37,80 @@ const PULSE_STAGGER_MS = 150;
 type Nav = StackNavigationProp<OnboardingStackParamList, "ArchetypeReveal">;
 type Route = RouteProp<OnboardingStackParamList, "ArchetypeReveal">;
 
+function buildOnboardingPayload(answers: OnboardingAnswers) {
+  const interestItems = (answers.interestItems ?? []) as OnboardingInterestItem[];
+  const interests = interestItems.length > 0
+    ? interestItems.map((i) => i.name)
+    : (answers.interests ?? []);
+  const interest_levels =
+    interestItems.length > 0
+      ? interestItems.map((i) => ({
+          interest: i.name,
+          level: i.level,
+          learning_goal: i.learning_goal || undefined,
+        }))
+      : undefined;
+  let quit_targets = (answers.quitTargets ?? []) as string[];
+  if (quit_targets.includes("Something else") && answers.quitOther?.trim()) {
+    quit_targets = quit_targets.map((x) =>
+      x === "Something else" ? (answers.quitOther as string).trim() : x
+    );
+  }
+  return {
+    answers: {
+      username: answers.username,
+      gender: answers.gender,
+      ageRange: answers.ageRange,
+      situation: answers.situation,
+      reason: answers.reason,
+      taskApproach: answers.taskApproach,
+      offTrack: answers.offTrack,
+      motivation: answers.motivation,
+      autonomy: answers.autonomy,
+      comparison: answers.comparison,
+      interests: answers.interests,
+      quitTargets: answers.quitTargets,
+      dailyHours: answers.dailyHours,
+      commitmentTimeline: answers.commitmentTimeline,
+    },
+    interests,
+    quit_targets,
+    available_hours_per_day: typeof answers.dailyHours === "number" ? answers.dailyHours : 1,
+    gender: answers.gender ?? null,
+    username: (answers.username as string)?.trim() || null,
+    interest_levels,
+  };
+}
+
 export function ArchetypeRevealScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
   const answers = route.params?.answers;
-  const { archetypeContent } = useOnboardingAnswers();
+  const { archetypeContent, setArchetypeContent } = useOnboardingAnswers();
 
   const [phase, setPhase] = useState<"processing" | "reveal">("processing");
-  const revealStartRef = useRef<number>(0);
+  const [postError, setPostError] = useState<string | null>(null);
+  const postedRef = useRef(false);
+
+  // When we land with new answers (e.g. user went back and pressed Continue again), reset so we POST again
+  const prevAnswersRef = useRef<typeof answers>(undefined);
+  useEffect(() => {
+    if (!answers) return;
+    if (prevAnswersRef.current === answers) return;
+    prevAnswersRef.current = answers;
+    postedRef.current = false;
+    setArchetypeContent(null);
+    setPhase("processing");
+    setPostError(null);
+  }, [answers]);
 
   const archetype = archetypeContent?.archetype ?? "";
   const description = archetypeContent?.description ?? "";
-  const twinFirstMessage = archetypeContent?.twin_first_message ?? "";
 
-  // Phase A: processing indicator
   const rotation = useSharedValue(0);
   const readingOpacity = useSharedValue(0);
   const buildingOpacity = useSharedValue(0);
 
-  // Phase B: reveal sequence
   const processingOpacity = useSharedValue(1);
   const youAreOpacity = useSharedValue(0);
   const youAreY = useSharedValue(-20);
@@ -58,7 +118,7 @@ export function ArchetypeRevealScreen() {
   const nameY = useSharedValue(-30);
   const descOpacity = useSharedValue(0);
   const twinSilhouetteOpacity = useSharedValue(0);
-  const twinMessageOpacity = useSharedValue(0);
+  const fourteenDayOpacity = useSharedValue(0);
   const enterButtonOpacity = useSharedValue(0);
 
   const youAreAnimatedStyle = useAnimatedStyle(() => ({
@@ -73,9 +133,7 @@ export function ArchetypeRevealScreen() {
   const twinSilhouetteAnimatedStyle = useAnimatedStyle(() => ({
     opacity: twinSilhouetteOpacity.value,
   }));
-  const twinMessageAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: twinMessageOpacity.value,
-  }));
+  const fourteenDayAnimatedStyle = useAnimatedStyle(() => ({ opacity: fourteenDayOpacity.value }));
   const enterButtonAnimatedStyle = useAnimatedStyle(() => ({
     opacity: enterButtonOpacity.value,
   }));
@@ -97,12 +155,81 @@ export function ArchetypeRevealScreen() {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      setPhase("reveal");
-      revealStartRef.current = Date.now();
-    }, PROCESSING_DURATION_MS);
-    return () => clearTimeout(t);
-  }, []);
+    if (!answers || postedRef.current || archetypeContent) return;
+    (async () => {
+      postedRef.current = true;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      if (!token) {
+        setPostError("Session expired. Please sign in again.");
+        return;
+      }
+      try {
+        const payload = buildOnboardingPayload(answers);
+        const response = await postOnboarding(payload, token);
+        setArchetypeContent(response.archetype_content);
+        setPhase("reveal");
+        try {
+          await AsyncStorage.removeItem(ONBOARDING_DRAFT_KEY);
+        } catch (_) {}
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Something went wrong";
+        setPostError(msg);
+        if (msg.includes("Username already taken")) {
+          Alert.alert("Username taken", "That username is already in use. Go back and choose another.");
+        }
+      }
+    })();
+  }, [answers, archetypeContent, setArchetypeContent]);
+
+  useEffect(() => {
+    if (phase !== "reveal") return;
+    const easeOut = Easing.out(Easing.ease);
+    processingOpacity.value = withDelay(0, withTiming(0, { duration: 200, easing: easeOut }));
+    youAreY.value = -20;
+    youAreOpacity.value = 0;
+    youAreOpacity.value = withDelay(300, withTiming(1, { duration: 400, easing: easeOut }));
+    youAreY.value = withDelay(300, withTiming(0, { duration: 400, easing: easeOut }));
+    nameY.value = -30;
+    nameOpacity.value = 0;
+    nameOpacity.value = withDelay(500, withTiming(1, { duration: 400, easing: easeOut }));
+    nameY.value = withDelay(500, withTiming(0, { duration: 400, easing: easeOut }));
+    descOpacity.value = withDelay(900, withTiming(1, { duration: 400, easing: easeOut }));
+    twinSilhouetteOpacity.value = withDelay(1300, withTiming(0.04, { duration: 500, easing: easeOut }));
+    fourteenDayOpacity.value = withDelay(1500, withTiming(1, { duration: 400, easing: easeOut }));
+    enterButtonOpacity.value = withDelay(2000, withTiming(1, { duration: 300, easing: easeOut }));
+  }, [phase]);
+
+  const handleEnter = useCallback(() => {
+    navigation.navigate("TwinIntroduction", {
+      twinFirstMessage: archetypeContent?.twin_first_message ?? "",
+    });
+  }, [navigation, archetypeContent?.twin_first_message]);
+
+  const dotRingStyle = useAnimatedStyle(() => {
+    "worklet";
+    const angle = rotation.value * 2 * Math.PI;
+    return {
+      transform: [{ rotate: `${angle}rad` }],
+    };
+  });
+
+  if (postError && !archetypeContent) {
+    return (
+      <LinearGradient
+        colors={[COLORS.bg1, COLORS.bg0]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={styles.gradientRoot}
+      >
+        <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
+          <View style={styles.loadingWrap}>
+            <Text style={styles.errorText}>{postError}</Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
 
   if (!archetypeContent) {
     return (
@@ -113,69 +240,15 @@ export function ArchetypeRevealScreen() {
         style={styles.gradientRoot}
       >
         <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator size="large" color={COLORS.violet} />
-            <Text style={styles.loadingText}>Loading your results...</Text>
+          <View style={styles.processingWrap}>
+            <Text style={styles.readingLabel}>Reading your answers</Text>
+            <ActivityIndicator size="large" color={COLORS.violet} style={{ marginVertical: SPACING.md }} />
+            <Text style={styles.buildingLabel}>Building your Discipline DNA...</Text>
           </View>
         </SafeAreaView>
       </LinearGradient>
     );
   }
-
-  useEffect(() => {
-    if (phase !== "reveal") return;
-    const easeOut = Easing.out(Easing.ease);
-
-    // 0–300ms: processing fades out (200ms)
-    processingOpacity.value = withDelay(
-      0,
-      withTiming(0, { duration: 200, easing: easeOut })
-    );
-    // 300–700ms: YOU ARE
-    youAreY.value = -20;
-    youAreOpacity.value = 0;
-    youAreOpacity.value = withDelay(
-      300,
-      withTiming(1, { duration: 400, easing: easeOut })
-    );
-    youAreY.value = withDelay(300, withTiming(0, { duration: 400, easing: easeOut }));
-    // 500–900ms: archetype name
-    nameY.value = -30;
-    nameOpacity.value = 0;
-    nameOpacity.value = withDelay(
-      500,
-      withTiming(1, { duration: 400, easing: easeOut })
-    );
-    nameY.value = withDelay(500, withTiming(0, { duration: 400, easing: easeOut }));
-    // 900–1300ms: description
-    descOpacity.value = withDelay(
-      900,
-      withTiming(1, { duration: 400, easing: easeOut })
-    );
-    // 1300–1800ms: Twin silhouette — very subtle (no purple wash)
-    twinSilhouetteOpacity.value = withDelay(
-      1300,
-      withTiming(0.04, { duration: 500, easing: easeOut })
-    );
-    // 1800–2200ms: Twin message
-    twinMessageOpacity.value = withDelay(
-      1800,
-      withTiming(1, { duration: 400, easing: easeOut })
-    );
-    // 2200ms+: Enter button
-    enterButtonOpacity.value = withDelay(
-      2200,
-      withTiming(1, { duration: 300, easing: easeOut })
-    );
-  }, [phase]);
-
-  const dotRingStyle = useAnimatedStyle(() => {
-    "worklet";
-    const angle = rotation.value * 2 * Math.PI;
-    return {
-      transform: [{ rotate: `${angle}rad` }],
-    };
-  });
 
   return (
     <LinearGradient
@@ -202,15 +275,24 @@ export function ArchetypeRevealScreen() {
         <Text style={styles.buildingLabel}>Building your Discipline DNA...</Text>
       </Animated.View>
 
-      {/* Phase B: Reveal — Twin silhouette behind text, then labels */}
-      <View style={styles.revealWrap} pointerEvents="box-none">
+      {/* Phase B: Reveal — clean hierarchy: label, name, description, 14-day copy, CTA */}
+      <ScrollView
+        style={styles.revealScroll}
+        contentContainerStyle={styles.revealScrollContent}
+        showsVerticalScrollIndicator={false}
+        pointerEvents="box-none"
+      >
         <Animated.View style={[styles.twinSilhouette, twinSilhouetteAnimatedStyle]} />
         <Animated.Text style={[styles.youAre, youAreAnimatedStyle]}>YOU ARE</Animated.Text>
         <Animated.Text style={[styles.archetypeName, nameAnimatedStyle]}>{archetype}</Animated.Text>
         <Animated.Text style={[styles.description, descAnimatedStyle]}>{description}</Animated.Text>
-        <Animated.View style={[styles.twinMessageCard, twinMessageAnimatedStyle]}>
-          <Text style={styles.twinMessageLabel}>Your Twin</Text>
-          <Text style={styles.twinMessage}>{twinFirstMessage}</Text>
+        <Animated.View style={[styles.fourteenDayWrap, fourteenDayAnimatedStyle]}>
+          <Text style={styles.fourteenDayCopy}>
+            Your first 14 days we learn how you work best. Your only job is to show up.
+          </Text>
+          <Text style={styles.transparencyCopy}>
+            We use this information to personalize your app experience. We don't sell your data.
+          </Text>
         </Animated.View>
         <Animated.View style={[styles.enterButtonWrap, enterButtonAnimatedStyle]}>
           <Pressable onPress={handleEnter} style={styles.enterButton}>
@@ -224,7 +306,7 @@ export function ArchetypeRevealScreen() {
             </LinearGradient>
           </Pressable>
         </Animated.View>
-      </View>
+      </ScrollView>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -299,78 +381,48 @@ const styles = StyleSheet.create({
     marginTop: 20,
     textAlign: "center",
   },
-  revealWrap: {
-    flex: 1,
+  revealScroll: { flex: 1 },
+  revealScrollContent: {
+    flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: SPACING.screenPadding,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.xxl,
+    minHeight: "100%",
   },
   youAre: {
     fontFamily: "Inter_500Medium",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "500",
     color: COLORS.muted,
-    letterSpacing: 2.5,
+    letterSpacing: 3,
     textTransform: "uppercase",
-    marginBottom: SPACING.xs,
+    marginBottom: SPACING.sm,
   },
   archetypeName: {
     fontFamily: "Inter_700Bold",
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: "700",
     color: COLORS.text,
     letterSpacing: -0.5,
     textAlign: "center",
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.lg,
     paddingHorizontal: SPACING.sm,
   },
   description: {
     fontFamily: "Inter_400Regular",
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "400",
     color: COLORS.text2,
     textAlign: "center",
     maxWidth: 320,
-    lineHeight: 22,
-    marginBottom: SPACING.xl,
+    lineHeight: 24,
+    marginBottom: SPACING.xxl,
   },
   twinSilhouette: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.violet,
     opacity: 0,
-  },
-  twinMessageCard: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.violet,
-    borderRadius: RADIUS.card,
-    paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.md,
-    marginBottom: SPACING.lg,
-    width: "100%",
-    alignSelf: "center",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  twinMessageLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 11,
-    fontWeight: "500",
-    color: COLORS.muted,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-    marginBottom: SPACING.sm,
-  },
-  twinMessage: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    fontWeight: "400",
-    color: COLORS.text,
-    fontStyle: "italic",
-    textAlign: "center",
-    lineHeight: 22,
   },
   enterButtonWrap: {
     width: "100%",
@@ -407,5 +459,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.text2,
     marginTop: SPACING.md,
+  },
+  errorText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.danger,
+    textAlign: "center",
+  },
+  fourteenDayWrap: {
+    width: "100%",
+    maxWidth: 320,
+    marginBottom: SPACING.xl,
+    alignItems: "center",
+    paddingVertical: SPACING.lg,
+  },
+  fourteenDayCopy: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 15,
+    fontWeight: "400",
+    color: COLORS.text2,
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: SPACING.sm,
+  },
+  transparencyCopy: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    fontWeight: "400",
+    color: COLORS.muted,
+    textAlign: "center",
   },
 });

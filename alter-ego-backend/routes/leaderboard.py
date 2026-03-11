@@ -36,12 +36,18 @@ async def get_leaderboard(user_id: Optional[str] = Depends(get_optional_user_id)
     rows = scores.data or []
     user_ids = [r["user_id"] for r in rows]
 
-    # Batch-fetch emails for these users
-    emails: Dict[str, str] = {}
+    # Batch-fetch username (prefer) or email-derived name
+    user_names: Dict[str, str] = {}
     if user_ids:
-        ur = supabase.table("users").select("id, email").in_("id", user_ids).execute()
+        ur = supabase.table("users").select("id, username, email").in_("id", user_ids).execute()
         for u in ur.data or []:
-            emails[u["id"]] = u.get("email") or ""
+            uid = u["id"]
+            if u.get("username"):
+                user_names[uid] = str(u["username"]).strip()
+            elif u.get("email"):
+                user_names[uid] = (u["email"] or "").split("@")[0].strip() or "—"
+            else:
+                user_names[uid] = "—"
 
     entries: List[Dict[str, Any]] = []
     for i, r in enumerate(rows):
@@ -49,7 +55,7 @@ async def get_leaderboard(user_id: Optional[str] = Depends(get_optional_user_id)
         entries.append({
             "rank": i + 1,
             "user_id": uid,
-            "username": _username_from_email(emails.get(uid)),
+            "username": user_names.get(uid, "—"),
             "power_score": float(r.get("power_score", 0)),
             "streak": int(r.get("streak", 0)),
             "pet_stage": int(r.get("pet_stage", 0)),
@@ -92,11 +98,13 @@ async def get_leaderboard(user_id: Optional[str] = Depends(get_optional_user_id)
                         my_rank = None
                 except Exception:
                     my_rank = None
-                ur_me = supabase.table("users").select("email").eq("id", user_id).maybe_single().execute()
+                ur_me = supabase.table("users").select("username, email").eq("id", user_id).maybe_single().execute()
+                ud = ur_me.data or {}
+                my_username = ud.get("username") and str(ud["username"]).strip() or _username_from_email(ud.get("email"))
                 my_entry = {
                     "rank": my_rank,
                     "user_id": user_id,
-                    "username": _username_from_email((ur_me.data or {}).get("email")),
+                    "username": my_username,
                     "power_score": score_val,
                     "streak": int(me.data.get("streak", 0)),
                     "pet_stage": int(me.data.get("pet_stage", 0)),

@@ -38,8 +38,8 @@ export function TwinIntroductionScreen() {
   const params = route.params;
   const username = "You";
   const twinFirstMessage = params?.twinFirstMessage ?? DEFAULT_TWIN_MESSAGE;
-  // Character art: always character_1_male (gender is for analytics only, not visual)
-  const characterSource = require("../../assets/images/characters/character_1_male.png");
+  // Character art: use placeholder until assets/images/characters/character_1_male.png exists
+  const characterSource = { uri: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQwAADgAHA/j+5qQAAAABJRU5ErkJggg==" };
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false, title: "" });
@@ -156,12 +156,6 @@ export function TwinIntroductionScreen() {
             <Text style={styles.twinCardLabel}>Your Twin</Text>
             <Text style={styles.twinCardMessage}>{twinFirstMessage}</Text>
           </Animated.View>
-          <Text style={styles.fourteenDayCopy}>
-            Your first 14 days we learn how you work best. You just show up.
-          </Text>
-          <Text style={styles.transparencyCopy}>
-            We use how you use the app to personalize your experience. We don't sell your data.
-          </Text>
         </View>
 
         <Animated.View style={[styles.buttonWrap, { bottom: insets.bottom + 32 }, buttonStyle]}>
@@ -203,6 +197,22 @@ const styles = StyleSheet.create({
   },
   leftHalf: {},
   rightHalf: {},
+  charPlaceholder: {
+    width: CHAR_PLACEHOLDER_WIDTH,
+    height: CHAR_PLACEHOLDER_HEIGHT,
+    borderRadius: RADIUS.card,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  placeholderLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: COLORS.text2,
+    letterSpacing: 1,
+  },
   charWrap: {
     width: CHAR_PLACEHOLDER_WIDTH,
     height: CHAR_PLACEHOLDER_HEIGHT,
@@ -294,24 +304,6 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: "#E5E7EB",
     fontStyle: "italic",
-  },
-  fourteenDayCopy: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    fontWeight: "400",
-    color: COLORS.text2,
-    textAlign: "center",
-    marginTop: SPACING.lg,
-    paddingHorizontal: SPACING.sm,
-  },
-  transparencyCopy: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    fontWeight: "400",
-    color: COLORS.muted,
-    textAlign: "center",
-    marginTop: SPACING.md,
-    paddingHorizontal: SPACING.sm,
   },
   buttonWrap: {
     position: "absolute",

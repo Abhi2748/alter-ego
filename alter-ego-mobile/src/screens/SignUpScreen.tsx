@@ -19,7 +19,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import type { RootStackParamList } from "../navigation/types";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
@@ -35,7 +35,7 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { COLORS, RADIUS, SPACING, ANIMATIONS } from "../constants/theme";
-import { supabase } from "../utils/supabase";
+import { supabase, setGuestMode } from "../utils/supabase";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -197,10 +197,11 @@ function createSessionFromUrl(url: string) {
 
 export function SignUpScreen() {
   const navigation = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const particleConfigs = useMemo(() => getParticleConfigs(), []);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [loadingProvider, setLoadingProvider] = useState<"apple" | "google" | "email" | null>(null);
+  const [loadingProvider, setLoadingProvider] = useState<"apple" | "google" | "email" | "later" | null>(null);
   const [emailModalVisible, setEmailModalVisible] = useState(false);
   const [emailInput, setEmailInput] = useState("");
   const [emailSending, setEmailSending] = useState(false);
@@ -214,9 +215,13 @@ export function SignUpScreen() {
 
   const ensureUserAndNavigate = useCallback(
     async (userId: string, email: string | undefined) => {
-      const { data: existing } = await supabase.from("users").select("id").eq("id", userId).maybeSingle();
+      const { data: existing } = await supabase.from("users").select("id, email, archetype").eq("id", userId).maybeSingle();
       if (existing) {
-        navigation.replace("Main");
+        if (email != null && email !== existing.email) {
+          await supabase.from("users").update({ email }).eq("id", userId).select().maybeSingle();
+        }
+        const onboardingComplete = existing.archetype != null && String(existing.archetype).trim() !== "";
+        navigation.replace(onboardingComplete ? "Main" : "Onboarding");
         return;
       }
       const { error: userError } = await supabase.from("users").insert({
@@ -250,11 +255,68 @@ export function SignUpScreen() {
     [navigation, showError]
   );
 
+  const signInLater = useCallback(async () => {
+    setLoadingProvider("later");
+    setErrorMessage(null);
+    try {
+      const { data, error } = await supabase.auth.signInAnonymously();
+      if (error) throw error;
+      if (data?.user) {
+        await ensureUserAndNavigate(data.user.id, undefined);
+      } else {
+        showError("Could not continue");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Something went wrong";
+      const isAnonymousDisabled =
+        typeof msg === "string" &&
+        (msg.toLowerCase().includes("anonymous") || msg.toLowerCase().includes("sign-in is disabled"));
+      if (isAnonymousDisabled) {
+        await setGuestMode();
+        navigation.replace("Onboarding");
+      } else {
+        showError(msg);
+      }
+    } finally {
+      setLoadingProvider(null);
+    }
+  }, [ensureUserAndNavigate, showError, navigation]);
+
   const performOAuth = useCallback(
     async (provider: "apple" | "google") => {
       setLoadingProvider(provider);
       setErrorMessage(null);
       try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const isAnonymous = sessionData?.session?.user?.is_anonymous === true;
+
+        if (isAnonymous) {
+          const { data, error } = await supabase.auth.linkIdentity({
+            provider,
+            options: { redirectTo, skipBrowserRedirect: true },
+          });
+          if (error) throw error;
+          if (!data?.url) {
+            showError("Could not link account");
+            return;
+          }
+          const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+          if (res.type === "success" && res.url) {
+            const { error: sessionError } = await createSessionFromUrl(res.url);
+            if (sessionError) throw sessionError;
+            const { data: after } = await supabase.auth.getSession();
+            if (after?.session?.user) {
+              await ensureUserAndNavigate(
+                after.session.user.id,
+                after.session.user.email ?? undefined
+              );
+            }
+          } else if (res.type !== "cancel") {
+            showError("Sign in was cancelled or failed");
+          }
+          return;
+        }
+
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider,
           options: { redirectTo, skipBrowserRedirect: true },
@@ -296,18 +358,36 @@ export function SignUpScreen() {
     setEmailSending(true);
     setErrorMessage(null);
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: redirectTo },
-      });
-      if (error) throw error;
-      setEmailModalVisible(false);
-      setEmailInput("");
-      Alert.alert(
-        "Check your email",
-        "We sent you a sign-in link. Open it to continue.",
-        [{ text: "OK" }]
-      );
+      const { data: sessionData } = await supabase.auth.getSession();
+      const isAnonymous = sessionData?.session?.user?.is_anonymous === true;
+
+      if (isAnonymous) {
+        const { error } = await supabase.auth.updateUser({
+          email,
+          options: { emailRedirectTo: redirectTo },
+        });
+        if (error) throw error;
+        setEmailModalVisible(false);
+        setEmailInput("");
+        Alert.alert(
+          "Check your email",
+          "We sent you a link to link this account to your email. Open it to continue.",
+          [{ text: "OK" }]
+        );
+      } else {
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: redirectTo },
+        });
+        if (error) throw error;
+        setEmailModalVisible(false);
+        setEmailInput("");
+        Alert.alert(
+          "Check your email",
+          "We sent you a sign-in link. Open it to continue.",
+          [{ text: "OK" }]
+        );
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to send link";
       showError(msg);
@@ -351,7 +431,7 @@ export function SignUpScreen() {
 
         {errorMessage ? (
           <Pressable
-            style={styles.toast}
+            style={[styles.toast, { paddingTop: 12 + insets.top, paddingBottom: 12 }]}
             onPress={() => setErrorMessage(null)}
             accessibilityRole="button"
           >
@@ -388,6 +468,18 @@ export function SignUpScreen() {
                 variant="email"
                 loading={loadingProvider === "email"}
               />
+
+              <Pressable
+                onPress={signInLater}
+                disabled={loadingProvider !== null}
+                style={styles.signInLaterWrap}
+              >
+                {loadingProvider === "later" ? (
+                  <ActivityIndicator size="small" color={COLORS.text2} />
+                ) : (
+                  <Text style={styles.signInLaterText}>Sign in later</Text>
+                )}
+              </Pressable>
 
               <Text style={styles.learnCopy}>
                 We'll learn how you work. Your only job: show up.
@@ -455,7 +547,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: ERROR_TOAST_BG,
-    paddingVertical: 12,
     paddingHorizontal: SPACING.screenPadding,
     zIndex: 10,
   },
@@ -521,6 +612,18 @@ const styles = StyleSheet.create({
   buttonLabel: { fontFamily: "Inter_600SemiBold", fontSize: 16, fontWeight: "600" },
   labelApple: { color: "#000000" },
   labelDark: { color: COLORS.text },
+  signInLaterWrap: {
+    marginTop: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    alignItems: "center",
+    minHeight: 44,
+    justifyContent: "center",
+  },
+  signInLaterText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 15,
+    color: COLORS.text2,
+  },
   learnCopy: {
     fontFamily: "Inter_400Regular",
     fontSize: 14,

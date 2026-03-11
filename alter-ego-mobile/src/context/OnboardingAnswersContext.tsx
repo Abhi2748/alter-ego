@@ -6,7 +6,15 @@
 import React, { createContext, useContext, useCallback, useState } from "react";
 import type { ArchetypeContent } from "../utils/api";
 
+/** One interest in the add-interest flow (name + self-reported level + learning goal). */
+export type OnboardingInterestItem = {
+  name: string;
+  level: "Still figuring it out" | "Getting the hang of it" | "Pretty solid";
+  learning_goal: string;
+};
+
 export type OnboardingAnswers = {
+  username?: string;
   gender?: "male" | "female" | "other";
   ageRange?: string;
   situation?: string;
@@ -16,9 +24,14 @@ export type OnboardingAnswers = {
   motivation?: string;
   autonomy?: string;
   comparison?: string;
+  /** Populated by add-interest flow (Q11). Sent as interest_levels + interests to backend. */
+  interestItems?: OnboardingInterestItem[];
+  /** Legacy / derived: list of interest names for API. */
   interests?: string[];
   interestOther?: string;
   quitTargets?: string[];
+  /** Free text when "Something else" is selected on quit question. */
+  quitOther?: string;
   dailyHours?: number;
   commitmentTimeline?: string;
 };
@@ -27,6 +40,8 @@ type OnboardingAnswersContextValue = {
   answers: OnboardingAnswers;
   updateAnswer: (key: keyof OnboardingAnswers, value: OnboardingAnswers[keyof OnboardingAnswers]) => void;
   getAnswer: (key: keyof OnboardingAnswers) => OnboardingAnswers[keyof OnboardingAnswers];
+  /** Restore full answers from persisted draft (e.g. after app reopen). */
+  hydrateAnswers: (answers: OnboardingAnswers) => void;
   /** Set after POST /onboarding; read by ArchetypeRevealScreen. */
   archetypeContent: ArchetypeContent | null;
   setArchetypeContent: (content: ArchetypeContent | null) => void;
@@ -49,10 +64,15 @@ export function OnboardingAnswersProvider({ children }: { children: React.ReactN
     [answers]
   );
 
+  const hydrateAnswers = useCallback((next: OnboardingAnswers) => {
+    setAnswers((prev) => ({ ...prev, ...next }));
+  }, []);
+
   const value: OnboardingAnswersContextValue = {
     answers,
     updateAnswer,
     getAnswer,
+    hydrateAnswers,
     archetypeContent,
     setArchetypeContent,
   };

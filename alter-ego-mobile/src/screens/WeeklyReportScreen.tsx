@@ -615,9 +615,9 @@ export function WeeklyReportScreen() {
         {!loading && !error && !hasReport && (
           <View style={styles.emptyCard}>
             <Ionicons name="document-text-outline" size={40} color={COLORS.muted} />
-            <Text style={styles.emptyTitle}>Your first report arrives this Sunday</Text>
+            <Text style={styles.emptyTitle}>Weekly Report</Text>
             <Text style={styles.emptySub}>
-              After your first week, we’ll generate a report every Sunday. Check back then.
+              After your first week, we’ll generate a report every Monday (Mon–Sun). Here you'll see wins, slip-ups, and your Twin's take. Your first report appears after your first full week.
             </Text>
           </View>
         )}

@@ -27,6 +27,7 @@ import type { MissionType, MissionStatus } from "../components/MissionCard";
 import { SectionProgressRing } from "../components/SectionProgressRing";
 import { AddMissionModal } from "../components/AddMissionModal";
 import { InterestSchedulePickerModal } from "../components/InterestSchedulePickerModal";
+import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, GRADIENTS } from "../constants/theme";
 import { supabase } from "../utils/supabase";
 import { getHome, completeMission, createMission, estimatePersonalTier, type MissionOut, type MissionCompleteOut } from "../utils/api";
@@ -141,6 +142,8 @@ export function HomeScreen() {
       setCoreMissions(core);
       setInterestMissions(interest);
       setPersonalMissions(personal);
+      setPowerScore(home.power_score ?? 0);
+      setUsername(home.username ?? "");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load home");
     } finally {

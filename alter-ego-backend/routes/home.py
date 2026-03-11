@@ -60,10 +60,13 @@ async def get_home(user_id: str = Depends(get_user_id)):
     if lr.data is not None and lr.data.get("power_score") is not None:
         power_score = float(lr.data["power_score"])
     username = None
-    ur = supabase.table("users").select("email").eq("id", user_id).maybe_single().execute()
-    if ur.data and ur.data.get("email"):
-        email = ur.data["email"]
-        username = email.split("@")[0] if isinstance(email, str) else None
+    ur = supabase.table("users").select("username, email").eq("id", user_id).maybe_single().execute()
+    if ur.data:
+        if ur.data.get("username"):
+            username = str(ur.data["username"]).strip()
+        elif ur.data.get("email"):
+            email = ur.data["email"]
+            username = email.split("@")[0] if isinstance(email, str) else None
 
     return HomeOut(
         character_state=character_state,

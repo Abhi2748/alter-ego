@@ -1,9 +1,9 @@
 /**
- * Onboarding Q1–Q13: exact copy for Screen 04–16. CLAUDE §3A.
+ * Onboarding Q1–Q14: username (new), then gender, age… interests (add-interest), quit (with Something else), slider, commitment.
  * Answer keys match OnboardingAnswers in context.
  */
 
-export type OnboardingInputType = "single" | "multi" | "slider";
+export type OnboardingInputType = "single" | "multi" | "slider" | "username" | "interests_add" | "quit_with_other";
 
 export type OnboardingQuestionConfig = {
   questionNumber: number;
@@ -15,74 +15,65 @@ export type OnboardingQuestionConfig = {
   sliderRange?: [number, number, number];
 };
 
-/** Q1: value stored as 'male' | 'female' | 'other'. Other = user picks at end, defaults to Male. */
-const Q1_OPTIONS = ["Male", "Female", "Other"];
+/** Q2: value stored as 'male' | 'female' | 'other'. Other = user picks at end, defaults to Male. */
+const Q2_OPTIONS = ["Male", "Female", "Other"];
 
-/** Q2: stored as displayed string. */
-const Q2_OPTIONS = ["Under 18", "18–24", "25–34", "35–44", "45+"];
+/** Q3: stored as displayed string. */
+const Q3_OPTIONS = ["Under 18", "18–24", "25–34", "35–44", "45+"];
 
-const Q3_OPTIONS = [
+const Q4_OPTIONS = [
   "Grinding hard but staying inconsistent",
   "Starting completely fresh",
   "Trying to quit something that's holding me back",
   "Looking to become a better version of myself",
 ];
 
-const Q4_OPTIONS = [
+const Q5_OPTIONS = [
   "I keep failing at habits and I'm tired of it",
   "I want to become someone genuinely different",
   "I need to quit something for good",
   "Someone showed me this",
 ];
 
-const Q5_OPTIONS = [
+const Q6_OPTIONS = [
   "Plan it out properly before starting",
   "Dive straight in and figure it out",
   "Put it off until I can't anymore",
   "Break it into the smallest possible steps",
 ];
 
-const Q6_OPTIONS = [
+const Q7_OPTIONS = [
   "Feel guilty and spiral further",
   "Shake it off and start again",
   "Use it as fuel to come back harder",
   "Pretend it didn't happen and move on",
 ];
 
-const Q7_OPTIONS = [
+const Q8_OPTIONS = [
   "I could see the progress happening",
   "I didn't want to let myself down",
   "It was genuinely enjoyable",
   "Someone was counting on me",
 ];
 
-const Q8_OPTIONS = [
+const Q9_OPTIONS = [
   "Appreciate the structure — it helps",
   "Feel a little annoyed by it",
   "Depends entirely on who's telling me",
   "Tune it out almost automatically",
 ];
 
-const Q9_OPTIONS = [
+const Q10_OPTIONS = [
   "I love it — competition drives me",
   "Indifferent — I don't think about it",
   "Mildly motivating when I'm ahead",
   "I'd rather just run my own race",
 ];
 
-const Q10_OPTIONS = [
-  "Fitness / Training",
-  "Coding / Tech",
-  "Writing",
-  "Reading",
-  "Art / Design",
-  "Music",
-  "Language learning",
-  "Photography",
-  "Something else",
-];
+/** Q11: interests — no fixed options; "Add interest" flow with 3 sub-questions per interest. */
 
-const Q11_OPTIONS = [
+/** Q12: quit — "Nothing right now" and "Something else" at the end; Something else last. */
+const Q12_OPTIONS = [
   "Social media",
   "Gaming",
   "Junk food",
@@ -90,109 +81,127 @@ const Q11_OPTIONS = [
   "Smoking",
   "Procrastinating",
   "Nothing right now",
+  "Something else",
 ];
 
-/** Q12: slider 0.5h–6h, step 0.5. No options array. */
-const Q12_SLIDER: [number, number, number] = [0.5, 6, 0.5];
+/** Q13: slider 0.5h–6h, step 0.5. No options array. */
+const Q13_SLIDER: [number, number, number] = [0.5, 6, 0.5];
 
-const Q13_OPTIONS = ["2 weeks", "1 month", "3 months", "However long it takes"];
+const Q14_OPTIONS = ["2 weeks", "1 month", "3 months", "However long it takes"];
+
+/** Interest level options for add-interest flow (self-reported). */
+export const INTEREST_LEVEL_OPTIONS = [
+  "Still figuring it out",
+  "Getting the hang of it",
+  "Pretty solid",
+] as const;
+export type InterestLevelOption = (typeof INTEREST_LEVEL_OPTIONS)[number];
 
 export const ONBOARDING_QUESTIONS: OnboardingQuestionConfig[] = [
   {
     questionNumber: 1,
+    questionText: "What should we call you?",
+    options: [],
+    inputType: "username",
+    answerKey: "username",
+  },
+  {
+    questionNumber: 2,
     questionText: "Which character reflects you?",
-    options: Q1_OPTIONS,
+    options: Q2_OPTIONS,
     inputType: "single",
     answerKey: "gender",
   },
   {
-    questionNumber: 2,
+    questionNumber: 3,
     questionText: "How old are you?",
-    options: Q2_OPTIONS,
+    options: Q3_OPTIONS,
     inputType: "single",
     answerKey: "ageRange",
   },
   {
-    questionNumber: 3,
+    questionNumber: 4,
     questionText: "What's your current situation?",
-    options: Q3_OPTIONS,
+    options: Q4_OPTIONS,
     inputType: "single",
     answerKey: "situation",
   },
   {
-    questionNumber: 4,
+    questionNumber: 5,
     questionText: "What actually brought you here?",
-    options: Q4_OPTIONS,
+    options: Q5_OPTIONS,
     inputType: "single",
     answerKey: "reason",
   },
   {
-    questionNumber: 5,
+    questionNumber: 6,
     questionText: "When you have a big task ahead, your first move is...",
-    options: Q5_OPTIONS,
+    options: Q6_OPTIONS,
     inputType: "single",
     answerKey: "taskApproach",
   },
   {
-    questionNumber: 6,
+    questionNumber: 7,
     questionText: "When you fall off track, you usually...",
-    options: Q6_OPTIONS,
+    options: Q7_OPTIONS,
     inputType: "single",
     answerKey: "offTrack",
   },
   {
-    questionNumber: 7,
+    questionNumber: 8,
     questionText: "The last time you were truly consistent, what kept you going?",
-    options: Q7_OPTIONS,
+    options: Q8_OPTIONS,
     inputType: "single",
     answerKey: "motivation",
   },
   {
-    questionNumber: 8,
+    questionNumber: 9,
     questionText: "When someone tells you exactly what to do, you...",
-    options: Q8_OPTIONS,
+    options: Q9_OPTIONS,
     inputType: "single",
     answerKey: "autonomy",
   },
   {
-    questionNumber: 9,
+    questionNumber: 10,
     questionText: "How do you feel about being compared to others?",
-    options: Q9_OPTIONS,
+    options: Q10_OPTIONS,
     inputType: "single",
     answerKey: "comparison",
   },
   {
-    questionNumber: 10,
+    questionNumber: 11,
     questionText: "What are you actually into?",
-    options: Q10_OPTIONS,
-    inputType: "multi",
+    options: [],
+    inputType: "interests_add",
     answerKey: "interests",
   },
   {
-    questionNumber: 11,
+    questionNumber: 12,
     questionText: "Anything you want to quit or cut back on?",
-    options: Q11_OPTIONS,
-    inputType: "multi",
+    options: Q12_OPTIONS,
+    inputType: "quit_with_other",
     answerKey: "quitTargets",
   },
   {
-    questionNumber: 12,
+    questionNumber: 13,
     questionText: "How many hours a day can you honestly give to your goals?",
     options: [],
     inputType: "slider",
     answerKey: "dailyHours",
-    sliderRange: Q12_SLIDER,
+    sliderRange: Q13_SLIDER,
   },
   {
-    questionNumber: 13,
+    questionNumber: 14,
     questionText: "How long are you willing to commit before judging results?",
-    options: Q13_OPTIONS,
+    options: Q14_OPTIONS,
     inputType: "single",
     answerKey: "commitmentTimeline",
   },
 ];
 
-/** Map Q1 display label to stored value */
+export const TOTAL_ONBOARDING_QUESTIONS = 14;
+
+/** Map Q2 (gender) display label to stored value */
 export function genderOptionToValue(label: string): "male" | "female" | "other" {
   const lower = label.toLowerCase();
   if (lower === "male") return "male";

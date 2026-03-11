@@ -1,9 +1,18 @@
 /**
  * Backend API client. Uses EXPO_PUBLIC_API_URL (e.g. https://your-app.onrender.com) and
  * Supabase session for Bearer token.
+ *
+ * UI preview without backend: set EXPO_PUBLIC_USE_MOCK_API=true in .env to use mock
+ * responses (no network calls). Revert by setting it to false or removing the line.
  */
 
 const BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
+const USE_MOCK =
+  process.env.EXPO_PUBLIC_USE_MOCK_API === "true" ||
+  process.env.EXPO_PUBLIC_USE_MOCK_API === "1";
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const apiMock = USE_MOCK ? require("./apiMock") : null;
 
 export type ArchetypeContent = {
   archetype: string;
@@ -19,18 +28,44 @@ export type OnboardingResponse = {
   initial_missions: unknown[];
 };
 
+export type OnboardingInterestLevelItem = {
+  interest: string;
+  level: string;
+  learning_goal?: string;
+};
+
 export type OnboardingPayload = {
   answers: Record<string, unknown>;
   interests: string[];
   quit_targets: string[];
   available_hours_per_day: number;
   gender: string | null;
+  username?: string | null;
+  interest_levels?: OnboardingInterestLevelItem[];
 };
+
+export async function checkUsername(
+  username: string,
+  accessToken: string
+): Promise<{ available: boolean }> {
+  if (apiMock) return apiMock.checkUsername(username, accessToken);
+  const res = await fetch(
+    `${BASE}/api/v1/onboarding/check-username?username=${encodeURIComponent(username.trim())}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (res.status === 409) throw new Error("Username already taken");
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Check username failed: ${res.status}`);
+  }
+  return res.json();
+}
 
 export async function postOnboarding(
   payload: OnboardingPayload,
   accessToken: string
 ): Promise<OnboardingResponse> {
+  if (apiMock) return apiMock.postOnboarding(payload, accessToken);
   const res = await fetch(`${BASE}/api/v1/onboarding`, {
     method: "POST",
     headers: {
@@ -105,6 +140,7 @@ export type MissionCompleteOut = {
 };
 
 export async function getHome(accessToken: string): Promise<HomeOut> {
+  if (apiMock) return apiMock.getHome(accessToken);
   const res = await fetch(`${BASE}/api/v1/home`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -119,6 +155,7 @@ export async function completeMission(
   accessToken: string,
   missionId: string
 ): Promise<MissionCompleteOut> {
+  if (apiMock) return apiMock.completeMission(accessToken, missionId);
   const res = await fetch(`${BASE}/api/v1/missions/${missionId}/complete`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -140,6 +177,7 @@ export async function estimatePersonalTier(
   accessToken: string,
   title: string
 ): Promise<EstimatePersonalTierOut> {
+  if (apiMock) return apiMock.estimatePersonalTier(accessToken, title);
   const res = await fetch(`${BASE}/api/v1/missions/estimate-personal-tier`, {
     method: "POST",
     headers: {
@@ -165,6 +203,7 @@ export async function createMission(
   accessToken: string,
   payload: CreateMissionPayload
 ): Promise<MissionOut> {
+  if (apiMock) return apiMock.createMission(accessToken, payload);
   const body = {
     title: payload.title.trim(),
     difficulty: payload.difficulty,
@@ -206,6 +245,7 @@ export type TwinComparisonOut = {
 export async function getTwinComparison(
   accessToken: string
 ): Promise<TwinComparisonOut> {
+  if (apiMock) return apiMock.getTwinComparison(accessToken);
   const res = await fetch(`${BASE}/api/v1/twin/comparison`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -216,17 +256,42 @@ export async function getTwinComparison(
   return res.json();
 }
 
-// User prefs: push token, timezone, last_opened_at (for nudges and report)
+// User profile and prefs
+export type UserMeOut = {
+  id: string;
+  email?: string | null;
+  username?: string | null;
+  created_at?: string | null;
+  archetype?: string | null;
+  trial_start_date?: string | null;
+  subscription_status?: string | null;
+  nudge_frequency?: string | null;
+};
+
 export type PatchUserMePayload = {
   push_token?: string;
   timezone?: string;
   last_opened_at?: string;
+  nudge_frequency?: string;
 };
+
+export async function getUserMe(accessToken: string): Promise<UserMeOut> {
+  if (apiMock) return apiMock.getUserMe(accessToken);
+  const res = await fetch(`${BASE}/api/v1/user/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `GET user/me failed: ${res.status}`);
+  }
+  return res.json();
+}
 
 export async function patchUserMe(
   accessToken: string,
   payload: PatchUserMePayload
 ): Promise<{ success: boolean }> {
+  if (apiMock) return apiMock.patchUserMe(accessToken, payload);
   const res = await fetch(`${BASE}/api/v1/user/me`, {
     method: "PATCH",
     headers: {
@@ -238,6 +303,38 @@ export async function patchUserMe(
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `PATCH user/me failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Leaderboard
+export type LeaderboardEntryOut = {
+  rank: number;
+  user_id: string;
+  username: string;
+  power_score: number;
+  streak: number;
+  pet_stage: number;
+  character_stage: number;
+  is_own?: boolean;
+};
+
+export type LeaderboardOut = {
+  entries: LeaderboardEntryOut[];
+  my_rank: number | null;
+  my_entry: LeaderboardEntryOut | null;
+};
+
+export async function getLeaderboard(
+  accessToken: string
+): Promise<LeaderboardOut> {
+  if (apiMock) return apiMock.getLeaderboard(accessToken);
+  const res = await fetch(`${BASE}/api/v1/leaderboard`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Leaderboard failed: ${res.status}`);
   }
   return res.json();
 }
@@ -281,6 +378,7 @@ export type WeeklyReportOut = {
 export async function getWeeklyReport(
   accessToken: string
 ): Promise<WeeklyReportOut> {
+  if (apiMock) return apiMock.getWeeklyReport(accessToken);
   const res = await fetch(`${BASE}/api/v1/agents/weekly-report`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -295,6 +393,7 @@ export async function getWeeklyReport(
 export async function getDayOfWeekCompletion(
   accessToken: string
 ): Promise<{ day_of_week_completion: number[] }> {
+  if (apiMock) return apiMock.getDayOfWeekCompletion(accessToken);
   const res = await fetch(`${BASE}/api/v1/analytics/day-of-week`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -317,6 +416,7 @@ export async function saveJournal(
   accessToken: string,
   payload: JournalSavePayload
 ): Promise<JournalSaveOut> {
+  if (apiMock) return apiMock.saveJournal(accessToken, payload);
   const res = await fetch(`${BASE}/api/v1/journal`, {
     method: "POST",
     headers: {
@@ -346,6 +446,8 @@ export async function getJournalEntries(
   if (toDate) params.set("to_date", toDate);
   if (limit != null) params.set("limit", String(limit));
   const qs = params.toString();
+  if (apiMock)
+    return apiMock.getJournalEntries(accessToken, fromDate, toDate, limit ?? undefined);
   const url = `${BASE}/api/v1/journal${qs ? `?${qs}` : ""}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {

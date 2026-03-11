@@ -16,6 +16,7 @@
 CREATE TABLE IF NOT EXISTS users (
   id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email text,
+  username text UNIQUE,
   created_at timestamptz DEFAULT now(),
   archetype text,
   discipline_dna jsonb,
@@ -215,7 +216,7 @@ CREATE POLICY "leaderboard_scores_insert_own" ON leaderboard_scores FOR INSERT W
 
 -- =============================================================================
 -- 9. WEEKLY_REPORTS
--- Sunday 3am server time. wins/slipped/twin_paragraph/next_week etc.
+-- Report generated Monday 03:00 UTC for the week Mon–Sun that ended Sunday (full 7 days).
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS weekly_reports (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

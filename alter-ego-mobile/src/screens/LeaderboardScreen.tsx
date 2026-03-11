@@ -1,11 +1,9 @@
 /**
- * Leaderboard Screen — Part 3B Screen 19.
- * Tab 2. Global ranking. User invisible until 7 consecutive days.
- * Header + Global chip, user rank banner, FlatList of LeaderboardRowCard,
- * loading skeleton §2.12, empty state §2.13, Share rank strip when in top 10.
+ * Leaderboard Screen — Tab 2. Global ranking. Fetches from GET /leaderboard.
+ * User visible after 7 consecutive days (on leaderboard_scores). Empty state when not yet visible.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -16,15 +14,15 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { LeaderboardRowCard } from "../components/LeaderboardRowCard";
 import { LeaderboardSkeleton } from "../components/LeaderboardSkeleton";
-import {
-  COLORS,
-  SPACING,
-  GRADIENTS,
-} from "../constants/theme";
+import { COLORS, SPACING, GRADIENTS } from "../constants/theme";
+import { supabase } from "../utils/supabase";
+import { getLeaderboard, type LeaderboardEntryOut } from "../utils/api";
+
+const STAGE_NAMES = ["The Awakened", "The Focused", "The Burning", "The Relentless", "The Formidable", "The Sovereign"];
 
 const HEADER_HEIGHT = 56;
 const BANNER_HEIGHT = 44;
@@ -42,27 +40,57 @@ export type LeaderboardEntry = {
   isOwnRow?: boolean;
 };
 
-const PLACEHOLDER_ENTRIES: LeaderboardEntry[] = [
-  { rank: 1, username: "iron_phoenix_9", stageTitle: "The Sovereign", characterStage: 6, petStage: 8, streak: 62, powerScore: 9840 },
-  { rank: 2, username: "silent_ember", stageTitle: "The Formidable", characterStage: 5, petStage: 7, streak: 48, powerScore: 8210 },
-  { rank: 3, username: "zero_day_zara", stageTitle: "The Relentless", characterStage: 4, petStage: 6, streak: 41, powerScore: 6890 },
-  { rank: 4, username: "steady_hand_42", stageTitle: "The Relentless", characterStage: 4, petStage: 5, streak: 38, powerScore: 5920 },
-  { rank: 5, username: "dawn_runner", stageTitle: "The Burning", characterStage: 3, petStage: 5, streak: 31, powerScore: 4850 },
-  { rank: 6, username: "night_owl_7", stageTitle: "The Burning", characterStage: 3, petStage: 4, streak: 28, powerScore: 4120 },
-  { rank: 7, username: "shadow_wolf_77", stageTitle: "The Focused", characterStage: 2, petStage: 3, streak: 12, powerScore: 3240, isOwnRow: true },
-  { rank: 8, username: "frost_byte", stageTitle: "The Focused", characterStage: 2, petStage: 3, streak: 19, powerScore: 2980 },
-  { rank: 9, username: "ember_rise", stageTitle: "The Awakened", characterStage: 1, petStage: 2, streak: 9, powerScore: 2150 },
-  { rank: 10, username: "quiet_storm", stageTitle: "The Awakened", characterStage: 1, petStage: 1, streak: 5, powerScore: 1820 },
-];
+function mapEntry(e: LeaderboardEntryOut): LeaderboardEntry {
+  return {
+    rank: e.rank,
+    username: e.username,
+    stageTitle: STAGE_NAMES[Math.max(0, (e.character_stage ?? 1) - 1)] ?? "The Awakened",
+    characterStage: e.character_stage ?? 1,
+    petStage: e.pet_stage ?? 0,
+    streak: e.streak,
+    powerScore: e.power_score,
+    isOwnRow: e.is_own,
+  };
+}
 
 export function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [loading, setLoading] = useState(false);
-  const [userVisible, setUserVisible] = useState(true);
-  const userStreak = 12;
-  const userRank = 7;
-  const totalUsers = 312;
+  const [loading, setLoading] = useState(true);
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [myRank, setMyRank] = useState<number | null>(null);
+  const [myEntry, setMyEntry] = useState<LeaderboardEntry | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchLeaderboard = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setLoading(false);
+        return;
+      }
+      const data = await getLeaderboard(session.access_token);
+      setEntries((data.entries ?? []).map(mapEntry));
+      setMyRank(data.my_rank ?? null);
+      setMyEntry(data.my_entry ? mapEntry(data.my_entry) : null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load leaderboard");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchLeaderboard();
+    }, [fetchLeaderboard])
+  );
+
+  const userVisible = myEntry != null;
+  const userStreak = myEntry?.streak ?? 0;
+  const userRank = myRank ?? 0;
   const userInTop10 = userVisible && userRank >= 1 && userRank <= 10;
   const showShareStrip = userInTop10;
 
@@ -120,7 +148,7 @@ export function LeaderboardScreen() {
         <View style={styles.bannerInner}>
           <Text style={styles.bannerLabel}>Your rank</Text>
           {userVisible ? (
-            <Text style={styles.bannerValue}>#{userRank} of {totalUsers} users</Text>
+            <Text style={styles.bannerValue}>{userRank > 0 ? `#${userRank}` : "On the board"}</Text>
           ) : (
             <View style={styles.bannerNotVisible}>
               <Text style={styles.bannerNotVisibleText}>
@@ -132,10 +160,22 @@ export function LeaderboardScreen() {
         </View>
       </View>
 
-      {/* Content: loading skeleton, empty state, or list */}
+      {/* Content: loading skeleton, error, empty state, or list */}
       <View style={styles.content}>
         {loading ? (
           <LeaderboardSkeleton />
+        ) : error ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptySub}>{error}</Text>
+          </View>
+        ) : !userVisible && entries.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="trophy-outline" size={64} color={COLORS.surface2} />
+            <Text style={styles.emptyTitle}>Global ranking</Text>
+            <Text style={styles.emptySub}>
+              Here you'll see everyone ranked by Power Score. Complete 7 consecutive days to appear on the leaderboard.
+            </Text>
+          </View>
         ) : !userVisible ? (
           <View style={styles.emptyState}>
             <Ionicons name="trophy-outline" size={64} color={COLORS.surface2} />
@@ -145,9 +185,14 @@ export function LeaderboardScreen() {
             </Text>
             <Text style={styles.emptyStreak}>🔥{userStreak} day streak</Text>
           </View>
+        ) : entries.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Your rank</Text>
+            <Text style={styles.emptySub}>You're on the board. More people will appear as they hit 7 days.</Text>
+          </View>
         ) : (
           <FlatList
-            data={PLACEHOLDER_ENTRIES}
+            data={entries}
             renderItem={renderItem}
             keyExtractor={keyExtractor}
             contentContainerStyle={[

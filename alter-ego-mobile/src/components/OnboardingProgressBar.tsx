@@ -12,9 +12,9 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { COLORS } from "../constants/theme";
+import { TOTAL_ONBOARDING_QUESTIONS } from "../constants/onboardingQuestions";
 
 const BAR_HEIGHT = 6;
-const TOTAL_QUESTIONS = 13;
 
 type Props = {
   questionNumber: number;
@@ -24,7 +24,7 @@ export function OnboardingProgressBar({ questionNumber }: Props) {
   const fillWidth = useSharedValue(0);
 
   useEffect(() => {
-    const pct = Math.min(questionNumber, TOTAL_QUESTIONS) / TOTAL_QUESTIONS;
+    const pct = Math.min(questionNumber, TOTAL_ONBOARDING_QUESTIONS) / TOTAL_ONBOARDING_QUESTIONS;
     fillWidth.value = withTiming(pct * 100, {
       duration: 200,
       easing: Easing.out(Easing.ease),

@@ -1,24 +1,20 @@
 /**
- * Profile — Main screen. No scroll. Header + hero + 4 entry buttons.
- * Tapping a button opens the dedicated screen (Stats, Streak, Titles, Interests).
+ * Profile — Main screen. Fetches user + home for username, stage, power score, pet.
  */
 
-import React from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import React, { useState, useCallback } from "react";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { Ionicons } from "@expo/vector-icons";
 import { PetAnimation } from "../components/PetAnimation";
-import {
-  COLORS,
-  SPACING,
-  GRADIENTS,
-  RADIUS,
-} from "../constants/theme";
+import { COLORS, SPACING, GRADIENTS, RADIUS } from "../constants/theme";
 import type { ProfileStackParamList } from "../navigation/types";
+import { supabase } from "../utils/supabase";
+import { getUserMe, getHome } from "../utils/api";
 
 const HEADER_HEIGHT = 56;
 const CHAR_WIDTH = 120;
@@ -39,9 +35,58 @@ const ENTRIES: { key: keyof Omit<ProfileStackParamList, "ProfileMain">; label: s
   { key: "ProfileInterests", label: "Interests", icon: "heart" },
 ];
 
+const STAGE_NAMES: Record<string, string> = {
+  "The Awakened": "The Awakened",
+  "The Focused": "The Focused",
+  "The Burning": "The Burning",
+  "The Relentless": "The Relentless",
+  "The Formidable": "The Formidable",
+  "The Sovereign": "The Sovereign",
+};
+
 export function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
+  const [loading, setLoading] = useState(true);
+  const [username, setUsername] = useState("");
+  const [stageTitle, setStageTitle] = useState("");
+  const [powerScore, setPowerScore] = useState<number>(0);
+  const [petStage, setPetStage] = useState(0);
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setLoading(false);
+        return;
+      }
+      const [user, home] = await Promise.all([
+        getUserMe(session.access_token),
+        getHome(session.access_token),
+      ]);
+      setUsername(
+        (user.username && String(user.username).trim()) ||
+        (user.email ? String(user.email).split("@")[0] : "") ||
+        "—"
+      );
+      setStageTitle(
+        (user.archetype && STAGE_NAMES[user.archetype]) || user.archetype || "The Awakened"
+      );
+      setPowerScore(home.power_score ?? 0);
+      setPetStage(home.pet_state?.stage ?? 0);
+    } catch (_) {
+      setUsername("—");
+      setStageTitle("The Awakened");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfile();
+    }, [fetchProfile])
+  );
 
   const openSettings = () => {
     navigation.getParent()?.navigate("Settings" as never);
@@ -72,10 +117,10 @@ export function ProfileScreen() {
         <View style={styles.headerGlass} />
         <View style={styles.headerLeft}>
           <Text style={styles.username} numberOfLines={1}>
-            shadow_wolf_77
+            {loading ? "…" : username}
           </Text>
           <Text style={styles.stageTitle} numberOfLines={1}>
-            The Focused
+            {loading ? "…" : stageTitle}
           </Text>
         </View>
         <Pressable onPress={openSettings} style={styles.settingsButton} hitSlop={10}>
@@ -85,18 +130,26 @@ export function ProfileScreen() {
 
       {/* Character + power zone */}
       <View style={styles.heroZone}>
-        <View style={styles.heroRow}>
-          <View style={styles.characterPlaceholder} />
-          <View style={styles.petWrap}>
-            <PetAnimation stage={3} isHappy={true} size={PET_SIZE} />
-          </View>
-        </View>
-        <Text style={styles.powerLabel}>POWER SCORE</Text>
-        <Text style={styles.powerValue}>1,240</Text>
-        <Pressable onPress={openRankCard} style={styles.shareRankRow} hitSlop={8}>
-          <Ionicons name="share-outline" size={14} color={COLORS.violet} />
-          <Text style={styles.shareRankText}>Share rank card</Text>
-        </Pressable>
+        {loading ? (
+          <ActivityIndicator size="large" color={COLORS.violet} style={{ marginVertical: 24 }} />
+        ) : (
+          <>
+            <View style={styles.heroRow}>
+              <View style={styles.characterPlaceholder} />
+              <View style={styles.petWrap}>
+                <PetAnimation stage={petStage || 1} isHappy={true} size={PET_SIZE} />
+              </View>
+            </View>
+            <Text style={styles.powerLabel}>POWER SCORE</Text>
+            <Text style={styles.powerValue}>
+              {powerScore.toLocaleString()}
+            </Text>
+            <Pressable onPress={openRankCard} style={styles.shareRankRow} hitSlop={8}>
+              <Ionicons name="share-outline" size={14} color={COLORS.violet} />
+              <Text style={styles.shareRankText}>Share rank card</Text>
+            </Pressable>
+          </>
+        )}
       </View>
 
       {/* Four entry buttons */}

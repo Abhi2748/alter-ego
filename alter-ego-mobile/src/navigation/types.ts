@@ -30,6 +30,7 @@ export type MainTabParamList = {
 export type MainStackParamList = {
   MainTabs: undefined;
   Settings: undefined;
+  SettingsProfile: undefined;
   TwinChat: undefined;
   RankCard: undefined;
   Paywall: undefined;

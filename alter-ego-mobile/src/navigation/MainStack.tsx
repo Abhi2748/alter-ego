@@ -3,6 +3,7 @@ import { createStackNavigator } from "@react-navigation/stack";
 import type { MainStackParamList } from "./types";
 import { MainTabNavigator } from "./MainTabNavigator";
 import { SettingsScreen } from "../screens/SettingsScreen";
+import { SettingsProfileScreen } from "../screens/SettingsProfileScreen";
 import { TwinChatScreen } from "../screens/TwinChatScreen";
 import { RankCardScreen } from "../screens/RankCardScreen";
 import { PaywallScreen } from "../screens/PaywallScreen";
@@ -28,6 +29,7 @@ export function MainStack() {
         options={{ gestureEnabled: false }}
       />
       <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen name="SettingsProfile" component={SettingsProfileScreen} />
       <Stack.Screen name="TwinChat" component={TwinChatScreen} />
       <Stack.Screen name="RankCard" component={RankCardScreen} />
       <Stack.Screen name="JournalList" component={JournalListScreen} />

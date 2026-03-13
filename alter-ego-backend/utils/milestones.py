@@ -1,6 +1,22 @@
 """
 Interest milestones (§6.3). Check after interest mission complete; INSERT milestone_log when earned.
-First Step, 7-Day Streak, 30/60/100 Sessions, Level Up L2–L10, Committed (60), Serious (L5), Mastery (L10).
+
+Updated to the 7 universal milestones for Interests:
+
+1. First Step       — first Interest mission completed
+2. 7 Days In        — 7 consecutive days with ≥1 Interest mission
+3. 10 Sessions      — 10 completed Interest missions
+4. Levelled Up      — first time this Interest levels up beyond L1 (approximation of difficulty jump)
+5. One Month        — 30 days since first Interest mission (non-consecutive)
+6. 50 Sessions      — 50 completed Interest missions
+7. 100 Sessions     — 100 completed Interest missions
+
+Each row in milestone_log stores:
+- interest
+- milestone_name
+- earned_at
+- badge_icon (optional)
+- soul_line (optional; stored once when triggered; see schema.sql comment)
 """
 from __future__ import annotations
 
@@ -70,20 +86,38 @@ def _already_earned(supabase, user_id: str, interest: str, milestone_name: str) 
     return bool(r.data)
 
 
-def _insert_milestone(supabase, user_id: str, interest: str, milestone_name: str, badge_icon: Optional[str] = None) -> Dict[str, Any]:
+def _insert_milestone(
+    supabase,
+    user_id: str,
+    interest: str,
+    milestone_name: str,
+    badge_icon: Optional[str] = None,
+) -> Dict[str, Any]:
+    soul_line = _soul_line_for(milestone_name, interest)
     row = {
         "user_id": user_id,
         "interest": interest,
         "milestone_name": milestone_name,
         "badge_icon": badge_icon,
+        "soul_line": soul_line,
     }
-    r = supabase.table("milestone_log").insert(row).execute()
+    try:
+        r = supabase.table("milestone_log").insert(row).execute()
+    except Exception:
+        # Backwards-compatible for DBs without soul_line column
+        fallback = {
+            "user_id": user_id,
+            "interest": interest,
+            "milestone_name": milestone_name,
+            "badge_icon": badge_icon,
+        }
+        r = supabase.table("milestone_log").insert(fallback).execute()
     data = (r.data or [{}])[0]
     return {
         "interest": interest,
         "milestone_name": milestone_name,
         "milestone_number": _milestone_display_number(milestone_name),
-        "twin_congratulation": _twin_line_for(milestone_name, interest),
+        "twin_congratulation": soul_line,
         "earned_at": data.get("earned_at"),
     }
 
@@ -91,43 +125,67 @@ def _insert_milestone(supabase, user_id: str, interest: str, milestone_name: str
 def _milestone_display_number(name: str) -> int:
     if "First Step" in name:
         return 1
-    if "7-Day" in name or "7 Day" in name:
-        return 7
-    if "30 Sessions" in name:
-        return 30
-    if "60" in name or "Committed" in name:
-        return 60
-    if "100" in name:
-        return 100
-    if "Level Up" in name:
-        for i in range(2, 11):
-            if f"L{i}" in name:
-                return i
-    if "Serious" in name:
+    if "7 Days In" in name:
+        return 2
+    if "10 Sessions" in name:
+        return 3
+    if "Levelled Up" in name:
+        return 4
+    if "One Month" in name:
         return 5
-    if "Mastery" in name:
-        return 10
+    if "50 Sessions" in name:
+        return 6
+    if "100 Sessions" in name:
+        return 7
     return 1
 
 
-def _twin_line_for(milestone_name: str, interest: str) -> str:
+def _soul_line_for(milestone_name: str, interest: str) -> str:
+    """
+    Soul lines are short, factual sentences that mark the moment.
+    In the future this can be LLM-generated; for now they are hand-crafted per milestone.
+    """
     if "First Step" in milestone_name:
-        return "First step. The only one that matters is the next."
-    if "7-Day" in milestone_name or "7 Day" in milestone_name:
-        return "One week of showing up. That's how it starts."
-    if "30 Sessions" in milestone_name:
-        return "Thirty reps. You're no longer just trying."
-    if "Committed" in milestone_name:
-        return "Sixty in. This is a practice now."
+        return f"The day you decided {interest.lower()} was worth one hour."
+    if "7 Days In" in milestone_name:
+        return f"Seven days of showing up for {interest}. Most people stop at three."
+    if "10 Sessions" in milestone_name:
+        return f"Ten sessions of {interest}. The gap between trying it and actually doing it."
+    if "Levelled Up" in milestone_name:
+        return f"The missions for {interest} got harder because you got better. The system noticed before you did."
+    if "One Month" in milestone_name:
+        return f"Thirty days of {interest}. Long enough to know this isn’t a phase."
+    if "50 Sessions" in milestone_name:
+        return f"Fifty sessions of {interest}. Most people never get this far."
     if "100 Sessions" in milestone_name:
-        return "Triple digits. You're someone who does this."
-    if "Serious" in milestone_name:
-        return "Three months of consistency. You're not a beginner anymore."
-    if "Mastery" in milestone_name:
-        return "Level 10. The highest milestone. You earned it."
-    if "Level Up" in milestone_name or "L" in milestone_name:
-        return "Level up. Keep going."
-    return "Milestone unlocked."
+        return f"One hundred {interest} sessions. The distance between your first easy day and what hard looks like now is yours."
+    return f"Milestone reached in {interest}."
+
+
+def _first_session_date(supabase, user_id: str, interest: str) -> Optional[date]:
+    """Return date of first completed mission for this interest, or None."""
+    r = (
+        supabase.table("missions")
+        .select("completed_at")
+        .eq("user_id", user_id)
+        .eq("interest", interest)
+        .not_.is_("completed_at", "null")
+        .order("completed_at", asc=True)
+        .limit(1)
+        .execute()
+    )
+    row = (r.data or [None])[0]
+    if not row:
+        return None
+    c = row.get("completed_at")
+    if not c:
+        return None
+    try:
+        if isinstance(c, str):
+            return datetime.fromisoformat(c.replace("Z", "+00:00")).date()
+        return c.date()
+    except Exception:
+        return None
 
 
 def check_and_award_milestones(
@@ -142,40 +200,38 @@ def check_and_award_milestones(
     After updating interest_progress for an interest mission completion, check milestones.
     Returns the newly earned milestone payload for the client (first one only), or None.
     """
-    earned = None
     streak_days = _interest_streak_days(supabase, user_id, interest)
+    first_date = _first_session_date(supabase, user_id, interest)
+    days_since_first = (
+        (date.today() - first_date).days if first_date is not None else 0
+    )
 
-    if session_count >= 1 and _already_earned(supabase, user_id, interest, "First Step") is False:
-        earned = _insert_milestone(supabase, user_id, interest, "First Step", "footsteps")
-        return earned
+    # 1) First Step
+    if session_count >= 1 and not _already_earned(supabase, user_id, interest, "First Step"):
+        return _insert_milestone(supabase, user_id, interest, "First Step", "footsteps")
 
-    if streak_days >= 7 and _already_earned(supabase, user_id, interest, "7-Day Streak") is False:
-        earned = _insert_milestone(supabase, user_id, interest, "7-Day Streak", "flame")
-        return earned
+    # 2) 7 Days In (streak)
+    if streak_days >= 7 and not _already_earned(supabase, user_id, interest, "7 Days In"):
+        return _insert_milestone(supabase, user_id, interest, "7 Days In", "flame")
 
-    if session_count >= 30 and _already_earned(supabase, user_id, interest, "30 Sessions") is False:
-        earned = _insert_milestone(supabase, user_id, interest, "30 Sessions", "target")
-        return earned
+    # 3) 10 Sessions
+    if session_count >= 10 and not _already_earned(supabase, user_id, interest, "10 Sessions"):
+        return _insert_milestone(supabase, user_id, interest, "10 Sessions", "target")
 
-    for lvl in range(2, 11):
-        if level >= lvl and _already_earned(supabase, user_id, interest, f"Level Up L{lvl}") is False:
-            earned = _insert_milestone(supabase, user_id, interest, f"Level Up L{lvl}", "arrow-up")
-            return earned
+    # 4) Levelled Up — first time this interest reaches level > 1
+    if level > 1 and not _already_earned(supabase, user_id, interest, "Levelled Up"):
+        return _insert_milestone(supabase, user_id, interest, "Levelled Up", "arrow-up")
 
-    if session_count >= 60 and _already_earned(supabase, user_id, interest, "Committed") is False:
-        earned = _insert_milestone(supabase, user_id, interest, "Committed", "heart")
-        return earned
+    # 5) One Month — 30 days since first Interest mission (not necessarily consecutive)
+    if days_since_first >= 30 and not _already_earned(supabase, user_id, interest, "One Month"):
+        return _insert_milestone(supabase, user_id, interest, "One Month", "calendar")
 
-    if level >= 5 and _already_earned(supabase, user_id, interest, "Serious") is False:
-        earned = _insert_milestone(supabase, user_id, interest, "Serious", "star")
-        return earned
+    # 6) 50 Sessions
+    if session_count >= 50 and not _already_earned(supabase, user_id, interest, "50 Sessions"):
+        return _insert_milestone(supabase, user_id, interest, "50 Sessions", "medal")
 
-    if session_count >= 100 and _already_earned(supabase, user_id, interest, "100 Sessions") is False:
-        earned = _insert_milestone(supabase, user_id, interest, "100 Sessions", "trophy")
-        return earned
+    # 7) 100 Sessions
+    if session_count >= 100 and not _already_earned(supabase, user_id, interest, "100 Sessions"):
+        return _insert_milestone(supabase, user_id, interest, "100 Sessions", "trophy")
 
-    if level >= 10 and _already_earned(supabase, user_id, interest, "Mastery") is False:
-        earned = _insert_milestone(supabase, user_id, interest, "Mastery", "crown")
-        return earned
-
-    return earned
+    return None

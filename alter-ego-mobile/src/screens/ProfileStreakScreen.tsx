@@ -117,6 +117,21 @@ export function ProfileStreakScreen() {
             />
           </View>
         </View>
+
+        {/* Streak freezes */}
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Streak freezes</Text>
+          <Text style={styles.freezeText}>2 freezes available</Text>
+          <View style={styles.freezeToggleRow}>
+            <Text style={styles.freezeModeLabel}>Use automatically</Text>
+            <View style={styles.freezeModePill}>
+              <Text style={styles.freezeModePillText}>Automatic</Text>
+            </View>
+          </View>
+          <Text style={styles.freezeHint}>
+            We’ll automatically protect your streak on days you miss, or let you switch to manual in a future update.
+          </Text>
+        </View>
       </ScrollView>
     </LinearGradient>
   );
@@ -246,5 +261,39 @@ const styles = StyleSheet.create({
     height: "100%",
     borderRadius: 3,
     backgroundColor: COLORS.violet,
+  },
+  freezeText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+  freezeToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  freezeModeLabel: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: COLORS.text2,
+  },
+  freezeModePill: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: RADIUS.chip,
+    backgroundColor: "rgba(139,92,246,0.18)",
+  },
+  freezeModePillText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    color: COLORS.violet,
+  },
+  freezeHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: COLORS.muted,
+    marginTop: 4,
   },
 });

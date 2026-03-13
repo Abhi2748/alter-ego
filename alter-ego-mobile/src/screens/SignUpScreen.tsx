@@ -34,7 +34,7 @@ import Animated, {
   withRepeat,
   Easing,
 } from "react-native-reanimated";
-import { COLORS, RADIUS, SPACING, ANIMATIONS } from "../constants/theme";
+import { COLORS, RADIUS, SPACING, ANIMATIONS, GRADIENTS } from "../constants/theme";
 import { supabase, setGuestMode } from "../utils/supabase";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -420,10 +420,10 @@ export function SignUpScreen() {
       <StatusBar style="light" />
       <View style={styles.root}>
         <LinearGradient
-          colors={[COLORS.bg1, COLORS.bg0]}
+          colors={GRADIENTS.backgroundPremium.colors}
           style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
+          start={GRADIENTS.backgroundPremium.start}
+          end={GRADIENTS.backgroundPremium.end}
         />
         <View style={[StyleSheet.absoluteFill, styles.particleContainer]} pointerEvents="none">
           {particleConfigs.map((config, i) => (

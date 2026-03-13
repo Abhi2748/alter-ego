@@ -1,6 +1,6 @@
 /**
  * Settings Screen §22 (v1.1). Accessed from Profile header.
- * Rows: Connect email/account (when anonymous), Anonymous Mode, Notifications, etc.
+ * Rows: Profile, Notifications, Twin Tone History, Subscription, Logout.
  */
 
 import React, { useState, useCallback, useEffect } from "react";
@@ -16,7 +16,6 @@ import {
   TextInput,
   ActivityIndicator,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
@@ -25,12 +24,7 @@ import * as WebBrowser from "expo-web-browser";
 import { makeRedirectUri } from "expo-auth-session";
 import { COLORS, SPACING, GRADIENTS, RADIUS } from "../constants/theme";
 import { ToneHistoryModal } from "../components/ToneHistoryModal";
-import { MilestoneAchievementCard } from "../components/MilestoneAchievementCard";
 import { supabase } from "../utils/supabase";
-
-const NUDGE_FREQUENCY_KEY = "nudge_frequency";
-export type NudgeFrequency = "low" | "medium" | "high";
-const NUDGE_FREQUENCY_DEFAULT: NudgeFrequency = "medium";
 
 const ROW_HEIGHT = 56;
 const ROW_PADDING_H = 16;
@@ -40,105 +34,10 @@ const CHEVRON_SIZE = 16;
 const SWITCH_ACTIVE = COLORS.violet;
 const SWITCH_INACTIVE = "#374151";
 
-const STREAK_FREEZES_REMAINING = 2;
-
 export function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [anonymousMode, setAnonymousMode] = useState(false);
-  const [nudgeFrequency, setNudgeFrequency] = useState<NudgeFrequency>(NUDGE_FREQUENCY_DEFAULT);
   const [toneHistoryVisible, setToneHistoryVisible] = useState(false);
-  const [milestonePreviewVisible, setMilestonePreviewVisible] = useState(false);
-  const [connectAccountVisible, setConnectAccountVisible] = useState(false);
-  const [isAnonymous, setIsAnonymous] = useState(false);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [connectEmailInput, setConnectEmailInput] = useState("");
-  const [connectSending, setConnectSending] = useState(false);
-  const [connectLinking, setConnectLinking] = useState<"google" | "apple" | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const stored = await AsyncStorage.getItem(NUDGE_FREQUENCY_KEY);
-        if (stored === "low" || stored === "medium" || stored === "high") {
-          setNudgeFrequency(stored);
-        }
-      } catch (_) {}
-    })();
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setIsAnonymous(session?.user?.is_anonymous === true);
-      setUserEmail(session?.user?.email ?? null);
-    })();
-  }, [connectAccountVisible]);
-
-  const showConnectAccount = isAnonymous || !userEmail;
-
-  const redirectTo = makeRedirectUri({ scheme: "alterego", path: "auth" });
-
-  const sendConnectEmailLink = useCallback(async () => {
-    const email = connectEmailInput.trim();
-    if (!email) return;
-    setConnectSending(true);
-    try {
-      const { error } = await supabase.auth.updateUser({
-        email,
-        options: { emailRedirectTo: redirectTo },
-      });
-      if (error) throw error;
-      setConnectAccountVisible(false);
-      setConnectEmailInput("");
-      Alert.alert(
-        "Check your email",
-        "We sent you a link to connect this account. Open it to finish.",
-        [{ text: "OK" }]
-      );
-    } catch (e: unknown) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Failed to send link");
-    } finally {
-      setConnectSending(false);
-    }
-  }, [connectEmailInput, redirectTo]);
-
-  const linkProvider = useCallback(async (provider: "apple" | "google") => {
-    setConnectLinking(provider);
-    try {
-      const { data, error } = await supabase.auth.linkIdentity({
-        provider,
-        options: { redirectTo, skipBrowserRedirect: true },
-      });
-      if (error) throw error;
-      if (!data?.url) {
-        Alert.alert("Error", "Could not link account");
-        return;
-      }
-      const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-      if (res.type === "success" && res.url) {
-        const fragment = res.url.includes("#") ? res.url.split("#")[1] : res.url.split("?")[1] || "";
-        const params = new URLSearchParams(fragment);
-        const access_token = params.get("access_token");
-        const refresh_token = params.get("refresh_token");
-        if (access_token && refresh_token) {
-          await supabase.auth.setSession({ access_token, refresh_token });
-          setConnectAccountVisible(false);
-        }
-      }
-    } catch (e: unknown) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Failed to link");
-    } finally {
-      setConnectLinking(null);
-    }
-  }, [redirectTo]);
-
-  const setNudgeFrequencyAndSave = useCallback(async (value: NudgeFrequency) => {
-    setNudgeFrequency(value);
-    try {
-      await AsyncStorage.setItem(NUDGE_FREQUENCY_KEY, value);
-    } catch (_) {}
-  }, []);
 
   const openNotifications = useCallback(() => {
     Linking.openSettings();
@@ -148,16 +47,17 @@ export function SettingsScreen() {
     setToneHistoryVisible(true);
   }, []);
 
-  const deleteAccount = useCallback(() => {
-    Alert.alert(
-      "Delete account",
-      "This will permanently delete all your progress. Are you sure?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: () => {} },
-      ]
-    );
-  }, []);
+  const logout = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+      (navigation as any).reset({
+        index: 0,
+        routes: [{ name: "SignUp" }],
+      });
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Could not log out");
+    }
+  }, [navigation]);
 
   return (
     <LinearGradient
@@ -178,43 +78,29 @@ export function SettingsScreen() {
       </View>
 
       <View style={styles.list}>
-        {/* Connect email or account — when anonymous or no email */}
-        {showConnectAccount && (
-          <Pressable style={styles.row} onPress={() => setConnectAccountVisible(true)}>
-            <Ionicons name="link-outline" size={ICON_SIZE} color={COLORS.violet} style={styles.rowIcon} />
-            <View style={styles.rowLabelWrap}>
-              <Text style={styles.rowLabel}>Connect email or account</Text>
-              <Text style={styles.rowSubLabel}>
-                Link your email or sign in with Google/Apple to save your progress
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={CHEVRON_SIZE} color={COLORS.muted} />
-          </Pressable>
-        )}
-
-        {/* Row — Anonymous Mode */}
-        <View style={styles.row}>
+        {/* Profile */}
+        <Pressable
+          style={styles.row}
+          onPress={() => {
+          const nav = navigation as any;
+          if (nav.navigate) nav.navigate("SettingsProfile");
+          else nav.getParent()?.navigate("SettingsProfile");
+        }}
+        >
           <Ionicons
-            name="eye-off-outline"
+            name="person-circle-outline"
             size={ICON_SIZE}
             color={ICON_COLOR}
             style={styles.rowIcon}
           />
           <View style={styles.rowLabelWrap}>
-            <Text style={styles.rowLabel}>Anonymous Mode</Text>
-            <Text style={styles.rowSubLabel}>
-              Hide your identity from leaderboard
-            </Text>
+            <Text style={styles.rowLabel}>Profile</Text>
+            <Text style={styles.rowSubLabel}>Edit your information</Text>
           </View>
-          <Switch
-            value={anonymousMode}
-            onValueChange={setAnonymousMode}
-            trackColor={{ false: SWITCH_INACTIVE, true: SWITCH_ACTIVE }}
-            thumbColor="#FFFFFF"
-          />
-        </View>
+          <Ionicons name="chevron-forward" size={CHEVRON_SIZE} color={COLORS.muted} />
+        </Pressable>
 
-        {/* Row 2 — Notifications */}
+        {/* Notifications */}
         <Pressable style={styles.row} onPress={openNotifications}>
           <Ionicons
             name="notifications-outline"
@@ -226,87 +112,7 @@ export function SettingsScreen() {
           <Ionicons name="chevron-forward" size={CHEVRON_SIZE} color={COLORS.muted} />
         </Pressable>
 
-        {/* Row 3 — Notification Frequency (segmented: Low | Medium | High) */}
-        <View style={styles.row}>
-          <Ionicons
-            name="notifications-outline"
-            size={ICON_SIZE}
-            color={ICON_COLOR}
-            style={styles.rowIcon}
-          />
-          <Text style={[styles.rowLabel, styles.rowLabelFlex]}>Notification Frequency</Text>
-          <View style={styles.segmentedWrap}>
-            <Pressable
-              style={[
-                styles.segmentedSegment,
-                nudgeFrequency === "low" && styles.segmentedSegmentActive,
-              ]}
-              onPress={() => setNudgeFrequencyAndSave("low")}
-            >
-              <Text
-                style={[
-                  styles.segmentedText,
-                  nudgeFrequency === "low" && styles.segmentedTextActive,
-                ]}
-              >
-                Low
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.segmentedSegment,
-                nudgeFrequency === "medium" && styles.segmentedSegmentActive,
-              ]}
-              onPress={() => setNudgeFrequencyAndSave("medium")}
-            >
-              <Text
-                style={[
-                  styles.segmentedText,
-                  nudgeFrequency === "medium" && styles.segmentedTextActive,
-                ]}
-              >
-                Medium
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.segmentedSegment,
-                nudgeFrequency === "high" && styles.segmentedSegmentActive,
-              ]}
-              onPress={() => setNudgeFrequencyAndSave("high")}
-            >
-              <Text
-                style={[
-                  styles.segmentedText,
-                  nudgeFrequency === "high" && styles.segmentedTextActive,
-                ]}
-              >
-                High
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Row 4 — Streak Freezes (display only) */}
-        <View style={styles.row}>
-          <Ionicons
-            name="snow-outline"
-            size={ICON_SIZE}
-            color={ICON_COLOR}
-            style={styles.rowIcon}
-          />
-          <View style={styles.rowLabelWrap}>
-            <Text style={styles.rowLabel}>Streak Freezes</Text>
-            <Text style={styles.rowSubLabel}>
-              Applied automatically when you miss a day
-            </Text>
-          </View>
-          <View style={styles.freezeBadge}>
-            <Text style={styles.freezeBadgeText}>{STREAK_FREEZES_REMAINING}</Text>
-          </View>
-        </View>
-
-        {/* Row 5 — Twin Tone History */}
+        {/* Twin Tone History */}
         <Pressable style={styles.row} onPress={openToneHistory}>
           <Ionicons
             name="heart-outline"
@@ -321,24 +127,6 @@ export function SettingsScreen() {
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={CHEVRON_SIZE} color={COLORS.muted} />
-        </Pressable>
-
-        {/* Row 6 — Delete Account */}
-        <Pressable style={styles.row} onPress={deleteAccount}>
-          <Ionicons
-            name="trash-outline"
-            size={ICON_SIZE}
-            color={COLORS.danger}
-            style={styles.rowIcon}
-          />
-          <Text style={[styles.rowLabel, styles.rowLabelFlex, styles.rowLabelDanger]}>
-            Delete Account
-          </Text>
-          <Ionicons
-            name="chevron-forward"
-            size={CHEVRON_SIZE}
-            color={COLORS.danger}
-          />
         </Pressable>
 
         {/* Subscription — subscribe anytime; Paywall also shown automatically when trial ends */}
@@ -361,92 +149,25 @@ export function SettingsScreen() {
           <Ionicons name="chevron-forward" size={CHEVRON_SIZE} color={COLORS.muted} />
         </Pressable>
 
-        {/* Temporary: preview Milestone Achievement Card */}
-        <Pressable
-          style={styles.row}
-          onPress={() => setMilestonePreviewVisible(true)}
-        >
-          <Ionicons
-            name="trophy-outline"
-            size={ICON_SIZE}
-            color={ICON_COLOR}
-            style={styles.rowIcon}
-          />
-          <Text style={[styles.rowLabel, styles.rowLabelFlex]}>
-            Preview Milestone Card
-          </Text>
-          <Ionicons name="chevron-forward" size={CHEVRON_SIZE} color={COLORS.muted} />
-        </Pressable>
+        {/* Logout — full-width primary-style button */}
+        <View style={styles.logoutWrap}>
+          <Pressable onPress={logout} style={({ pressed }) => [styles.logoutBtn, pressed && styles.logoutBtnPressed]}>
+            <LinearGradient
+              colors={GRADIENTS.button.colors}
+              start={GRADIENTS.button.start}
+              end={GRADIENTS.button.end}
+              style={styles.logoutBtnGradient}
+            >
+              <Text style={styles.logoutLabel}>Log out</Text>
+            </LinearGradient>
+          </Pressable>
+        </View>
       </View>
 
       <ToneHistoryModal
         visible={toneHistoryVisible}
         onClose={() => setToneHistoryVisible(false)}
       />
-      <MilestoneAchievementCard
-        visible={milestonePreviewVisible}
-        onClose={() => setMilestonePreviewVisible(false)}
-        interestName="Fitness"
-        milestoneNumber={7}
-        milestoneName="7 Days of Fitness"
-        twinCongratulation="Seven days. You showed up. That's how the gap closes."
-      />
-
-      <Modal visible={connectAccountVisible} transparent animationType="fade">
-        <Pressable style={styles.modalBackdrop} onPress={() => setConnectAccountVisible(false)}>
-          <Pressable style={styles.connectModalContent} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.connectModalTitle}>Connect email or account</Text>
-            <Text style={styles.connectModalSub}>Link your progress to an email or Google/Apple.</Text>
-            <TextInput
-              style={styles.connectEmailInput}
-              placeholder="you@example.com"
-              placeholderTextColor={COLORS.muted}
-              value={connectEmailInput}
-              onChangeText={setConnectEmailInput}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              editable={!connectSending}
-            />
-            <Pressable
-              style={[styles.connectBtn, (!connectEmailInput.trim() || connectSending) && styles.connectBtnDisabled]}
-              onPress={sendConnectEmailLink}
-              disabled={!connectEmailInput.trim() || connectSending}
-            >
-              {connectSending ? (
-                <ActivityIndicator size="small" color={COLORS.text} />
-              ) : (
-                <Text style={styles.connectBtnText}>Send verification link</Text>
-              )}
-            </Pressable>
-            <View style={styles.connectDivider} />
-            <Pressable
-              style={styles.connectProviderBtn}
-              onPress={() => linkProvider("google")}
-              disabled={connectLinking !== null}
-            >
-              {connectLinking === "google" ? (
-                <ActivityIndicator size="small" color={COLORS.text} />
-              ) : (
-                <Text style={styles.connectProviderText}>Link with Google</Text>
-              )}
-            </Pressable>
-            <Pressable
-              style={styles.connectProviderBtn}
-              onPress={() => linkProvider("apple")}
-              disabled={connectLinking !== null}
-            >
-              {connectLinking === "apple" ? (
-                <ActivityIndicator size="small" color={COLORS.text} />
-              ) : (
-                <Text style={styles.connectProviderText}>Link with Apple</Text>
-              )}
-            </Pressable>
-            <Pressable style={styles.connectCancel} onPress={() => setConnectAccountVisible(false)}>
-              <Text style={styles.connectCancelText}>Cancel</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </LinearGradient>
   );
 }
@@ -620,5 +341,28 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: COLORS.muted,
+  },
+  logoutWrap: {
+    marginTop: SPACING.xl,
+    paddingHorizontal: ROW_PADDING_H,
+    paddingBottom: SPACING.xl,
+  },
+  logoutBtn: {
+    height: 52,
+    borderRadius: RADIUS.card,
+    overflow: "hidden",
+  },
+  logoutBtnPressed: {
+    opacity: 0.9,
+  },
+  logoutBtnGradient: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoutLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 16,
+    color: COLORS.text,
   },
 });

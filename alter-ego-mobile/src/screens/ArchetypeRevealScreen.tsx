@@ -349,9 +349,9 @@ export function ArchetypeRevealScreen() {
 
   return (
     <LinearGradient
-      colors={[COLORS.bg1, COLORS.bg0]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
+      colors={GRADIENTS.backgroundPremium.colors}
+      start={GRADIENTS.backgroundPremium.start}
+      end={GRADIENTS.backgroundPremium.end}
       style={styles.gradientRoot}
     >
       <View style={StyleSheet.absoluteFill} pointerEvents="none">

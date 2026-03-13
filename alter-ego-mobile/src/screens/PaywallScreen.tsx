@@ -1,9 +1,9 @@
 /**
- * Paywall / Trial Expiry Screen §24. Full-screen, no dismiss.
- * Shown when trial ends (Day 14+). User cannot navigate past without subscribing.
+ * Paywall / Subscription Screen §24. Premium layout: timeline, MONTHLY vs YEARLY cards, CTA.
+ * Full-screen, no dismiss when trial ended. Uses app theme (dark violet, premium gradient).
  */
 
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   ScrollView,
   Pressable,
   Platform,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -21,7 +22,6 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
 } from "react-native-reanimated";
-import { PetAnimation } from "../components/PetAnimation";
 import {
   COLORS,
   SPACING,
@@ -31,50 +31,52 @@ import {
   ANIMATIONS,
 } from "../constants/theme";
 
-const CHAR_W = 120;
-const CHAR_H = 160;
-const PET_SIZE = 56;
-const GLOW_SIZE = 400;
-const PRICE_CARD_RADIUS = 20;
-const CTA_HEIGHT = 56;
-const RESTORE_BUTTON_HEIGHT = 40;
+const CTA_HEIGHT = 52;
+const TIMELINE_ICON_SIZE = 40;
+const PLAN_CARD_PADDING = 16;
 
-const BULLETS = [
-  "Shadow Twin chat, always",
-  "All 5 AI agents active",
-  "Full leaderboard access",
-  "Weekly Oracle report",
-  "Cancel anytime",
+const TIMELINE_ITEMS = [
+  {
+    title: "Today",
+    sub: "Unlock all the app's features — Hard Mode, Season, Journey and more.",
+    icon: "lock-open-outline" as const,
+  },
+  {
+    title: "In 5 Days – Reminder",
+    sub: "We'll send you a reminder that your trial is ending soon.",
+    icon: "notifications-outline" as const,
+  },
+  {
+    title: "In 7 Days – Billing Starts",
+    sub: "You'll be charged on Mar 7, 2026. Cancel anytime before.",
+    icon: "diamond-outline" as const,
+  },
 ];
-
-const PLACEHOLDER_STREAK = 12;
-const PLACEHOLDER_XP = "3,200";
-const PLACEHOLDER_PET_STAGE = 2;
 
 export function PaywallScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const [yearlySelected, setYearlySelected] = useState(true);
   const ctaScale = useSharedValue(1);
   const ctaAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: ctaScale.value }],
   }));
 
   const handleSubscribe = () => {
-    console.log("[Paywall] Continue for $9/month — RevenueCat purchase flow (Phase 4)");
+    console.log("[Paywall] Subscribe — RevenueCat (Phase 4)", yearlySelected ? "yearly" : "monthly");
   };
 
   const handleRestore = () => {
-    console.log("[Paywall] Restore Purchase — RevenueCat restore (Phase 4)");
+    console.log("[Paywall] Restore Purchase — RevenueCat (Phase 4)");
   };
 
   return (
     <LinearGradient
-      colors={GRADIENTS.background.colors}
-      start={GRADIENTS.background.start}
-      end={GRADIENTS.background.end}
+      colors={GRADIENTS.backgroundPremium.colors}
+      start={GRADIENTS.backgroundPremium.start}
+      end={GRADIENTS.backgroundPremium.end}
       style={styles.container}
     >
-      {/* Dev-only: back button to leave paywall when testing */}
       {__DEV__ && (
         <Pressable
           onPress={() => navigation.goBack()}
@@ -82,71 +84,109 @@ export function PaywallScreen() {
           hitSlop={12}
         >
           <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-          <Text style={styles.devBackLabel}>Back</Text>
         </Pressable>
       )}
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
           {
-            paddingTop: insets.top + SPACING.lg,
+            paddingTop: insets.top + SPACING.md,
             paddingBottom: insets.bottom + SPACING.xl,
           },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Upper ~35% — User progress: character + pet + stat row + violet glow */}
-        <View style={styles.heroZone}>
-          <View style={styles.heroContent}>
-            <View style={[styles.glowCircle, { width: GLOW_SIZE, height: GLOW_SIZE }]} />
-            <View style={styles.heroRow}>
-              <View
-                style={[
-                  styles.charPlaceholder,
-                  { width: CHAR_W, height: CHAR_H },
-                ]}
-              />
-              <PetAnimation
-                stage={PLACEHOLDER_PET_STAGE}
-                isHappy
-                size={PET_SIZE}
-              />
-            </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statItem}>🔥 {PLACEHOLDER_STREAK}</Text>
-              <Text style={styles.statDivider}>·</Text>
-              <Text style={styles.statItem}>{PLACEHOLDER_XP} XP</Text>
-              <Text style={styles.statDivider}>·</Text>
-              <Text style={styles.statItem}>Pet L{PLACEHOLDER_PET_STAGE}</Text>
+        <View style={styles.topRow}>
+          <Pressable onPress={handleRestore} style={styles.restoreBtn}>
+            <Text style={styles.restoreLabel}>Restore</Text>
+          </Pressable>
+          <View style={styles.logoWrap}>
+            <View style={styles.logoIcon}>
+              <Ionicons name="flash" size={28} color={COLORS.text} />
             </View>
           </View>
+          <View style={styles.placeholderRight} />
         </View>
 
-        {/* Trial end message — factor + 14-day learning */}
-        <Text style={styles.headline}>You showed up 14 days.</Text>
-        <Text style={styles.subhead}>
-          We've learned how you work. Continue with a plan that fits you.
+        <Text style={styles.headline}>
+          Invest in yourself and achieve your true potential in 66 days.
         </Text>
 
-        {/* Price card — 24px below message */}
-        <View style={styles.priceCard}>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceAmount}>$9</Text>
-            <Text style={styles.pricePeriod}>/month</Text>
-          </View>
-          <Text style={styles.priceTagline}>Everything. No tiers. No limits.</Text>
-          <View style={styles.bulletList}>
-            {BULLETS.map((line, i) => (
-              <View key={i} style={styles.bulletRow}>
-                <Text style={styles.bulletDot}>•</Text>
-                <Text style={styles.bulletText}>{line}</Text>
+        {/* Timeline */}
+        <View style={styles.timelineWrap}>
+          {TIMELINE_ITEMS.map((item, i) => (
+            <View key={i} style={styles.timelineRow}>
+              <View style={styles.timelineIconWrap}>
+                <View style={styles.timelineIconCircle}>
+                  <Ionicons name={item.icon} size={20} color={COLORS.text} />
+                </View>
+                {i < TIMELINE_ITEMS.length - 1 && <View style={styles.timelineLine} />}
               </View>
-            ))}
-          </View>
+              <View style={styles.timelineTextWrap}>
+                <Text style={styles.timelineTitle}>{item.title}</Text>
+                <Text style={styles.timelineSub}>{item.sub}</Text>
+              </View>
+            </View>
+          ))}
         </View>
 
-        {/* CTA — 24px below price card — press scale */}
+        {/* Plan cards */}
+        <View style={styles.planCardsRow}>
+          <Pressable
+            onPress={() => setYearlySelected(false)}
+            style={[
+              styles.planCard,
+              !yearlySelected && styles.planCardSelected,
+            ]}
+          >
+            <Text style={styles.planCardLabel}>MONTHLY</Text>
+            <View style={styles.planCardBottom}>
+              <Text style={styles.planCardPrice}>$12.99/mo</Text>
+              {!yearlySelected ? (
+                <View style={styles.planCardRadioSelected}>
+                  <Ionicons name="checkmark" size={14} color={COLORS.violet} />
+                </View>
+              ) : (
+                <View style={styles.planCardRadio} />
+              )}
+            </View>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setYearlySelected(true)}
+            style={[
+              styles.planCard,
+              styles.planCardYearly,
+              yearlySelected && styles.planCardYearlySelected,
+            ]}
+          >
+            <View style={styles.freeBadge}>
+              <Text style={styles.freeBadgeText}>7 DAYS FREE</Text>
+            </View>
+            <Text style={styles.planCardLabel}>YEARLY</Text>
+            <View style={styles.planCardBottom}>
+              <View style={styles.planCardPrices}>
+                <Text style={styles.planCardPriceStrike}>$12.99/mo</Text>
+                <Text style={styles.planCardPrice}>$4.16/mo</Text>
+              </View>
+              {yearlySelected ? (
+                <View style={styles.planCardRadioSelected}>
+                  <Ionicons name="checkmark" size={14} color={COLORS.violet} />
+                </View>
+              ) : (
+                <View style={styles.planCardRadio} />
+              )}
+            </View>
+          </Pressable>
+        </View>
+
+        <View style={styles.noPaymentRow}>
+          <Ionicons name="checkmark-circle" size={18} color={COLORS.muted} />
+          <Text style={styles.noPaymentText}>No Payment Due Now</Text>
+        </View>
+
         <Pressable
           onPress={handleSubscribe}
           onPressIn={() => {
@@ -164,21 +204,24 @@ export function PaywallScreen() {
               end={GRADIENTS.button.end}
               style={[styles.ctaBtn, SHADOWS.button]}
             >
-              <Text style={styles.ctaLabel}>Continue for $9/month</Text>
+              <Text style={styles.ctaLabel}>Start My 7-Day Free Trial</Text>
             </LinearGradient>
           </Animated.View>
         </Pressable>
 
-        <Pressable
-          onPress={handleRestore}
-          style={({ pressed }) => [styles.restoreWrap, pressed && styles.restorePressed]}
-        >
-          <Text style={styles.restoreLabel}>Restore Purchase</Text>
-        </Pressable>
-
-        <Text style={styles.legal}>
-          Subscription auto-renews monthly. Cancel anytime in App Store settings.
+        <Text style={styles.footerDisclaimer}>
+          7 days free, then $49.99 per year ($0.13 per day)
         </Text>
+
+        <View style={styles.legalRow}>
+          <Pressable onPress={() => Linking.openURL("https://example.com/terms")}>
+            <Text style={styles.legalLink}>Terms of Use</Text>
+          </Pressable>
+          <Text style={styles.legalDivider}> </Text>
+          <Pressable onPress={() => Linking.openURL("https://example.com/privacy")}>
+            <Text style={styles.legalLink}>Privacy Policy</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </LinearGradient>
   );
@@ -191,122 +234,197 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.screenPadding,
     alignItems: "center",
   },
-  heroZone: {
+  devBack: {
+    position: "absolute",
+    left: SPACING.screenPadding,
+    zIndex: 10,
+  },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     width: "100%",
     marginBottom: SPACING.lg,
   },
-  heroContent: {
-    alignItems: "center",
-    position: "relative",
+  restoreBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
   },
-  glowCircle: {
+  restoreLabel: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 15,
+    color: COLORS.text2,
+  },
+  logoWrap: {
     position: "absolute",
-    borderRadius: GLOW_SIZE / 2,
-    backgroundColor: "rgba(139,92,246,0.15)",
-    top: CHAR_H / 2 + PET_SIZE / 2 - GLOW_SIZE / 2,
-    left: "50%",
-    marginLeft: -GLOW_SIZE / 2,
-  },
-  heroRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "center",
-    gap: SPACING.md,
-  },
-  charPlaceholder: {
-    backgroundColor: COLORS.surface2,
-    borderRadius: RADIUS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  statRow: {
-    flexDirection: "row",
+    left: 0,
+    right: 0,
     alignItems: "center",
-    marginTop: SPACING.sm,
-    gap: 6,
+    pointerEvents: "none",
   },
-  statItem: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 14,
-    color: COLORS.text,
+  logoIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(139,92,246,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  statDivider: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.muted,
-  },
+  placeholderRight: { width: 60 },
   headline: {
     fontFamily: "Inter_700Bold",
     fontSize: 22,
     color: COLORS.text,
     textAlign: "center",
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xl,
+    paddingHorizontal: SPACING.sm,
   },
-  subhead: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: COLORS.text2,
-    textAlign: "center",
-    marginBottom: SPACING.lg,
-    maxWidth: 280,
-    alignSelf: "center",
-  },
-  priceCard: {
+  timelineWrap: {
     width: "100%",
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: PRICE_CARD_RADIUS,
-    padding: SPACING.lg,
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.xl,
   },
-  priceRow: {
+  timelineRow: {
     flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "center",
-    marginBottom: SPACING.xs,
-  },
-  priceAmount: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 48,
-    color: COLORS.text,
-  },
-  pricePeriod: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 20,
-    color: COLORS.muted,
-    marginLeft: 2,
-  },
-  priceTagline: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.text2,
-    textAlign: "center",
-    marginBottom: SPACING.md,
-  },
-  bulletList: {
-    alignSelf: "stretch",
-  },
-  bulletRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     marginBottom: 4,
   },
-  bulletDot: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: COLORS.text2,
-    marginRight: 8,
+  timelineIconWrap: {
+    alignItems: "center",
+    marginRight: SPACING.md,
   },
-  bulletText: {
+  timelineIconCircle: {
+    width: TIMELINE_ICON_SIZE,
+    height: TIMELINE_ICON_SIZE,
+    borderRadius: TIMELINE_ICON_SIZE / 2,
+    backgroundColor: "rgba(139,92,246,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    minHeight: 28,
+    backgroundColor: COLORS.violet,
+    marginVertical: 4,
+    borderRadius: 1,
+  },
+  timelineTextWrap: { flex: 1 },
+  timelineTitle: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  timelineSub: {
     fontFamily: "Inter_400Regular",
     fontSize: 13,
     color: COLORS.text2,
+    lineHeight: 19,
+  },
+  planCardsRow: {
+    flexDirection: "row",
+    gap: SPACING.md,
+    width: "100%",
+    marginBottom: SPACING.md,
+  },
+  planCard: {
     flex: 1,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: PLAN_CARD_PADDING,
+    minHeight: 100,
+  },
+  planCardSelected: {
+    borderColor: "rgba(139,92,246,0.4)",
+  },
+  planCardYearly: {
+    backgroundColor: COLORS.surface2,
+  },
+  planCardYearlySelected: {
+    backgroundColor: "rgba(30,35,51,0.9)",
+    borderColor: "rgba(139,92,246,0.5)",
+  },
+  freeBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: COLORS.violetDeep,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+  },
+  freeBadgeText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 10,
+    color: COLORS.text,
+    letterSpacing: 0.5,
+  },
+  planCardLabel: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    color: COLORS.text,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  planCardBottom: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  planCardPrices: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 8,
+  },
+  planCardPrice: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 18,
+    color: COLORS.text,
+  },
+  planCardPriceStrike: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: COLORS.muted,
+    textDecorationLine: "line-through",
+  },
+  planCardRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    marginLeft: "auto",
+  },
+  planCardRadioSelected: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: COLORS.violet,
+    backgroundColor: COLORS.violet,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: "auto",
+  },
+  noPaymentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: SPACING.lg,
+  },
+  noPaymentText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: COLORS.muted,
   },
   ctaWrap: {
     width: "100%",
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.md,
   },
   ctaBtnWrap: {
     width: "100%",
@@ -332,36 +450,26 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.text,
   },
-  restoreWrap: {
-    height: RESTORE_BUTTON_HEIGHT,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  restorePressed: { opacity: 0.7 },
-  restoreLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 15,
-    color: COLORS.violet,
-  },
-  legal: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 11,
-    color: COLORS.muted,
+  footerDisclaimer: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: COLORS.text2,
     textAlign: "center",
-    maxWidth: 280,
+    marginBottom: SPACING.sm,
   },
-  devBack: {
-    position: "absolute",
-    left: SPACING.screenPadding,
-    zIndex: 10,
+  legalRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 4,
   },
-  devBackLabel: {
+  legalLink: {
     fontFamily: "Inter_500Medium",
-    fontSize: 16,
-    color: COLORS.text,
+    fontSize: 13,
+    color: COLORS.muted,
+  },
+  legalDivider: {
+    color: COLORS.muted,
+    fontSize: 13,
   },
 });

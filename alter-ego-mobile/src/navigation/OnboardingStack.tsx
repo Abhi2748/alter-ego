@@ -17,7 +17,7 @@ export function OnboardingStack() {
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: COLORS.bg1 },
+          contentStyle: { backgroundColor: "#05060C" },
         }}
       >
         <Stack.Screen name="OnboardingFraming" component={OnboardingFramingScreen} />

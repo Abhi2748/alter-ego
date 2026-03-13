@@ -12,7 +12,7 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import type { OnboardingStackParamList } from "../navigation/types";
-import { COLORS, SPACING, RADIUS, ANIMATIONS, SHADOWS } from "../constants/theme";
+import { COLORS, SPACING, RADIUS, ANIMATIONS, SHADOWS, GRADIENTS } from "../constants/theme";
 
 // Match particle system used on SignUpScreen for consistency
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -143,12 +143,11 @@ export function OnboardingFramingScreen() {
 
   return (
     <View style={styles.root}>
-      {/* Background gradient: #0D0F1A → #07080F */}
       <LinearGradient
-        colors={[COLORS.bg1, COLORS.bg0]}
+        colors={GRADIENTS.backgroundPremium.colors}
         style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
+        start={GRADIENTS.backgroundPremium.start}
+        end={GRADIENTS.backgroundPremium.end}
       />
 
       {/* Particle layer: subtle animated dots behind content */}

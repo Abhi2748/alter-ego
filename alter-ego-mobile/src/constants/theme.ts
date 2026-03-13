@@ -116,6 +116,8 @@ export const SHADOWS = {
 };
 
 export const GRADIENTS = {
+  /** Same as splash — use for SignUp, Onboarding, all screens until Main tab. */
+  backgroundPremium: { colors: ["#05060C", "#0A0C18", "#06070E"] as const, start: { x: 0, y: 0 }, end: { x: 0, y: 1 } },
   background: { colors: ["#0D0F1A", "#07080F"] as const, start: { x: 0, y: 0 }, end: { x: 0, y: 1 } },
   button: { colors: ["#6D28D9", "#8B5CF6"] as const, start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },
   xpBar: { colors: ["#6D28D9", "#A78BFA"] as const, start: { x: 0, y: 0 }, end: { x: 1, y: 0 } },

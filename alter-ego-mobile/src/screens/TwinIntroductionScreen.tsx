@@ -105,10 +105,10 @@ export function TwinIntroductionScreen() {
 
   return (
     <LinearGradient
-      colors={[COLORS.bg1, COLORS.bg0]}
+      colors={GRADIENTS.backgroundPremium.colors}
       style={styles.gradientRoot}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
+      start={GRADIENTS.backgroundPremium.start}
+      end={GRADIENTS.backgroundPremium.end}
     >
       <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
         <View style={styles.topZone}>

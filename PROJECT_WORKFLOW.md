@@ -12,7 +12,7 @@ This document describes how the current ALTER EGO codebase actually works today 
   - Root navigator is `RootStack` with `initialRouteName="Splash"`.
 
 - **Splash → Sign-up**
-  - `SplashScreen` plays the hero splash animation for ~2.5s and then `replace("SignUp")`.
+  - `SplashScreen` plays the hero splash animation (crack line, figures, logo, tagline; crack sparks and particles). After **5s** it runs `replace("SignUp")`.
   - `SignUpScreen` shows three auth options:
     - **Apple / Google** (Supabase OAuth via `supabase.auth.signInWithOAuth`).
     - **Email magic link** (Supabase OTP).
@@ -92,11 +92,12 @@ This document describes how the current ALTER EGO codebase actually works today 
 ### 2.2 Splash & authentication
 
 - **`SplashScreen`**
-  - Renders the cinematic gradient, fracture line, and logo animations.
-  - Uses Reanimated timing to fade in/out elements.
-  - After ~2500ms, runs `navigation.replace("SignUp")`.
+  - Renders the cinematic gradient (premium dark: `#05060C` → `#0A0C18` → `#06070E`), fracture line, two hooded figures, crack sparks (brighter/larger particles along the line), logo block, and tagline (“Same start. One kept their word.”).
+  - Uses Reanimated for entrance and loop animations (particles, sparks, figure rise).
+  - After **5000ms**, runs `navigation.replace("SignUp")`.
 
 - **`SignUpScreen`**
+  - Uses the **premium background gradient** (same as splash: `GRADIENTS.backgroundPremium`) for a consistent dark look until Main.
   - Shows the project branding, tagline, and three sign‑in CTAs:
     - `Continue with Apple`, `Continue with Google`, `Continue with Email`.
   - **OAuth flow**:
@@ -122,10 +123,11 @@ This document describes how the current ALTER EGO codebase actually works today 
 ### 2.3 Onboarding stack
 
 - **`OnboardingFramingScreen`**
-  - Thematic screen: dark gradient background, subtle particles, copy about “We don’t count perfect days”.
+  - Thematic screen: **premium background gradient** (same as splash), subtle particles, copy about “We don’t count perfect days”.
   - Single CTA button (`PrimaryButton`) that pushes `OnboardingQuestion` with `questionIndex=0`.
 
 - **`OnboardingQuestionScreen`**
+  - Uses **premium background gradient** for consistency with splash/SignUp.
   - A single configurable screen that drives the whole questionnaire:
     - It reads metadata (prompt, type, options) from an `ONBOARDING_QUESTIONS` config.
   - Supported question types:
@@ -149,6 +151,7 @@ This document describes how the current ALTER EGO codebase actually works today 
         - `replace("ArchetypeReveal")`.
 
 - **`ArchetypeRevealScreen`**
+  - **Premium background gradient** for pre‑Main consistency.
   - Two phases:
     1. “Processing” state – animated dots and copy like “Reading your answers…”.
     2. Reveal – archetype name, description, and first Twin line from backend.
@@ -156,6 +159,7 @@ This document describes how the current ALTER EGO codebase actually works today 
   - CTA “Enter →” transitions to `TwinIntroductionScreen`.
 
 - **`TwinIntroductionScreen`**
+  - **Premium background gradient** for pre‑Main consistency.
   - Visualizes the rivalry:
     - Left side “You”, right side “Your Twin one week ahead”.
     - Fracture line, short copy about the 14‑day learning window.
@@ -172,6 +176,7 @@ This document describes how the current ALTER EGO codebase actually works today 
     - `MainTabs` → `MainTabNavigator`.
     - `Paywall` → `PaywallScreen`.
     - `Settings` → `SettingsScreen`.
+    - `SettingsProfile` → `SettingsProfileScreen`.
     - `TwinChat` → `TwinChatScreen`.
     - `RankCard` → `RankCardScreen`.
     - `JournalEditor` → `JournalEditorScreen`.
@@ -376,32 +381,26 @@ This document describes how the current ALTER EGO codebase actually works today 
 
 - **`ProfileInterestsScreen`**
   - Shows:
-    - “Your Interests” list with chips:
-      - Interest name.
-      - Level badge (1–10; golden ring at 10).
-      - Progress bar within current level based on placeholder XP.
-      - Active schedule chips (weekdays).
-    - “+ Add Interest” button opening `AddInterestModal`.
-    - “Milestones” section with static interest milestones.
-    - `InterestSchedulePickerModal` to modify schedules.
-  - Data is entirely local to this screen:
-    - `PLACEHOLDER_INTERESTS` list with `totalXp` and `schedule`.
-  - No integration with backend `interest_progress` or `milestone_log` yet.
+    - Header with back, “Interests” title, and **three‑dots menu** (top right). Menu option: “Delete an interest” → enters **delete mode** (no trash icon on each row).
+    - “Your Interests” list: each block has name, level badge (1–10; golden ring at 10), XP bar, active days, and **per‑interest “MILESTONES”** section with 7 **`MilestoneRow`**s (locked/unlocked). Tapping an **unlocked** row opens **`MilestoneCardScreen`** (full‑screen modal with soul line, stats, Share button).
+    - “+ Add Interest” button opening add‑interest flow.
+    - **Delete mode**: three‑dots → “Delete an interest” → selection circles on each row; tap row to toggle; bottom bar “Cancel” / “Delete (N)”; confirm Alert before remove.
+  - Data: interests from `getInterests` (or `PLACEHOLDER_INTERESTS`); each interest has optional `milestones` array (`InterestMilestone[]`). Phase 1 uses `PLACEHOLDER_MILESTONES` per interest.
+  - **MilestoneCardScreen**: full‑screen modal per milestone (M1–M7), with soul line, stats layout by type, date stamp, **Share** button (scrollable so Share is visible).
+  - **M2 milestone card**: stats row order is Sessions | **Day Streak** (middle) | XP Total; then 7‑cell heatmap.
 
 ### 2.9 Settings, journal, rank card, paywall
 
 - **`SettingsScreen`**
   - Rows:
-    - Anonymous Mode (in‑memory toggle).
+    - **Profile** → navigates to **`SettingsProfile`** (sub-label: “Edit your information”). Navigation uses `navigation.navigate("SettingsProfile")` (with fallback to `getParent()` if needed).
     - Notifications (opens OS notification settings).
-    - Notification Frequency:
-      - Segmented control stored in AsyncStorage (`NUDGE_FREQUENCY_KEY`).
-      - Does **not** sync to backend `users.nudge_frequency`, so server has its own default.
+    - Notification Frequency (segmented control in AsyncStorage; not synced to backend `users.nudge_frequency`).
     - Streak Freezes (display only).
     - Twin Tone History (opens `ToneHistoryModal` with static sample entries).
-    - Delete Account (shows confirmation, but no backend delete call).
     - Subscription (navigates to `PaywallScreen`).
-    - Preview Milestone Card (opens `MilestoneAchievementCard` overlay).
+    - **Log out** – full‑width **primary-style gradient button** (same as app CTAs), 52px height; signs out via Supabase and resets nav to SignUp.
+  - No longer: Anonymous Mode row, Delete Account row, Preview Milestone Card row (milestone preview lives in Profile → Interests).
 
 - **`JournalEditorScreen`**
   - Calendar at top and text area beneath.
@@ -421,14 +420,17 @@ This document describes how the current ALTER EGO codebase actually works today 
     - “Share Rank Card” – currently logs to console; intended to use view‑shot and platform share sheet.
     - “Regenerate Oracle line” – currently logs; intended to call `/agents/oracle-line`.
 
+- **`SettingsProfileScreen`**
+  - Reached from Settings → Profile row.
+  - Header: back + “Profile” title.
+  - Content: single line **“Edit your information”** (placeholder for future avatar, username, email, etc.). No delete-account or full form in current build.
+
 - **`PaywallScreen`**
-  - Presents the subscription offer:
-    - Trial explanation, $9/month price, and benefits list.
-    - Subscribe and Restore Purchase buttons.
-  - Logic:
-    - Handlers currently log or show placeholder behaviour.
-    - No RevenueCat or platform billing integration yet.
-    - Not automatically shown when trial ends; user only sees it when navigating from Settings or manual routing.
+  - **Premium layout** (dark gradient `GRADIENTS.backgroundPremium`): Restore (top left), logo icon (centre), headline (“Invest in yourself and achieve your true potential in 66 days.”).
+  - **Timeline**: three steps with violet icon circles and connector line (Today – unlock features; In 5 Days – reminder; In 7 Days – billing starts).
+  - **Plan cards**: two side‑by‑side – **MONTHLY** ($12.99/mo) and **YEARLY** (7 DAYS FREE badge, strikethrough $12.99/mo, $4.16/mo, selected by default). Radio-style selection; selected card has violet border and checkmark.
+  - “No Payment Due Now” with checkmark; full‑width CTA **“Start My 7-Day Free Trial”** (gradient button); footer “7 days free, then $49.99 per year ($0.13 per day)” and Terms of Use | Privacy Policy links.
+  - Logic: handlers log; no RevenueCat yet. Shown when navigating from Settings or manual routing.
 
 ---
 
@@ -683,7 +685,13 @@ This section lists the key reusable components and what they do for the user.
 
 - **`MilestoneAchievementCard`**
   - Full‑screen overlay celebrating interest milestones.
-  - Triggered after `EarnedMilestoneOut` from backend; also previewable in Settings.
+  - Triggered after `EarnedMilestoneOut` from backend.
+
+- **`MilestoneRow`**
+  - Compact row for Profile → Interests: locked (dim, hint text, 🔒) or unlocked (violet edge, meta line, chevron). M7 unlocked uses gold accent. Tap unlocked row opens `MilestoneCardScreen`. Uses `MILESTONE_DEFINITIONS` and `InterestMilestone` from `constants/milestoneDefinitions.ts`.
+
+- **`MilestoneCardScreen`**
+  - Full‑screen modal for an earned milestone: per‑milestone card style (M1–M7), soul line, stats (layout varies by milestone), date stamp, **Share** button. Scrollable so Share is always visible. M2 stats: Sessions | Day Streak (middle) | XP Total + heatmap.
 
 - **Onboarding components**
   - `OnboardingProgressBar` – 1–10 progress with thin violet bar.
@@ -805,4 +813,21 @@ Backend routes: `alter-ego-backend/main.py` includes `user` router (line 4, 24).
 | Planner input (interests) | Onboarding now persists per‑interest `level`, `learning_goal`, and `schedule` into `interest_progress` (when the DB has those optional columns). Planner uses this metadata when generating missions (Level/Goal in the prompt, and `schedule` to decide which days to create missions). | `alter-ego-backend/models/onboarding.py`, `alter-ego-backend/routes/onboarding.py`, `alter-ego-backend/agents/planner_agent.py`, `alter-ego-mobile/src/utils/api.ts`. |
 | New backend router | Added `GET /api/v1/interests` and `PATCH /api/v1/interests/{interest}` for per‑interest metadata (goal/level/schedule). Planner and Profile → Interests both rely on this when the DB schema includes the optional columns. | `alter-ego-backend/routes/interests.py`, `alter-ego-backend/main.py`. |
 | Outstanding migration notes | To fully persist per‑interest goal/level/schedule, the Supabase `interest_progress` table needs new columns. The schema file includes commented migrations: `self_level text`, `learning_goal text`, `schedule int[]`. Without these, edits from Profile still work in UI and Planner falls back gracefully, but the extra metadata is not stored server‑side. | `alter-ego-backend/supabase/schema.sql` (comments under **11. INTEREST_PROGRESS**). |
+
+### 7.5 Splash, backgrounds, milestones, Interests delete, Settings, Paywall (UI pass)
+
+| Change | Location | Details |
+|--------|----------|---------|
+| **Splash – crack sparks** | `alter-ego-mobile/src/screens/SplashScreen.tsx` | Sparks made **brighter and larger**: size 2px→4px (small 1.5→3), color/opacity and shadow (`#D7AAFF`, shadowRadius 8) increased. Spark positions adjusted for new sizes. |
+| **Splash – auto-navigate delay** | `alter-ego-mobile/src/screens/SplashScreen.tsx` | Navigate to SignUp after **5000ms** (was 2800ms). |
+| **Premium background (pre‑Main)** | `alter-ego-mobile/src/constants/theme.ts` | Added **`GRADIENTS.backgroundPremium`**: `#05060C` → `#0A0C18` → `#06070E` (same as splash). |
+| **Premium background usage** | `alter-ego-mobile/src/screens/SignUpScreen.tsx`, `OnboardingFramingScreen.tsx`, `OnboardingQuestionScreen.tsx`, `ArchetypeRevealScreen.tsx`, `Onboarding14DayScreen.tsx`, `TwinIntroductionScreen.tsx`, `src/navigation/OnboardingStack.tsx` | SignUp + all Onboarding screens use `GRADIENTS.backgroundPremium`; OnboardingStack `contentStyle` uses `#05060C`. |
+| **M2 milestone – streak in middle** | `alter-ego-mobile/src/components/MilestoneCardScreen.tsx` | Stats row for M2 reordered to **Sessions \| Day Streak \| XP Total** (streak in centre). |
+| **Milestone card – Share visible** | `alter-ego-mobile/src/components/MilestoneCardScreen.tsx` | Scroll content `paddingBottom: 48`, `flexGrow: 1`; card `paddingBottom: 24`; Share button wrapped in `shareBtnWrap` so it remains visible when scrolling to bottom. |
+| **Interests – three‑dots, delete flow** | `alter-ego-mobile/src/screens/ProfileInterestsScreen.tsx` | **Trash icon removed** from each interest row. **Three‑dots menu** (top right) with “Delete an interest” → **delete mode**: selection circles on rows, violet border when selected, bottom bar “Cancel” / “Delete (N)” with confirm Alert before remove. Milestones hidden in delete mode. |
+| **Settings – Profile row & nav** | `alter-ego-mobile/src/screens/SettingsScreen.tsx` | Profile row sub-label set to **“Edit your information”**. Navigate to `SettingsProfile` via `navigation.navigate("SettingsProfile")` with fallback to `getParent()?.navigate("SettingsProfile")`. |
+| **SettingsProfile screen** | `alter-ego-mobile/src/screens/SettingsProfileScreen.tsx` | Simplified to header + single line **“Edit your information”** (no avatar/username/email/delete form). |
+| **Settings – Logout button** | `alter-ego-mobile/src/screens/SettingsScreen.tsx` | **Log out** is a full‑width **gradient primary button** (52px, `GRADIENTS.button`), same style as app CTAs; previously undefined styles made it small/black. |
+| **MainStack – SettingsProfile** | `alter-ego-mobile/src/navigation/MainStack.tsx` | Already had `SettingsProfile` screen; doc and Settings nav updated so Profile row opens it correctly. |
+| **Paywall – premium redesign** | `alter-ego-mobile/src/screens/PaywallScreen.tsx` | **Redesigned**: premium dark gradient; Restore (top left), logo icon (centre); headline; **timeline** (3 steps with violet circles + connector); **two plan cards** (MONTHLY / YEARLY, YEARLY with “7 DAYS FREE” badge and strikethrough + $4.16/mo, radio selection); “No Payment Due Now”; CTA “Start My 7-Day Free Trial”; footer disclaimer and Terms \| Privacy links. |
 

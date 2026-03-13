@@ -45,7 +45,7 @@ import { OnboardingOptionCard } from "../components/OnboardingOptionCard";
 import { OnboardingSlider } from "../components/OnboardingSlider";
 import { AddInterestOnboardingModal } from "../components/AddInterestOnboardingModal";
 import { checkUsername } from "../utils/api";
-import { COLORS, SPACING, RADIUS, ANIMATIONS, SHADOWS } from "../constants/theme";
+import { COLORS, SPACING, RADIUS, ANIMATIONS, SHADOWS, GRADIENTS } from "../constants/theme";
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
 const TRANSITION_DURATION = 260;
@@ -645,10 +645,10 @@ export function OnboardingQuestionScreen() {
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={[COLORS.bg1, COLORS.bg0]}
+        colors={GRADIENTS.backgroundPremium.colors}
         style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
+        start={GRADIENTS.backgroundPremium.start}
+        end={GRADIENTS.backgroundPremium.end}
       />
       <View style={[StyleSheet.absoluteFill, styles.particleContainer]} pointerEvents="none">
         {particleConfigs.map((c, i) => (

@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import {
   COLORS,
@@ -24,8 +24,10 @@ import {
   RADIUS,
 } from "../constants/theme";
 import { SecondaryButton } from "../components/SecondaryButton";
-import { InterestSchedulePickerModal } from "../components/InterestSchedulePickerModal";
-import { AddInterestModal } from "../components/AddInterestModal";
+import { AddInterestOnboardingModal, type OnboardingInterestItem } from "../components/AddInterestOnboardingModal";
+import { EditInterestDetailsModal, type InterestDetails } from "../components/EditInterestDetailsModal";
+import { supabase } from "../utils/supabase";
+import { getInterests, patchInterest } from "../utils/api";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -55,12 +57,14 @@ export interface InterestItem {
   name: string;
   totalXp: number;
   schedule: number[];
+  self_level?: "Still figuring it out" | "Getting the hang of it" | "Pretty solid";
+  learning_goal?: string;
 }
 
 /** Placeholder: L2 40% (360 XP), L1 15% (30 XP). */
 const PLACEHOLDER_INTERESTS: InterestItem[] = [
-  { id: "1", name: "Fitness", totalXp: 360, schedule: [0, 2, 4] },
-  { id: "2", name: "Reading", totalXp: 30, schedule: [1, 3, 5] },
+  { id: "1", name: "Fitness", totalXp: 360, schedule: [0, 2, 4], self_level: "Getting the hang of it", learning_goal: "Run a 5K." },
+  { id: "2", name: "Reading", totalXp: 30, schedule: [1, 3, 5], self_level: "Still figuring it out", learning_goal: "Finish 1 book a month." },
 ];
 
 function formatActiveDays(schedule: number[]): string {
@@ -92,27 +96,67 @@ export function ProfileInterestsScreen() {
   const navigation = useNavigation();
 
   const [interests, setInterests] = useState<InterestItem[]>(PLACEHOLDER_INTERESTS);
-  const [scheduleModalInterest, setScheduleModalInterest] =
-    useState<InterestItem | null>(null);
+  const [editInterest, setEditInterest] = useState<InterestItem | null>(null);
   const [addModalVisible, setAddModalVisible] = useState(false);
 
-  const openSchedule = useCallback((interest: InterestItem) => {
-    setScheduleModalInterest(interest);
-  }, []);
-
-  const closeScheduleModal = useCallback(() => {
-    setScheduleModalInterest(null);
-  }, []);
-
-  const handleSaveSchedule = useCallback(
-    (interestId: string, schedule: number[]) => {
-      setInterests((prev) =>
-        prev.map((i) => (i.id === interestId ? { ...i, schedule } : i))
-      );
-      setScheduleModalInterest(null);
-    },
-    []
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      (async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) return;
+          const res = await getInterests(session.access_token);
+          if (!mounted) return;
+          const list: InterestItem[] = (res.interests || []).map((r) => ({
+            id: r.interest,
+            name: r.interest,
+            totalXp: r.total_xp ?? 0,
+            schedule: (r.schedule ?? [0, 2, 4]) as number[],
+            self_level: (r.self_level ?? "Still figuring it out") as any,
+            learning_goal: (r.learning_goal ?? "") as string,
+          }));
+          if (list.length > 0) setInterests(list);
+        } catch (_) {
+          // keep placeholder
+        }
+      })();
+      return () => {
+        mounted = false;
+      };
+    }, [])
   );
+
+  const openEdit = useCallback((interest: InterestItem) => {
+    setEditInterest(interest);
+  }, []);
+
+  const closeEditModal = useCallback(() => {
+    setEditInterest(null);
+  }, []);
+
+  const handleSaveInterestDetails = useCallback((interestId: string, next: InterestDetails) => {
+    setInterests((prev) =>
+      prev.map((i) =>
+        i.id === interestId
+          ? { ...i, schedule: next.schedule, self_level: next.self_level, learning_goal: next.learning_goal }
+          : i
+      )
+    );
+    setEditInterest(null);
+
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return;
+        await patchInterest(session.access_token, interestId, {
+          self_level: next.self_level,
+          learning_goal: next.learning_goal,
+          schedule: next.schedule,
+        });
+      } catch (_) {}
+    })();
+  }, []);
 
   const handleLongPressRemove = useCallback((interest: InterestItem) => {
     Alert.alert(
@@ -134,16 +178,17 @@ export function ProfileInterestsScreen() {
     setAddModalVisible(true);
   }, []);
 
-  const handleConfirmAddInterest = useCallback((name: string) => {
+  const handleConfirmAddInterest = useCallback((item: OnboardingInterestItem) => {
     const newInterest: InterestItem = {
       id: String(Date.now()),
-      name,
+      name: item.name,
       totalXp: 0,
-      schedule: [],
+      schedule: item.schedule && item.schedule.length > 0 ? item.schedule : [0, 2, 4],
+      self_level: item.level,
+      learning_goal: item.learning_goal,
     };
     setInterests((prev) => [...prev, newInterest]);
     setAddModalVisible(false);
-    setScheduleModalInterest(newInterest);
   }, []);
 
   return (
@@ -169,6 +214,7 @@ export function ProfileInterestsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.sectionHeader}>YOUR INTERESTS</Text>
+        <Text style={styles.sectionHint}>Tap an interest to edit level, goal, or schedule.</Text>
 
         {interests.map((interest) => {
           const { level, progressInLevel } = getLevelAndProgress(interest.totalXp);
@@ -177,6 +223,7 @@ export function ProfileInterestsScreen() {
           return (
             <Pressable
               key={interest.id}
+              onPress={() => openEdit(interest)}
               onLongPress={() => handleLongPressRemove(interest)}
               delayLongPress={400}
               style={styles.interestRow}
@@ -199,15 +246,11 @@ export function ProfileInterestsScreen() {
                 <InterestXpBar progress={progressInLevel} />
               </View>
 
-              <Pressable
-                onPress={() => openSchedule(interest)}
-                style={styles.activeDaysWrap}
-                hitSlop={8}
-              >
+              <View style={styles.activeDaysWrap}>
                 <Text style={styles.activeDaysText} numberOfLines={1}>
                   {formatActiveDays(interest.schedule)}
                 </Text>
-              </Pressable>
+              </View>
             </Pressable>
           );
         })}
@@ -235,17 +278,20 @@ export function ProfileInterestsScreen() {
         </View>
       </ScrollView>
 
-      <InterestSchedulePickerModal
-        visible={!!scheduleModalInterest}
-        onClose={closeScheduleModal}
-        interestName={scheduleModalInterest?.name ?? ""}
-        currentSchedule={scheduleModalInterest?.schedule ?? []}
-        onSave={(schedule) => {
-          if (scheduleModalInterest)
-            handleSaveSchedule(scheduleModalInterest.id, schedule);
+      <EditInterestDetailsModal
+        visible={!!editInterest}
+        interestName={editInterest?.name ?? ""}
+        initial={{
+          self_level: (editInterest?.self_level ?? "Still figuring it out") as any,
+          learning_goal: editInterest?.learning_goal ?? "",
+          schedule: editInterest?.schedule ?? [0, 2, 4],
+        }}
+        onClose={closeEditModal}
+        onSave={(next) => {
+          if (editInterest) handleSaveInterestDetails(editInterest.id, next);
         }}
       />
-      <AddInterestModal
+      <AddInterestOnboardingModal
         visible={addModalVisible}
         onClose={() => setAddModalVisible(false)}
         onAdd={handleConfirmAddInterest}
@@ -281,6 +327,12 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
     textTransform: "uppercase",
     letterSpacing: 0.5,
+    marginBottom: SPACING.xs,
+  },
+  sectionHint: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    color: COLORS.text2,
     marginBottom: SPACING.md,
   },
   interestRow: {

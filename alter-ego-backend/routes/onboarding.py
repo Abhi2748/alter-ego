@@ -65,6 +65,29 @@ async def post_onboarding(payload: OnboardingPayload, user_id: str = Depends(get
         users_payload["username"] = (payload.username or "").strip()
     supabase.table("users").upsert(users_payload, on_conflict="id").execute()
 
+    # 2b) Persist per-interest self details (level/goal/schedule) into interest_progress (if provided)
+    for item in payload.interest_levels or []:
+        try:
+            supabase.table("interest_progress").upsert(
+                {
+                    "user_id": user_id,
+                    "interest": item.interest,
+                    "self_level": getattr(item, "level", None),
+                    "learning_goal": getattr(item, "learning_goal", None),
+                    "schedule": getattr(item, "schedule", None),
+                },
+                on_conflict="user_id,interest",
+            ).execute()
+        except Exception:
+            # Backward compatible DBs without these columns
+            try:
+                supabase.table("interest_progress").upsert(
+                    {"user_id": user_id, "interest": item.interest},
+                    on_conflict="user_id,interest",
+                ).execute()
+            except Exception:
+                pass
+
     # 3) Ensure character_state, pet_state, twin_state exist (upsert = insert or update)
     supabase.table("character_state").upsert(
         {

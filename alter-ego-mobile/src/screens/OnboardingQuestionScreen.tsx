@@ -468,7 +468,7 @@ export function OnboardingQuestionScreen() {
 
           {c.inputType === "username" && (
             <View style={styles.usernameSection}>
-              <Text style={styles.usernameHint}>Unique name others might see. You can change it later.</Text>
+              <Text style={styles.usernameHint}>Unique name others might see. Tap to edit.</Text>
               <TextInput
                 style={[styles.usernameInput, usernameError && styles.usernameInputError]}
                 placeholder={defaultUsername}

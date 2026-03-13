@@ -15,6 +15,7 @@ export type OnboardingStackParamList = {
   OnboardingFraming: undefined;
   OnboardingQuestion: { questionNumber: number; fromBack?: boolean } | undefined;
   ArchetypeReveal: { answers?: OnboardingAnswers };
+  Onboarding14Day: { twinFirstMessage?: string; archetype?: string } | undefined;
   TwinIntroduction: { archetype?: string; twinFirstMessage?: string; gender?: "male" | "female" | "other" } | undefined;
 };
 
@@ -32,9 +33,11 @@ export type MainStackParamList = {
   TwinChat: undefined;
   RankCard: undefined;
   Paywall: undefined;
+  JournalList: undefined;
   JournalEditor:
-    | undefined
-    | { viewMode?: "edit" | "read"; entryDate?: string; entryText?: string };
+    | { date: string }
+    | { date?: string };
+  JournalCalendar: undefined;
 };
 
 export type ProfileStackParamList = {

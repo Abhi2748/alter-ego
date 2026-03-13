@@ -310,6 +310,10 @@ CREATE INDEX IF NOT EXISTS milestone_log_user_earned ON milestone_log(user_id, e
 -- ALTER TABLE interest_progress ADD COLUMN IF NOT EXISTS current_tier int DEFAULT 1;
 -- ALTER TABLE interest_progress ADD COLUMN IF NOT EXISTS pending_upgrade boolean DEFAULT false;
 -- ALTER TABLE interest_progress ADD COLUMN IF NOT EXISTS skip_flag boolean DEFAULT false;
+-- Optional: store per-interest goal/schedule (Profile → Interests edit steps 2–4), run:
+-- ALTER TABLE interest_progress ADD COLUMN IF NOT EXISTS self_level text;
+-- ALTER TABLE interest_progress ADD COLUMN IF NOT EXISTS learning_goal text;
+-- ALTER TABLE interest_progress ADD COLUMN IF NOT EXISTS schedule int[];
 -- Optional: for Nudge Agent (§2, §3), run:
 -- ALTER TABLE users ADD COLUMN IF NOT EXISTS last_opened_at timestamptz;
 -- ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone text DEFAULT 'UTC';

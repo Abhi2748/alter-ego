@@ -116,16 +116,16 @@ export function ProfileTitlesScreen() {
               key={stage.name}
               style={[styles.stageRow, !unlocked && styles.stageRowLocked]}
             >
-              {!unlocked && (
-                <View style={styles.lockOverlayCenter} pointerEvents="none">
-                  <Ionicons name="lock-closed" size={16} color={COLORS.text} />
-                </View>
-              )}
               <View style={[styles.thumbWrap, { width: THUMB_W, height: THUMB_H }]}>
                 <View style={styles.thumbPlaceholder} />
               </View>
               <View style={styles.stageInfo}>
-                <Text style={styles.stageName}>{stage.name}</Text>
+                <View style={styles.stageNameRow}>
+                  <Text style={styles.stageName} numberOfLines={1}>{stage.name}</Text>
+                  {!unlocked && (
+                    <Ionicons name="lock-closed" size={16} color={COLORS.muted} style={styles.lockIconEnd} />
+                  )}
+                </View>
                 {unlocked ? (
                   <>
                     <Text style={styles.reachedLabel}>
@@ -204,17 +204,7 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   stageRowLocked: {
-    opacity: 0.3,
-  },
-  lockOverlayCenter: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 1,
+    opacity: 0.85,
   },
   thumbWrap: {
     marginRight: SPACING.md,
@@ -227,11 +217,20 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface2,
     ...StyleSheet.absoluteFillObject,
   },
-  stageInfo: { flex: 1 },
+  stageInfo: { flex: 1, minWidth: 0 },
+  stageNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   stageName: {
+    flex: 1,
     fontFamily: "Inter_600SemiBold",
     fontSize: 16,
     color: COLORS.text,
+  },
+  lockIconEnd: {
+    marginLeft: 4,
   },
   reachedLabel: {
     fontFamily: "Inter_400Regular",

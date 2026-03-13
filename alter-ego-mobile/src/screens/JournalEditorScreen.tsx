@@ -1,7 +1,6 @@
 /**
- * Journal Editor — Standalone (FAB from Home). Calendar strip + editor.
- * On mount: fetch last 90 days entries, store by date. Calendar: current month, 36px circles;
- * days with entries highlighted (#8B5CF6 fill), today has border if no entry. Tap day → load or edit.
+ * Journal Editor — Single entry: title + body. iPhone Journal style.
+ * Content stored as "title\n\nbody". Date from params or today.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -9,22 +8,21 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TextInput,
   Pressable,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { COLORS, SPACING } from "../constants/theme";
 import { supabase } from "../utils/supabase";
 import { getJournalEntries, saveJournal } from "../utils/api";
-
-const DAY_SIZE = 36;
-const CALENDAR_DAY_GAP = 8;
-const HEADER_HEIGHT = 56;
+import { getJournalBookmarks, setJournalBookmarks } from "../utils/journalBookmarks";
+import type { MainStackParamList } from "../navigation/types";
 
 function dateToKey(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -35,65 +33,64 @@ function formatHeaderDate(dateStr: string): string {
   return d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 }
 
-function getDaysInMonth(year: number, month: number): Date[] {
-  const first = new Date(year, month, 1);
-  const last = new Date(year, month + 1, 0);
-  const days: Date[] = [];
-  for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) {
-    days.push(new Date(d));
-  }
-  return days;
+function parseTitleAndBody(content: string): { title: string; body: string } {
+  const idx = content.indexOf("\n\n");
+  if (idx === -1) return { title: "", body: content.trim() };
+  return {
+    title: content.slice(0, idx).trim(),
+    body: content.slice(idx + 2).trim(),
+  };
 }
 
 export function JournalEditorScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const inputRef = useRef<TextInput>(null);
+  const route = useRoute<RouteProp<MainStackParamList, "JournalEditor">>();
+  const paramDate = route.params?.date;
+  const selectedDate = paramDate || dateToKey(new Date());
 
-  const [entriesByDate, setEntriesByDate] = useState<Record<string, string>>({});
+  const titleRef = useRef<TextInput>(null);
+  const bodyRef = useRef<TextInput>(null);
+
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState<string>(() => dateToKey(new Date()));
-  const [text, setText] = useState("");
-  const [isReadOnly, setIsReadOnly] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
 
-  const todayKey = dateToKey(new Date());
-  const selectedHasEntry = !!entriesByDate[selectedDate];
-  const canSave = !isReadOnly && text.trim().length > 0;
+  const canSave = (title.trim() || body.trim()).length > 0;
 
-  const loadEntries = useCallback(async () => {
+  const loadEntry = useCallback(async () => {
+    setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const [sessionRes, bookmarks] = await Promise.all([
+        supabase.auth.getSession(),
+        getJournalBookmarks(),
+      ]);
+      const { data: { session } } = sessionRes;
+      setIsBookmarked(bookmarks.includes(selectedDate));
       if (!session?.access_token) return;
-      const res = await getJournalEntries(session.access_token, undefined, undefined, 90);
-      const map: Record<string, string> = {};
-      (res.entries || []).forEach((e) => {
-        map[e.date] = e.content ?? "";
-      });
-      setEntriesByDate(map);
-    } catch (_) {}
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    loadEntries();
-  }, [loadEntries]);
-
-  useEffect(() => {
-    setText(entriesByDate[selectedDate] ?? "");
-    setIsReadOnly(!!entriesByDate[selectedDate]);
-  }, [selectedDate, entriesByDate]);
-
-  useEffect(() => {
-    if (!isReadOnly) {
-      const t = setTimeout(() => inputRef.current?.focus(), 200);
-      return () => clearTimeout(t);
+      const res = await getJournalEntries(session.access_token, selectedDate, selectedDate, 1);
+      const entry = res.entries?.[0];
+      if (entry?.content) {
+        const { title: t, body: b } = parseTitleAndBody(entry.content);
+        setTitle(t);
+        setBody(b);
+      } else {
+        setTitle("");
+        setBody("");
+      }
+    } catch (_) {
+      setTitle("");
+      setBody("");
+    } finally {
+      setLoading(false);
     }
-  }, [isReadOnly]);
+  }, [selectedDate]);
 
-  const handleDayPress = useCallback((dateStr: string) => {
-    setSelectedDate(dateStr);
-  }, []);
+  useEffect(() => {
+    loadEntry();
+  }, [loadEntry]);
 
   const handleSave = useCallback(async () => {
     if (!canSave || saving) return;
@@ -101,86 +98,89 @@ export function JournalEditorScreen() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
-      await saveJournal(session.access_token, { date: selectedDate, content: text.trim() });
-      setEntriesByDate((prev) => ({ ...prev, [selectedDate]: text.trim() }));
-      setIsReadOnly(true);
+      const content = title.trim() ? `${title.trim()}\n\n${body.trim()}` : body.trim();
+      await saveJournal(session.access_token, { date: selectedDate, content });
+      navigation.goBack();
     } catch (_) {}
     setSaving(false);
-  }, [canSave, saving, selectedDate, text]);
+  }, [canSave, saving, selectedDate, title, body, navigation]);
 
-  const handleEdit = useCallback(() => {
-    setIsReadOnly(false);
-  }, []);
-
-  const now = new Date();
-  const monthDays = getDaysInMonth(now.getFullYear(), now.getMonth());
+  const toggleBookmark = useCallback(async () => {
+    const bookmarks = await getJournalBookmarks();
+    const set = new Set(bookmarks);
+    if (set.has(selectedDate)) set.delete(selectedDate);
+    else set.add(selectedDate);
+    const next = Array.from(set);
+    await setJournalBookmarks(next);
+    setIsBookmarked(next.includes(selectedDate));
+  }, [selectedDate]);
 
   return (
-    <View style={[styles.container, { backgroundColor: COLORS.bg1 }]}>
-      <View style={[styles.header, { paddingTop: insets.top, height: insets.top + HEADER_HEIGHT }]}>
+    <View style={styles.container}>
+      <LinearGradient
+        colors={[COLORS.bg1, COLORS.bg0]}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+      />
+      <View style={[styles.header, { paddingTop: insets.top, height: insets.top + 56 }]}>
         <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn} hitSlop={12}>
           <Ionicons name="chevron-back" size={24} color={COLORS.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>{formatHeaderDate(selectedDate)}</Text>
-        {isReadOnly ? (
-          <Pressable onPress={handleEdit} style={styles.headerBtn} hitSlop={8}>
-            <Text style={styles.saveLabel}>Edit</Text>
+        <Text style={styles.headerDate} numberOfLines={1}>{formatHeaderDate(selectedDate)}</Text>
+        <View style={styles.headerRight}>
+          <Pressable onPress={toggleBookmark} style={styles.headerBtn} hitSlop={12}>
+            <Ionicons
+              name={isBookmarked ? "bookmark" : "bookmark-outline"}
+              size={22}
+              color={isBookmarked ? COLORS.violet : COLORS.text}
+            />
           </Pressable>
-        ) : (
-          <Pressable onPress={handleSave} disabled={!canSave || saving} style={styles.headerBtn} hitSlop={8}>
-            <Text style={[styles.saveLabel, !canSave && styles.saveLabelDisabled]}>Save</Text>
+          <Pressable onPress={handleSave} disabled={!canSave || saving} style={styles.headerBtn} hitSlop={12}>
+            <Text style={[styles.saveLabel, (!canSave || saving) && styles.saveLabelDisabled]}>Save</Text>
           </Pressable>
-        )}
+        </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.calendarStrip} contentContainerStyle={styles.calendarStripContent}>
-        {monthDays.map((d) => {
-          const key = dateToKey(d);
-          const hasEntry = !!entriesByDate[key];
-          const isToday = key === todayKey;
-          const isSelected = key === selectedDate;
-          return (
-            <Pressable
-              key={key}
-              onPress={() => handleDayPress(key)}
-              style={[
-                styles.dayCircle,
-                hasEntry && styles.dayCircleFilled,
-                isToday && !hasEntry && styles.dayCircleTodayBorder,
-                isSelected && styles.dayCircleSelected,
-              ]}
-            >
-              <Text style={[styles.dayNum, hasEntry && styles.dayNumWhite]}>{d.getDate()}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
       <KeyboardAvoidingView
-        style={[styles.editorWrap, { paddingBottom: insets.bottom + SPACING.xl }]}
+        style={styles.keyboard}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
       >
-        <TextInput
-          ref={inputRef}
-          style={styles.input}
-          value={text}
-          onChangeText={setText}
-          placeholder="Write about today..."
-          placeholderTextColor={COLORS.muted}
-          multiline
-          editable={!isReadOnly}
-          autoFocus={!isReadOnly}
-        />
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <TextInput
+            ref={titleRef}
+            style={styles.titleInput}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Title"
+            placeholderTextColor={COLORS.muted}
+            editable={!loading}
+          />
+          <View style={styles.titleBodyDivider} />
+          <TextInput
+            ref={bodyRef}
+            style={styles.bodyInput}
+            value={body}
+            onChangeText={setBody}
+            placeholder="What's on your mind?"
+            placeholderTextColor={COLORS.muted}
+            multiline
+            editable={!loading}
+          />
+        </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -190,80 +190,44 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  headerBtn: {
-    minWidth: 44,
-    height: 44,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  headerTitle: {
+  headerBtn: { minWidth: 44, height: 44, justifyContent: "center", alignItems: "center" },
+  headerRight: { flexDirection: "row", alignItems: "center" },
+  headerDate: {
     flex: 1,
     fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
+    fontSize: 17,
     color: COLORS.text,
     textAlign: "center",
+    marginHorizontal: SPACING.sm,
   },
-  saveLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.violet,
+  saveLabel: { fontFamily: "Inter_500Medium", fontSize: 16, color: COLORS.violet },
+  saveLabelDisabled: { color: COLORS.muted },
+  keyboard: { flex: 1 },
+  scroll: { flex: 1 },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.xl,
   },
-  saveLabelDisabled: {
-    color: COLORS.muted,
-  },
-  calendarStrip: {
-    maxHeight: DAY_SIZE + 24,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  calendarStripContent: {
-    paddingVertical: 12,
-    paddingHorizontal: SPACING.screenPadding,
-    gap: CALENDAR_DAY_GAP,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  dayCircle: {
-    width: DAY_SIZE,
-    height: DAY_SIZE,
-    borderRadius: DAY_SIZE / 2,
-    backgroundColor: COLORS.surface2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dayCircleFilled: {
-    backgroundColor: COLORS.violet,
-  },
-  dayCircleTodayBorder: {
-    borderWidth: 2,
-    borderColor: COLORS.violet,
-  },
-  dayCircleSelected: {
-    borderWidth: 2,
-    borderColor: COLORS.violetGlow,
-  },
-  dayNum: {
+  titleInput: {
     fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
+    fontSize: 22,
     color: COLORS.text,
+    paddingVertical: SPACING.sm,
+    paddingBottom: SPACING.md,
   },
-  dayNumWhite: {
-    color: "#FFFFFF",
+  titleBodyDivider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginBottom: SPACING.md,
   },
-  editorWrap: {
-    flex: 1,
-    paddingHorizontal: SPACING.screenPadding,
-    paddingTop: SPACING.lg,
-    paddingBottom: SPACING.xl,
-  },
-  input: {
+  bodyInput: {
     fontFamily: "Inter_400Regular",
-    fontSize: 16,
+    fontSize: 17,
     color: COLORS.text,
     lineHeight: 26,
-    minHeight: 120,
+    minHeight: 260,
     padding: 0,
     textAlignVertical: "top",
-    backgroundColor: COLORS.bg1,
   },
 });

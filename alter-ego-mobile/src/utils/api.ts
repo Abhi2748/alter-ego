@@ -32,6 +32,8 @@ export type OnboardingInterestLevelItem = {
   interest: string;
   level: string;
   learning_goal?: string;
+  /** Day indices 0–6 (Mon–Sun). Which days to work on this interest. */
+  schedule?: number[];
 };
 
 export type OnboardingPayload = {
@@ -453,6 +455,50 @@ export async function getJournalEntries(
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Journal list failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Interests (Profile → Interests)
+export type InterestProgressOut = {
+  interest: string;
+  total_xp: number;
+  level: number;
+  self_level?: string | null;
+  learning_goal?: string | null;
+  schedule?: number[] | null;
+};
+export type InterestsOut = { interests: InterestProgressOut[] };
+
+export async function getInterests(accessToken: string): Promise<InterestsOut> {
+  if (apiMock) return apiMock.getInterests(accessToken);
+  const res = await fetch(`${BASE}/api/v1/interests`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Get interests failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function patchInterest(
+  accessToken: string,
+  interest: string,
+  payload: { self_level?: string; learning_goal?: string; schedule?: number[] }
+): Promise<{ success: boolean }> {
+  if (apiMock) return apiMock.patchInterest(accessToken, interest, payload);
+  const res = await fetch(`${BASE}/api/v1/interests/${encodeURIComponent(interest)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Patch interest failed: ${res.status}`);
   }
   return res.json();
 }

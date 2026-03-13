@@ -262,6 +262,8 @@ export function SignUpScreen() {
       const { data, error } = await supabase.auth.signInAnonymously();
       if (error) throw error;
       if (data?.user) {
+        // Session is persisted (Supabase auth + AsyncStorage). When they return,
+        // all progress (onboarding, missions, XP, character, pet) is loaded from the backend.
         await ensureUserAndNavigate(data.user.id, undefined);
       } else {
         showError("Could not continue");
@@ -481,10 +483,6 @@ export function SignUpScreen() {
                 )}
               </Pressable>
 
-              <Text style={styles.learnCopy}>
-                We'll learn how you work. Your only job: show up.
-              </Text>
-
               <Text style={styles.legal}>
                 By continuing you agree to our{" "}
                 <Text style={styles.legalLink} onPress={() => {}} suppressHighlighting>Terms</Text> and{" "}
@@ -623,14 +621,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 15,
     color: COLORS.text2,
-  },
-  learnCopy: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    fontWeight: "400",
-    color: COLORS.text2,
-    textAlign: "center",
-    marginTop: SPACING.sm,
+    textDecorationLine: "underline",
   },
   legal: {
     fontFamily: "Inter_400Regular",

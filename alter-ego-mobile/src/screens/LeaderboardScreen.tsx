@@ -143,12 +143,24 @@ export function LeaderboardScreen() {
         </View>
       </View>
 
-      {/* User rank banner */}
+      {/* User rank banner — rank left (beside "Your rank"), Share your rank card right only */}
       <View style={styles.banner}>
         <View style={styles.bannerInner}>
-          <Text style={styles.bannerLabel}>Your rank</Text>
+          <View style={styles.bannerLeft}>
+            <Text style={styles.bannerLabel}>Your rank</Text>
+            {userVisible && (
+              <Text style={styles.bannerValue}>{userRank > 0 ? `#${userRank}` : "On the board"}</Text>
+            )}
+          </View>
           {userVisible ? (
-            <Text style={styles.bannerValue}>{userRank > 0 ? `#${userRank}` : "On the board"}</Text>
+            showShareStrip ? (
+              <Pressable onPress={goToRankCard} style={styles.bannerShare}>
+                <Text style={styles.bannerShareText}>Share your rank card</Text>
+                <Ionicons name="share-outline" size={14} color={COLORS.violet} />
+              </Pressable>
+            ) : (
+              <View style={styles.bannerSpacer} />
+            )
           ) : (
             <View style={styles.bannerNotVisible}>
               <Text style={styles.bannerNotVisibleText}>
@@ -197,7 +209,7 @@ export function LeaderboardScreen() {
             keyExtractor={keyExtractor}
             contentContainerStyle={[
               styles.listContent,
-              { paddingBottom: CONTENT_PADDING_BOTTOM + (showShareStrip ? BANNER_HEIGHT + 12 : 0) },
+              { paddingBottom: CONTENT_PADDING_BOTTOM },
             ]}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
             showsVerticalScrollIndicator={false}
@@ -205,13 +217,6 @@ export function LeaderboardScreen() {
         )}
       </View>
 
-      {/* Share your rank strip — only if user in top 10 */}
-      {showShareStrip && !loading && (
-        <Pressable style={styles.shareStrip} onPress={goToRankCard}>
-          <Text style={styles.shareStripText}>Share your rank</Text>
-          <Ionicons name="share-outline" size={16} color={COLORS.violet} />
-        </Pressable>
-      )}
     </LinearGradient>
   );
 }
@@ -268,6 +273,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  bannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  bannerSpacer: { minWidth: 1 },
+  bannerShare: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  bannerShareText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: COLORS.violet,
   },
   bannerLabel: {
     fontFamily: "Inter_400Regular",
@@ -328,21 +351,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.ember,
     marginTop: SPACING.md,
-  },
-  shareStrip: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "rgba(139, 92, 246, 0.08)",
-    paddingVertical: 12,
-    paddingHorizontal: SPACING.screenPadding,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(139, 92, 246, 0.15)",
-  },
-  shareStripText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 14,
-    color: COLORS.violet,
   },
 });

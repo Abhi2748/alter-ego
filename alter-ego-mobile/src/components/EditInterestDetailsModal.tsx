@@ -1,11 +1,10 @@
 /**
- * Onboarding add-interest flow: 3 steps per interest.
- * Step 1: Free text — "What's your interest? Type anything."
- * Step 2: Self-reported level — Still figuring it out / Getting the hang of it / Pretty solid
- * Step 3: Free text — "What do you want to learn or get better at in this interest?"
+ * Edit Interest details — steps 2–4 from onboarding add-interest:
+ * - Level (self-reported)
+ * - Goal (learning_goal)
+ * - Schedule (days)
  */
-
-import React, { useState, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -24,88 +23,67 @@ import { COLORS, SPACING, RADIUS, SHADOWS } from "../constants/theme";
 import { INTEREST_LEVEL_OPTIONS, type InterestLevelOption } from "../constants/onboardingQuestions";
 import { OnboardingOptionCard } from "./OnboardingOptionCard";
 
-export type OnboardingInterestItem = {
-  name: string;
-  level: "Still figuring it out" | "Getting the hang of it" | "Pretty solid";
-  learning_goal: string;
-  /** Day indices 0–6 (Mon–Sun). Which days to work on this interest. */
-  schedule?: number[];
-};
-
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-type Step = 1 | 2 | 3 | 4;
+
+type Step = 1 | 2 | 3; // maps to onboarding steps 2–4
+
+export type InterestDetails = {
+  self_level: InterestLevelOption;
+  learning_goal: string;
+  schedule: number[];
+};
 
 type Props = {
   visible: boolean;
+  interestName: string;
+  initial: InterestDetails;
   onClose: () => void;
-  onAdd: (item: OnboardingInterestItem) => void;
+  onSave: (next: InterestDetails) => void;
 };
 
-export function AddInterestOnboardingModal({ visible, onClose, onAdd }: Props) {
+export function EditInterestDetailsModal({ visible, interestName, initial, onClose, onSave }: Props) {
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState<Step>(1);
-  const [name, setName] = useState("");
-  const [level, setLevel] = useState<InterestLevelOption | null>(null);
-  const [learningGoal, setLearningGoal] = useState("");
-  const [schedule, setSchedule] = useState<number[]>([0, 2, 4]); // Mon, Wed, Fri default
+  const [level, setLevel] = useState<InterestLevelOption>(initial.self_level);
+  const [learningGoal, setLearningGoal] = useState<string>(initial.learning_goal);
+  const [schedule, setSchedule] = useState<number[]>(initial.schedule);
 
-  const reset = useCallback(() => {
+  useEffect(() => {
+    if (!visible) return;
     setStep(1);
-    setName("");
-    setLevel(null);
-    setLearningGoal("");
-    setSchedule([0, 2, 4]);
-  }, []);
+    setLevel(initial.self_level);
+    setLearningGoal(initial.learning_goal);
+    setSchedule(initial.schedule);
+  }, [visible, initial.self_level, initial.learning_goal, initial.schedule]);
 
   const toggleDay = useCallback((dayIndex: number) => {
     setSchedule((prev) =>
-      prev.includes(dayIndex)
-        ? prev.filter((d) => d !== dayIndex)
-        : [...prev, dayIndex].sort((a, b) => a - b)
+      prev.includes(dayIndex) ? prev.filter((d) => d !== dayIndex) : [...prev, dayIndex].sort((a, b) => a - b)
     );
   }, []);
-
-  const handleClose = useCallback(() => {
-    reset();
-    onClose();
-  }, [reset, onClose]);
-
-  const handleStep1Next = useCallback(() => {
-    const t = name.trim();
-    if (!t) return;
-    setStep(2);
-  }, [name]);
-
-  const handleStep2Next = useCallback(() => {
-    if (level === null) return;
-    setStep(3);
-  }, [level]);
-
-  const handleStep3Next = useCallback(() => {
-    setStep(4);
-  }, []);
-
-  const handleDone = useCallback(() => {
-    const t = name.trim();
-    if (!t || level === null) return;
-    onAdd({
-      name: t,
-      level,
-      learning_goal: learningGoal.trim() || "",
-      schedule: schedule.length > 0 ? schedule : [0, 2, 4],
-    });
-    reset();
-    onClose();
-  }, [name, level, learningGoal, schedule, onAdd, reset, onClose]);
 
   const handleBack = useCallback(() => {
     if (step > 1) setStep((s) => (s - 1) as Step);
   }, [step]);
 
+  const handleNext = useCallback(() => {
+    if (step < 3) setStep((s) => (s + 1) as Step);
+  }, [step]);
+
+  const handleSave = useCallback(() => {
+    const next: InterestDetails = {
+      self_level: level,
+      learning_goal: learningGoal.trim(),
+      schedule: schedule.length > 0 ? schedule : [0, 2, 4],
+    };
+    onSave(next);
+    onClose();
+  }, [level, learningGoal, schedule, onSave, onClose]);
+
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <LinearGradient
         colors={[COLORS.bg1, COLORS.bg0]}
         style={StyleSheet.absoluteFill}
@@ -122,8 +100,10 @@ export function AddInterestOnboardingModal({ visible, onClose, onAdd }: Props) {
           ) : (
             <View style={styles.backBtnPlaceholder} />
           )}
-          <Text style={styles.stepLabelCentered} pointerEvents="none">Step {step} of 4</Text>
-          <Pressable onPress={handleClose} hitSlop={12} style={styles.closeBtn}>
+          <Text style={styles.stepLabelCentered} pointerEvents="none">
+            {interestName} • Step {step} of 3
+          </Text>
+          <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
             <Ionicons name="close" size={24} color={COLORS.text} />
           </Pressable>
         </View>
@@ -141,29 +121,16 @@ export function AddInterestOnboardingModal({ visible, onClose, onAdd }: Props) {
           >
             {step === 1 && (
               <>
-                <Text style={styles.question}>What's your interest?</Text>
-                <Text style={styles.hint}>Type anything — e.g. guitar, running, coding, reading.</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="e.g. Guitar"
-                  placeholderTextColor={COLORS.muted}
-                  value={name}
-                  onChangeText={setName}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  maxLength={80}
-                />
-                <Pressable
-                  onPress={handleStep1Next}
-                  disabled={!name.trim()}
-                  style={[styles.primaryBtn, !name.trim() && styles.primaryBtnDisabled]}
-                >
-                  <LinearGradient
-                    colors={name.trim() ? ["#6D28D9", "#8B5CF6"] : [COLORS.surface2, COLORS.surface2]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.primaryBtnGradient}
-                  >
+                <Text style={styles.question}>How would you describe your level?</Text>
+                <View style={styles.options}>
+                  {INTEREST_LEVEL_OPTIONS.map((opt) => (
+                    <View key={opt} style={styles.optionItem}>
+                      <OnboardingOptionCard label={opt} selected={level === opt} onSelect={() => setLevel(opt)} />
+                    </View>
+                  ))}
+                </View>
+                <Pressable onPress={handleNext} style={styles.primaryBtn}>
+                  <LinearGradient colors={["#6D28D9", "#8B5CF6"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryBtnGradient}>
                     <Text style={styles.primaryBtnLabel}>Next</Text>
                   </LinearGradient>
                 </Pressable>
@@ -172,29 +139,22 @@ export function AddInterestOnboardingModal({ visible, onClose, onAdd }: Props) {
 
             {step === 2 && (
               <>
-                <Text style={styles.question}>How would you describe your level in "{name.trim()}"?</Text>
-                <View style={styles.options}>
-                  {INTEREST_LEVEL_OPTIONS.map((opt) => (
-                    <View key={opt} style={styles.optionItem}>
-                      <OnboardingOptionCard
-                        label={opt}
-                        selected={level === opt}
-                        onSelect={() => setLevel(opt)}
-                      />
-                    </View>
-                  ))}
-                </View>
-                <Pressable
-                  onPress={handleStep2Next}
-                  disabled={level === null}
-                  style={[styles.primaryBtn, level === null && styles.primaryBtnDisabled]}
-                >
-                  <LinearGradient
-                    colors={level !== null ? ["#6D28D9", "#8B5CF6"] : [COLORS.surface2, COLORS.surface2]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.primaryBtnGradient}
-                  >
+                <Text style={styles.question}>What are you trying to achieve?</Text>
+                <Text style={styles.hint}>
+                  Keep it specific. e.g. Run a 5K, finish a novel, play 3 songs on guitar.
+                </Text>
+                <TextInput
+                  style={[styles.input, styles.inputMultiline]}
+                  placeholder="e.g. Run a 5K, finish a novel…"
+                  placeholderTextColor={COLORS.muted}
+                  value={learningGoal}
+                  onChangeText={setLearningGoal}
+                  multiline
+                  numberOfLines={3}
+                  maxLength={200}
+                />
+                <Pressable onPress={handleNext} style={styles.primaryBtn}>
+                  <LinearGradient colors={["#6D28D9", "#8B5CF6"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryBtnGradient}>
                     <Text style={styles.primaryBtnLabel}>Next</Text>
                   </LinearGradient>
                 </Pressable>
@@ -203,35 +163,8 @@ export function AddInterestOnboardingModal({ visible, onClose, onAdd }: Props) {
 
             {step === 3 && (
               <>
-                <Text style={styles.question}>What is it that you are trying to achieve in this interest?</Text>
-                <Text style={styles.hint}>This helps us match missions to you. e.g. Run a 5K, finish a novel, play 3 songs on guitar, ship a side project.</Text>
-                <TextInput
-                  style={[styles.input, styles.inputMultiline]}
-                  placeholder="e.g. Run a 5K, finish a novel, play 3 songs…"
-                  placeholderTextColor={COLORS.muted}
-                  value={learningGoal}
-                  onChangeText={setLearningGoal}
-                  multiline
-                  numberOfLines={3}
-                  maxLength={200}
-                />
-                <Pressable onPress={handleStep3Next} style={styles.primaryBtn}>
-                  <LinearGradient
-                    colors={["#6D28D9", "#8B5CF6"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.primaryBtnGradient}
-                  >
-                    <Text style={styles.primaryBtnLabel}>Next</Text>
-                  </LinearGradient>
-                </Pressable>
-              </>
-            )}
-
-            {step === 4 && (
-              <>
-                <Text style={styles.question}>On which days do you want to work on this interest?</Text>
-                <Text style={styles.hint}>Pick the days you're willing to show up. We'll suggest missions on these days.</Text>
+                <Text style={styles.question}>Which days will you work on it?</Text>
+                <Text style={styles.hint}>Pick the days you're willing to show up.</Text>
                 <View style={styles.dayRow}>
                   {DAY_LABELS.map((label, i) => (
                     <Pressable
@@ -245,14 +178,9 @@ export function AddInterestOnboardingModal({ visible, onClose, onAdd }: Props) {
                     </Pressable>
                   ))}
                 </View>
-                <Pressable onPress={handleDone} style={styles.primaryBtn}>
-                  <LinearGradient
-                    colors={["#6D28D9", "#8B5CF6"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.primaryBtnGradient}
-                  >
-                    <Text style={styles.primaryBtnLabel}>Add interest</Text>
+                <Pressable onPress={handleSave} style={styles.primaryBtn}>
+                  <LinearGradient colors={["#6D28D9", "#8B5CF6"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryBtnGradient}>
+                    <Text style={styles.primaryBtnLabel}>Save</Text>
                   </LinearGradient>
                 </Pressable>
               </>
@@ -287,14 +215,6 @@ const styles = StyleSheet.create({
   },
   backBtnPlaceholder: { minWidth: 80 },
   closeBtn: { padding: SPACING.xs },
-  stepLabel: {
-    flex: 1,
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: COLORS.muted,
-    letterSpacing: 0.5,
-    textAlign: "center",
-  },
   stepLabelCentered: {
     position: "absolute",
     left: 0,
@@ -302,7 +222,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 12,
     color: COLORS.muted,
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
     textAlign: "center",
   },
   keyboard: { flex: 1 },
@@ -349,7 +269,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignSelf: "stretch",
   },
-  primaryBtnDisabled: { opacity: 0.6 },
   primaryBtnGradient: {
     height: 56,
     alignItems: "center",
@@ -388,3 +307,4 @@ const styles = StyleSheet.create({
     color: COLORS.violet,
   },
 });
+

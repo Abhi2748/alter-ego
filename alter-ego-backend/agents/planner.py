@@ -55,6 +55,22 @@ def generate_initial_missions(
         })
 
     # Up to 2 Interest missions from first interests
+    # Permanent daily interest mission: Journal
+    rows.append({
+        "user_id": user_id,
+        "type": "interest",
+        "pillar": None,
+        "interest": "Journal",
+        "title": "Write today's journal entry.",
+        "difficulty": "Easy",
+        "xp_value": INTEREST_XP["Easy"],
+        "pet_food_value": INTEREST_PF["Easy"],
+        "mission_streak": 0,
+        "completed_at": None,
+        "expires_at": expires_at,
+        "created_at": created_at,
+    })
+
     for interest in (interests or [])[:2]:
         interest_name = (interest.strip() or "Personal goal")[:100]
         rows.append({

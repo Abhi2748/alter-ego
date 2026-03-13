@@ -16,6 +16,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RouteProp } from "@react-navigation/native";
 import type { MainTabParamList } from "../navigation/types";
 import { TopBar } from "../components/TopBar";
@@ -26,7 +27,6 @@ import MissionCard from "../components/MissionCard";
 import type { MissionType, MissionStatus } from "../components/MissionCard";
 import { SectionProgressRing } from "../components/SectionProgressRing";
 import { AddMissionModal } from "../components/AddMissionModal";
-import { InterestSchedulePickerModal } from "../components/InterestSchedulePickerModal";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, SPACING, GRADIENTS } from "../constants/theme";
 import { supabase } from "../utils/supabase";
@@ -77,9 +77,13 @@ function missionToCard(m: MissionOut): PlaceholderMission {
   };
 }
 
+/** Gap between journal FAB and the tab bar. Tab screen layout ends at top of tab bar, so bottom is relative to that. */
+const JOURNAL_FAB_BOTTOM_GAP = 8;
+
 export function HomeScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<MainTabParamList, "Home">>();
+  const insets = useSafeAreaInsets();
   const xpBarRef = useRef<XPProgressBarRef>(null);
 
   const [loading, setLoading] = useState(true);
@@ -100,7 +104,6 @@ export function HomeScreen() {
   const [evolutionStageName, setEvolutionStageName] = useState("The Focused");
   const [corePulseActive, setCorePulseActive] = useState(false);
   const [addModalVisible, setAddModalVisible] = useState(false);
-  const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
   const [milestoneCard, setMilestoneCard] = useState<{
     interestName: string;
     milestoneNumber: number;
@@ -112,9 +115,6 @@ export function HomeScreen() {
     width: number;
     height: number;
   } | null>(null);
-  /** Today's Focus interest schedule: day indices 0–6 (Mon–Sun). Default e.g. Mon, Wed, Fri. */
-  const [focusInterestSchedule, setFocusInterestSchedule] = useState<number[]>([0, 2, 4]);
-  const focusInterestName = "Fitness";
   /** Day 1–14: show "Start anywhere" helper when 0 completed today. Never shown after day 14. */
   const [isDay1To14, setIsDay1To14] = useState<boolean>(false);
 
@@ -180,12 +180,15 @@ export function HomeScreen() {
   }, []);
 
   const windowHeight = Dimensions.get("window").height;
+  const windowWidth = Dimensions.get("window").width;
+  const TOP_BAR_HEIGHT = 56;
+  const TAB_BAR_HEIGHT = 56;
+  /** Pet roams only in the visible viewport (not the scrollable content height). */
+  const viewportHeight = Math.max(0, windowHeight - insets.top - TOP_BAR_HEIGHT - TAB_BAR_HEIGHT);
   const heroX =
-    contentLayout != null
-      ? (contentLayout.width - (CHARACTER_WIDTH + PET_OFFSET + ROAMING_PET_SIZE)) / 2 +
-        CHARACTER_WIDTH +
-        PET_OFFSET
-      : 0;
+    (windowWidth - (CHARACTER_WIDTH + PET_OFFSET + ROAMING_PET_SIZE)) / 2 +
+    CHARACTER_WIDTH +
+    PET_OFFSET;
   const heroY = HERO_TOP_GAP + 4 + CHARACTER_HEIGHT / 2 - ROAMING_PET_SIZE / 2;
 
   const completedToday =
@@ -298,10 +301,6 @@ export function HomeScreen() {
     return () => clearTimeout(t);
   }, [corePulseActive]);
 
-  const handleSaveFocusSchedule = (schedule: number[]) => {
-    setFocusInterestSchedule(schedule);
-    // In Phase 2: send updated schedule to Planner Agent
-  };
 
   if (loading) {
     return (
@@ -421,25 +420,16 @@ export function HomeScreen() {
             </View>
           </View>
 
-          {/* TODAY'S FOCUS */}
+          {/* TODAY'S FOCUS — schedule edited in Profile → Interests */}
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <Text style={[styles.sectionHeader, styles.focusHeader]}>TODAY'S FOCUS</Text>
-              <View style={styles.sectionHeaderRight}>
-                <View style={styles.sectionHeaderRing}>
-                  <SectionProgressRing
-                    completed={interestMissions.filter((m) => m.status === "complete").length}
-                    total={interestMissions.length}
-                    variant="interest"
-                  />
-                </View>
-                <Pressable
-                style={styles.scheduleLink}
-                  onPress={() => setScheduleModalVisible(true)}
-                  hitSlop={8}
-                >
-                  <Text style={styles.scheduleLinkText}>Schedule</Text>
-                </Pressable>
+              <View style={styles.sectionHeaderRing}>
+                <SectionProgressRing
+                  completed={interestMissions.filter((m) => m.status === "complete").length}
+                  total={interestMissions.length}
+                  variant="interest"
+                />
               </View>
             </View>
             <View style={styles.cards}>
@@ -508,23 +498,37 @@ export function HomeScreen() {
           </View>
         </View>
 
-        {contentLayout != null && contentLayout.width > 0 && contentLayout.height > 0 && petStage >= 1 && (
+        </View>
+        </ScrollView>
+      </View>
+
+      {/* Pet roams in visible viewport only (fixed overlay), not in scroll content */}
+      {viewportHeight > 0 && windowWidth > 0 && petStage >= 1 && (
+        <View
+          style={[
+            styles.petViewportOverlay,
+            {
+              top: insets.top + TOP_BAR_HEIGHT,
+              width: windowWidth,
+              height: viewportHeight,
+            },
+          ]}
+          pointerEvents="box-none"
+        >
           <PetRoaming
-            containerWidth={contentLayout.width}
-            containerHeight={contentLayout.height}
+            containerWidth={windowWidth}
+            containerHeight={viewportHeight}
             heroX={heroX}
             heroY={heroY}
             stage={petStage}
             isHappy={petHealthState === "happy"}
           />
-        )}
         </View>
-        </ScrollView>
-      </View>
+      )}
 
       <Pressable
-        style={styles.journalFab}
-        onPress={() => (navigation as any).navigate("JournalEditor")}
+        style={[styles.journalFab, { bottom: JOURNAL_FAB_BOTTOM_GAP }]}
+        onPress={() => (navigation as any).navigate("JournalList")}
       >
         <Ionicons name="book-outline" size={24} color="#FFFFFF" />
       </Pressable>
@@ -534,13 +538,6 @@ export function HomeScreen() {
         onClose={() => setAddModalVisible(false)}
         onAdd={handleAddMission}
         onSuggestTier={handleSuggestTier}
-      />
-      <InterestSchedulePickerModal
-        visible={scheduleModalVisible}
-        onClose={() => setScheduleModalVisible(false)}
-        interestName={focusInterestName}
-        currentSchedule={focusInterestSchedule}
-        onSave={handleSaveFocusSchedule}
       />
       {milestoneCard && (
         <MilestoneAchievementCard
@@ -609,6 +606,11 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     position: "relative",
+  },
+  petViewportOverlay: {
+    position: "absolute",
+    left: 0,
+    zIndex: 10,
   },
   hero: {
     height: HERO_HEIGHT,
@@ -710,16 +712,6 @@ const styles = StyleSheet.create({
     marginTop: SPACING.lg,
     marginBottom: SPACING.sm,
   },
-  scheduleLink: {
-    minHeight: 44,
-    justifyContent: "center",
-    paddingVertical: 8,
-  },
-  scheduleLinkText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: COLORS.violet,
-  },
   addLink: {
     minHeight: 44,
     justifyContent: "center",
@@ -735,14 +727,13 @@ const styles = StyleSheet.create({
   },
   journalFab: {
     position: "absolute",
-    bottom: 96,
-    right: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    right: SPACING.screenPadding,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: COLORS.violet,
     alignItems: "center",
     justifyContent: "center",
-    ...(Platform.OS === "ios" ? { shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4 } : { elevation: 6 }),
+    ...(Platform.OS === "ios" ? { shadowColor: COLORS.violet, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8 } : { elevation: 8 }),
   },
 });

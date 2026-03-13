@@ -277,6 +277,14 @@ export function TwinComparisonScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      {/* Chat FAB — same pattern as Journal on Home: fixed bottom-right above tab bar */}
+      <Pressable
+        style={[styles.chatFab, { bottom: 8 }]}
+        onPress={openTwinChat}
+      >
+        <Ionicons name="chatbubble-ellipses" size={24} color="#FFFFFF" />
+      </Pressable>
     </LinearGradient>
   );
 }
@@ -551,5 +559,18 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: 16,
     color: COLORS.text,
+  },
+  chatFab: {
+    position: "absolute",
+    right: SPACING.screenPadding,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: COLORS.violet,
+    alignItems: "center",
+    justifyContent: "center",
+    ...(Platform.OS === "ios"
+      ? { shadowColor: COLORS.violet, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8 }
+      : { elevation: 8 }),
   },
 });

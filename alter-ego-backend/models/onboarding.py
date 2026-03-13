@@ -1,11 +1,12 @@
 from pydantic import BaseModel
 from typing import Optional, List, Any
 
-# Interest level per interest (add-interest flow: name, level, learning_goal)
+# Interest level per interest (add-interest flow: name, level, learning_goal, schedule)
 class InterestLevelItem(BaseModel):
     interest: str
     level: str  # "Still figuring it out" | "Getting the hang of it" | "Pretty solid"
     learning_goal: Optional[str] = None
+    schedule: Optional[List[int]] = None  # 0-6 = Mon-Sun; which days to work on this interest
 
 
 class OnboardingPayload(BaseModel):

@@ -316,3 +316,36 @@ export async function getJournalEntries(
   ];
   return { entries };
 }
+
+export async function getInterests(_accessToken: string): Promise<{ interests: any[] }> {
+  await delay(MOCK_DELAY);
+  return {
+    interests: [
+      {
+        interest: "Fitness",
+        total_xp: 360,
+        level: 2,
+        self_level: "Getting the hang of it",
+        learning_goal: "Run a 5K.",
+        schedule: [0, 2, 4],
+      },
+      {
+        interest: "Reading",
+        total_xp: 30,
+        level: 1,
+        self_level: "Still figuring it out",
+        learning_goal: "Finish 1 book a month.",
+        schedule: [1, 3, 5],
+      },
+    ],
+  };
+}
+
+export async function patchInterest(
+  _accessToken: string,
+  _interest: string,
+  _payload: { self_level?: string; learning_goal?: string; schedule?: number[] }
+): Promise<{ success: boolean }> {
+  await delay(MOCK_DELAY);
+  return { success: true };
+}

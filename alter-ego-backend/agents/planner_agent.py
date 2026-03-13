@@ -30,6 +30,7 @@ INTEREST_PROMPT_TEMPLATE = """# PLANNER AGENT — INTEREST MISSION GENERATION
 → User name: {username}
 → Interest: {interest}
 → Self-reported level: {level}
+→ Goal: {learning_goal}
 → Current difficulty tier: {tier}
 → Current phase: {phase}
 → Available time today: {available_minutes} minutes
@@ -492,6 +493,7 @@ def generate_interest_mission(
     user_id: str,
     interest: str,
     level: str,
+    learning_goal: str = "",
     tier: str,
     skip_style_hint: bool = False,
 ) -> Dict[str, Any]:
@@ -517,6 +519,7 @@ def generate_interest_mission(
         username=username,
         interest=interest,
         level=level,
+        learning_goal=(learning_goal or "—"),
         tier=tier,
         phase=phase,
         available_minutes=available_minutes,
@@ -546,6 +549,48 @@ def generate_interest_mission(
         "interest": interest,
         "title": title,
         "difficulty": difficulty,
+        "xp_value": xp_value,
+        "pet_food_value": pf_value,
+        "mission_streak": 0,
+        "completed_at": None,
+        "expires_at": expires.isoformat(),
+        "created_at": now.isoformat(),
+    }
+
+
+def _has_today_journal_interest_mission(supabase, user_id: str) -> bool:
+    """Avoid duplicating the daily Journal interest mission."""
+    today = datetime.now(timezone.utc).date()
+    start_ts = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc).isoformat()
+    end_ts = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc).isoformat()
+    r = (
+        supabase.table("missions")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("type", "interest")
+        .eq("interest", "Journal")
+        .gte("expires_at", start_ts)
+        .lte("expires_at", end_ts)
+        .limit(1)
+        .execute()
+    )
+    return bool(r.data)
+
+
+def _journal_mission_row(user_id: str) -> Dict[str, Any]:
+    """Permanent daily Interest mission: journaling."""
+    from models.missions import xp_and_pf_for
+
+    now = datetime.now(timezone.utc)
+    expires = _end_of_today_utc()
+    xp_value, pf_value = xp_and_pf_for("interest", "Easy")
+    return {
+        "user_id": user_id,
+        "type": "interest",
+        "pillar": None,
+        "interest": "Journal",
+        "title": "Write today's journal entry.",
+        "difficulty": "Easy",
         "xp_value": xp_value,
         "pet_food_value": pf_value,
         "mission_streak": 0,
@@ -718,6 +763,28 @@ def _recovery_mission_if_needed(user_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
+def _journal_mission_row(user_id: str) -> Dict[str, Any]:
+    """Single interest mission: Write today's journal (used when no interests scheduled for today)."""
+    from models.missions import xp_and_pf_for
+    now = datetime.now(timezone.utc)
+    expires = _end_of_today_utc()
+    xp_value, pf_value = xp_and_pf_for("interest", "Medium")
+    return {
+        "user_id": user_id,
+        "type": "interest",
+        "pillar": None,
+        "interest": "Journal",
+        "title": "Write today's journal entry.",
+        "difficulty": "Medium",
+        "xp_value": xp_value,
+        "pet_food_value": pf_value,
+        "mission_streak": 0,
+        "completed_at": None,
+        "expires_at": expires.isoformat(),
+        "created_at": now.isoformat(),
+    }
+
+
 def plan_interest_and_escaper_missions(
     user_id: str,
     interests: List[str],
@@ -727,14 +794,54 @@ def plan_interest_and_escaper_missions(
     Top-level Planner J2 entrypoint. Uses current_tier from interest_progress
     per interest/quit_target. Never adjusts Personal missions.
     Adds one Recovery mission when 0 Core for 2+ consecutive days (max 1 at a time).
+    If no interest missions are added (e.g. no interests or none scheduled for today),
+    adds a single "Write today's journal entry" interest mission so TODAY'S FOCUS is not empty.
     """
     supabase = get_supabase()
     rows: List[Dict[str, Any]] = []
+
+    # Always include daily Journal as an Interest mission (permanent)
+    try:
+        if not _has_today_journal_interest_mission(supabase, user_id):
+            rows.append(_journal_mission_row(user_id))
+    except Exception:
+        # Never fail planning because of journal check
+        rows.append(_journal_mission_row(user_id))
 
     for interest in interests or []:
         interest_name = (interest or "").strip()
         if not interest_name:
             continue
+        if interest_name.lower() == "journal":
+            # Reserved for the permanent daily journal mission
+            continue
+
+        # Optional schedule filtering (if schedule column exists). If missing, treat as scheduled.
+        self_level = "Still figuring it out"
+        learning_goal = ""
+        scheduled_today = True
+        try:
+            ir = (
+                supabase.table("interest_progress")
+                .select("self_level, learning_goal, schedule")
+                .eq("user_id", user_id)
+                .eq("interest", interest_name)
+                .maybe_single()
+                .execute()
+            )
+            if ir.data:
+                self_level = ir.data.get("self_level") or self_level
+                learning_goal = ir.data.get("learning_goal") or ""
+                schedule = ir.data.get("schedule")
+                if isinstance(schedule, list) and schedule:
+                    today_idx = datetime.now(timezone.utc).weekday()  # Mon=0..Sun=6
+                    scheduled_today = today_idx in schedule
+        except Exception:
+            scheduled_today = True
+
+        if not scheduled_today:
+            continue
+
         tier = _get_tier_for_interest_or_quit(user_id, interest_name)
         tier_str = _tier_int_to_str(tier)
         skip_hint = _get_skip_flag(supabase, user_id, interest_name)
@@ -742,7 +849,8 @@ def plan_interest_and_escaper_missions(
             generate_interest_mission(
                 user_id,
                 interest_name,
-                level="Still figuring it out",
+                level=self_level,
+                learning_goal=learning_goal,
                 tier=tier_str,
                 skip_style_hint=skip_hint,
             )

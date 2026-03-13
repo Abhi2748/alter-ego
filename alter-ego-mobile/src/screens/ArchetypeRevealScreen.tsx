@@ -3,8 +3,8 @@
  * Phase A: Processing (while POST runs). Phase B: Reveal + 14-day framing. Enter → Twin Introduction.
  */
 
-import React, { useEffect, useState, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, Alert, ScrollView } from "react-native";
+import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { View, Text, StyleSheet, ActivityIndicator, Alert, ScrollView, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -18,6 +18,88 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { Pressable } from "react-native";
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const PARTICLE_COLORS = ["#8B5CF6", "#6D28D9", "#A78BFA"] as const;
+const PARTICLE_SEED = 44;
+const PARTICLE_COUNT = 24;
+
+type ParticleConfig = {
+  x: number;
+  y: number;
+  color: string;
+  opacity: number;
+  size: number;
+  delayPhase: number;
+  angle: number;
+  amplitude: number;
+  duration: number;
+};
+
+function createSeededRandom(seed: number) {
+  return () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
+}
+
+function getParticleConfigs(): ParticleConfig[] {
+  const random = createSeededRandom(PARTICLE_SEED);
+  const configs: ParticleConfig[] = [];
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    configs.push({
+      x: random() * (SCREEN_WIDTH - 16),
+      y: random() * (SCREEN_HEIGHT - 16),
+      color: PARTICLE_COLORS[Math.floor(random() * PARTICLE_COLORS.length)],
+      opacity: 0.25 + random() * 0.35,
+      size: 3 + random(),
+      delayPhase: random() * 0.25,
+      angle: random() * 2 * Math.PI,
+      amplitude: 8 + random() * 8,
+      duration: 4000 + random() * 4000,
+    });
+  }
+  return configs;
+}
+
+function ParticleDot({ config }: { config: ParticleConfig }) {
+  const phase = useSharedValue(0);
+  useEffect(() => {
+    phase.value = withRepeat(
+      withTiming(1, { duration: config.duration, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true
+    );
+  }, [config.duration]);
+  const animatedStyle = useAnimatedStyle(() => {
+    "worklet";
+    const p = (phase.value + config.delayPhase) * 2 * Math.PI;
+    const t = Math.sin(p);
+    const tx = config.amplitude * t * Math.cos(config.angle);
+    const ty = config.amplitude * t * Math.sin(config.angle);
+    return {
+      transform: [{ translateX: tx }, { translateY: ty }],
+    };
+  });
+  return (
+    <Animated.View
+      style={[
+        styles.particleDot,
+        {
+          left: config.x,
+          top: config.y,
+          width: config.size,
+          height: config.size,
+          borderRadius: config.size / 2,
+          backgroundColor: config.color,
+          opacity: config.opacity,
+        },
+        animatedStyle,
+      ]}
+      pointerEvents="none"
+    />
+  );
+}
 import type { OnboardingStackParamList } from "../navigation/types";
 import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
 import type { OnboardingAnswers, OnboardingInterestItem } from "../context/OnboardingAnswersContext";
@@ -48,6 +130,7 @@ function buildOnboardingPayload(answers: OnboardingAnswers) {
           interest: i.name,
           level: i.level,
           learning_goal: i.learning_goal || undefined,
+          schedule: i.schedule && i.schedule.length > 0 ? i.schedule : undefined,
         }))
       : undefined;
   let quit_targets = (answers.quitTargets ?? []) as string[];
@@ -87,6 +170,7 @@ export function ArchetypeRevealScreen() {
   const route = useRoute<Route>();
   const answers = route.params?.answers;
   const { archetypeContent, setArchetypeContent } = useOnboardingAnswers();
+  const particleConfigs = useMemo(() => getParticleConfigs(), []);
 
   const [phase, setPhase] = useState<"processing" | "reveal">("processing");
   const [postError, setPostError] = useState<string | null>(null);
@@ -154,10 +238,13 @@ export function ArchetypeRevealScreen() {
     );
   }, []);
 
+  const MIN_PROCESSING_MS = 2400;
+
   useEffect(() => {
     if (!answers || postedRef.current || archetypeContent) return;
     (async () => {
       postedRef.current = true;
+      const startedAt = Date.now();
       const { data: session } = await supabase.auth.getSession();
       const token = session?.session?.access_token;
       if (!token) {
@@ -167,6 +254,11 @@ export function ArchetypeRevealScreen() {
       try {
         const payload = buildOnboardingPayload(answers);
         const response = await postOnboarding(payload, token);
+        const elapsed = Date.now() - startedAt;
+        const waitMs = Math.max(0, MIN_PROCESSING_MS - elapsed);
+        if (waitMs > 0) {
+          await new Promise((r) => setTimeout(r, waitMs));
+        }
         setArchetypeContent(response.archetype_content);
         setPhase("reveal");
         try {
@@ -201,10 +293,11 @@ export function ArchetypeRevealScreen() {
   }, [phase]);
 
   const handleEnter = useCallback(() => {
-    navigation.navigate("TwinIntroduction", {
+    navigation.navigate("Onboarding14Day", {
       twinFirstMessage: archetypeContent?.twin_first_message ?? "",
+      archetype: archetypeContent?.archetype ?? "",
     });
-  }, [navigation, archetypeContent?.twin_first_message]);
+  }, [navigation, archetypeContent?.twin_first_message, archetypeContent?.archetype]);
 
   const dotRingStyle = useAnimatedStyle(() => {
     "worklet";
@@ -242,7 +335,11 @@ export function ArchetypeRevealScreen() {
         <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
           <View style={styles.processingWrap}>
             <Text style={styles.readingLabel}>Reading your answers</Text>
-            <ActivityIndicator size="large" color={COLORS.violet} style={{ marginVertical: SPACING.md }} />
+            <Animated.View style={[styles.dotRing, dotRingStyle]}>
+              {Array.from({ length: DOT_COUNT }).map((_, i) => (
+                <ProcessingDot key={i} index={i} />
+              ))}
+            </Animated.View>
             <Text style={styles.buildingLabel}>Building your Discipline DNA...</Text>
           </View>
         </SafeAreaView>
@@ -257,6 +354,11 @@ export function ArchetypeRevealScreen() {
       end={{ x: 0, y: 1 }}
       style={styles.gradientRoot}
     >
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {particleConfigs.map((config, i) => (
+          <ParticleDot key={i} config={config} />
+        ))}
+      </View>
       <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
         {/* Phase A: Processing */}
         <Animated.View
@@ -275,7 +377,7 @@ export function ArchetypeRevealScreen() {
         <Text style={styles.buildingLabel}>Building your Discipline DNA...</Text>
       </Animated.View>
 
-      {/* Phase B: Reveal — clean hierarchy: label, name, description, 14-day copy, CTA */}
+      {/* Phase B: Reveal — focused: YOU ARE + archetype name + short description + CTA */}
       <ScrollView
         style={styles.revealScroll}
         contentContainerStyle={styles.revealScrollContent}
@@ -286,14 +388,6 @@ export function ArchetypeRevealScreen() {
         <Animated.Text style={[styles.youAre, youAreAnimatedStyle]}>YOU ARE</Animated.Text>
         <Animated.Text style={[styles.archetypeName, nameAnimatedStyle]}>{archetype}</Animated.Text>
         <Animated.Text style={[styles.description, descAnimatedStyle]}>{description}</Animated.Text>
-        <Animated.View style={[styles.fourteenDayWrap, fourteenDayAnimatedStyle]}>
-          <Text style={styles.fourteenDayCopy}>
-            Your first 14 days we learn how you work best. Your only job is to show up.
-          </Text>
-          <Text style={styles.transparencyCopy}>
-            We use this information to personalize your app experience. We don't sell your data.
-          </Text>
-        </Animated.View>
         <Animated.View style={[styles.enterButtonWrap, enterButtonAnimatedStyle]}>
           <Pressable onPress={handleEnter} style={styles.enterButton}>
             <LinearGradient
@@ -401,12 +495,12 @@ const styles = StyleSheet.create({
   },
   archetypeName: {
     fontFamily: "Inter_700Bold",
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: "700",
     color: COLORS.text,
     letterSpacing: -0.5,
     textAlign: "center",
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.xl,
     paddingHorizontal: SPACING.sm,
   },
   description: {
@@ -417,8 +511,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
     maxWidth: 320,
     lineHeight: 24,
-    marginBottom: SPACING.xxl,
+    marginBottom: SPACING.xxxl,
   },
+  particleDot: { position: "absolute" },
   twinSilhouette: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.violet,
@@ -464,29 +559,6 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: COLORS.danger,
-    textAlign: "center",
-  },
-  fourteenDayWrap: {
-    width: "100%",
-    maxWidth: 320,
-    marginBottom: SPACING.xl,
-    alignItems: "center",
-    paddingVertical: SPACING.lg,
-  },
-  fourteenDayCopy: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    fontWeight: "400",
-    color: COLORS.text2,
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: SPACING.sm,
-  },
-  transparencyCopy: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    fontWeight: "400",
-    color: COLORS.muted,
     textAlign: "center",
   },
 });

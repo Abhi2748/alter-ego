@@ -1,0 +1,37 @@
+---
+description: When frontend/design changes affect APIs or data, update the backend to match.
+alwaysApply: true
+---
+
+# Frontend–backend sync (ALTER EGO)
+
+When you change **design or behaviour in the mobile app** that depends on the backend (new fields, new endpoints, different response shape, or new requirements), **update the backend in the same work** so both stay in sync.
+
+## What to do
+
+1. **Identify backend impact**  
+   If the change adds or changes:
+   - API request/response fields (e.g. `total_users` for leaderboard subtitle)
+   - New endpoints or query params
+   - Validation, auth, or error behaviour
+   - Data shape expected by the app (e.g. `stage_title`, `character_image_url`)
+
+2. **Update backend in the same session**
+   - **alter-ego-backend**: FastAPI routes, models, Supabase queries, and any new env or config.
+   - Match the types and field names the mobile app expects (see `alter-ego-mobile/src/utils/api.ts` and screen/component usage).
+   - If the app uses mock API, update `alter-ego-mobile/src/utils/apiMock.ts` to match the same shape.
+
+3. **Keep contracts aligned**
+   - Response types in `api.ts` (e.g. `LeaderboardOut`, `LeaderboardEntryOut`) should match what the backend returns.
+   - Document any new or changed query params or headers in the route (docstring or OpenAPI).
+
+## Example
+
+- **Design change:** Leaderboard screen shows “X competing” and needs `total_users` in the response.
+- **Backend update:** In `alter-ego-backend/routes/leaderboard.py`, add a count of users on the leaderboard (e.g. `COUNT(*)` on `leaderboard_scores` or equivalent) and include `total_users` in the JSON response. Extend the mobile `LeaderboardOut` type and use it in the screen.
+
+## Scope
+
+- App: `alter-ego-mobile/` (React Native, Expo, `api.ts`, screens, components).
+- Backend: `alter-ego-backend/` (FastAPI, routes, models, Supabase).
+- Apply this whenever a task touches **both** design/UX and API or data; do not leave backend updates for “later.”

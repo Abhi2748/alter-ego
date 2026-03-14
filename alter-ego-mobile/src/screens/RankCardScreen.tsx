@@ -1,6 +1,6 @@
 /**
- * Rank Card Screen §25. Shareable achievement card.
- * Header: back + share. Card 358×480: gradient, ALTER EGO + Power Score, character + pet, username/stage/streak, Oracle line. Share + Regenerate Oracle.
+ * Rank Card Screen §25. Premium shareable achievement card.
+ * Header: back + "Rank Card" + share. Card: gradient, rank badge (hideable), Power Score, character + pet, identity, oracle. Toggle rank, Share, Regenerate.
  */
 
 import React, { useState, useRef } from "react";
@@ -16,47 +16,51 @@ import {
   Modal,
   TextInput,
   KeyboardAvoidingView,
+  Share,
+  Switch,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { captureRef } from "react-native-view-shot";
 import { PetAnimation } from "../components/PetAnimation";
-import {
-  COLORS,
-  SPACING,
-  GRADIENTS,
-  RADIUS,
-  SHADOWS,
-} from "../constants/theme";
 
-const CARD_WIDTH = 358;
-const CARD_HEIGHT = 520;
-const CARD_RADIUS = 24;
-const CARD_PADDING = 24;
-const CHAR_W = 160;
-const CHAR_H = 220;
-const PET_SIZE = 56;
-const GLOW_RADIUS = 120;
-const CTA_HEIGHT = 56;
-const BOTTOM_BAR_PADDING = 16;
+const CARD_MARGIN_H = 24;
+const CARD_RADIUS = 22;
+const CHAR_W = 130;
+const CHAR_H = 185;
+const PET_SIZE = 64;
+const CTA_HEIGHT = 52;
 
-const PLACEHOLDER_USERNAME = "Alter";
-const PLACEHOLDER_STAGE = "The Focused";
-const PLACEHOLDER_POWER_SCORE = "847";
-const PLACEHOLDER_STREAK = 12;
-const PLACEHOLDER_ORACLE =
-  "Seven days of silence, then four of fire. This is what the pattern looks like when you decide.";
+const PLACEHOLDER_RANK_CARD = {
+  username: "Alter",
+  stage: 2,
+  stage_title: "The Focused",
+  pet_stage: 1,
+  pet_name: "Cub",
+  power_score: 847,
+  streak: 12,
+  global_rank: 47,
+  oracle_line:
+    "Seven days of silence, then four of fire. This is what the pattern looks like when you decide.",
+};
 
 export function RankCardScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { width: screenWidth } = useWindowDimensions();
-  const [regenerating, setRegenerating] = useState(false);
-  const [oracleLine, setOracleLine] = useState(PLACEHOLDER_ORACLE);
+  const cardRef = useRef<View>(null);
+
+  const [showRank, setShowRank] = useState(true);
+  const [oracleLine, setOracleLine] = useState(PLACEHOLDER_RANK_CARD.oracle_line);
+  const [editingOracle, setEditingOracle] = useState(false);
   const [editOracleVisible, setEditOracleVisible] = useState(false);
   const [editOracleDraft, setEditOracleDraft] = useState(oracleLine);
-  const cardRef = useRef<View>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [sharing, setSharing] = useState(false);
+
+  const cardWidth = screenWidth - CARD_MARGIN_H * 2;
 
   const openEditOracle = () => {
     setEditOracleDraft(oracleLine);
@@ -68,34 +72,83 @@ export function RankCardScreen() {
   };
   const closeEditOracle = () => setEditOracleVisible(false);
 
-  const handleShare = () => {
-    console.log("[RankCard] Share Rank Card — view-shot + share sheet (Phase 2)");
+  const handleShare = async () => {
+    if (!cardRef.current) return;
+    setSharing(true);
+    try {
+      const uri = await captureRef(cardRef, {
+        format: "png",
+        quality: 0.95,
+        result: "tmpfile",
+      });
+      await Share.share({
+        url: Platform.OS === "ios" ? uri : `file://${uri}`,
+        message: "My ALTER EGO Rank Card",
+        title: "Rank Card",
+      });
+    } catch (e) {
+      if ((e as Error).message?.includes("User did not share")) return;
+    } finally {
+      setSharing(false);
+    }
   };
 
-  const handleRegenerate = () => {
+  const handleShareFromHeader = () => {
+    handleShare();
+  };
+
+  const handleRegenerate = async () => {
     setRegenerating(true);
-    console.log("[RankCard] Regenerate Oracle line — backend (Phase 2)");
-    setTimeout(() => setRegenerating(false), 1500);
+    try {
+      // TODO: POST /api/v1/rank-card/regenerate-oracle when backend exists
+      await new Promise((r) => setTimeout(r, 1200));
+      setOracleLine(
+        "Another week, another step. The pattern is what you make it."
+      );
+    } finally {
+      setRegenerating(false);
+    }
   };
-
-  const cardWidth = Math.min(CARD_WIDTH, screenWidth - SPACING.screenPadding * 2);
-  const cardHeight = CARD_HEIGHT;
 
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={GRADIENTS.background.colors}
-        start={GRADIENTS.background.start}
-        end={GRADIENTS.background.end}
+        colors={["#07080F", "#050508"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
-          <Ionicons name="chevron-back" size={24} color={COLORS.text} />
+
+      {/* Header */}
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: insets.top + 10,
+            paddingBottom: 14,
+            paddingHorizontal: 16,
+          },
+        ]}
+      >
+        <Pressable
+          onPress={() => navigation.goBack()}
+          style={styles.backBtn}
+          hitSlop={12}
+        >
+          <Ionicons name="chevron-back" size={22} color="#6B7280" />
         </Pressable>
-        <Text style={styles.title}>Rank Card</Text>
-        <Pressable onPress={handleShare} style={styles.shareBtn} hitSlop={12}>
-          <Ionicons name="share-outline" size={24} color={COLORS.violet} />
+        <Text style={styles.headerTitle}>Rank Card</Text>
+        <Pressable
+          onPress={handleShareFromHeader}
+          style={styles.headerShareBtn}
+          hitSlop={12}
+          disabled={sharing}
+        >
+          {sharing ? (
+            <ActivityIndicator size="small" color="#8B5CF6" />
+          ) : (
+            <Ionicons name="share-outline" size={22} color="#8B5CF6" />
+          )}
         </Pressable>
       </View>
 
@@ -103,87 +156,178 @@ export function RankCardScreen() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
-          {
-            paddingBottom:
-              insets.bottom +
-              BOTTOM_BAR_PADDING * 2 +
-              CTA_HEIGHT +
-              12 +
-              44,
-          },
+          { flexGrow: 1, paddingTop: 32, paddingBottom: 24 },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Main card — more space for Oracle line */}
+        {/* Card — capture target, centered in scroll */}
         <View
           ref={cardRef}
-          style={[
-            styles.cardWrap,
-            {
-              width: cardWidth,
-              height: cardHeight,
-              borderRadius: CARD_RADIUS,
-            },
-          ]}
           collapsable={false}
+          style={[styles.cardOuter, { width: cardWidth }]}
         >
           <LinearGradient
-            colors={GRADIENTS.rankCard.colors}
-            start={GRADIENTS.rankCard.start}
-            end={GRADIENTS.rankCard.end}
-            style={[StyleSheet.absoluteFill, { borderRadius: CARD_RADIUS }]}
+            colors={["#1A1535", "#111028", "#0C0B1E"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.2, y: 1 }}
+            style={[styles.cardGradient, { borderRadius: CARD_RADIUS }]}
           />
-          <View
-            style={[
-              styles.radialGlow,
-              {
-                width: GLOW_RADIUS * 2,
-                height: GLOW_RADIUS * 2,
-                left: cardWidth / 2 - GLOW_RADIUS,
-                top: cardHeight / 2 - GLOW_RADIUS,
-              },
-            ]}
-          />
-          {/* Corner fracture line */}
-          <View style={[styles.fractureLine, { width: cardWidth * 0.5 }]} />
-          {/* Top section */}
-          <View style={[styles.cardTop, { padding: CARD_PADDING }]}>
-            <Text style={styles.alterEgoLabel}>ALTER EGO</Text>
-            <Text style={styles.powerScore}>{PLACEHOLDER_POWER_SCORE}</Text>
+          {/* Ambient glow — soft diffuse glow, not a hard half circle */}
+          <View style={styles.ambientGlow} pointerEvents="none" />
+          {/* Corner fracture */}
+          <View style={styles.cornerFractureWrap} pointerEvents="none">
+            <View style={styles.cornerFractureLine} />
           </View>
-          {/* Character zone */}
-          <View style={styles.characterZone}>
-            <View style={[styles.charPlaceholder, { width: CHAR_W, height: CHAR_H }]} />
-            <View
-              style={[
-                styles.petOverlap,
-                {
-                  right: (cardWidth - CHAR_W) / 2 + CHAR_W - PET_SIZE,
-                },
-              ]}
-            >
-              <PetAnimation stage={2} isHappy size={PET_SIZE} />
+
+          <View style={styles.cardInner}>
+            {/* Top row: app name up first, then power score */}
+            <View style={styles.topRow}>
+              <Text style={styles.brandLabel}>ALTER EGO</Text>
+              <Text style={styles.powerScore}>
+                {PLACEHOLDER_RANK_CARD.power_score}
+              </Text>
             </View>
-          </View>
-          {/* Bottom section — Oracle line has more room */}
-          <View style={[styles.cardBottom, { padding: CARD_PADDING }]}>
-            <Text style={styles.username}>{PLACEHOLDER_USERNAME}</Text>
-            <Text style={styles.stageTitle}>{PLACEHOLDER_STAGE}</Text>
-            <View style={styles.streakRow}>
-              <Text style={styles.streakText}>🔥 {PLACEHOLDER_STREAK}</Text>
+
+            {/* Global rank badge — below ALTER EGO, only when showRank */}
+            {showRank && (
+              <View style={styles.rankBadge}>
+                <Text style={styles.rankBadgeHash}>#</Text>
+                <Text style={styles.rankBadgeNum}>
+                  {PLACEHOLDER_RANK_CARD.global_rank}
+                </Text>
+                <Text style={styles.rankBadgeLabel}>global</Text>
+              </View>
+            )}
+
+            {/* Art zone: character + pet */}
+            <View style={styles.artZone}>
+              <View style={styles.charCardWrap}>
+                <View style={styles.charGlow} pointerEvents="none" />
+                <LinearGradient
+                  colors={[
+                    "rgba(60,25,130,0.32)",
+                    "rgba(10,10,22,0.75)",
+                  ]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0.5, y: 1 }}
+                  style={styles.charFill}
+                />
+                <View style={styles.stageBadge}>
+                  <Text style={styles.stageBadgeText}>
+                    Stage {PLACEHOLDER_RANK_CARD.stage}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.petZone}>
+                <View style={styles.petCircle}>
+                  <PetAnimation
+                    stage={PLACEHOLDER_RANK_CARD.pet_stage}
+                    isHappy
+                    size={60}
+                  />
+                </View>
+                <Text style={styles.petName}>
+                  {PLACEHOLDER_RANK_CARD.pet_name}
+                </Text>
+              </View>
             </View>
-            <View style={styles.divider} />
-            <Pressable onPress={openEditOracle} style={styles.oracleLineWrap}>
-              <Text style={styles.oracleLine}>{oracleLine}</Text>
+
+            {/* Identity row */}
+            <View style={styles.identityRow}>
+              <View>
+                <Text style={styles.username}>
+                  {PLACEHOLDER_RANK_CARD.username}
+                </Text>
+                <Text style={styles.stageTitle}>
+                  {PLACEHOLDER_RANK_CARD.stage_title}
+                </Text>
+              </View>
+              <View style={styles.streakRow}>
+                <Ionicons name="flame" size={18} color="#F97316" />
+                <Text style={styles.streakNum}>
+                  {PLACEHOLDER_RANK_CARD.streak}
+                </Text>
+              </View>
+            </View>
+
+            {/* Divider + Oracle */}
+            <LinearGradient
+              colors={["transparent", "rgba(42,48,80,0.8)", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.divider}
+            />
+            <Pressable onPress={openEditOracle} style={styles.oracleWrap}>
+              <Text style={styles.oracleLine} numberOfLines={3}>
+                {regenerating ? "Generating..." : oracleLine}
+              </Text>
             </Pressable>
           </View>
         </View>
-
-        {/* Tap to edit hint — between card and Share button */}
-        <Pressable onPress={openEditOracle} style={styles.editOracleHint}>
-          <Text style={styles.editOracleHintText}>Tap to edit the oracle line</Text>
-        </Pressable>
       </ScrollView>
+
+      {/* Bottom controls — full width box at bottom */}
+      <View
+        style={[
+          styles.bottomBox,
+          {
+            paddingBottom: insets.bottom + 16,
+            paddingTop: 16,
+          },
+        ]}
+      >
+        <Text style={[styles.editHint, styles.bottomBoxPadding]}>Tap oracle line to edit</Text>
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>Show global rank</Text>
+          <View style={styles.switchWrap}>
+            <Switch
+              value={showRank}
+              onValueChange={setShowRank}
+              trackColor={{
+                false: "#1F2937",
+                true: "rgba(139,92,246,0.4)",
+              }}
+              thumbColor={showRank ? "#8B5CF6" : "#374151"}
+              style={styles.switch}
+            />
+          </View>
+        </View>
+        <View style={styles.shareBtnWrapContainer}>
+        <Pressable
+          onPress={handleShare}
+          style={({ pressed }) => [
+            styles.shareBtnWrap,
+            pressed && styles.shareBtnPressed,
+          ]}
+          disabled={sharing}
+        >
+          <LinearGradient
+            colors={["#5B21B6", "#8B5CF6"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.shareBtnGradient}
+          >
+            {sharing ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <>
+                <Ionicons name="share-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.shareBtnLabel}>Share Rank Card</Text>
+              </>
+            )}
+          </LinearGradient>
+        </Pressable>
+        <Pressable
+          onPress={handleRegenerate}
+          disabled={regenerating}
+          style={styles.regenerateWrap}
+        >
+          <Text style={styles.regenerateLabel}>
+            {regenerating ? "Generating..." : "Regenerate oracle line"}
+          </Text>
+        </Pressable>
+        </View>
+      </View>
 
       {/* Edit Oracle modal */}
       <Modal
@@ -192,81 +336,37 @@ export function RankCardScreen() {
         animationType="fade"
         onRequestClose={closeEditOracle}
       >
-        <Pressable style={styles.editOracleBackdrop} onPress={closeEditOracle}>
+        <Pressable style={styles.editBackdrop} onPress={closeEditOracle}>
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.editOracleKeyboard}
+            style={styles.editKeyboard}
           >
-            <Pressable onPress={(e) => e.stopPropagation()} style={styles.editOracleCard}>
-              <Text style={styles.editOracleTitle}>Edit Oracle line</Text>
+            <Pressable
+              onPress={(e) => e.stopPropagation()}
+              style={styles.editCard}
+            >
+              <Text style={styles.editTitle}>Edit Oracle line</Text>
               <TextInput
-                style={styles.editOracleInput}
+                style={styles.editInput}
                 value={editOracleDraft}
                 onChangeText={setEditOracleDraft}
                 placeholder="Your custom oracle line..."
-                placeholderTextColor={COLORS.muted}
+                placeholderTextColor="#6B7280"
                 multiline
                 autoFocus
               />
-              <View style={styles.editOracleActions}>
-                <Pressable onPress={closeEditOracle} style={styles.editOracleCancel}>
-                  <Text style={styles.editOracleCancelText}>Cancel</Text>
+              <View style={styles.editActions}>
+                <Pressable onPress={closeEditOracle} style={styles.editCancel}>
+                  <Text style={styles.editCancelText}>Cancel</Text>
                 </Pressable>
-                <Pressable onPress={saveEditOracle} style={styles.editOracleSave}>
-                  <Text style={styles.editOracleSaveText}>Save</Text>
+                <Pressable onPress={saveEditOracle} style={styles.editSave}>
+                  <Text style={styles.editSaveText}>Save</Text>
                 </Pressable>
               </View>
             </Pressable>
           </KeyboardAvoidingView>
         </Pressable>
       </Modal>
-
-      {/* Bottom bar: Share + Regenerate Oracle */}
-      <View
-        style={[
-          styles.bottomBar,
-          {
-            paddingBottom: insets.bottom + BOTTOM_BAR_PADDING,
-            paddingTop: BOTTOM_BAR_PADDING,
-          },
-        ]}
-      >
-        <Pressable
-          onPress={handleShare}
-          style={({ pressed }) => [
-            styles.ctaWrap,
-            styles.ctaWrapInBar,
-            pressed && styles.ctaPressed,
-          ]}
-        >
-          <LinearGradient
-            colors={GRADIENTS.button.colors}
-            start={GRADIENTS.button.start}
-            end={GRADIENTS.button.end}
-            style={[styles.ctaBtn, SHADOWS.button]}
-          >
-            <Ionicons name="share-outline" size={18} color={COLORS.text} />
-            <Text style={styles.ctaLabel}>Share Rank Card</Text>
-          </LinearGradient>
-        </Pressable>
-        <Pressable
-          onPress={handleRegenerate}
-          disabled={regenerating}
-          style={({ pressed }) => [
-            styles.regenerateWrap,
-            pressed && !regenerating && styles.regeneratePressed,
-          ]}
-        >
-          {regenerating ? (
-            <>
-              <ActivityIndicator size="small" color={COLORS.violet} />
-              <Text style={styles.regenerateLabel}>Generating...</Text>
-            </>
-          ) : (
-            <Text style={styles.regenerateLabel}>Regenerate Oracle line</Text>
-          )}
-        </Pressable>
-      </View>
     </View>
   );
 }
@@ -277,235 +377,395 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: SPACING.screenPadding,
-    paddingBottom: 12,
-    backgroundColor: COLORS.glass,
+    backgroundColor: "rgba(7,8,15,0.8)",
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.glassBorder,
+    borderBottomColor: "rgba(42,48,80,0.4)",
   },
-  backBtn: { padding: 4 },
-  title: {
+  backBtn: { padding: 4, width: 40, height: 40, justifyContent: "center" },
+  headerTitle: {
     fontFamily: "Inter_700Bold",
-    fontSize: 22,
-    color: COLORS.text,
+    fontSize: 17,
+    color: "#E5E7EB",
   },
-  shareBtn: { padding: 4 },
+  headerShareBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   scroll: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: SPACING.screenPadding,
-    paddingTop: SPACING.lg,
+    paddingHorizontal: CARD_MARGIN_H,
     alignItems: "center",
   },
-  bottomBar: {
-    paddingHorizontal: SPACING.screenPadding,
-    backgroundColor: COLORS.glass,
+  bottomBox: {
+    width: "100%",
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(7,8,15,0.85)",
     borderTopWidth: 1,
-    borderTopColor: COLORS.glassBorder,
+    borderTopColor: "rgba(42,48,80,0.4)",
+    alignItems: "center",
   },
-  cardWrap: {
+  cardOuter: {
+    borderRadius: CARD_RADIUS,
     overflow: "hidden",
-    alignSelf: "center",
     position: "relative",
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "#000",
+          shadowOpacity: 0.7,
+          shadowRadius: 60,
+          shadowOffset: { width: 0, height: 8 },
+        }
+      : { elevation: 12 }),
   },
-  radialGlow: {
+  cardGradient: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.22)",
+  },
+  ambientGlow: {
     position: "absolute",
-    borderRadius: GLOW_RADIUS,
-    backgroundColor: "rgba(139,92,246,0.12)",
+    top: "-15%",
+    left: "50%",
+    marginLeft: -140,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: "rgba(100,40,200,0.06)",
+    opacity: 1,
   },
-  fractureLine: {
+  cornerFractureWrap: {
     position: "absolute",
     top: 0,
     right: 0,
-    height: 1,
-    backgroundColor: COLORS.violetLine,
-    opacity: 0.3,
-    transform: [{ rotate: "-45deg" }, { translateX: 30 }, { translateY: -10 }],
+    width: 60,
+    height: 60,
+    overflow: "hidden",
+    borderRadius: 0,
   },
-  cardTop: {
+  cornerFractureLine: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 80,
+    height: 1,
+    backgroundColor: "rgba(192,132,252,0.25)",
+    transform: [{ rotate: "-45deg" }],
+  },
+  cardInner: {
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 16,
+    position: "relative",
+  },
+  rankBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(139,92,246,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.22)",
+    borderRadius: 8,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    marginBottom: 6,
+    marginTop: 0,
+    zIndex: 2,
+  },
+  rankBadgeHash: {
+    fontSize: 9,
+    fontFamily: "Inter_600SemiBold",
+    color: "rgba(139,92,246,0.6)",
+  },
+  rankBadgeNum: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
+    color: "#8B5CF6",
+    letterSpacing: -0.3,
+  },
+  rankBadgeLabel: {
+    fontSize: 8,
+    color: "#4B5563",
+    letterSpacing: 0.5,
+  },
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginBottom: 14,
+    zIndex: 1,
   },
-  alterEgoLabel: {
+  brandLabel: {
+    fontSize: 9,
     fontFamily: "Inter_700Bold",
-    fontSize: 13,
-    color: COLORS.violetGlow,
-    letterSpacing: 2,
-    textTransform: "uppercase",
+    letterSpacing: 2.5,
+    color: "#A78BFA",
   },
   powerScore: {
+    fontSize: 32,
     fontFamily: "Inter_700Bold",
-    fontSize: 36,
-    color: COLORS.violet,
+    color: "#8B5CF6",
+    letterSpacing: -1,
   },
-  characterZone: {
-    flex: 1,
+  artZone: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 10,
+    marginBottom: 14,
+    zIndex: 1,
+  },
+  charCardWrap: {
+    width: CHAR_W,
+    height: CHAR_H,
+    borderRadius: 14,
+    position: "relative",
+  },
+  charGlow: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 14,
+    backgroundColor: "rgba(100,40,200,0.20)",
+  },
+  charFill: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.16)",
+    overflow: "hidden",
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "#000",
+          shadowOpacity: 0.4,
+          shadowRadius: 32,
+          shadowOffset: { width: 0, height: 0 },
+        }
+      : {}),
+  },
+  stageBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(139,92,246,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.25)",
+    borderRadius: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+  },
+  stageBadgeText: {
+    fontSize: 8,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+    color: "#A78BFA",
+  },
+  petZone: {
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 10,
+  },
+  petCircle: {
+    width: PET_SIZE,
+    height: PET_SIZE,
+    borderRadius: PET_SIZE / 2,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "rgba(139,92,246,0.38)",
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "rgba(109,40,217,0.25)",
+          shadowRadius: 20,
+          shadowOffset: { width: 0, height: 0 },
+        }
+      : {}),
     alignItems: "center",
     justifyContent: "center",
-    position: "relative",
-    minHeight: CHAR_H + 24,
   },
-  charPlaceholder: {
-    backgroundColor: COLORS.surface2,
-    borderRadius: RADIUS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+  petName: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    color: "#6B7280",
+    letterSpacing: 0.5,
   },
-  petOverlap: {
-    position: "absolute",
-    bottom: 8,
+  identityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+    zIndex: 1,
   },
-  cardBottom: {},
   username: {
-    fontFamily: "Inter_700Bold",
     fontSize: 18,
-    color: COLORS.text,
+    fontFamily: "Inter_700Bold",
+    color: "#E5E7EB",
+    letterSpacing: -0.3,
   },
   stageTitle: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: COLORS.text2,
-    marginTop: 2,
+    fontSize: 11,
+    color: "#6B7280",
+    marginTop: 1,
   },
   streakRow: {
     flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 4,
+    alignItems: "center",
+    gap: 4,
   },
-  streakText: {
+  streakNum: {
+    fontSize: 18,
     fontFamily: "Inter_700Bold",
-    fontSize: 16,
-    color: COLORS.text,
+    color: "#F97316",
   },
   divider: {
     height: 1,
-    backgroundColor: COLORS.border,
-    marginVertical: 12,
+    width: "100%",
+    marginBottom: 10,
+    zIndex: 1,
   },
-  oracleLineWrap: {
-    paddingVertical: 4,
+  oracleWrap: {
+    paddingHorizontal: 4,
+    zIndex: 1,
   },
   oracleLine: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.text2,
+    fontSize: 11.5,
     fontStyle: "italic",
+    color: "#6B7280",
     textAlign: "center",
+    lineHeight: 18,
   },
-  editOracleHint: {
+  editHint: {
+    textAlign: "center",
+    fontSize: 11,
+    color: "#374151",
+    paddingVertical: 6,
+  },
+  bottomBoxPadding: { paddingHorizontal: 16 },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    width: "100%",
+    backgroundColor: "rgba(255,255,255,0.02)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.3)",
+    marginBottom: 8,
+  },
+  shareBtnWrapContainer: {
+    width: "100%",
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  toggleLabel: {
+    fontSize: 10,
+    color: "#6B7280",
+  },
+  switchWrap: {
+    transform: [{ scale: 0.78 }],
+  },
+  switch: {},
+  shareBtnWrap: {
+    width: "100%",
+    height: CTA_HEIGHT,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 8,
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "#8B5CF6",
+          shadowOpacity: 0.35,
+          shadowRadius: 20,
+          shadowOffset: { width: 0, height: 4 },
+        }
+      : { elevation: 8 }),
+  },
+  shareBtnPressed: { opacity: 0.9 },
+  shareBtnGradient: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  shareBtnLabel: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: "#FFFFFF",
+  },
+  regenerateWrap: {
     alignSelf: "center",
-    marginTop: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 16,
   },
-  editOracleHintText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: COLORS.muted,
+  regenerateLabel: {
+    fontSize: 13,
+    color: "#6D28D9",
   },
-  editOracleBackdrop: {
+  editBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
-    padding: SPACING.md,
+    padding: 16,
   },
-  editOracleKeyboard: {
+  editKeyboard: {
     alignSelf: "center",
     width: "100%",
     maxWidth: 360,
   },
-  editOracleCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.modal,
+  editCard: {
+    backgroundColor: "#141824",
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: SPACING.lg,
+    borderColor: "#2A3050",
+    padding: 24,
   },
-  editOracleTitle: {
+  editTitle: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 16,
-    color: COLORS.text,
+    color: "#E5E7EB",
     marginBottom: 12,
   },
-  editOracleInput: {
+  editInput: {
     fontFamily: "Inter_400Regular",
     fontSize: 14,
-    color: COLORS.text,
+    color: "#E5E7EB",
     minHeight: 80,
     maxHeight: 120,
     padding: 12,
-    backgroundColor: COLORS.surface2,
-    borderRadius: RADIUS.card,
+    backgroundColor: "#1E2333",
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: "#2A3050",
     textAlignVertical: "top",
   },
-  editOracleActions: {
+  editActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 12,
     marginTop: 16,
   },
-  editOracleCancel: {
+  editCancel: {
     paddingVertical: 10,
     paddingHorizontal: 16,
   },
-  editOracleCancelText: {
+  editCancelText: {
     fontFamily: "Inter_500Medium",
     fontSize: 14,
-    color: COLORS.text2,
+    color: "#9CA3AF",
   },
-  editOracleSave: {
+  editSave: {
     paddingVertical: 10,
     paddingHorizontal: 20,
-    backgroundColor: COLORS.violet,
-    borderRadius: RADIUS.card,
+    backgroundColor: "#8B5CF6",
+    borderRadius: 16,
   },
-  editOracleSaveText: {
+  editSaveText: {
     fontFamily: "Inter_600SemiBold",
     fontSize: 14,
-    color: COLORS.text,
-  },
-  ctaWrap: {
-    width: "100%",
-    marginTop: 16,
-  },
-  ctaWrapInBar: { marginTop: 0 },
-  ctaPressed: { opacity: 0.9 },
-  ctaBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    height: CTA_HEIGHT,
-    borderRadius: RADIUS.card,
-    gap: 8,
-    overflow: "hidden",
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "#8B5CF6",
-          shadowOpacity: 0.35,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: 4 },
-        }
-      : { elevation: 8 }),
-  },
-  ctaLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    color: COLORS.text,
-  },
-  regenerateWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    marginTop: 12,
-    paddingVertical: 12,
-  },
-  regeneratePressed: { opacity: 0.7 },
-  regenerateLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.violet,
+    color: "#E5E7EB",
   },
 });

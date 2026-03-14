@@ -153,12 +153,17 @@ async def complete_mission(mission_id: str, user_id: str = Depends(get_user_id))
         on_conflict="user_id",
     ).execute()
 
+    cr2 = supabase.table("character_state").select("gender").eq("user_id", user_id).maybe_single().execute()
+    gender_val = (cr2.data or {}).get("gender")
+    gender_str = (gender_val.strip().lower() if isinstance(gender_val, str) and gender_val.strip() else None) or "male"
+
     next_stage_xp, next_stage_name = next_stage_for(total_xp_new)
     character_state = CharacterStateOut(
         stage=new_stage,
         total_xp=total_xp_new,
         next_stage_xp=next_stage_xp,
         next_stage_name=next_stage_name,
+        gender=gender_str,
     )
 
     pr = supabase.table("pet_state").select("stage, pet_health_state, total_pet_food").eq("user_id", user_id).maybe_single().execute()

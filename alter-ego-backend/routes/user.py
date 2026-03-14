@@ -1,4 +1,4 @@
-"""GET /user/me and PATCH /user/me — profile and device prefs (push_token, timezone, last_opened_at, nudge_frequency)."""
+"""GET /user/me, PATCH /user/me, DELETE /user/account — profile and account deletion."""
 from fastapi import APIRouter, Depends
 from utils.auth import get_user_id
 from utils.supabase_client import get_supabase
@@ -39,4 +39,15 @@ async def patch_user_me(payload: UserMeUpdate, user_id: str = Depends(get_user_i
     if not updates:
         return {"success": True}
     supabase.table("users").update(updates).eq("id", user_id).execute()
+    return {"success": True}
+
+
+@router.delete("/account")
+async def delete_account(user_id: str = Depends(get_user_id)):
+    """Permanently delete the user's auth account. Cascade removes public rows (users, missions, etc.)."""
+    supabase = get_supabase()
+    try:
+        supabase.auth.admin.delete_user(id=user_id)
+    except Exception as e:
+        raise RuntimeError(f"Could not delete account: {e}") from e
     return {"success": True}

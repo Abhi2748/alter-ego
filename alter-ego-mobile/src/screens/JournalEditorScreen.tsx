@@ -1,6 +1,6 @@
 /**
- * Journal Editor — Single entry: title + body. iPhone Journal style.
- * Content stored as "title\n\nbody". Date from params or today.
+ * Journal Editor — Full-screen editor with large title + body. Spec §3.
+ * Params: entry_id (string | null), read_only (boolean).
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -13,16 +13,27 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { COLORS, SPACING } from "../constants/theme";
-import { supabase } from "../utils/supabase";
-import { getJournalEntries, saveJournal } from "../utils/api";
-import { getJournalBookmarks, setJournalBookmarks } from "../utils/journalBookmarks";
+import { BlurView } from "expo-blur";
 import type { MainStackParamList } from "../navigation/types";
+import {
+  getJournalEntry,
+  createOrUpdateEntry,
+  toggleBookmark as storeToggleBookmark,
+  type JournalEntry,
+} from "../utils/journalStore";
+
+const BG_GRADIENT = ["#09091A", "#07080F"] as const;
+const TEXT_PRIMARY = "#E5E7EB";
+const MUTED = "#6B7280";
+const DIM = "#374151";
+const VERY_DIM = "#2D3146";
+const VIOLET = "#8B5CF6";
 
 function dateToKey(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -33,148 +44,171 @@ function formatHeaderDate(dateStr: string): string {
   return d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 }
 
-function parseTitleAndBody(content: string): { title: string; body: string } {
-  const idx = content.indexOf("\n\n");
-  if (idx === -1) return { title: "", body: content.trim() };
-  return {
-    title: content.slice(0, idx).trim(),
-    body: content.slice(idx + 2).trim(),
-  };
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function lineCount(text: string): number {
+  const lines = text.split(/\n/).filter((l) => l.trim().length > 0);
+  if (lines.length > 0) return lines.length;
+  return text.trim().length > 0 ? 1 : 0;
 }
 
 export function JournalEditorScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute<RouteProp<MainStackParamList, "JournalEditor">>();
-  const paramDate = route.params?.date;
-  const selectedDate = paramDate || dateToKey(new Date());
+  const { entry_id, read_only } = route.params ?? { entry_id: null as string | null, read_only: false };
 
-  const titleRef = useRef<TextInput>(null);
+  const [entry, setEntry] = useState<JournalEntry | null>(null);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [bookmarked, setBookmarked] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const bodyRef = useRef<TextInput>(null);
 
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [isBookmarked, setIsBookmarked] = useState(false);
-
-  const canSave = (title.trim() || body.trim()).length > 0;
-
-  const loadEntry = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [sessionRes, bookmarks] = await Promise.all([
-        supabase.auth.getSession(),
-        getJournalBookmarks(),
-      ]);
-      const { data: { session } } = sessionRes;
-      setIsBookmarked(bookmarks.includes(selectedDate));
-      if (!session?.access_token) return;
-      const res = await getJournalEntries(session.access_token, selectedDate, selectedDate, 1);
-      const entry = res.entries?.[0];
-      if (entry?.content) {
-        const { title: t, body: b } = parseTitleAndBody(entry.content);
-        setTitle(t);
-        setBody(b);
-      } else {
-        setTitle("");
-        setBody("");
-      }
-    } catch (_) {
-      setTitle("");
-      setBody("");
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedDate]);
+  const dateStr = entry?.date ?? dateToKey(new Date());
+  const wordCount = countWords(title + " " + content);
+  const bodyLines = lineCount(content);
+  const canSave = !read_only && (title.trim().length > 0 || content.trim().length > 0) && bodyLines >= 2;
 
   useEffect(() => {
-    loadEntry();
-  }, [loadEntry]);
+    if (entry_id) {
+      const e = getJournalEntry(entry_id);
+      if (e) {
+        setEntry(e);
+        setTitle(e.title || "");
+        setContent(e.content || "");
+        setBookmarked(e.bookmarked);
+      } else {
+        setEntry(null);
+        setTitle("");
+        setContent("");
+        setBookmarked(false);
+      }
+    } else {
+      setEntry(null);
+      setTitle("");
+      setContent("");
+      setBookmarked(false);
+    }
+  }, [entry_id]);
 
   const handleSave = useCallback(async () => {
     if (!canSave || saving) return;
     setSaving(true);
+    setSaveStatus("idle");
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-      const content = title.trim() ? `${title.trim()}\n\n${body.trim()}` : body.trim();
-      await saveJournal(session.access_token, { date: selectedDate, content });
+      createOrUpdateEntry(entry_id, dateStr, title.trim(), content.trim(), bookmarked);
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 1500);
       navigation.goBack();
-    } catch (_) {}
-    setSaving(false);
-  }, [canSave, saving, selectedDate, title, body, navigation]);
+    } catch {
+      setSaveStatus("error");
+      Alert.alert("Couldn't save", "Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }, [canSave, saving, entry_id, dateStr, title, content, bookmarked, navigation]);
 
-  const toggleBookmark = useCallback(async () => {
-    const bookmarks = await getJournalBookmarks();
-    const set = new Set(bookmarks);
-    if (set.has(selectedDate)) set.delete(selectedDate);
-    else set.add(selectedDate);
-    const next = Array.from(set);
-    await setJournalBookmarks(next);
-    setIsBookmarked(next.includes(selectedDate));
-  }, [selectedDate]);
+  const toggleBookmark = useCallback(() => {
+    if (entry_id) {
+      storeToggleBookmark(entry_id);
+      setBookmarked((prev) => !prev);
+    } else {
+      setBookmarked((prev) => !prev);
+    }
+  }, [entry_id]);
+
+  const todayKey = dateToKey(new Date());
+  const headerTitle =
+    entry && entry.date !== todayKey ? formatHeaderDate(entry.date) : "Today's Journal";
+  const headerDateStr = formatHeaderDate(dateStr);
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={[COLORS.bg1, COLORS.bg0]}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-      />
-      <View style={[styles.header, { paddingTop: insets.top, height: insets.top + 56 }]}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn} hitSlop={12}>
-          <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-        </Pressable>
-        <Text style={styles.headerDate} numberOfLines={1}>{formatHeaderDate(selectedDate)}</Text>
-        <View style={styles.headerRight}>
-          <Pressable onPress={toggleBookmark} style={styles.headerBtn} hitSlop={12}>
-            <Ionicons
-              name={isBookmarked ? "bookmark" : "bookmark-outline"}
-              size={22}
-              color={isBookmarked ? COLORS.violet : COLORS.text}
-            />
+      <LinearGradient colors={BG_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        {Platform.OS === "ios" ? <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} /> : null}
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color={MUTED} />
           </Pressable>
-          <Pressable onPress={handleSave} disabled={!canSave || saving} style={styles.headerBtn} hitSlop={12}>
-            <Text style={[styles.saveLabel, (!canSave || saving) && styles.saveLabelDisabled]}>Save</Text>
-          </Pressable>
+          <View style={styles.headerCenter} pointerEvents="none">
+            <Text style={styles.headerTitle}>{headerTitle}</Text>
+            <Text style={styles.headerDate}>{headerDateStr}</Text>
+          </View>
+          <View style={styles.headerRight}>
+            <Pressable onPress={toggleBookmark} style={styles.headerBtn} hitSlop={8}>
+              <Ionicons name={bookmarked ? "bookmark" : "bookmark-outline"} size={18} color={bookmarked ? VIOLET : DIM} />
+            </Pressable>
+            {!read_only && (
+              <Pressable
+                onPress={handleSave}
+                disabled={!canSave}
+                style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
+              >
+                <Text style={[styles.saveBtnText, !canSave && styles.saveBtnTextDisabled]}>Save</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       </View>
 
       <KeyboardAvoidingView
         style={styles.keyboard}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
       >
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <TextInput
-            ref={titleRef}
-            style={styles.titleInput}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Title"
-            placeholderTextColor={COLORS.muted}
-            editable={!loading}
-          />
-          <View style={styles.titleBodyDivider} />
-          <TextInput
-            ref={bodyRef}
-            style={styles.bodyInput}
-            value={body}
-            onChangeText={setBody}
-            placeholder="What's on your mind?"
-            placeholderTextColor={COLORS.muted}
-            multiline
-            editable={!loading}
-          />
+          {read_only ? (
+            <>
+              <Text style={styles.titleReadOnly}>{title || "Untitled"}</Text>
+              <View style={styles.divider} />
+              <Text style={styles.bodyReadOnly}>{content || ""}</Text>
+            </>
+          ) : (
+            <>
+              <TextInput
+                style={styles.titleInput}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Title"
+                placeholderTextColor="#1F2937"
+                maxLength={120}
+                autoFocus={!entry_id}
+              />
+              <View style={styles.divider} />
+              <TextInput
+                ref={bodyRef}
+                style={styles.bodyInput}
+                value={content}
+                onChangeText={setContent}
+                placeholder="Write about today..."
+                placeholderTextColor={VERY_DIM}
+                multiline
+                textAlignVertical="top"
+                scrollEnabled={false}
+              />
+              {bodyLines < 2 && (
+                <Text style={styles.minLines}>{bodyLines} / 2 lines minimum</Text>
+              )}
+              <Text style={styles.wordCount}>{wordCount} words</Text>
+            </>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
+      {saveStatus === "saved" && (
+        <View style={[styles.statusWrap, { top: insets.top + 50 }]}>
+          <Text style={styles.statusText}>Saved ✓</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -182,52 +216,98 @@ export function JournalEditorScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: SPACING.screenPadding,
     paddingBottom: 12,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    borderBottomColor: "rgba(42,48,80,0.35)",
+    position: "relative",
+    overflow: "hidden",
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
   },
   headerBtn: { minWidth: 44, height: 44, justifyContent: "center", alignItems: "center" },
-  headerRight: { flexDirection: "row", alignItems: "center" },
-  headerDate: {
-    flex: 1,
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 17,
-    color: COLORS.text,
-    textAlign: "center",
-    marginHorizontal: SPACING.sm,
+  headerCenter: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 12,
+    alignItems: "center",
   },
-  saveLabel: { fontFamily: "Inter_500Medium", fontSize: 16, color: COLORS.violet },
-  saveLabelDisabled: { color: COLORS.muted },
+  headerTitle: { fontSize: 15, fontWeight: "700", color: TEXT_PRIMARY },
+  headerDate: { fontSize: 11, color: DIM, marginTop: 2 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+  saveBtn: {
+    height: 32,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    justifyContent: "center",
+    backgroundColor: "rgba(139,92,246,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.30)",
+  },
+  saveBtnDisabled: {
+    backgroundColor: "transparent",
+    borderColor: "rgba(42,48,80,0.30)",
+  },
+  saveBtnText: { fontSize: 13, fontWeight: "600", color: VIOLET },
+  saveBtnTextDisabled: { color: DIM },
   keyboard: { flex: 1 },
   scroll: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.xl,
+    paddingHorizontal: 20,
+    paddingTop: 24,
   },
   titleInput: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 22,
-    color: COLORS.text,
-    paddingVertical: SPACING.sm,
-    paddingBottom: SPACING.md,
+    fontSize: 26,
+    fontWeight: "800",
+    color: TEXT_PRIMARY,
+    letterSpacing: -0.5,
+    lineHeight: 34,
+    padding: 0,
+    marginBottom: 14,
   },
-  titleBodyDivider: {
+  titleReadOnly: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: TEXT_PRIMARY,
+    letterSpacing: -0.5,
+    lineHeight: 34,
+    marginBottom: 14,
+  },
+  divider: {
     height: 1,
-    backgroundColor: COLORS.border,
-    marginBottom: SPACING.md,
+    backgroundColor: "rgba(42,48,80,0.35)",
+    marginBottom: 18,
   },
   bodyInput: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 17,
-    color: COLORS.text,
-    lineHeight: 26,
-    minHeight: 260,
+    fontSize: 16,
+    fontWeight: "400",
+    color: TEXT_PRIMARY,
+    lineHeight: 27,
+    letterSpacing: 0.1,
+    minHeight: 200,
     padding: 0,
-    textAlignVertical: "top",
   },
+  bodyReadOnly: {
+    fontSize: 16,
+    fontWeight: "400",
+    color: TEXT_PRIMARY,
+    lineHeight: 27,
+    letterSpacing: 0.1,
+  },
+  minLines: { fontSize: 10, color: VERY_DIM, textAlign: "right", marginTop: 4 },
+  wordCount: { fontSize: 10, color: VERY_DIM, textAlign: "right", marginTop: 4 },
+  statusWrap: {
+    position: "absolute",
+    alignSelf: "center",
+    backgroundColor: "rgba(20,24,36,0.9)",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  statusText: { fontSize: 13, color: VIOLET, fontWeight: "600" },
 });

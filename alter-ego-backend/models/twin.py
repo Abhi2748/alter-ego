@@ -102,6 +102,15 @@ def daily_twin_pet_food(intensity: int, ceiling: float) -> int:
     return int(base * ceiling)
 
 
+class TwinActivityOut(BaseModel):
+    """Single activity in Twin's Day timeline."""
+    mission_title: str
+    mission_type: str  # "core" | "focus" | "personal"
+    difficulty: str  # "Easy" | "Medium" | "Hard"
+    xp_earned: int
+    completed_at: Optional[str] = None  # ISO time string, null = pending
+
+
 class TwinComparisonOut(BaseModel):
     """Response for GET /twin/comparison — real twin_state + user state + gap line."""
     user_xp: int
@@ -118,3 +127,5 @@ class TwinComparisonOut(BaseModel):
     gap_line: str
     strip_message: Optional[str] = None
     gap_days: Optional[int] = None
+    username: Optional[str] = None
+    twin_today_activities: list[TwinActivityOut] = []

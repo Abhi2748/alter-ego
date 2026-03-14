@@ -80,6 +80,7 @@ export async function getHome(_accessToken: string): Promise<HomeOut> {
       total_xp: 1200,
       next_stage_xp: 5000,
       next_stage_name: "The Burning",
+      gender: "male",
     },
     pet_state: {
       stage: 1,
@@ -95,6 +96,8 @@ export async function getHome(_accessToken: string): Promise<HomeOut> {
     twin_strip_message: "Your rival is you — one week ahead. Show up and close the gap.",
     power_score: 1240,
     username: "preview_user",
+    streak: 14,
+    week_dots: [true, true, true, false, false, false, false],
   };
 }
 
@@ -111,6 +114,7 @@ export async function completeMission(
       total_xp: 1225,
       next_stage_xp: 5000,
       next_stage_name: "The Burning",
+      gender: "male",
     },
     pet_state: {
       stage: 1,
@@ -155,21 +159,30 @@ export async function createMission(
 
 export async function getTwinComparison(_accessToken: string): Promise<TwinComparisonOut> {
   await delay(MOCK_DELAY);
+  const today = new Date().toISOString().slice(0, 10);
   return {
-    user_xp: 1200,
+    user_xp: 1240,
     user_pet_stage: 1,
     user_pet_stage_name: "Cub",
     user_streak: 5,
     user_power_score: 1240,
-    twin_xp: 2400,
+    twin_xp: 2480,
     twin_pet_stage: 2,
     twin_pet_stage_name: "Cat",
     twin_streak: 12,
     twin_power_score: 2480,
-    current_gap_state: "AHEAD",
-    gap_line: "Your Twin is 7 days of consistency ahead.",
-    strip_message: "Your rival is you — one week ahead. Show up and close the gap.",
+    current_gap_state: "slightly_behind",
+    gap_line: "Twin has a Cat and 2,480 XP. You have a Cub and 1,240 XP.",
+    strip_message: '"Four down. What\'s your count?"',
     gap_days: 7,
+    username: "shadow_wolf",
+    twin_today_activities: [
+      { mission_title: "Get 7+ hours of sleep", mission_type: "core", difficulty: "Easy", xp_earned: 25, completed_at: `${today}T06:30:00Z` },
+      { mission_title: "Move for 30 minutes", mission_type: "core", difficulty: "Medium", xp_earned: 25, completed_at: `${today}T07:15:00Z` },
+      { mission_title: "Drink 8 glasses of water", mission_type: "core", difficulty: "Medium", xp_earned: 25, completed_at: `${today}T08:00:00Z` },
+      { mission_title: "Run 2 miles", mission_type: "focus", difficulty: "Medium", xp_earned: 25, completed_at: `${today}T09:10:00Z` },
+      { mission_title: "Read for 20 minutes", mission_type: "personal", difficulty: "Easy", xp_earned: 0, completed_at: null },
+    ],
   };
 }
 
@@ -198,41 +211,21 @@ export async function patchUserMe(
 export async function getLeaderboard(_accessToken: string): Promise<LeaderboardOut> {
   await delay(MOCK_DELAY);
   const entries: LeaderboardOut["entries"] = [
-    {
-      rank: 1,
-      user_id: "u1",
-      username: "top_rival",
-      power_score: 3200,
-      streak: 30,
-      pet_stage: 4,
-      character_stage: 3,
-      is_own: false,
-    },
-    {
-      rank: 2,
-      user_id: "mock-user-id",
-      username: "preview_user",
-      power_score: 1240,
-      streak: 5,
-      pet_stage: 1,
-      character_stage: 2,
-      is_own: true,
-    },
-    {
-      rank: 3,
-      user_id: "u3",
-      username: "steady_eddie",
-      power_score: 980,
-      streak: 14,
-      pet_stage: 2,
-      character_stage: 2,
-      is_own: false,
-    },
+    { rank: 1, user_id: "u1", username: "top_rival", power_score: 3200, streak: 30, pet_stage: 4, character_stage: 3, is_own: false },
+    { rank: 2, user_id: "u2", username: "silent_ember", power_score: 2800, streak: 22, pet_stage: 3, character_stage: 3, is_own: false },
+    { rank: 3, user_id: "u3", username: "steady_eddie", power_score: 2100, streak: 14, pet_stage: 2, character_stage: 2, is_own: false },
+    { rank: 4, user_id: "u4", username: "ghost_mode_k", power_score: 1800, streak: 12, pet_stage: 2, character_stage: 2, is_own: false },
+    { rank: 5, user_id: "u5", username: "mindset_forge", power_score: 1650, streak: 10, pet_stage: 1, character_stage: 2, is_own: false },
+    { rank: 6, user_id: "u6", username: "cold_focus_rx", power_score: 1420, streak: 8, pet_stage: 1, character_stage: 2, is_own: false },
+    { rank: 7, user_id: "u7", username: "nova_discipline", power_score: 1380, streak: 7, pet_stage: 1, character_stage: 2, is_own: false },
+    { rank: 8, user_id: "u8", username: "steady_rise_42", power_score: 1200, streak: 6, pet_stage: 1, character_stage: 2, is_own: false },
+    { rank: 47, user_id: "mock-user-id", username: "preview_user", power_score: 1240, streak: 5, pet_stage: 1, character_stage: 2, is_own: true },
   ];
   return {
     entries,
-    my_rank: 2,
-    my_entry: entries[1] ?? null,
+    my_rank: 47,
+    my_entry: entries[8] ?? null,
+    total_users: 312,
   };
 }
 

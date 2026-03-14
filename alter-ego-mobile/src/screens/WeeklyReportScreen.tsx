@@ -1,10 +1,9 @@
 /**
- * Weekly Report Screen — Part 3B Screen 20. Tab 4.
- * Fetches GET /api/v1/agents/weekly-report on tab focus. Maps sections to UI.
- * Empty state when no report; loading + error/retry.
+ * Weekly Report Screen — Premium redesign. Tab 4.
+ * Fixed header + ScrollView. 8 content blocks, bar chart, pet block, past reports.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -12,57 +11,109 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import Svg, { Rect, Path, Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { PetAnimation } from "../components/PetAnimation";
-import { SecondaryButton } from "../components/SecondaryButton";
-import {
-  COLORS,
-  SPACING,
-  GRADIENTS,
-} from "../constants/theme";
 import { supabase } from "../utils/supabase";
 import { getWeeklyReport, type WeeklyReportRow } from "../utils/api";
 
-const HEADER_HEIGHT = 56;
-const CARD_RADIUS = 24;
-const CARD_PADDING = 24;
-const BLOCK_GAP = 20;
-const CONTENT_PADDING_BOTTOM = 96;
-
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const CHART_HEIGHT = 120;
+const BAR_CHART_HEIGHT = 80;
+const BAR_MIN = 8;
 
-export type ReportData = {
-  powerDelta: number;
-  powerScore: number;
+// -----------------------------------------------------------------------------
+// DATA SHAPE
+// -----------------------------------------------------------------------------
+
+export interface PastReportSummary {
+  report_id: string;
+  week_start: string;
+  week_end: string;
+  power_score: number;
   streak: number;
-  longestThisMonth: number;
-  /** Completion % per day Mon–Sun (0–100). Used for day-of-week bar chart. */
-  dayOfWeekCompletion: number[];
-  petStage: number;
-  petHappy: boolean;
-  petStageName: string;
-  petSubtext: string;
-  gapDays: number;
-  gapClosed: boolean;
+}
+
+export interface WeeklyReportData {
+  week_start: string;
+  week_end: string;
+  power_score: number;
+  power_score_change: number;
+  streak_current: number;
+  streak_longest_month: number;
+  daily_xp: number[];
+  pet_stage: number;
+  pet_name: string;
+  pet_next_name: string;
+  days_to_next_pet: number | null;
+  pet_was_sad: boolean;
+  gap_days: number;
+  gap_change: number;
   narrative: string;
-  winText: string;
-  focusText: string;
-  twinMessage: string;
-  /** Section 5: Next week (one sentence). */
-  nextWeek?: string;
+  one_win: string;
+  one_focus: string;
+  twin_message: string;
+  next_week_note: string;
+  past_reports: PastReportSummary[];
+}
+
+const PLACEHOLDER_REPORT: WeeklyReportData = {
+  week_start: "2026-02-24",
+  week_end: "2026-03-02",
+  power_score: 1240,
+  power_score_change: 0,
+  streak_current: 5,
+  streak_longest_month: 5,
+  daily_xp: [120, 140, 60, 180, 90, 40, 160],
+  pet_stage: 2,
+  pet_name: "Cat",
+  pet_next_name: "Fox",
+  days_to_next_pet: 18,
+  pet_was_sad: false,
+  gap_days: 0,
+  gap_change: 2,
+  narrative:
+    "You completed 18 of 24 missions this week. Core: 6 of 7 days complete. 420 XP earned. 340 Pet Food earned.",
+  one_win: "Nailed sleep 6 nights. Consistent movement every day.",
+  one_focus: "Mindfulness slipped mid-week. Protect that block.",
+  twin_message:
+    '"You showed up. The gap is still there — close it next week. One week at a time."',
+  next_week_note: "Keep the streak. Add one harder mission.",
+  past_reports: [
+    {
+      report_id: "r1",
+      week_start: "2026-02-17",
+      week_end: "2026-02-23",
+      power_score: 1180,
+      streak: 8,
+    },
+    {
+      report_id: "r2",
+      week_start: "2026-02-10",
+      week_end: "2026-02-16",
+      power_score: 980,
+      streak: 3,
+    },
+  ],
 };
 
-export type SavedReport = {
-  id: string;
-  weekLabel: string;
-  weekKey: string;
-  data: ReportData;
-};
+// -----------------------------------------------------------------------------
+// HELPERS
+// -----------------------------------------------------------------------------
+
+function formatWeekRange(weekStart: string, weekEnd: string): string {
+  try {
+    const start = new Date(weekStart + "T00:00:00");
+    const end = new Date(weekEnd + "T00:00:00");
+    return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${start.getFullYear()}`;
+  } catch {
+    return `${weekStart} – ${weekEnd}`;
+  }
+}
 
 function getDaysUntilSunday(): number {
   const now = new Date();
@@ -70,421 +121,395 @@ function getDaysUntilSunday(): number {
   return day === 0 ? 0 : 7 - day;
 }
 
-function getNextSundayLabel(): { days: number; label: string } {
-  const now = new Date();
-  const day = now.getDay();
-  const days = day === 0 ? 7 : 7 - day;
-  const next = new Date(now);
-  next.setDate(now.getDate() + days);
-  const label = next.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
-  return { days, label };
+function isSunday(): boolean {
+  return new Date().getDay() === 0;
 }
 
-/** Day-of-week completion bar chart. 7 bars Mon–Sun, best day highlighted. */
-function DayOfWeekChart({ data }: { data: number[] }) {
-  const values = data.length >= 7 ? data.slice(0, 7) : [...data, ...Array(7 - data.length).fill(0)];
-  const maxVal = Math.max(...values, 1);
-  const bestDayIndex = values.indexOf(maxVal);
+/** Map API WeeklyReportRow to WeeklyReportData. */
+function mapRowToData(row: WeeklyReportRow, past: PastReportSummary[]): WeeklyReportData {
+  const d = row.this_week_data ?? {};
+  const completion = d.day_of_week_completion ?? [0, 0, 0, 0, 0, 0, 0];
+  const maxPct = Math.max(...completion, 1);
+  const daily_xp = completion.map((pct) => Math.round((pct / 100) * 180));
+  const weekEnd = (() => {
+    const s = new Date(row.week_start + "T00:00:00");
+    s.setDate(s.getDate() + 6);
+    return s.toISOString().slice(0, 10);
+  })();
+  const wins = row.wins ?? [];
+  const one_win = wins.length > 0 ? wins.join(" ") : "—";
+  const twinParts = [row.twin_paragraph, row.twin_closing].filter(Boolean);
+  const twin_message = twinParts.length > 0 ? twinParts.join("\n") : "—";
+  return {
+    week_start: row.week_start,
+    week_end: weekEnd,
+    power_score: 0,
+    power_score_change: 0,
+    streak_current: d.current_streak ?? 0,
+    streak_longest_month: d.current_streak ?? 0,
+    daily_xp,
+    pet_stage: d.pet_stage ?? 0,
+    pet_name: d.pet_name ?? "—",
+    pet_next_name: "—",
+    days_to_next_pet: null,
+    pet_was_sad: false,
+    gap_days: 0,
+    gap_change: 0,
+    narrative:
+      `You completed ${d.missions_completed ?? 0} of ${d.missions_total ?? 0} missions. Core: ${d.core_days_complete ?? 0}/${d.core_days_total ?? 0} days. ${d.xp_earned ?? 0} XP, ${d.pet_food_earned ?? 0} Pet Food.` ||
+      "—",
+    one_win,
+    one_focus: row.keep_watching ?? "—",
+    twin_message,
+    next_week_note: row.next_week ?? "—",
+    past_reports: past,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// SVG CALENDAR ICON (Next report banner)
+// -----------------------------------------------------------------------------
+
+function IconCalendar() {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+      <Rect
+        x={2}
+        y={3}
+        width={14}
+        height={12}
+        rx={2}
+        stroke="#8B5CF6"
+        strokeWidth={1.5}
+        fill="none"
+      />
+      <Path d="M2 6h14" stroke="#8B5CF6" strokeWidth={1.5} />
+      <Rect x={4} y={2} width={2} height={3} rx={0.5} fill="#8B5CF6" opacity={1} />
+      <Rect x={12} y={2} width={2} height={3} rx={0.5} fill="#8B5CF6" opacity={0.6} />
+      <Circle cx={6} cy={10} r={1} fill="#8B5CF6" opacity={1} />
+      <Circle cx={9} cy={10} r={1} fill="#8B5CF6" opacity={0.6} />
+      <Circle cx={12} cy={10} r={1} fill="#8B5CF6" opacity={0.3} />
+    </Svg>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// BAR CHART (Mon–Sun, daily_xp, best day highlighted)
+// -----------------------------------------------------------------------------
+
+function ReportBarChart({ daily_xp }: { daily_xp: number[] }) {
+  const values = daily_xp.length >= 7 ? daily_xp.slice(0, 7) : [...daily_xp, ...Array(7 - daily_xp.length).fill(0)];
+  const maxXp = Math.max(...values, 1);
+  const bestIndex = values.findIndex((v) => v === maxXp);
 
   return (
-    <View style={dayChartStyles.wrap}>
-      <Text style={dayChartStyles.sectionLabel}>YOUR BEST DAYS</Text>
-      <View style={dayChartStyles.chartRow}>
-        {values.map((pct, i) => {
-          const heightPct = Math.min(100, Math.max(0, pct)) / 100;
-          const isBest = i === bestDayIndex;
+    <View style={chartStyles.wrap}>
+      <Text style={chartStyles.sectionLabel}>YOUR BEST DAYS</Text>
+      <View style={chartStyles.chartRow}>
+        {values.map((xp, i) => {
+          const heightPx = Math.max(BAR_MIN, (xp / maxXp) * 72);
+          const isBest = i === bestIndex;
           return (
-            <View key={i} style={dayChartStyles.barCol}>
-              <View style={dayChartStyles.track}>
-                <View
+            <View key={i} style={chartStyles.barCol}>
+              <View style={chartStyles.barWrap}>
+                <LinearGradient
+                  colors={isBest ? ["#C084FC", "#8B5CF6"] : ["#8B5CF6", "#5B21B6"]}
+                  start={{ x: 0.5, y: 1 }}
+                  end={{ x: 0.5, y: 0 }}
                   style={[
-                    dayChartStyles.barFillWrap,
-                    { height: `${heightPct * 100}%` },
+                    chartStyles.bar,
+                    {
+                      height: heightPx,
+                      ...(Platform.OS === "ios" && isBest
+                        ? { shadowColor: "rgba(192,132,252,0.45)", shadowRadius: 12, shadowOffset: { width: 0, height: 2 } }
+                        : {}),
+                      ...(Platform.OS === "ios" && !isBest
+                        ? { shadowColor: "rgba(139,92,246,0.30)", shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }
+                        : {}),
+                      ...(Platform.OS === "android" ? { elevation: isBest ? 6 : 4 } : {}),
+                    },
                   ]}
-                >
-                  {isBest ? (
-                    <View
-                      style={[
-                        dayChartStyles.barFill,
-                        { backgroundColor: COLORS.violet },
-                      ]}
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={[COLORS.violetDeep, COLORS.violet]}
-                      start={{ x: 0.5, y: 1 }}
-                      end={{ x: 0.5, y: 0 }}
-                      style={dayChartStyles.barFill}
-                    />
-                  )}
-                </View>
+                />
               </View>
+              <Text style={chartStyles.dayLabel}>{DAY_LABELS[i]}</Text>
             </View>
           );
         })}
-      </View>
-      <View style={dayChartStyles.labelsRow}>
-        {DAY_LABELS.map((label, i) => (
-          <View key={i} style={dayChartStyles.labelCol}>
-            <Text style={dayChartStyles.dayLabel}>{label}</Text>
-          </View>
-        ))}
       </View>
     </View>
   );
 }
 
-const dayChartStyles = StyleSheet.create({
-  wrap: { marginTop: 12 },
+const chartStyles = StyleSheet.create({
+  wrap: { marginBottom: 8 },
   sectionLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 11,
-    fontWeight: "600",
-    color: COLORS.muted,
+    fontSize: 8,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.5,
+    color: "#374151",
     textTransform: "uppercase",
     marginBottom: 8,
   },
   chartRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    justifyContent: "space-between",
-    height: CHART_HEIGHT,
-    gap: 4,
+    gap: 5,
+    height: BAR_CHART_HEIGHT,
   },
   barCol: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "flex-end",
-    minWidth: 0,
-  },
-  track: {
-    width: "100%",
-    height: CHART_HEIGHT,
-    backgroundColor: COLORS.surface2,
-    borderRadius: 4,
-    overflow: "hidden",
-    justifyContent: "flex-end",
-  },
-  barFillWrap: {
-    width: "100%",
-    minHeight: 2,
-    borderRadius: 4,
-    overflow: "hidden",
-  },
-  barFill: {
-    width: "100%",
-    flex: 1,
-    borderRadius: 4,
-  },
-  labelsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
     gap: 4,
-    marginTop: 6,
   },
-  labelCol: {
-    flex: 1,
+  barWrap: {
+    width: "100%",
+    height: 72,
+    justifyContent: "flex-end",
     alignItems: "center",
-    minWidth: 0,
+  },
+  bar: {
+    width: "100%",
+    minHeight: BAR_MIN,
+    borderRadius: 5,
+    overflow: "hidden",
   },
   dayLabel: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: COLORS.muted,
+    fontSize: 8,
+    color: "#4B5563",
+    letterSpacing: 0.3,
   },
 });
 
-/** Single report card (8 blocks). Reused for list detail and for "This week". */
+// -----------------------------------------------------------------------------
+// BLOCK DIVIDER
+// -----------------------------------------------------------------------------
+
+function BlockDivider() {
+  return (
+    <LinearGradient
+      colors={["transparent", "rgba(42,48,80,0.7)", "transparent"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
+      style={styles.blockDivider}
+    />
+  );
+}
+
+// -----------------------------------------------------------------------------
+// MAIN REPORT CARD (all 8 blocks + next week + return)
+// -----------------------------------------------------------------------------
+
 function ReportCard({
   data,
-  showReturnButton,
   onReturn,
 }: {
-  data: ReportData;
-  showReturnButton?: boolean;
-  onReturn?: () => void;
+  data: WeeklyReportData;
+  onReturn: () => void;
 }) {
-  const {
-    powerDelta,
-    powerScore,
-    streak,
-    longestThisMonth,
-    dayOfWeekCompletion,
-    petStage,
-    petHappy,
-    petStageName,
-    petSubtext,
-    gapDays,
-    gapClosed,
-    narrative,
-    winText,
-    focusText,
-    twinMessage,
-    nextWeek,
-  } = data;
+  const powerChange = data.power_score_change;
+  const powerChangeLabel =
+    powerChange > 0 ? `↗ +${powerChange}` : powerChange < 0 ? `↘ ${powerChange}` : "↗ +0";
+  const powerChangeColor = powerChange > 0 ? "#8B5CF6" : powerChange < 0 ? "#F87171" : "#4B5563";
+
+  const gapGrew = data.gap_change > 0;
+  const gapClosed = data.gap_change < 0;
+  const gapLabel = gapGrew
+    ? `↑ grew by ${data.gap_change} days`
+    : gapClosed
+      ? `↓ closed by ${Math.abs(data.gap_change)} days`
+      : "— unchanged this week";
+  const gapLabelColor = gapGrew ? "#F87171" : gapClosed ? "#8B5CF6" : "#6B7280";
+
+  const petSubtext = data.pet_was_sad
+    ? "Your companion struggled this week."
+    : data.days_to_next_pet != null
+      ? `${data.days_to_next_pet} days to ${data.pet_next_name}`
+      : "Maximum stage reached";
+
+  const petSubtextStyle = data.pet_was_sad ? { color: "#7F1D1D" } : { color: "#6B7280" };
 
   return (
-    <View style={reportCardStyles.card}>
-      <View style={reportCardStyles.block}>
-        <View style={reportCardStyles.powerScoreRow}>
-          <Text style={reportCardStyles.blockLabel}>POWER SCORE</Text>
-          <View style={reportCardStyles.deltaRow}>
-            <Ionicons name="trending-up" size={14} color={COLORS.violet} />
-            <Text style={[reportCardStyles.deltaPositive, { marginLeft: 4 }]}>
-              +{powerDelta}
-            </Text>
+    <View style={styles.mainCard}>
+      <LinearGradient
+        colors={["transparent", "rgba(139,92,246,0.3)", "transparent"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.cardTopGlow}
+      />
+      <View style={styles.cardGlowWrap} pointerEvents="none">
+        <Svg width={240} height={140} style={styles.cardGlowSvg}>
+          <Defs>
+            <RadialGradient id="cardGlow" cx="50%" cy="0%" r="100%">
+              <Stop offset="0%" stopColor="rgba(80,20,160,0.18)" stopOpacity={1} />
+              <Stop offset="45%" stopColor="rgba(80,20,160,0.06)" stopOpacity={1} />
+              <Stop offset="100%" stopColor="rgba(80,20,160,0)" stopOpacity={0} />
+            </RadialGradient>
+          </Defs>
+          <Circle cx={120} cy={-10} r={130} fill="url(#cardGlow)" />
+        </Svg>
+      </View>
+
+      {/* Block 1: Power Score */}
+      <View style={styles.block}>
+        <View style={styles.powerScoreRow}>
+          <Text style={styles.blockLabel}>POWER SCORE</Text>
+          <Text style={[styles.powerChange, { color: powerChangeColor }]}>{powerChangeLabel}</Text>
+        </View>
+        <Text style={styles.powerScoreValue}>{data.power_score.toLocaleString()}</Text>
+      </View>
+      <BlockDivider />
+
+      {/* Block 2: Streak + bar chart */}
+      <View style={styles.block}>
+        <View style={styles.streakRow}>
+          <Text style={styles.streakTitle}>🔥 {data.streak_current} day streak</Text>
+        </View>
+        <Text style={styles.streakSub}>Longest this month: {data.streak_longest_month} days</Text>
+        <ReportBarChart daily_xp={data.daily_xp} />
+      </View>
+      <BlockDivider />
+
+      {/* Block 3: Pet companion */}
+      <View style={styles.block}>
+        <View style={styles.petRow}>
+          <View style={styles.petCircle}>
+            <PetAnimation
+              stage={Math.min(8, Math.max(1, data.pet_stage))}
+              isHappy={!data.pet_was_sad}
+              size={48}
+            />
+          </View>
+          <View style={styles.petTextCol}>
+            <Text style={styles.petName}>{data.pet_name} · Stage {data.pet_stage}</Text>
+            <Text style={[styles.petSubtext, petSubtextStyle]}>{petSubtext}</Text>
           </View>
         </View>
-        <Text style={reportCardStyles.powerScoreValue}>{powerScore.toLocaleString()}</Text>
-        <View style={reportCardStyles.divider} />
       </View>
+      <BlockDivider />
 
-      <View style={reportCardStyles.block}>
-        <View style={reportCardStyles.streakRow}>
-          <Text style={reportCardStyles.streakTitle}>🔥{streak} day streak</Text>
+      {/* Block 4: Gap movement */}
+      <View style={styles.block}>
+        <Text style={styles.blockLabel}>GAP MOVEMENT</Text>
+        <Text style={styles.gapValue}>Gap: {data.gap_days} days</Text>
+        <Text style={[styles.gapChange, { color: gapLabelColor }]}>{gapLabel}</Text>
+      </View>
+      <BlockDivider />
+
+      {/* Block 5: Oracle narrative */}
+      <View style={styles.block}>
+        <Text style={styles.blockLabel}>THIS WEEK</Text>
+        <Text style={styles.narrative}>{data.narrative}</Text>
+      </View>
+      <BlockDivider />
+
+      {/* Block 6: One Win */}
+      <View style={styles.winBlock}>
+        <Text style={styles.winBlockLabel}>ONE WIN THIS WEEK</Text>
+        <Text style={styles.winBlockText}>{data.one_win}</Text>
+      </View>
+      <BlockDivider />
+
+      {/* Block 7: One Focus */}
+      <View style={styles.focusBlock}>
+        <Text style={styles.focusBlockLabel}>ONE FOCUS FOR NEXT WEEK</Text>
+        <Text style={styles.focusBlockText}>{data.one_focus}</Text>
+      </View>
+      <BlockDivider />
+
+      {/* Block 8: Twin message */}
+      <View style={styles.twinBlock}>
+        <View style={styles.twinAvatar}>
+          <Text style={styles.twinAvatarText}>T</Text>
         </View>
-        <Text style={reportCardStyles.streakSub}>Longest this month: {longestThisMonth} days</Text>
-        <DayOfWeekChart data={dayOfWeekCompletion} />
+        <Text style={styles.twinMessage}>{data.twin_message}</Text>
+      </View>
+      <BlockDivider />
+
+      {/* Next week note */}
+      <View style={styles.block}>
+        <Text style={styles.blockLabel}>NEXT WEEK</Text>
+        <Text style={styles.narrative}>{data.next_week_note}</Text>
       </View>
 
-      <View style={reportCardStyles.block}>
-        <View style={reportCardStyles.petRow}>
-          <PetAnimation stage={petStage} isHappy={petHappy} size={48} />
-          <View style={reportCardStyles.petTextCol}>
-            <Text style={reportCardStyles.petStageName}>{petStageName}</Text>
-            <Text style={reportCardStyles.petSubtext}>{petSubtext}</Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={reportCardStyles.block}>
-        <Text style={reportCardStyles.blockLabel}>GAP MOVEMENT</Text>
-        <Text style={reportCardStyles.gapValue}>Gap: {gapDays} days</Text>
-        <Text
-          style={[
-            reportCardStyles.gapChange,
-            gapClosed ? reportCardStyles.gapClosed : reportCardStyles.gapGrew,
-          ]}
-        >
-          {gapClosed ? "↓ closed by 1 day" : "↑ grew by 2 days"}
-        </Text>
-      </View>
-
-      <View style={reportCardStyles.block}>
-        <Text style={reportCardStyles.blockLabel}>THIS WEEK</Text>
-        <Text style={reportCardStyles.narrative}>{narrative}</Text>
-      </View>
-
-      <View style={[reportCardStyles.highlightBlock, reportCardStyles.winBlock]}>
-        <Text style={reportCardStyles.winLabel}>ONE WIN THIS WEEK</Text>
-        <Text style={reportCardStyles.winText}>{winText}</Text>
-      </View>
-
-      <View style={[reportCardStyles.highlightBlock, reportCardStyles.focusBlock]}>
-        <Text style={reportCardStyles.focusLabel}>ONE FOCUS FOR NEXT WEEK</Text>
-        <Text style={reportCardStyles.focusText}>{focusText}</Text>
-      </View>
-
-      <View style={reportCardStyles.block}>
-        <View style={reportCardStyles.twinMessageRow}>
-          <View style={reportCardStyles.twinThumb} />
-          <Text style={reportCardStyles.twinMessage}>{twinMessage}</Text>
-        </View>
-      </View>
-
-      {nextWeek ? (
-        <View style={reportCardStyles.block}>
-          <Text style={reportCardStyles.blockLabel}>NEXT WEEK</Text>
-          <Text style={reportCardStyles.narrative}>{nextWeek}</Text>
-        </View>
-      ) : null}
-
-      {showReturnButton && onReturn && (
-        <SecondaryButton label="Return" onPress={onReturn} width={200} style={reportCardStyles.returnBtn} />
-      )}
+      {/* Return button */}
+      <Pressable onPress={onReturn} style={({ pressed }) => [styles.returnBtn, pressed && styles.returnBtnPressed]}>
+        <Text style={styles.returnBtnLabel}>Return</Text>
+      </Pressable>
     </View>
   );
 }
 
-const reportCardStyles = StyleSheet.create({
-  card: {
-    backgroundColor: COLORS.glass,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: CARD_RADIUS,
-    padding: CARD_PADDING,
-    marginBottom: SPACING.lg,
-  },
-  block: { marginBottom: BLOCK_GAP },
-  blockLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 11,
-    color: COLORS.muted,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  powerScoreRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  deltaRow: { flexDirection: "row", alignItems: "center" },
-  deltaPositive: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: COLORS.violet },
-  powerScoreValue: { fontFamily: "Inter_700Bold", fontSize: 32, color: COLORS.text },
-  divider: { height: 1, backgroundColor: COLORS.surface2, marginTop: 8 },
-  streakRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  streakTitle: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.text },
-  streakSub: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.muted, marginTop: 4 },
-  petRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  petTextCol: { flex: 1 },
-  petStageName: { fontFamily: "Inter_600SemiBold", fontSize: 16, color: COLORS.text },
-  petSubtext: { fontFamily: "Inter_400Regular", fontSize: 13, color: COLORS.muted, marginTop: 2 },
-  gapValue: { fontFamily: "Inter_700Bold", fontSize: 18, color: COLORS.violetLine, marginTop: 4 },
-  gapChange: { fontFamily: "Inter_400Regular", fontSize: 13, marginTop: 2 },
-  gapClosed: { color: COLORS.violet },
-  gapGrew: { color: COLORS.danger },
-  narrative: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: COLORS.text,
-    lineHeight: 26,
-    marginTop: 8,
-  },
-  highlightBlock: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: BLOCK_GAP,
-    borderLeftWidth: 3,
-  },
-  winBlock: { backgroundColor: "rgba(139, 92, 246, 0.06)", borderLeftColor: COLORS.violet },
-  focusBlock: { backgroundColor: "rgba(109, 40, 217, 0.06)", borderLeftColor: COLORS.violetDeep },
-  winLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 11,
-    color: COLORS.violet,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  winText: { fontFamily: "Inter_600SemiBold", fontSize: 15, color: COLORS.text },
-  focusLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 11,
-    color: COLORS.violetDeep,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  focusText: { fontFamily: "Inter_400Regular", fontSize: 15, color: COLORS.text2 },
-  twinMessageRow: { flexDirection: "row", alignItems: "flex-start" },
-  twinThumb: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: COLORS.surface2,
-    marginRight: 12,
-  },
-  twinMessage: { fontFamily: "Inter_400Regular", fontSize: 15, color: COLORS.text, fontStyle: "italic" },
-  returnBtn: { marginTop: 8 },
-});
+// -----------------------------------------------------------------------------
+// EMPTY STATE CARD
+// -----------------------------------------------------------------------------
 
-/** Map API weekly report row to ReportData for ReportCard. */
-function mapReportToData(row: WeeklyReportRow): ReportData {
-  const d = row.this_week_data ?? {};
-  const missionsCompleted = d.missions_completed ?? 0;
-  const missionsTotal = d.missions_total ?? 0;
-  const coreComplete = d.core_days_complete ?? 0;
-  const coreTotal = d.core_days_total ?? 0;
-  const xp = d.xp_earned ?? 0;
-  const pf = d.pet_food_earned ?? 0;
-  const streak = d.current_streak ?? 0;
-  const streakStatus = d.streak_status ?? "";
-  const stageName = d.character_stage_name ?? "—";
-  const stageChange = d.stage_change_this_week ?? "";
-  const petName = d.pet_name ?? "—";
-  const petStage = d.pet_stage ?? 0;
-  const petChange = d.pet_change_this_week ?? "";
-  const narrativeParts: string[] = [];
-  if (missionsTotal > 0) {
-    narrativeParts.push(`You completed ${missionsCompleted} of ${missionsTotal} missions this week.`);
-  }
-  narrativeParts.push(`Core: ${coreComplete} of ${coreTotal} days complete.`);
-  narrativeParts.push(`${xp} XP earned this week. ${pf} Pet Food earned.`);
-  if (streakStatus === "BROKEN_AND_RESET") {
-    narrativeParts.push(`Streak reset this week. Current: ${streak} days.`);
-  } else {
-    narrativeParts.push(`Current streak: ${streak} days.`);
-  }
-  narrativeParts.push(stageChange && stageChange !== "NO" ? `Stage upgraded this week: ${stageName}.` : `Stage: ${stageName} (Stage ${d.character_stage ?? 1}).`);
-  narrativeParts.push(petChange && petChange !== "NO" ? `Pet evolved this week: ${petName}.` : `Pet: ${petName} (Stage ${petStage}).`);
-  const wins = row.wins ?? [];
-  const slipped = row.slipped ?? [];
-  const focusContent = row.keep_watching ?? slipped[0] ?? "";
-  const twinParagraph = row.twin_paragraph ?? "";
-  const twinClosing = row.twin_closing ?? "";
-  return {
-    powerDelta: 0,
-    powerScore: 0,
-    streak,
-    longestThisMonth: streak,
-    dayOfWeekCompletion: d.day_of_week_completion ?? [0, 0, 0, 0, 0, 0, 0],
-    petStage,
-    petHappy: true,
-    petStageName: petName,
-    petSubtext: petChange && petChange !== "NO" ? petChange : "",
-    gapDays: 0,
-    gapClosed: false,
-    narrative: narrativeParts.join(" "),
-    winText: wins.length > 0 ? wins.join(" ") : "—",
-    focusText: focusContent,
-    twinMessage: [twinParagraph, twinClosing].filter(Boolean).join("\n") || "—",
-    nextWeek: row.next_week ?? undefined,
-  };
+function EmptyStateCard() {
+  const days = getDaysUntilSunday();
+  return (
+    <View style={styles.emptyCard}>
+      <Ionicons name="calendar-outline" size={48} color="#1E2333" />
+      <Text style={styles.emptyTitle}>Your report arrives Sunday.</Text>
+      <Text style={styles.emptySub}>{days} days remaining</Text>
+    </View>
+  );
 }
 
-function formatWeekLabel(weekStart: string): string {
-  try {
-    const start = new Date(weekStart + "T00:00:00");
-    const end = new Date(start);
-    end.setDate(end.getDate() + 6);
-    return `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${start.getFullYear()}`;
-  } catch {
-    return weekStart;
-  }
-}
+// -----------------------------------------------------------------------------
+// SCREEN
+// -----------------------------------------------------------------------------
 
 export function WeeklyReportScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const now = new Date();
-  const isSunday = now.getDay() === 0;
-  const { days: daysUntilSunday, label: nextSundayLabel } = getNextSundayLabel();
+  const scrollRef = useRef<ScrollView>(null);
+  const pastReportsRef = useRef<View>(null);
 
-  const [report, setReport] = useState<WeeklyReportRow | null>(null);
-  const [lastWeek, setLastWeek] = useState<WeeklyReportRow | null>(null);
+  const [data, setData] = useState<WeeklyReportData | null>(null);
+  const [pastSummaries, setPastSummaries] = useState<PastReportSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedReport, setSelectedReport] = useState<SavedReport | null>(null);
+  const [pastSectionY, setPastSectionY] = useState(0);
+
+  const isSun = isSunday();
+  const daysUntilSun = getDaysUntilSunday();
+  const weekRange = data ? formatWeekRange(data.week_start, data.week_end) : "—";
 
   const fetchReport = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session?.access_token) {
-        setReport(null);
-        setLastWeek(null);
+        setData(null);
+        setPastSummaries([]);
         return;
       }
       const res = await getWeeklyReport(session.access_token);
-      setReport(res.report ?? null);
-      setLastWeek(res.last_week ?? null);
+      if (res.report) {
+        const past: PastReportSummary[] = (res.last_week
+          ? [
+              {
+                report_id: res.last_week.id,
+                week_start: res.last_week.week_start,
+                week_end: new Date(new Date(res.last_week.week_start).getTime() + 6 * 86400000).toISOString().slice(0, 10),
+                power_score: 0,
+                streak: res.last_week.this_week_data?.current_streak ?? 0,
+              },
+            ]
+          : []
+        ) as PastReportSummary[];
+        setData(mapRowToData(res.report, past));
+        setPastSummaries(past);
+      } else {
+        setData(null);
+        setPastSummaries([]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load report");
-      setReport(null);
-      setLastWeek(null);
+      setData(PLACEHOLDER_REPORT);
+      setPastSummaries(PLACEHOLDER_REPORT.past_reports);
     } finally {
       setLoading(false);
     }
@@ -496,324 +521,474 @@ export function WeeklyReportScreen() {
     }, [fetchReport])
   );
 
-  const handleReturnToList = () => {
-    (navigation as any).navigate("Home");
+  const scrollToPastReports = () => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, pastSectionY - 60), animated: true });
   };
 
-  const handleBackFromDetail = () => {
-    setSelectedReport(null);
+  const handleReturn = () => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
 
-  const reports: SavedReport[] = [];
-  if (report) {
-    reports.push({
-      id: report.id,
-      weekKey: report.week_start,
-      weekLabel: formatWeekLabel(report.week_start),
-      data: mapReportToData(report),
-    });
-  }
-  if (lastWeek) {
-    reports.push({
-      id: lastWeek.id,
-      weekKey: lastWeek.week_start,
-      weekLabel: formatWeekLabel(lastWeek.week_start),
-      data: mapReportToData(lastWeek),
-    });
-  }
-  const hasReport = report != null;
-  const pastReports = reports.slice(1);
+  const handlePastReportPress = (summary: PastReportSummary) => {
+    (navigation.getParent() as any)?.navigate("PastReportDetail", { report_id: summary.report_id });
+  };
 
-  if (selectedReport) {
+  const hasReport = data != null;
+  const showBanner = !(isSun && hasReport); // hide only when Sunday and report is available
+
+  if (loading && !data) {
     return (
-      <LinearGradient
-        colors={GRADIENTS.background.colors}
-        start={GRADIENTS.background.start}
-        end={GRADIENTS.background.end}
-        style={styles.container}
-      >
-        <View
-          style={[
-            styles.header,
-            styles.headerWithBack,
-            { paddingTop: insets.top, height: insets.top + HEADER_HEIGHT },
-          ]}
-        >
-          <View style={styles.headerGlass} />
-          <Pressable
-            onPress={handleBackFromDetail}
-            style={styles.backButton}
-            hitSlop={12}
-          >
-            <Ionicons name="arrow-back" size={24} color={COLORS.text} />
-          </Pressable>
-          <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>Weekly Report</Text>
-            <Text style={styles.headerSubtitle}>{selectedReport.weekLabel}</Text>
-          </View>
+      <View style={styles.container}>
+        <LinearGradient colors={["#09091A", "#07080F"]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFill} />
+        <View style={[styles.header, { paddingTop: insets.top + 10, paddingBottom: 14 }]}>
+          <Text style={styles.headerTitle}>Weekly Report</Text>
+          <Text style={styles.headerSubtitle}>Loading…</Text>
         </View>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: CONTENT_PADDING_BOTTOM + insets.bottom },
-          ]}
-          showsVerticalScrollIndicator={false}
-        >
-          <ReportCard
-            data={selectedReport.data}
-            showReturnButton
-            onReturn={handleBackFromDetail}
-          />
-        </ScrollView>
-      </LinearGradient>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color="#8B5CF6" />
+        </View>
+      </View>
     );
   }
 
   return (
-    <LinearGradient
-      colors={GRADIENTS.background.colors}
-      start={GRADIENTS.background.start}
-      end={GRADIENTS.background.end}
-      style={styles.container}
-    >
-      <View
-        style={[
-          styles.header,
-          { paddingTop: insets.top, height: insets.top + HEADER_HEIGHT },
-        ]}
-      >
-        <View style={styles.headerGlass} />
+    <View style={styles.container}>
+      <LinearGradient
+        colors={["#09091A", "#07080F"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <View style={[styles.header, { paddingTop: insets.top + 10, paddingBottom: 14 }]}>
         <Text style={styles.headerTitle}>Weekly Report</Text>
-        <Text style={styles.headerSubtitle}>
-          {isSunday ? "Your latest report is below" : "View past reports"}
-        </Text>
+        <View style={styles.headerSubtitleRow}>
+          <Text style={styles.headerSubtitle}>{weekRange}</Text>
+          <Text style={styles.headerSubtitle}> · </Text>
+          <Pressable onPress={scrollToPastReports} hitSlop={8}>
+            <Text style={styles.headerLink}>View past reports</Text>
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
+        ref={scrollRef}
         style={styles.scroll}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: CONTENT_PADDING_BOTTOM + insets.bottom },
-        ]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
-        {loading && (
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator size="large" color={COLORS.violet} />
-            <Text style={styles.loadingText}>Loading report…</Text>
-          </View>
-        )}
-
-        {!loading && error && (
-          <View style={styles.errorWrap}>
+        {error && (
+          <View style={styles.errorBanner}>
             <Text style={styles.errorText}>{error}</Text>
-            <SecondaryButton label="Retry" onPress={fetchReport} width={160} />
+            <Pressable onPress={fetchReport} style={styles.retryBtn}>
+              <Text style={styles.retryLabel}>Retry</Text>
+            </Pressable>
           </View>
         )}
 
-        {!loading && !error && !hasReport && (
-          <View style={styles.emptyCard}>
-            <Ionicons name="document-text-outline" size={40} color={COLORS.muted} />
-            <Text style={styles.emptyTitle}>Weekly Report</Text>
-            <Text style={styles.emptySub}>
-              After your first week, we’ll generate a report every Monday (Mon–Sun). Here you'll see wins, slip-ups, and your Twin's take. Your first report appears after your first full week.
-            </Text>
+        {showBanner && (
+          <View style={styles.nextReportBanner}>
+            <View style={styles.nextReportIconBox}>
+              <IconCalendar />
+            </View>
+            <View style={styles.nextReportTextCol}>
+              <Text style={styles.nextReportTitle}>Next report</Text>
+              <Text style={styles.nextReportSub}>
+                Arrives Sunday evening
+                {daysUntilSun > 0 && ` · In ${daysUntilSun} days`}
+              </Text>
+            </View>
           </View>
         )}
 
-        {!loading && !error && hasReport && (
-          <>
-            {!isSunday && (
-              <View style={styles.nextReportBanner}>
-                <Ionicons name="calendar-outline" size={20} color={COLORS.violet} />
-                <View style={styles.nextReportTextWrap}>
-                  <Text style={styles.nextReportTitle}>Next report</Text>
-                  <Text style={styles.nextReportSub}>
-                    {daysUntilSunday === 0
-                      ? "Today"
-                      : daysUntilSunday === 1
-                        ? "Tomorrow"
-                        : `In ${daysUntilSunday} days`}
-                    {daysUntilSunday <= 1 ? "" : ` — ${nextSundayLabel}`}
+        <Text style={styles.sectionLabel}>THIS WEEK</Text>
+
+        {!hasReport && (
+          <EmptyStateCard />
+        )}
+
+        {hasReport && data && (
+          <ReportCard data={data} onReturn={handleReturn} />
+        )}
+
+        <View
+          ref={pastReportsRef}
+          style={styles.pastSection}
+          onLayout={(e) => setPastSectionY(e.nativeEvent.layout.y)}
+        >
+          <Text style={styles.sectionLabel}>PAST REPORTS</Text>
+          {pastSummaries.length === 0 ? (
+            <Text style={styles.noPastText}>No past reports yet.</Text>
+          ) : (
+            pastSummaries.map((p) => (
+              <Pressable
+                key={p.report_id}
+                style={({ pressed }) => [styles.pastRow, pressed && styles.pastRowPressed]}
+                onPress={() => handlePastReportPress(p)}
+              >
+                <View>
+                  <Text style={styles.pastRowTitle}>
+                    {formatWeekRange(p.week_start, p.week_end)}
+                  </Text>
+                  <Text style={styles.pastRowSub}>
+                    {p.power_score} PS · {p.streak} day streak
                   </Text>
                 </View>
-              </View>
-            )}
-
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>THIS WEEK</Text>
-              <ReportCard data={reports[0].data} />
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>PAST REPORTS</Text>
-              {pastReports.length === 0 ? (
-                <Text style={styles.noPastText}>No past reports yet.</Text>
-              ) : (
-                pastReports.map((r) => (
-                  <Pressable
-                    key={r.id}
-                    style={({ pressed }) => [styles.pastReportRow, pressed && styles.pastReportRowPressed]}
-                    onPress={() => setSelectedReport(r)}
-                  >
-                    <Text style={styles.pastReportWeek}>{r.weekLabel}</Text>
-                    <Ionicons name="chevron-forward" size={20} color={COLORS.muted} />
-                  </Pressable>
-                ))
-              )}
-            </View>
-          </>
-        )}
+                <Ionicons name="chevron-forward" size={14} color="#2D3146" />
+              </Pressable>
+            ))
+          )}
+        </View>
       </ScrollView>
-    </LinearGradient>
+    </View>
   );
 }
+
+// -----------------------------------------------------------------------------
+// STYLES
+// -----------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    position: "relative",
-    justifyContent: "flex-end",
     alignItems: "center",
-    paddingBottom: 8,
-    paddingHorizontal: SPACING.screenPadding,
+    backgroundColor: "rgba(9,9,26,0.85)",
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  headerWithBack: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-  },
-  headerGlass: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: COLORS.glass,
-  },
-  backButton: {
-    marginRight: 8,
-    paddingBottom: 4,
-  },
-  headerCenter: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "flex-end",
-    paddingBottom: 4,
+    borderBottomColor: "rgba(42,48,80,0.35)",
+    paddingHorizontal: 16,
   },
   headerTitle: {
+    fontSize: 20,
     fontFamily: "Inter_700Bold",
-    fontSize: 22,
-    color: COLORS.text,
+    color: "#E5E7EB",
+    letterSpacing: -0.3,
+  },
+  headerSubtitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 3,
   },
   headerSubtitle: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: COLORS.muted,
-    marginTop: 2,
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  headerLink: {
+    fontSize: 12,
+    color: "#8B5CF6",
   },
   scroll: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: SPACING.screenPadding,
-    paddingTop: SPACING.screenPadding,
+    paddingHorizontal: 16,
+    paddingTop: 14,
   },
   nextReportBanner: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(139, 92, 246, 0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(139, 92, 246, 0.2)",
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: SPACING.lg,
     gap: 12,
+    backgroundColor: "rgba(139,92,246,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.15)",
+    borderRadius: 14,
+    padding: 12,
+    paddingHorizontal: 16,
+    marginBottom: 16,
   },
-  nextReportTextWrap: { flex: 1 },
+  nextReportIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "rgba(139,92,246,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.20)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nextReportTextCol: { flex: 1 },
   nextReportTitle: {
+    fontSize: 13,
     fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: COLORS.text,
+    color: "#E5E7EB",
   },
   nextReportSub: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 13,
-    color: COLORS.muted,
-    marginTop: 2,
-  },
-  section: { marginBottom: SPACING.lg },
-  sectionLabel: {
-    fontFamily: "Inter_600SemiBold",
     fontSize: 11,
-    color: COLORS.muted,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 12,
+    color: "#6B7280",
+    marginTop: 1,
   },
-  pastReportRow: {
+  sectionLabel: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2,
+    color: "#374151",
+    textTransform: "uppercase",
+    paddingHorizontal: 2,
+    marginBottom: 8,
+  },
+  mainCard: {
+    backgroundColor: "rgba(14,13,28,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.5)",
+    borderRadius: 20,
+    padding: 20,
+    position: "relative",
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  cardTopGlow: {
+    position: "absolute",
+    top: 0,
+    left: "15%",
+    right: "15%",
+    height: 1,
+  },
+  cardGlowWrap: {
+    position: "absolute",
+    top: -50,
+    left: "50%",
+    marginLeft: -120,
+    width: 240,
+    height: 140,
+    overflow: "hidden",
+  },
+  cardGlowSvg: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+  },
+  blockDivider: {
+    height: 1,
+    marginVertical: 16,
+  },
+  block: { marginBottom: 0 },
+  blockLabel: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.5,
+    color: "#4B5563",
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  powerScoreRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: COLORS.surface,
+  },
+  powerChange: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+  },
+  powerScoreValue: {
+    fontSize: 36,
+    fontFamily: "Inter_700Bold",
+    color: "#E5E7EB",
+    letterSpacing: -1,
+    marginTop: 4,
+  },
+  streakRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  streakTitle: {
+    fontSize: 20,
+    fontFamily: "Inter_700Bold",
+    color: "#E5E7EB",
+  },
+  streakSub: {
+    fontSize: 11,
+    color: "#6B7280",
+    marginTop: 2,
+    marginBottom: 12,
+  },
+  petRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  petCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: "rgba(139,92,246,0.38)",
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "rgba(109,40,217,0.22)", shadowRadius: 16, shadowOffset: { width: 0, height: 0 } }
+      : { elevation: 8 }),
+  },
+  petTextCol: { flex: 1 },
+  petName: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: "#E5E7EB",
+    marginBottom: 3,
+  },
+  petSubtext: { fontSize: 12 },
+  gapValue: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+    color: "#C084FC",
+    marginBottom: 3,
+  },
+  gapChange: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  narrative: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    lineHeight: 20.8,
+  },
+  winBlock: {
+    backgroundColor: "rgba(139,92,246,0.06)",
     borderWidth: 1,
-    borderColor: COLORS.surface2,
+    borderColor: "rgba(139,92,246,0.14)",
+    borderLeftWidth: 3,
+    borderLeftColor: "#8B5CF6",
     borderRadius: 12,
-    paddingVertical: 16,
+    padding: 12,
+    paddingHorizontal: 14,
+  },
+  winBlockLabel: {
+    fontSize: 8,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.5,
+    color: "#8B5CF6",
+    textTransform: "uppercase",
+    marginBottom: 5,
+  },
+  winBlockText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#E5E7EB",
+    lineHeight: 19.5,
+  },
+  focusBlock: {
+    backgroundColor: "rgba(109,40,217,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(109,40,217,0.12)",
+    borderLeftWidth: 3,
+    borderLeftColor: "#6D28D9",
+    borderRadius: 12,
+    padding: 12,
+    paddingHorizontal: 14,
+  },
+  focusBlockLabel: {
+    fontSize: 8,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.5,
+    color: "#6D28D9",
+    textTransform: "uppercase",
+    marginBottom: 5,
+  },
+  focusBlockText: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "#9CA3AF",
+    lineHeight: 19.5,
+  },
+  twinBlock: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "rgba(192,132,252,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(192,132,252,0.12)",
+    borderRadius: 12,
+    padding: 12,
+    paddingHorizontal: 14,
+  },
+  twinAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(20,15,50,0.9)",
+    borderWidth: 1,
+    borderColor: "rgba(192,132,252,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  twinAvatarText: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    color: "rgba(192,132,252,0.7)",
+  },
+  twinMessage: {
+    flex: 1,
+    fontSize: 13,
+    color: "#C4B5FD",
+    fontStyle: "italic",
+    lineHeight: 19.5,
+  },
+  returnBtn: {
+    height: 48,
+    borderRadius: 14,
+    marginTop: 16,
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  returnBtnPressed: { opacity: 0.9 },
+  returnBtnLabel: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#6B7280",
+  },
+  pastSection: { marginBottom: 24 },
+  pastRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#111623",
+    borderWidth: 1,
+    borderColor: "#1A1F30",
+    borderRadius: 14,
+    padding: 14,
     paddingHorizontal: 16,
     marginBottom: 8,
   },
-  pastReportRowPressed: {
-    backgroundColor: COLORS.surface2,
-  },
-  pastReportWeek: {
+  pastRowPressed: { opacity: 0.9 },
+  pastRowTitle: {
+    fontSize: 13,
     fontFamily: "Inter_600SemiBold",
-    fontSize: 15,
-    color: COLORS.text,
+    color: "#E5E7EB",
   },
-  loadingWrap: {
-    paddingVertical: SPACING.xxl,
-    alignItems: "center",
-    gap: SPACING.md,
-  },
-  loadingText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.muted,
-  },
-  errorWrap: {
-    paddingVertical: SPACING.xl,
-    alignItems: "center",
-    gap: SPACING.md,
-  },
-  errorText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.text2,
-    textAlign: "center",
-  },
-  emptyCard: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: CARD_RADIUS,
-    padding: CARD_PADDING,
-    alignItems: "center",
-    gap: SPACING.md,
-  },
-  emptyTitle: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 18,
-    color: COLORS.text,
-    textAlign: "center",
-  },
-  emptySub: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.muted,
-    textAlign: "center",
+  pastRowSub: {
+    fontSize: 11,
+    color: "#4B5563",
+    marginTop: 2,
   },
   noPastText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.muted,
+    fontSize: 13,
+    color: "#6B7280",
     marginBottom: 8,
   },
+  emptyCard: {
+    backgroundColor: "rgba(14,13,28,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.5)",
+    borderRadius: 20,
+    padding: 40,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_600SemiBold",
+    color: "#E5E7EB",
+    marginBottom: 8,
+  },
+  emptySub: { fontSize: 13, color: "#6B7280" },
+  loadingWrap: { flex: 1, justifyContent: "center", alignItems: "center" },
+  errorBanner: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: "rgba(127,29,29,0.15)",
+    borderRadius: 12,
+  },
+  errorText: { fontSize: 13, color: "#F87171" },
+  retryBtn: { marginTop: 8 },
+  retryLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#8B5CF6" },
 });

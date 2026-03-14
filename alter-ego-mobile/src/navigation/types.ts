@@ -31,13 +31,16 @@ export type MainStackParamList = {
   MainTabs: undefined;
   Settings: undefined;
   SettingsProfile: undefined;
+  AccountSettings: undefined;
+  ContactUs: undefined;
+  ToneHistory: undefined;
   TwinChat: undefined;
   RankCard: undefined;
-  Paywall: undefined;
+  PastReportDetail: { report_id: string };
+  Paywall: { dismissable?: boolean } | undefined;
+  SubscriptionManagement: undefined;
   JournalList: undefined;
-  JournalEditor:
-    | { date: string }
-    | { date?: string };
+  JournalEditor: { entry_id: string | null; read_only: boolean };
   JournalCalendar: undefined;
 };
 

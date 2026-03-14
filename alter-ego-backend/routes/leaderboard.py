@@ -21,9 +21,19 @@ def _username_from_email(email: Optional[str]) -> str:
 async def get_leaderboard(user_id: Optional[str] = Depends(get_optional_user_id)):
     """
     Returns top 100 by power_score (desc), plus the requesting user's row if not in top 100.
+    Response: entries, my_rank, my_entry, total_users (count of users on leaderboard for "X competing").
     Each entry: rank, user_id, username, power_score, streak, pet_stage, character_stage, is_own.
     """
     supabase = get_supabase()
+
+    # Total count of users on leaderboard (for "X competing" subtitle)
+    count_r = (
+        supabase.table("leaderboard_scores")
+        .select("user_id", count="exact")
+        .limit(0)
+        .execute()
+    )
+    total_users = int(getattr(count_r, "count", 0) or 0)
 
     # Top 100: leaderboard_scores joined with users for email
     scores = (
@@ -116,6 +126,7 @@ async def get_leaderboard(user_id: Optional[str] = Depends(get_optional_user_id)
         "entries": entries,
         "my_rank": my_rank,
         "my_entry": my_entry,
+        "total_users": total_users,
     }
 
 

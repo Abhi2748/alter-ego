@@ -3,9 +3,13 @@ import { createStackNavigator } from "@react-navigation/stack";
 import type { MainStackParamList } from "./types";
 import { MainTabNavigator } from "./MainTabNavigator";
 import { SettingsScreen } from "../screens/SettingsScreen";
-import { SettingsProfileScreen } from "../screens/SettingsProfileScreen";
+import { ProfileEditScreen } from "../screens/ProfileEditScreen";
+import { AccountScreen } from "../screens/AccountScreen";
+import { ContactUsScreen } from "../screens/ContactUsScreen";
+import { ToneHistoryScreen } from "../screens/ToneHistoryScreen";
 import { TwinChatScreen } from "../screens/TwinChatScreen";
 import { RankCardScreen } from "../screens/RankCardScreen";
+import { PastReportDetailScreen } from "../screens/PastReportDetailScreen";
 import { PaywallScreen } from "../screens/PaywallScreen";
 import { JournalListScreen } from "../screens/JournalListScreen";
 import { JournalEditorScreen } from "../screens/JournalEditorScreen";
@@ -29,9 +33,13 @@ export function MainStack() {
         options={{ gestureEnabled: false }}
       />
       <Stack.Screen name="Settings" component={SettingsScreen} />
-      <Stack.Screen name="SettingsProfile" component={SettingsProfileScreen} />
+      <Stack.Screen name="SettingsProfile" component={ProfileEditScreen} />
+      <Stack.Screen name="AccountSettings" component={AccountScreen} />
+      <Stack.Screen name="ContactUs" component={ContactUsScreen} />
+      <Stack.Screen name="ToneHistory" component={ToneHistoryScreen} />
       <Stack.Screen name="TwinChat" component={TwinChatScreen} />
       <Stack.Screen name="RankCard" component={RankCardScreen} />
+      <Stack.Screen name="PastReportDetail" component={PastReportDetailScreen} />
       <Stack.Screen name="JournalList" component={JournalListScreen} />
       <Stack.Screen name="JournalEditor" component={JournalEditorScreen} />
       <Stack.Screen name="JournalCalendar" component={JournalCalendarScreen} />

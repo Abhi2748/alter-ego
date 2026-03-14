@@ -1,20 +1,27 @@
 /**
- * Journal Calendar — Month view with dots under dates that have entries.
- * Tap date to open editor for that day. iPhone Journal style.
+ * Journal Calendar — Monthly calendar showing days with entries. Spec §4.
+ * From List → ••• → Calendar. Tap day with entry → Editor (read_only); tap today (no entry) → Editor (new).
  */
 
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { COLORS, SPACING, RADIUS } from "../constants/theme";
-import { supabase } from "../utils/supabase";
-import { getJournalEntries } from "../utils/api";
+import { BlurView } from "expo-blur";
+import { Platform } from "react-native";
+import { getJournalEntries } from "../utils/journalStore";
+
+const BG_GRADIENT = ["#09091A", "#07080F"] as const;
+const TEXT_PRIMARY = "#E5E7EB";
+const MUTED = "#6B7280";
+const DIM = "#374151";
+const VIOLET = "#8B5CF6";
+const VIOLET_GLOW = "#A78BFA";
+const CARD_BG = "rgba(14,13,28,0.85)";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DOT_SIZE = 4;
 
 function dateToKey(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -36,33 +43,25 @@ export function JournalCalendarScreen() {
   const navigation = useNavigation();
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
-  const [datesWithEntries, setDatesWithEntries] = useState<Set<string>>(new Set());
+  const [entriesByDate, setEntriesByDate] = useState<Map<string, { id: string }>>(new Map());
+
+  useFocusEffect(
+    useCallback(() => {
+      const entries = getJournalEntries();
+      const map = new Map<string, { id: string }>();
+      entries.forEach((e) => map.set(e.date, { id: e.id }));
+      setEntriesByDate(map);
+    }, [])
+  );
 
   const monthLabel = useMemo(() => {
     const d = new Date(year, month, 1);
     return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
   }, [year, month]);
 
-  const loadMonthEntries = useCallback(async () => {
-    const start = dateToKey(new Date(year, month, 1));
-    const end = dateToKey(new Date(year, month + 1, 0));
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-      const res = await getJournalEntries(session.access_token, start, end, 31);
-      const set = new Set<string>((res.entries || []).map((e) => e.date));
-      setDatesWithEntries(set);
-    } catch (_) {
-      setDatesWithEntries(new Set());
-    }
-  }, [year, month]);
-
-  React.useEffect(() => {
-    loadMonthEntries();
-  }, [loadMonthEntries]);
-
   const days = useMemo(() => getDaysInMonth(year, month), [year, month]);
   const todayKey = dateToKey(new Date());
+  const isCurrentMonth = year === new Date().getFullYear() && month === new Date().getMonth();
 
   const prevMonth = () => {
     if (month === 0) {
@@ -78,69 +77,92 @@ export function JournalCalendarScreen() {
     } else setMonth((m) => m + 1);
   };
 
-  const openEditor = (dateStr: string) => {
-    (navigation as any).navigate("JournalEditor", { date: dateStr });
+  const entriesThisMonth = useMemo(() => {
+    const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
+    let n = 0;
+    entriesByDate.forEach((_, date) => {
+      if (date.startsWith(prefix)) n++;
+    });
+    return n;
+  }, [year, month, entriesByDate]);
+
+  const handleDayPress = (dateStr: string) => {
+    const entry = entriesByDate.get(dateStr);
+    if (entry) {
+      (navigation as any).navigate("JournalEditor", { entry_id: entry.id, read_only: true });
+    } else if (dateStr === todayKey) {
+      (navigation as any).navigate("JournalEditor", { entry_id: null, read_only: false });
+    }
+    // past day, no entry: no action
   };
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={[COLORS.bg1, COLORS.bg0]}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-      />
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn} hitSlop={12}>
-          <Ionicons name="chevron-back" size={24} color={COLORS.text} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Calendar</Text>
-        <View style={styles.headerBtn} />
+      <LinearGradient colors={BG_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        {Platform.OS === "ios" ? <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} /> : null}
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color={MUTED} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Calendar</Text>
+          <View style={styles.headerBtn} />
+        </View>
       </View>
 
-      <View style={styles.monthRow}>
-        <Pressable onPress={prevMonth} style={styles.monthArrow}>
-          <Ionicons name="chevron-back" size={22} color={COLORS.text} />
-        </Pressable>
-        <Text style={styles.monthLabel}>{monthLabel}</Text>
-        <Pressable onPress={nextMonth} style={styles.monthArrow}>
-          <Ionicons name="chevron-forward" size={22} color={COLORS.text} />
-        </Pressable>
-      </View>
-
-      <View style={styles.weekdayRow}>
-        {DAY_NAMES.map((d) => (
-          <Text key={d} style={styles.weekdayLabel}>{d}</Text>
-        ))}
-      </View>
-
-      <View style={styles.grid}>
-        {days.map((dateStr, i) => (
-          <View key={i} style={styles.cell}>
-            {dateStr ? (
-              <Pressable
-                style={[
-                  styles.dayTouch,
-                  dateStr === todayKey && styles.dayTouchToday,
-                ]}
-                onPress={() => openEditor(dateStr)}
-              >
-                <Text
-                  style={[
-                    styles.dayNum,
-                    dateStr === todayKey && styles.dayNumToday,
-                  ]}
-                >
-                  {new Date(dateStr + "T12:00:00").getDate()}
-                </Text>
-                {datesWithEntries.has(dateStr) && (
-                  <View style={styles.dot} />
-                )}
-              </Pressable>
-            ) : null}
+      <View style={styles.card}>
+        <View style={styles.monthRow}>
+          <Text style={styles.monthLabel}>{monthLabel}</Text>
+          <View style={styles.navRow}>
+            <Pressable onPress={prevMonth} style={styles.navBtn}>
+              <Ionicons name="chevron-back" size={13} color={MUTED} />
+            </Pressable>
+            <Pressable onPress={nextMonth} style={styles.navBtn} disabled={isCurrentMonth}>
+              <Ionicons name="chevron-forward" size={13} color={MUTED} />
+            </Pressable>
           </View>
-        ))}
+        </View>
+        <View style={styles.weekdayRow}>
+          {DAY_NAMES.map((d) => (
+            <Text key={d} style={styles.weekdayLabel}>
+              {d.toUpperCase()}
+            </Text>
+          ))}
+        </View>
+        <View style={styles.grid}>
+          {days.map((dateStr, i) => (
+            <View key={i} style={styles.cell}>
+              {dateStr ? (
+                <Pressable
+                  style={[
+                    styles.dayCell,
+                    dateStr === todayKey && styles.dayCellToday,
+                  ]}
+                  onPress={() => handleDayPress(dateStr)}
+                >
+                  <Text
+                    style={[
+                      styles.dayNum,
+                      dateStr === todayKey && styles.dayNumToday,
+                      entriesByDate.has(dateStr) && dateStr !== todayKey && styles.dayNumHasEntry,
+                    ]}
+                  >
+                    {new Date(dateStr + "T12:00:00").getDate()}
+                  </Text>
+                  {entriesByDate.has(dateStr) && (
+                    <View style={[styles.dot, dateStr === todayKey && styles.dotToday]} />
+                  )}
+                </Pressable>
+              ) : null}
+            </View>
+          ))}
+        </View>
       </View>
+      <Text style={styles.footerNote}>
+        {entriesThisMonth === 0
+          ? `No entries in ${monthLabel} yet`
+          : `${entriesThisMonth} entries in ${monthLabel} · Tap a day to read`}
+      </Text>
     </View>
   );
 }
@@ -148,72 +170,102 @@ export function JournalCalendarScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
+    paddingBottom: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(42,48,80,0.35)",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: SPACING.screenPadding,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    gap: 12,
+    position: "relative",
+    overflow: "hidden",
   },
+  headerRow: { flexDirection: "row", alignItems: "center", flex: 1 },
   headerBtn: { minWidth: 44, height: 44, justifyContent: "center", alignItems: "center" },
-  headerTitle: { fontFamily: "Inter_600SemiBold", fontSize: 18, color: COLORS.text },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: TEXT_PRIMARY },
+  card: {
+    backgroundColor: CARD_BG,
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.40)",
+    borderRadius: 20,
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+  },
   monthRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: SPACING.screenPadding,
-    paddingVertical: SPACING.lg,
+    marginBottom: 14,
   },
-  monthArrow: { padding: SPACING.sm },
-  monthLabel: { fontFamily: "Inter_600SemiBold", fontSize: 18, color: COLORS.text },
+  monthLabel: { fontSize: 17, fontWeight: "700", color: TEXT_PRIMARY },
+  navRow: { flexDirection: "row", gap: 4 },
+  navBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.40)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   weekdayRow: {
     flexDirection: "row",
-    paddingHorizontal: SPACING.screenPadding,
-    marginBottom: SPACING.sm,
+    marginBottom: 6,
   },
   weekdayLabel: {
     flex: 1,
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: COLORS.muted,
+    fontSize: 9,
+    fontWeight: "600",
+    color: DIM,
     textAlign: "center",
+    letterSpacing: 0.3,
   },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    paddingHorizontal: SPACING.screenPadding,
-  },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 3 },
   cell: {
     width: "14.28%",
     aspectRatio: 1,
-    alignItems: "center",
     justifyContent: "center",
-  },
-  dayTouch: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     alignItems: "center",
-    justifyContent: "center",
   },
-  dayTouchToday: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.violet,
+  dayCell: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 9999,
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+  },
+  dayCellToday: {
+    backgroundColor: "rgba(139,92,246,0.15)",
+    borderWidth: 1.5,
+    borderColor: "rgba(139,92,246,0.45)",
+    shadowColor: "rgba(139,92,246,0.18)",
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
   },
   dayNum: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 15,
-    color: COLORS.text,
+    fontSize: 12,
+    color: DIM,
+    textAlign: "center",
   },
-  dayNumToday: { color: COLORS.violet },
+  dayNumToday: { color: VIOLET_GLOW, fontWeight: "700" },
+  dayNumHasEntry: { color: "#C4B5FD", fontWeight: "600" },
   dot: {
     position: "absolute",
     bottom: 2,
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
-    backgroundColor: COLORS.violet,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: VIOLET,
+  },
+  dotToday: { backgroundColor: "#C084FC" },
+  footerNote: {
+    textAlign: "center",
+    marginTop: 14,
+    fontSize: 11,
+    color: DIM,
   },
 });

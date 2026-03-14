@@ -259,11 +259,11 @@ export function OnboardingQuestionScreen() {
     };
   }, [answers, currentQuestionIndex]);
 
-  // Set default username when landing on Q1 (before paint so input isn't empty)
+  // Set default username only when first landing on Q1 (never overwrite if user cleared to type their own)
   useLayoutEffect(() => {
     if (currentQuestionIndex !== 1) return;
     const existing = getAnswer("username");
-    if (existing === undefined || existing === "") {
+    if (existing === undefined) {
       updateAnswer("username", defaultUsername);
     }
   }, [currentQuestionIndex, defaultUsername, getAnswer, updateAnswer]);

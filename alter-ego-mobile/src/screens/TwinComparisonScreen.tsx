@@ -1,5 +1,6 @@
 /**
- * Twin Comparison Screen — Screen 17 v1.1. Tab 3. Wired to real twin_state (Twin Design §5.1, §5.2, 1.34).
+ * Twin Comparison Screen — Redesign. Tab 3.
+ * Header + Arena (230) + Stats row + Gap description + Twin dialogue + Twin's Day timeline + Chat FAB.
  */
 
 import React, { useState, useCallback } from "react";
@@ -16,36 +17,45 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { PetAnimation } from "../components/PetAnimation";
-import { COLORS, SPACING, RADIUS, GRADIENTS, SHADOWS } from "../constants/theme";
+import { getTwinComparison, type TwinComparisonOut, type TwinActivity } from "../utils/api";
 import { supabase } from "../utils/supabase";
-import { getTwinComparison, type TwinComparisonOut } from "../utils/api";
+import { TwinComparisonShareCard } from "../components/TwinComparisonShareCard";
 
-const TOP_BAR_HEIGHT = 48;
-const CHAR_ZONE_HEIGHT = 280;
-const CHAR_WIDTH = 120;
-const CHAR_HEIGHT = 160;
-const PET_SIZE = 56;
-const CHAR_TO_PET_GAP = 8;
-const FRACTURE_WIDTH = 2;
-const SECTION_GAP = 16;
-const CHAR_ZONE_TOP_GAP = 32;
-const CHAT_BUTTON_WIDTH = 280;
-const CHAT_BUTTON_HEIGHT = 52;
-const NAV_BAR_HEIGHT = 56;
-const BOTTOM_ABOVE_NAV = 32;
+const ARENA_HEIGHT = 230;
+const CHAR_CARD_W = 96;
+const CHAR_CARD_H = 140;
+const PET_CIRCLE = 30;
+const STATS_ROW_HEIGHT = 56;
+const CHAT_FAB_BOTTOM = 8;
+const CHAT_FAB_RIGHT = 16;
+const CHAT_FAB_SIZE = 56;
 
-/** Pet stage names 1–8 (Cub → Dragon). */
-const PET_STAGE_NAMES: Record<number, string> = {
-  1: "Cub",
-  2: "Cat",
-  3: "Fox",
-  4: "Wolf",
-  5: "Snow Leopard",
-  6: "Panther",
-  7: "Griffin",
-  8: "Dragon",
-};
+const STAGE_THRESHOLDS = [0, 800, 5_000, 20_000, 60_000, 200_000];
+const STAGE_NAMES = [
+  "The Awakened",
+  "The Focused",
+  "The Burning",
+  "The Relentless",
+  "The Formidable",
+  "The Sovereign",
+];
+
+function stageFromXp(xp: number): number {
+  let stage = 1;
+  for (let i = 0; i < STAGE_THRESHOLDS.length; i++) {
+    if (xp >= STAGE_THRESHOLDS[i]) stage = i + 1;
+  }
+  return Math.min(stage, 6);
+}
+
+function formatTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
 
 export function TwinComparisonScreen() {
   const insets = useSafeAreaInsets();
@@ -53,14 +63,14 @@ export function TwinComparisonScreen() {
   const [comparison, setComparison] = useState<TwinComparisonOut | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const contentPaddingBottom =
-    SECTION_GAP + CHAT_BUTTON_HEIGHT + BOTTOM_ABOVE_NAV + NAV_BAR_HEIGHT + insets.bottom;
+  const [shareVisible, setShareVisible] = useState(false);
 
   const fetchComparison = useCallback(async () => {
     try {
       setError(null);
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session?.access_token) {
         setLoading(false);
         return;
@@ -81,64 +91,89 @@ export function TwinComparisonScreen() {
     }, [fetchComparison])
   );
 
-  const formatPowerScore = (n: number) => n.toLocaleString();
-
   const openTwinChat = () => {
     (navigation as any).navigate("TwinChat");
   };
 
-  // Derived from real data or fallbacks for loading/error
-  const userStreak = comparison?.user_streak ?? 0;
-  const twinStreak = comparison?.twin_streak ?? 0;
-  const userPowerScore = comparison?.user_power_score ?? 0;
-  const twinPowerScore = comparison?.twin_power_score ?? 0;
-  const userPetStage = comparison?.user_pet_stage ?? 0;
-  const twinPetStage = comparison?.twin_pet_stage ?? 0;
+  const activities: TwinActivity[] = comparison?.twin_today_activities ?? [];
+  const completedCount = activities.filter((a) => a.completed_at != null).length;
+  const totalXp = activities.reduce((s, a) => s + a.xp_earned, 0);
   const gapDays = comparison?.gap_days ?? null;
-  const twinMessage = comparison?.strip_message ?? null;
-  const gapLine = comparison?.gap_line ?? "";
-  const userPetHappy = true;
+  const gapLabel = gapDays != null ? `${gapDays} Day${Math.abs(gapDays) !== 1 ? "s" : ""}` : "—";
 
   if (loading && !comparison) {
     return (
       <LinearGradient
-        colors={GRADIENTS.background.colors}
-        start={GRADIENTS.background.start}
-        end={GRADIENTS.background.end}
+        colors={["#09091A", "#06070E"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
         style={[styles.container, styles.centered]}
       >
-        <View style={[styles.topBar, { paddingTop: insets.top, height: insets.top + TOP_BAR_HEIGHT }]}>
-          <Text style={styles.topBarTitle}>Shadow Twin</Text>
+        <View style={[styles.header, { paddingTop: insets.top + 10, paddingBottom: 14, paddingHorizontal: 16 }]}>
+          <View
+            style={[
+              styles.headerTitleWrap,
+              { top: insets.top + 10, bottom: 14 },
+            ]}
+            pointerEvents="none"
+          >
+            <Text style={styles.headerTitle}>Shadow Twin</Text>
+          </View>
+          <View style={styles.shareBtn} />
         </View>
-        <ActivityIndicator size="large" color={COLORS.violet} style={styles.loader} />
+        <ActivityIndicator size="large" color="#8B5CF6" style={styles.loader} />
       </LinearGradient>
     );
   }
 
   return (
-    <LinearGradient
-      colors={GRADIENTS.background.colors}
-      start={GRADIENTS.background.start}
-      end={GRADIENTS.background.end}
-      style={styles.container}
-    >
-      {/* Fixed top — Screen title bar: 48px + safe area, glass, centered "Shadow Twin", no back */}
+    <View style={styles.container}>
+      <LinearGradient
+        colors={["#09091A", "#06070E"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      {/* Header — title absolutely centred over full header; share button right */}
       <View
         style={[
-          styles.topBar,
+          styles.header,
           {
-            paddingTop: insets.top,
-            height: insets.top + TOP_BAR_HEIGHT,
+            paddingTop: insets.top + 10,
+            paddingBottom: 14,
+            paddingHorizontal: 16,
           },
         ]}
       >
-        <Text style={styles.topBarTitle}>Shadow Twin</Text>
+        <View
+          style={[
+            styles.headerTitleWrap,
+            { top: insets.top + 10, bottom: 14 },
+          ]}
+          pointerEvents="none"
+        >
+          <Text style={styles.headerTitle}>Shadow Twin</Text>
+        </View>
+        <Pressable
+          onPress={() => setShareVisible(true)}
+          style={styles.shareBtn}
+          hitSlop={12}
+          accessibilityLabel="Share comparison"
+        >
+          <Ionicons name="share-outline" size={18} color="#8B5CF6" />
+        </Pressable>
       </View>
 
       {error && !comparison ? (
         <View style={styles.errorWrap}>
           <Text style={styles.errorText}>{error}</Text>
-          <Pressable onPress={() => { setLoading(true); fetchComparison(); }} style={styles.retryButton}>
+          <Pressable
+            onPress={() => {
+              setLoading(true);
+              fetchComparison();
+            }}
+            style={styles.retryButton}
+          >
             <Text style={styles.retryLabel}>Retry</Text>
           </Pressable>
         </View>
@@ -146,431 +181,618 @@ export function TwinComparisonScreen() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPaddingBottom }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: CHAT_FAB_BOTTOM + CHAT_FAB_SIZE + insets.bottom + 24 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* (A) Character zone — 280px, significant gap from title bar; chars + pets centered on each side */}
-        <View
-          style={[
-            styles.splitZone,
-            { height: CHAR_ZONE_HEIGHT, marginTop: CHAR_ZONE_TOP_GAP },
-          ]}
-        >
-          <View style={[styles.half, styles.halfUser]}>
-            <View style={styles.halfInner}>
-              <View style={[styles.charPlaceholder, styles.charYou]}>
-                <Text style={styles.charLabel}>YOU</Text>
-              </View>
-              <View style={[styles.petWrap, { marginTop: CHAR_TO_PET_GAP }]}>
-                {userPetStage > 0 ? (
-                  <View style={styles.petUserDarker}>
-                    <PetAnimation stage={userPetStage} isHappy={userPetHappy} size={PET_SIZE} />
-                  </View>
-                ) : (
-                  <View style={[styles.charPlaceholder, styles.petPlaceholder]}>
-                    <Text style={styles.charLabel}>—</Text>
-                  </View>
-                )}
+        {/* Arena zone — 230px */}
+        <View style={[styles.arena, { height: ARENA_HEIGHT }]}>
+          {/* Atmosphere glows */}
+          <View style={styles.glowLeft} pointerEvents="none" />
+          <View style={styles.glowRight} pointerEvents="none" />
+
+          {/* User side */}
+          <View style={[styles.arenaHalf, styles.arenaUser]}>
+            <Text style={[styles.arenaLabel, styles.arenaLabelYou]}>YOU</Text>
+            <View style={styles.charCardWrap}>
+              <LinearGradient
+                colors={["rgba(40,20,80,0.4)", "rgba(8,8,18,0.85)"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={[styles.charCard, styles.charCardUser]}
+              />
+              <View style={[styles.petCircle, styles.petCircleUser]}>
+                <LinearGradient
+                  colors={["#E8E8ED", "#FFFFFF"]}
+                  style={styles.petCircleInner}
+                />
               </View>
             </View>
+            <Text style={styles.charNameUser}>
+              {comparison?.username ?? "You"}
+            </Text>
+            <Text style={styles.charStageUser}>
+              {comparison ? STAGE_NAMES[stageFromXp(comparison.user_xp) - 1] : "—"}
+            </Text>
           </View>
 
-          {/* Fracture line — centered in the split zone (50% of content width) */}
-          <View
-            style={[styles.fractureWrap, { height: CHAR_ZONE_HEIGHT }]}
-            pointerEvents="none"
-          >
+          {/* Fracture line with gap pill in the middle — line behind pill so it doesn't show on text */}
+          <View style={styles.fractureWrap} pointerEvents="none">
             <LinearGradient
-              colors={GRADIENTS.fractureLine.colors}
-              start={GRADIENTS.fractureLine.start}
-              end={GRADIENTS.fractureLine.end}
+              colors={[
+                "transparent",
+                "rgba(192,132,252,0.8)",
+                "rgba(220,180,255,1)",
+                "rgba(192,132,252,0.8)",
+                "transparent",
+              ]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
               style={styles.fractureLine}
             />
+            <View style={styles.gapPill} pointerEvents="none">
+              <Ionicons name="time-outline" size={11} color="#C084FC" />
+              <Text style={styles.gapPillText}>{gapLabel}</Text>
+            </View>
           </View>
 
-          <View style={[styles.half, styles.halfTwin]}>
-            <View style={styles.halfInner}>
-              <View style={[styles.charPlaceholder, styles.charTwin]}>
-                <Text style={styles.charLabel}>TWIN</Text>
+          {/* Twin side */}
+          <View style={[styles.arenaHalf, styles.arenaTwin]}>
+            <Text style={[styles.arenaLabel, styles.arenaLabelTwin]}>TWIN</Text>
+            <View style={styles.charCardWrap}>
+              <LinearGradient
+                colors={["rgba(80,30,160,0.5)", "rgba(10,8,25,0.88)"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={[styles.charCard, styles.charCardTwin]}
+              />
+              <View style={[styles.petCircle, styles.petCircleTwin]}>
+                <LinearGradient
+                  colors={["rgba(100,40,200,0.8)", "rgba(25,15,50,0.95)"]}
+                  style={styles.petCircleInner}
+                />
               </View>
-              <View style={[styles.petWrap, { marginTop: CHAR_TO_PET_GAP }]}>
-                {twinPetStage > 0 ? (
-                  <PetAnimation stage={twinPetStage} isHappy={true} size={PET_SIZE} />
-                ) : (
-                  <View style={[styles.charPlaceholder, styles.petPlaceholder]}>
-                    <Text style={styles.charLabel}>—</Text>
-                  </View>
-                )}
-              </View>
             </View>
-          </View>
-        </View>
-
-        {/* (B) Stats card — 16px below character zone */}
-        <View style={[styles.statsCardWrap, { marginTop: SECTION_GAP }]}>
-          <View style={styles.statsCard}>
-            <View style={styles.statCol}>
-              <Text style={styles.statLabel}>STREAK</Text>
-              <Text style={styles.statValue}>{userStreak}🔥</Text>
-              <Text style={styles.statValueTwin}>{twinStreak}🔥</Text>
-            </View>
-            <View style={styles.statCol}>
-              <Text style={styles.statLabel}>POWER SCORE</Text>
-              <Text style={styles.powerUser}>
-                {comparison?.user_power_score != null ? formatPowerScore(comparison.user_power_score) : "—"}
-              </Text>
-              <Text style={styles.powerVs}>vs</Text>
-              <Text style={styles.powerTwin}>
-                {comparison?.twin_power_score != null ? formatPowerScore(comparison.twin_power_score) : "—"}
-              </Text>
-            </View>
-            <View style={styles.statCol}>
-              <Text style={styles.statLabel}>COMPANION</Text>
-              <Text style={styles.petStageUser}>{comparison?.user_pet_stage_name ?? PET_STAGE_NAMES[userPetStage] ?? "—"}</Text>
-              <Text style={styles.petStageTwin}>{comparison?.twin_pet_stage_name ?? PET_STAGE_NAMES[twinPetStage] ?? "—"}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* (C) Gap pill — 16px margin above and below */}
-        <View style={[styles.gapPillWrap, { marginVertical: SECTION_GAP }]}>
-          <View style={styles.gapPill}>
-            <Ionicons name="time-outline" size={14} color={COLORS.violetLine} style={styles.gapIcon} />
-            <Text style={styles.gapText}>
-              Gap: {gapDays != null ? `${gapDays} Days` : "—"}
+            <Text style={styles.charNameTwin}>Twin</Text>
+            <Text style={styles.charStageTwin}>
+              {comparison ? STAGE_NAMES[stageFromXp(comparison.twin_xp) - 1] : "—"}
             </Text>
           </View>
         </View>
 
-        {/* (C.1) Concrete gap line (1.34): Your Twin has [pet] and [XP] XP. You have [pet] and [XP] XP. */}
-        {gapLine ? (
-          <View style={styles.gapLineWrap}>
-            <Text style={styles.gapLineText}>{gapLine}</Text>
+        {/* Stats row */}
+        <View style={styles.statsRow}>
+          <View style={styles.statCol}>
+            <Text style={styles.statValueUser}>{comparison?.user_streak ?? 0}</Text>
+            <Text style={styles.statValueTwin}>{comparison?.twin_streak ?? 0}</Text>
+            <Text style={styles.statLabel}>STREAK</Text>
           </View>
-        ) : null}
-
-        {/* (D) Twin dialogue card — display only */}
-        <View style={styles.dialogueWrap}>
-          <View style={styles.dialogueCard}>
-            <Text style={styles.dialogueLabel}>Your Twin</Text>
-            <Text style={styles.dialogueMessage}>
-              {twinMessage ?? "Your rival is you — one week ahead. Show up and close the gap."}
+          <View style={[styles.statCol, styles.statColCenter]}>
+            <Text style={styles.statPowerUser}>
+              {comparison?.user_power_score != null
+                ? Math.round(comparison.user_power_score).toLocaleString()
+                : "—"}
             </Text>
+            <Text style={styles.statValueTwin}>
+              {comparison?.twin_power_score != null
+                ? Math.round(comparison.twin_power_score).toLocaleString()
+                : "—"}
+            </Text>
+            <Text style={styles.statLabel}>POWER SCORE</Text>
+          </View>
+          <View style={styles.statCol}>
+            <Text style={styles.statCompanionUser}>{comparison?.user_pet_stage_name ?? "—"}</Text>
+            <Text style={styles.statCompanionTwin}>{comparison?.twin_pet_stage_name ?? "—"}</Text>
+            <Text style={styles.statLabel}>COMPANION</Text>
           </View>
         </View>
 
-        {/* Talk to Your Twin — primary entry to Twin Chat (Twin strip on Home goes here too) */}
-        <View style={styles.chatButtonWrap}>
-          <Pressable
-            onPress={openTwinChat}
-            style={({ pressed }) => [styles.chatButton, pressed && styles.chatButtonPressed]}
-          >
+        {/* Gap description */}
+        <Text style={styles.gapDesc}>
+          {comparison?.gap_line ?? "Twin has a Cat and 2,480 XP. You have a Cub and 1,240 XP."}
+        </Text>
+
+        {/* Twin dialogue card */}
+        <View style={styles.dialogueCard}>
+          <Text style={styles.dialogueLabel}>YOUR TWIN</Text>
+          <Text style={styles.dialogueMessage}>
+            {comparison?.strip_message ?? "Your rival is you — one week ahead. Show up and close the gap."}
+          </Text>
+        </View>
+
+        {/* Twin's Day activity timeline */}
+        <View style={styles.timelineSection}>
+          <View style={styles.timelineHeader}>
+            <View style={styles.timelineHeaderLeft}>
+              <View style={styles.timelineDotPulse} />
+              <Text style={styles.timelineTitle}>TWIN'S DAY</Text>
+            </View>
+            <Text style={styles.timelineDate}>
+              {new Date().toLocaleDateString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+              })}
+            </Text>
+          </View>
+          <View style={styles.timelineContainer}>
             <LinearGradient
-              colors={GRADIENTS.button.colors}
-              start={GRADIENTS.button.start}
-              end={GRADIENTS.button.end}
-              style={styles.chatButtonGradient}
-            >
-              <Ionicons name="chatbubble-ellipses" size={18} color={COLORS.text} style={styles.chatIcon} />
-              <Text style={styles.chatButtonLabel}>Talk to Your Twin</Text>
-            </LinearGradient>
-          </Pressable>
+              colors={["rgba(139,92,246,0.5)", "rgba(139,92,246,0.15)", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.timelineLine}
+            />
+            {activities.map((item, i) => {
+              const completed = item.completed_at != null;
+              return (
+                <View key={i} style={styles.timelineItem}>
+                  <View
+                    style={[
+                      styles.timelineItemDot,
+                      completed ? styles.timelineItemDotDone : styles.timelineItemDotPending,
+                    ]}
+                  />
+                  <Text
+                    style={[styles.timelineItemTitle, completed ? styles.timelineItemTitleDone : styles.timelineItemTitlePending]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {item.mission_title}
+                  </Text>
+                  <View style={styles.timelineItemRight}>
+                    {completed ? (
+                      <>
+                        <Text style={styles.timelineItemXp}>+{item.xp_earned} XP</Text>
+                        <Text style={styles.timelineItemTime}>{formatTime(item.completed_at!)}</Text>
+                      </>
+                    ) : (
+                      <Text style={styles.timelineItemPending}>pending</Text>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+            <View style={styles.timelineSummary}>
+              <Text style={styles.timelineSummaryText}>
+                <Text style={styles.timelineSummaryHighlight}>{completedCount} done</Text>
+                {" · "}
+                <Text style={styles.timelineSummaryHighlight}>+{totalXp} XP</Text>
+              </Text>
+            </View>
+          </View>
         </View>
       </ScrollView>
 
-      {/* Chat FAB — same pattern as Journal on Home: fixed bottom-right above tab bar */}
+      {/* Chat FAB — same position as Home journal (right 16, bottom 8) */}
       <Pressable
-        style={[styles.chatFab, { bottom: 8 }]}
+        style={({ pressed }) => [
+          styles.chatFab,
+          { bottom: CHAT_FAB_BOTTOM, right: CHAT_FAB_RIGHT },
+          pressed && styles.chatFabPressed,
+        ]}
         onPress={openTwinChat}
       >
-        <Ionicons name="chatbubble-ellipses" size={24} color="#FFFFFF" />
+        <LinearGradient
+          colors={["#5B21B6", "#8B5CF6"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.chatFabGradient}
+        >
+          <Ionicons name="chatbubble-ellipses" size={24} color="#FFFFFF" />
+        </LinearGradient>
       </Pressable>
-    </LinearGradient>
+
+      {/* Share card modal */}
+      <TwinComparisonShareCard
+        visible={shareVisible}
+        onClose={() => setShareVisible(false)}
+        comparison={comparison}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  centered: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loader: {
-    marginTop: SPACING.xl,
-  },
-  errorWrap: {
-    padding: SPACING.md,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  errorText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.text2,
-    textAlign: "center",
-  },
-  retryButton: {
-    marginTop: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.md,
-  },
-  retryLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: COLORS.violet,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: SPACING.md,
-  },
-  topBar: {
-    width: "100%",
-    backgroundColor: COLORS.glass,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.glassBorder,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  topBarTitle: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: COLORS.text,
-  },
-  splitZone: {
-    width: "100%",
+  container: { flex: 1 },
+  centered: { justifyContent: "center", alignItems: "center" },
+  loader: { marginTop: 24 },
+  errorWrap: { padding: 16, alignItems: "center", justifyContent: "center" },
+  errorText: { fontFamily: "Inter_400Regular", fontSize: 14, color: "#9CA3AF", textAlign: "center" },
+  retryButton: { marginTop: 8, paddingVertical: 8, paddingHorizontal: 16 },
+  retryLabel: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "#8B5CF6" },
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 0 },
+
+  header: {
+    position: "relative",
     flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(9,9,26,0.7)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(42,48,80,0.4)",
   },
-  half: {
+  headerTitleWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    color: "#E5E7EB",
+  },
+  shareBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "rgba(139,92,246,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  arena: {
+    flexDirection: "row",
+    position: "relative",
+  },
+  glowLeft: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    width: "55%",
+    height: 300,
+    backgroundColor: "transparent",
+    ...(Platform.OS === "ios" && {
+      // radial-gradient approximated with opacity overlay
+    }),
+  },
+  glowRight: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    width: "55%",
+    height: 300,
+    backgroundColor: "transparent",
+  },
+  arenaHalf: {
     flex: 1,
-    justifyContent: "flex-start",
-    paddingTop: SPACING.sm,
+    flexDirection: "column",
     alignItems: "center",
+    justifyContent: "flex-end",
+    paddingBottom: 12,
+    gap: 5,
   },
-  halfUser: {},
-  halfTwin: {},
-  halfInner: {
-    alignItems: "center",
+  arenaUser: { paddingRight: 20 },
+  arenaTwin: { paddingLeft: 20 },
+  arenaLabel: {
+    position: "absolute",
+    top: 14,
+    fontSize: 8,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2.5,
   },
-  charPlaceholder: {
-    width: CHAR_WIDTH,
-    height: CHAR_HEIGHT,
-    borderRadius: RADIUS.card,
+  arenaLabelYou: { color: "#4B5563" },
+  arenaLabelTwin: { color: "rgba(139,92,246,0.5)" },
+  charCardWrap: {
+    width: CHAR_CARD_W,
+    height: CHAR_CARD_H,
+    borderRadius: 12,
+    overflow: "visible",
+    position: "relative",
+  },
+  charCard: {
+    width: CHAR_CARD_W,
+    height: CHAR_CARD_H,
+    borderRadius: 12,
+    borderWidth: 1,
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "rgba(0,0,0,0.4)", shadowRadius: 24, shadowOffset: { width: 0, height: 0 } }
+      : { elevation: 8 }),
+  },
+  charCardUser: {
+    borderColor: "rgba(139,92,246,0.12)",
+  },
+  charCardTwin: {
+    borderColor: "rgba(139,92,246,0.25)",
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "rgba(100,30,200,0.18)", shadowRadius: 30, shadowOffset: { width: 0, height: 0 } }
+      : {}),
+  },
+  petCircle: {
+    position: "absolute",
+    bottom: -12,
+    width: PET_CIRCLE,
+    height: PET_CIRCLE,
+    borderRadius: PET_CIRCLE / 2,
+    borderWidth: 2,
+    borderColor: "#09091A",
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  charYou: {
-    backgroundColor: COLORS.surface2,
-    opacity: 0.9,
+  petCircleUser: { left: 6 },
+  petCircleTwin: {
+    right: 6,
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "rgba(139,92,246,0.2)", shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }
+      : {}),
   },
-  charTwin: {
-    backgroundColor: COLORS.surface,
+  petCircleInner: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
   },
-  charLabel: {
+  charNameUser: {
+    fontSize: 10,
     fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-    color: COLORS.muted,
+    color: "#9CA3AF",
+    marginTop: 6,
   },
-  petWrap: {
-    alignSelf: "center",
-    alignItems: "center",
-    justifyContent: "center",
+  charStageUser: { fontSize: 9, color: "#4B5563" },
+  charNameTwin: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    color: "#A78BFA",
+    marginTop: 6,
   },
-  petUserDarker: {
-    opacity: 0.85,
-  },
+  charStageTwin: { fontSize: 9, color: "#6D28D9" },
+
   fractureWrap: {
     position: "absolute",
-    width: FRACTURE_WIDTH,
-    top: 0,
     left: "50%",
-    marginLeft: -FRACTURE_WIDTH / 2,
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: COLORS.violetLine,
-          shadowOpacity: 0.7,
-          shadowRadius: 16,
-          shadowOffset: { width: 0, height: 0 },
-        }
-      : { elevation: 12 }),
-  },
-  fractureLine: {
-    width: FRACTURE_WIDTH,
-    flex: 1,
-  },
-  statsCardWrap: {
-    width: "100%",
-  },
-  statsCard: {
-    flexDirection: "row",
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: RADIUS.card,
-    padding: SPACING.md,
-    justifyContent: "space-between",
-  },
-  statCol: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "flex-start",
-  },
-  statLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 10,
-    color: COLORS.muted,
-    marginBottom: 4,
-    textTransform: "uppercase",
-  },
-  statValue: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 18,
-    color: COLORS.ember,
-  },
-  statValueTwin: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: COLORS.ember,
-    opacity: 0.5,
-    marginTop: 4,
-  },
-  powerUser: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 22,
-    color: COLORS.violet,
-  },
-  powerVs: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: "#4B5563",
-    marginTop: 2,
-  },
-  powerTwin: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: COLORS.muted,
-    marginTop: 2,
-  },
-  petStageUser: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    color: COLORS.text,
-    marginTop: 2,
-  },
-  petStageTwin: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: COLORS.muted,
-    marginTop: 4,
-  },
-  gapPillWrap: {
+    top: 0,
+    bottom: 0,
+    width: 80,
+    marginLeft: -40,
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 2,
+  },
+  fractureLine: {
+    position: "absolute",
+    left: 39,
+    top: 0,
+    bottom: 0,
+    width: 1.5,
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "#C084FC", shadowOpacity: 0.5, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }
+      : { elevation: 6 }),
   },
   gapPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(192,132,252,0.1)",
+    gap: 4,
+    backgroundColor: "#09091A",
+    zIndex: 3,
     borderWidth: 1,
-    borderColor: COLORS.violetLine,
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 20,
+    borderColor: "rgba(192,132,252,0.35)",
+    borderRadius: 14,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    position: "relative",
+    zIndex: 4,
   },
-  gapIcon: {
-    marginRight: 6,
+  gapPillText: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    color: "#C084FC",
   },
-  gapText: {
-    fontFamily: "Inter_600SemiBold",
+
+  statsRow: {
+    flexDirection: "row",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "rgba(12,12,26,0.6)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(42,48,80,0.3)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(42,48,80,0.3)",
+  },
+  statCol: {
+    flex: 1,
+    alignItems: "center",
+    gap: 1,
+  },
+  statColCenter: {
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderLeftColor: "rgba(42,48,80,0.5)",
+    borderRightColor: "rgba(42,48,80,0.5)",
+  },
+  statValueUser: {
     fontSize: 15,
-    color: COLORS.violetLine,
+    fontFamily: "Inter_700Bold",
+    color: "#F97316",
   },
-  gapLineWrap: {
-    width: "100%",
-    marginBottom: SECTION_GAP,
-    paddingHorizontal: SPACING.xs,
+  statPowerUser: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+    color: "#8B5CF6",
   },
-  gapLineText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 14,
-    color: COLORS.text2,
+  statValueTwin: { fontSize: 10, color: "#4B5563" },
+  statCompanionUser: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    color: "#E5E7EB",
+  },
+  statCompanionTwin: { fontSize: 10, color: "#4B5563" },
+  statLabel: {
+    fontSize: 8,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 1,
+    color: "#374151",
+    marginTop: 1,
+  },
+
+  gapDesc: {
+    fontSize: 10,
+    color: "#4B5563",
     textAlign: "center",
+    paddingHorizontal: 20,
+    paddingTop: 6,
+    lineHeight: 15,
   },
-  petPlaceholder: {
-    width: PET_SIZE,
-    height: PET_SIZE,
-  },
-  dialogueWrap: {
-    width: "100%",
-    marginBottom: SECTION_GAP,
-  },
+
   dialogueCard: {
-    width: "100%",
-    backgroundColor: COLORS.surface,
+    marginHorizontal: 14,
+    marginTop: 8,
+    backgroundColor: "rgba(14,12,28,0.7)",
     borderWidth: 1,
-    borderColor: COLORS.surface2,
+    borderColor: "rgba(42,48,80,0.4)",
     borderLeftWidth: 3,
-    borderLeftColor: COLORS.violet,
-    borderRadius: RADIUS.card,
-    padding: SPACING.md,
+    borderLeftColor: "#8B5CF6",
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
   },
   dialogueLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 11,
-    color: COLORS.violet,
-    marginBottom: 4,
+    fontSize: 9,
+    fontFamily: "Inter_600SemiBold",
+    color: "#8B5CF6",
+    letterSpacing: 1,
+    marginBottom: 3,
   },
   dialogueMessage: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
+    fontSize: 11.5,
+    color: "#C4B5FD",
     fontStyle: "italic",
-    color: COLORS.text,
+    lineHeight: 16,
   },
-  chatButtonWrap: {
-    marginTop: SECTION_GAP,
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100%",
-  },
-  chatButton: {
-    width: CHAT_BUTTON_WIDTH,
-    height: CHAT_BUTTON_HEIGHT,
-    borderRadius: RADIUS.card,
-    overflow: "hidden",
-    ...(Platform.OS === "ios" ? SHADOWS.button : { elevation: 8 }),
-  },
-  chatButtonPressed: {
-    opacity: 0.92,
-  },
-  chatButtonGradient: {
+
+  timelineSection: {
+    marginHorizontal: 16,
+    marginTop: 8,
     flex: 1,
+    minHeight: 120,
+  },
+  timelineHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: SPACING.md,
+    justifyContent: "space-between",
+    marginBottom: 8,
   },
-  chatIcon: {
-    marginRight: 8,
+  timelineHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
+  timelineDotPulse: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "#8B5CF6",
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "#8B5CF6", shadowOpacity: 0.6, shadowRadius: 4, shadowOffset: { width: 0, height: 0 } }
+      : {}),
   },
-  chatButtonLabel: {
+  timelineTitle: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.8,
+    color: "#6B7280",
+  },
+  timelineDate: { fontSize: 9, color: "#374151" },
+  timelineContainer: {
+    flex: 1,
+    position: "relative",
+    paddingLeft: 16,
+  },
+  timelineLine: {
+    position: "absolute",
+    left: 4,
+    top: 7,
+    bottom: 16,
+    width: 1,
+  },
+  timelineItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 5,
+    position: "relative",
+  },
+  timelineItemDot: {
+    position: "absolute",
+    left: -13,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  timelineItemDotDone: {
+    backgroundColor: "#8B5CF6",
+    borderWidth: 2,
+    borderColor: "#09091A",
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "rgba(139,92,246,0.6)", shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }
+      : {}),
+  },
+  timelineItemDotPending: {
+    backgroundColor: "#0F1020",
+    borderWidth: 2,
+    borderColor: "rgba(42,48,80,0.6)",
+  },
+  timelineItemTitle: {
+    flex: 1,
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+  },
+  timelineItemTitleDone: { color: "rgba(167,139,250,0.78)" },
+  timelineItemTitlePending: { color: "#2D3146" },
+  timelineItemRight: {
+    flexDirection: "row",
+    gap: 6,
+    flexShrink: 0,
+  },
+  timelineItemXp: {
+    fontSize: 9,
     fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    color: COLORS.text,
+    color: "rgba(139,92,246,0.5)",
   },
+  timelineItemTime: { fontSize: 9, color: "#2D3146" },
+  timelineItemPending: {
+    fontSize: 9,
+    color: "#2D3146",
+    fontStyle: "italic",
+  },
+  timelineSummary: {
+    marginTop: 5,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(139,92,246,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.12)",
+    borderRadius: 7,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  timelineSummaryText: {
+    fontSize: 9,
+    color: "#6B7280",
+  },
+  timelineSummaryHighlight: {
+    fontFamily: "Inter_600SemiBold",
+    color: "#A78BFA",
+  },
+
   chatFab: {
     position: "absolute",
-    right: SPACING.screenPadding,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: COLORS.violet,
+    width: CHAT_FAB_SIZE,
+    height: CHAT_FAB_SIZE,
+    borderRadius: CHAT_FAB_SIZE / 2,
+    overflow: "hidden",
+    zIndex: 10,
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "rgba(139,92,246,0.45)", shadowRadius: 16, shadowOffset: { width: 0, height: 4 } }
+      : { elevation: 10 }),
+  },
+  chatFabPressed: { transform: [{ scale: 0.93 }] },
+  chatFabGradient: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    ...(Platform.OS === "ios"
-      ? { shadowColor: COLORS.violet, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8 }
-      : { elevation: 8 }),
   },
 });

@@ -10,6 +10,7 @@ from utils.supabase_client import get_supabase
 from models.home import pet_stage_for, STAGE_THRESHOLDS
 from models.twin import (
     TwinComparisonOut,
+    TwinActivityOut,
     pet_stage_name,
     min_pet_food_for_stage,
     compute_gap_state,
@@ -31,6 +32,50 @@ def _character_stage_from_xp(total_xp: int) -> int:
     return min(stage, 6)
 
 
+def _simulate_twin_today_activities(now: datetime) -> list[TwinActivityOut]:
+    """Simulate Twin's Day timeline: 4 completed missions + 1 pending (no stored state yet)."""
+    today = now.date()
+    base_iso = today.isoformat()
+    activities = [
+        TwinActivityOut(
+            mission_title="Get 7+ hours of sleep",
+            mission_type="core",
+            difficulty="Easy",
+            xp_earned=25,
+            completed_at=f"{base_iso}T06:30:00Z",
+        ),
+        TwinActivityOut(
+            mission_title="Move for 30 minutes",
+            mission_type="core",
+            difficulty="Medium",
+            xp_earned=25,
+            completed_at=f"{base_iso}T07:15:00Z",
+        ),
+        TwinActivityOut(
+            mission_title="Drink 8 glasses of water",
+            mission_type="core",
+            difficulty="Medium",
+            xp_earned=25,
+            completed_at=f"{base_iso}T08:00:00Z",
+        ),
+        TwinActivityOut(
+            mission_title="Run 2 miles",
+            mission_type="focus",
+            difficulty="Medium",
+            xp_earned=25,
+            completed_at=f"{base_iso}T09:10:00Z",
+        ),
+        TwinActivityOut(
+            mission_title="Read for 20 minutes",
+            mission_type="personal",
+            difficulty="Easy",
+            xp_earned=0,
+            completed_at=None,
+        ),
+    ]
+    return activities
+
+
 class TwinChatRequest(BaseModel):
     """Incoming chat message from user."""
 
@@ -50,9 +95,10 @@ async def get_twin_comparison(user_id: str = Depends(get_user_id)):
     now = datetime.now(timezone.utc)
     today = now.date()
 
-    # User: discipline_dna, character_state, pet_state, leaderboard (streak, power_score)
-    ur = supabase.table("users").select("discipline_dna").eq("id", user_id).maybe_single().execute()
+    # User: discipline_dna, email (for username), character_state, pet_state, leaderboard (streak, power_score)
+    ur = supabase.table("users").select("discipline_dna, email").eq("id", user_id).maybe_single().execute()
     discipline_dna = (ur.data or {}).get("discipline_dna") or {}
+    username = _get_username_from_email((ur.data or {}).get("email"))
     gap_behavior = discipline_dna.get("gap_behavior") or "steady"
     intensity = int(discipline_dna.get("intensity", 3))
     intensity = max(1, min(5, intensity))
@@ -157,9 +203,14 @@ async def get_twin_comparison(user_id: str = Depends(get_user_id)):
     gap_days = None
     if twin_xp > user_xp and daily_xp > 0:
         gap_days = max(0, (twin_xp - user_xp) // daily_xp)
+    elif user_xp > twin_xp and daily_xp > 0:
+        gap_days = -max(0, (user_xp - twin_xp) // daily_xp)
 
     # Twin power score: optional; could be computed from twin_xp/twin_streak/twin_pet_stage
     twin_power_score = None
+
+    # Twin's Day: simulated today activities (4 completed, 1 pending)
+    twin_today_activities = _simulate_twin_today_activities(now)
 
     return TwinComparisonOut(
         user_xp=user_xp,
@@ -176,6 +227,8 @@ async def get_twin_comparison(user_id: str = Depends(get_user_id)):
         gap_line=gap_line,
         strip_message=strip_message,
         gap_days=gap_days,
+        username=username,
+        twin_today_activities=twin_today_activities,
     )
 
 

@@ -20,6 +20,12 @@ import { COLORS } from "../constants/theme";
 const BREATH_CYCLE_MS = 2400;
 const BREATH_SCALE = 1.04;
 
+const WHITE_GRADIENT = {
+  colors: ["#E8E8ED", "#FFFFFF"] as const,
+  start: { x: 0, y: 0 },
+  end: { x: 1, y: 1 },
+};
+
 export interface PetAnimationProps {
   /** Pet stage 1–8 (Cub → Dragon). */
   stage: number;
@@ -27,6 +33,8 @@ export interface PetAnimationProps {
   isHappy: boolean;
   /** Size in px. Default 120. */
   size?: number;
+  /** Cub/companion color: violet (default) or white. */
+  variant?: "violet" | "white";
 }
 
 const HAPPY_GRADIENT = {
@@ -45,8 +53,15 @@ export function PetAnimation({
   stage,
   isHappy,
   size = 120,
+  variant = "violet",
 }: PetAnimationProps) {
   const scale = useSharedValue(1);
+  const gradient =
+    variant === "white"
+      ? WHITE_GRADIENT
+      : isHappy
+        ? HAPPY_GRADIENT
+        : SAD_GRADIENT;
 
   useEffect(() => {
     if (isHappy) {
@@ -93,14 +108,20 @@ export function PetAnimation({
         ]}
       >
         <LinearGradient
-          colors={isHappy ? HAPPY_GRADIENT.colors : SAD_GRADIENT.colors}
-          start={isHappy ? HAPPY_GRADIENT.start : SAD_GRADIENT.start}
-          end={isHappy ? HAPPY_GRADIENT.end : SAD_GRADIENT.end}
+          colors={gradient.colors}
+          start={gradient.start}
+          end={gradient.end}
           style={[styles.gradient, { width: size, height: size, borderRadius: radius }]}
         />
       </View>
       <View style={[styles.labelWrap, { width: size, height: size }]} pointerEvents="none">
-        <Text style={[styles.stageLabel, { fontSize: Math.max(14, size * 0.2) }]}>
+        <Text
+          style={[
+            styles.stageLabel,
+            { fontSize: Math.max(14, size * 0.2) },
+            variant === "white" && styles.stageLabelDark,
+          ]}
+        >
           {Math.min(8, Math.max(1, stage))}
         </Text>
       </View>
@@ -129,5 +150,8 @@ const styles = StyleSheet.create({
   stageLabel: {
     fontFamily: "Inter_600SemiBold",
     color: COLORS.text,
+  },
+  stageLabelDark: {
+    color: "#374151",
   },
 });

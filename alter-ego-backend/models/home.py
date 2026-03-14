@@ -30,6 +30,7 @@ class CharacterStateOut(BaseModel):
     total_xp: int
     next_stage_xp: int
     next_stage_name: str
+    gender: Optional[str] = None  # "male" | "female" for character image
 
 
 class PetStateOut(BaseModel):
@@ -45,6 +46,8 @@ class HomeOut(BaseModel):
     twin_strip_message: Optional[str] = None
     power_score: Optional[float] = None
     username: Optional[str] = None
+    streak: int = 0
+    week_dots: Optional[List[bool]] = None  # Mon–Sun: True if that day had core_completed >= 3
 
 
 # Pet stage by total_pet_food (CLAUDE §9): Cub 0+, Cat 400+, Fox 2k+, Wolf 7k+, Snow Leopard 18k+, Panther 40k+, Griffin 80k+, Dragon 150k

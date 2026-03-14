@@ -88,6 +88,7 @@ export type CharacterStateOut = {
   total_xp: number;
   next_stage_xp: number;
   next_stage_name: string;
+  gender?: string | null; // "male" | "female" for character image
 };
 
 export type PetStateOut = {
@@ -119,6 +120,8 @@ export type HomeOut = {
   twin_strip_message: string | null;
   power_score?: number | null;
   username?: string | null;
+  streak?: number;
+  week_dots?: boolean[]; // Mon–Sun
 };
 
 export type EarnedMilestoneOut = {
@@ -227,6 +230,14 @@ export async function createMission(
 }
 
 // Twin comparison (Twin Design §5.1, §5.2, 1.34)
+export type TwinActivity = {
+  mission_title: string;
+  mission_type: 'core' | 'focus' | 'personal';
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  xp_earned: number;
+  completed_at: string | null; // ISO time string, null = pending
+};
+
 export type TwinComparisonOut = {
   user_xp: number;
   user_pet_stage: number;
@@ -242,6 +253,8 @@ export type TwinComparisonOut = {
   gap_line: string;
   strip_message: string | null;
   gap_days: number | null;
+  username?: string | null;
+  twin_today_activities?: TwinActivity[];
 };
 
 export async function getTwinComparison(
@@ -263,6 +276,8 @@ export type UserMeOut = {
   id: string;
   email?: string | null;
   username?: string | null;
+  display_name?: string | null;
+  profile_photo_url?: string | null;
   created_at?: string | null;
   archetype?: string | null;
   trial_start_date?: string | null;
@@ -275,6 +290,9 @@ export type PatchUserMePayload = {
   timezone?: string;
   last_opened_at?: string;
   nudge_frequency?: string;
+  username?: string;
+  display_name?: string;
+  profile_photo_url?: string;
 };
 
 export async function getUserMe(accessToken: string): Promise<UserMeOut> {
@@ -325,6 +343,8 @@ export type LeaderboardOut = {
   entries: LeaderboardEntryOut[];
   my_rank: number | null;
   my_entry: LeaderboardEntryOut | null;
+  /** Count of users on leaderboard (for "X competing" subtitle). */
+  total_users?: number;
 };
 
 export async function getLeaderboard(

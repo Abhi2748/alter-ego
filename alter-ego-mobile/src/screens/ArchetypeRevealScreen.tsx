@@ -287,7 +287,7 @@ export function ArchetypeRevealScreen() {
     nameOpacity.value = withDelay(500, withTiming(1, { duration: 400, easing: easeOut }));
     nameY.value = withDelay(500, withTiming(0, { duration: 400, easing: easeOut }));
     descOpacity.value = withDelay(900, withTiming(1, { duration: 400, easing: easeOut }));
-    twinSilhouetteOpacity.value = withDelay(1300, withTiming(0.04, { duration: 500, easing: easeOut }));
+    twinSilhouetteOpacity.value = withDelay(1300, withTiming(0, { duration: 500, easing: easeOut }));
     fourteenDayOpacity.value = withDelay(1500, withTiming(1, { duration: 400, easing: easeOut }));
     enterButtonOpacity.value = withDelay(2000, withTiming(1, { duration: 300, easing: easeOut }));
   }, [phase]);
@@ -310,9 +310,9 @@ export function ArchetypeRevealScreen() {
   if (postError && !archetypeContent) {
     return (
       <LinearGradient
-        colors={[COLORS.bg1, COLORS.bg0]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
+        colors={GRADIENTS.backgroundPremium.colors}
+        start={GRADIENTS.backgroundPremium.start}
+        end={GRADIENTS.backgroundPremium.end}
         style={styles.gradientRoot}
       >
         <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
@@ -327,9 +327,9 @@ export function ArchetypeRevealScreen() {
   if (!archetypeContent) {
     return (
       <LinearGradient
-        colors={[COLORS.bg1, COLORS.bg0]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
+        colors={GRADIENTS.backgroundPremium.colors}
+        start={GRADIENTS.backgroundPremium.start}
+        end={GRADIENTS.backgroundPremium.end}
         style={styles.gradientRoot}
       >
         <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>

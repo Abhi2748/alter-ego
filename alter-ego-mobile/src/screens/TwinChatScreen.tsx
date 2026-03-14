@@ -1,8 +1,10 @@
 /**
- * Twin Chat Screen — Screen 18. Full-screen chat with Twin. Custom header, inverted message list, input bar, tone rating.
+ * Twin Chat Screen — Premium dark cinematic chat. Left-aligned header, atmosphere glow,
+ * styled Twin/user bubbles, tone rating row, typing indicator, gradient send button.
+ * Spec: §1–§14.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -14,10 +16,13 @@ import {
   Platform,
   Keyboard,
   ListRenderItem,
+  TouchableOpacity,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -28,54 +33,271 @@ import Animated, {
   Easing,
   FadeIn,
   FadeOut,
+  runOnJS,
 } from "react-native-reanimated";
-import { COLORS, SPACING, RADIUS } from "../constants/theme";
 
-const HEADER_HEIGHT = 64;
-const HEADER_BG = "rgba(20,24,36,0.9)";
-const HEADER_BORDER = "#1E2333";
-const TWIN_THUMB_SIZE = 36;
-const BUBBLE_MAX_WIDTH = 280;
-const INPUT_HEIGHT = 44;
-const INPUT_RADIUS = 22;
-const SEND_SIZE = 44;
-const TONE_BUTTON_SIZE = 32;
-const TYPING_DOT_SIZE = 8;
-const CANNED_RESPONSE_DELAY_MS = 1200;
+// -----------------------------------------------------------------------------
+// DESIGN TOKENS — Spec §1
+// -----------------------------------------------------------------------------
+const BG_GRADIENT = ["#08091A", "#06070E"] as const;
+const HEADER_BG = "rgba(8,9,26,0.88)";
+const TWIN_BUBBLE_BG = "rgba(10,8,22,0.60)";
+const TWIN_BUBBLE_BORDER = "rgba(139,92,246,0.35)";
+const USER_BUBBLE_BORDER = "rgba(42,48,80,0.40)";
+const INPUT_BG = "rgba(255,255,255,0.04)";
+const INPUT_BORDER = "rgba(42,48,80,0.50)";
+const VIOLET = "#8B5CF6";
+const VIOLET_DEEP = "#5B21B6";
+const MUTED = "#6B7280";
+const DIM = "#374151";
+const VERY_DIM = "#2D3146";
+const TWIN_TEXT = "#C4B5FD";
+const USER_TEXT = "#E5E7EB";
 
-export type ChatMessage = {
+// -----------------------------------------------------------------------------
+// TYPES & DATA — Spec §12, §13
+// -----------------------------------------------------------------------------
+export interface ChatMessage {
   id: string;
   role: "user" | "twin";
   content: string;
-  timestamp: number;
-  twinRated?: boolean;
-};
+  timestamp: string;
+  rated?: boolean;
+}
 
 const PLACEHOLDER_MESSAGES: ChatMessage[] = [
   {
     id: "1",
     role: "twin",
-    content: "Seven days. That's the gap. I've been watching your hesitation.",
-    timestamp: Date.now() - 60000,
+    content: '"Seven days. That\'s the gap. I\'ve been watching your hesitation."',
+    timestamp: "2026-03-13T04:24:00Z",
+    rated: false,
   },
   {
     id: "2",
     role: "user",
     content: "I'm going to close it.",
-    timestamp: Date.now() - 45000,
+    timestamp: "2026-03-13T04:24:10Z",
   },
   {
     id: "3",
     role: "twin",
-    content: "Everyone says that. Show me.",
-    timestamp: Date.now() - 30000,
+    content: '"Everyone says that. Show me."',
+    timestamp: "2026-03-13T04:24:15Z",
+    rated: false,
+  },
+  {
+    id: "4",
+    role: "user",
+    content: "What should I focus on today?",
+    timestamp: "2026-03-14T04:28:00Z",
   },
 ];
 
-function formatTime(ts: number) {
-  const d = new Date(ts);
+const CANNED_RESPONSES = [
+  '"Seven days. That\'s the gap. I\'ve completed every mission you skipped."',
+  '"Everyone says that. Show me."',
+  '"The question isn\'t whether you can close it. It\'s whether you\'ll decide to."',
+  '"You hesitated yesterday. I didn\'t."',
+  '"Stop thinking about it. Start."',
+];
+
+const OFF_TOPIC_RESPONSE = "That won't make you stronger.";
+
+// In-scope keywords (simplified): discipline, focus, mission, streak, close, today, etc.
+const IN_SCOPE_WORDS = [
+  "focus", "mission", "streak", "close", "today", "discipline", "habit", "twin",
+  "gap", "show", "work", "start", "complete", "win", "hesitate", "decide",
+];
+
+function isOffTopic(text: string): boolean {
+  const lower = text.toLowerCase();
+  return !IN_SCOPE_WORDS.some((w) => lower.includes(w));
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+function toLocalDateKey(isoTimestamp: string): string {
+  const d = new Date(isoTimestamp);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatDateLabel(dateKey: string): string {
+  const today = new Date();
+  const todayKey = toLocalDateKey(today.toISOString());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const yesterdayKey = toLocalDateKey(yesterday.toISOString());
+  if (dateKey === todayKey) return "Today";
+  if (dateKey === yesterdayKey) return "Yesterday";
+  const d = new Date(dateKey + "T12:00:00");
+  const weekday = d.toLocaleDateString("en-GB", { weekday: "long" });
+  const day = d.getDate();
+  const monthShort = d.toLocaleDateString("en-GB", { month: "short" });
+  return `${weekday}, ${day} ${monthShort}`;
+}
+
+function id(): string {
+  return "msg-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+}
+
+type ListItem =
+  | { type: "date"; id: string; label: string }
+  | { type: "message"; message: ChatMessage };
+
+function buildListData(messages: ChatMessage[]): ListItem[] {
+  const out: ListItem[] = [];
+  const oldestFirst = [...messages].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  let prevDateKey: string | null = null;
+  for (let i = 0; i < oldestFirst.length; i++) {
+    const msg = oldestFirst[i];
+    const dateKey = toLocalDateKey(msg.timestamp);
+    if (prevDateKey !== dateKey) {
+      out.push({ type: "date", id: "date-" + dateKey, label: formatDateLabel(dateKey) });
+      prevDateKey = dateKey;
+    }
+    out.push({ type: "message", message: msg });
+  }
+  return out;
+}
+
+// -----------------------------------------------------------------------------
+// TYPING DOTS — Spec §9 (scale 0.6→1→0.6, opacity 0.4→1→0.4, 600ms, stagger 150ms)
+// -----------------------------------------------------------------------------
+function ToneRowFadeWrapper({
+  isFading,
+  onFadeEnd,
+  children,
+  style,
+}: {
+  isFading: boolean;
+  onFadeEnd: () => void;
+  children: React.ReactNode;
+  style?: object;
+}) {
+  const opacity = useSharedValue(1);
+  const onFadeEndRef = React.useRef(onFadeEnd);
+  const mountedRef = React.useRef(true);
+  onFadeEndRef.current = onFadeEnd;
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  React.useEffect(() => {
+    if (isFading) {
+      opacity.value = withTiming(
+        0,
+        { duration: 200, easing: Easing.inOut(Easing.ease) },
+        (finished) => {
+          if (finished)
+            runOnJS(() => {
+              if (mountedRef.current) onFadeEndRef.current();
+            })();
+        }
+      );
+    }
+  }, [isFading]);
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.View style={[style, animatedStyle]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+function TypingDots() {
+  const s1 = useSharedValue(0.6);
+  const o1 = useSharedValue(0.4);
+  const s2 = useSharedValue(0.6);
+  const o2 = useSharedValue(0.4);
+  const s3 = useSharedValue(0.6);
+  const o3 = useSharedValue(0.4);
+
+  React.useEffect(() => {
+    const duration = 300;
+    const easing = Easing.inOut(Easing.ease);
+    const cycle = (s: Animated.SharedValue<number>, o: Animated.SharedValue<number>) =>
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration, easing }),
+          withTiming(0.6, { duration, easing })
+        ),
+        -1,
+        false
+      );
+    s1.value = cycle(s1, o1);
+    o1.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration, easing }),
+        withTiming(0.4, { duration, easing })
+      ),
+      -1,
+      false
+    );
+    s2.value = withDelay(150, cycle(s2, o2));
+    o2.value = withDelay(
+      150,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration, easing }),
+          withTiming(0.4, { duration, easing })
+        ),
+        -1,
+        false
+      )
+    );
+    s3.value = withDelay(300, cycle(s3, o3));
+    o3.value = withDelay(
+      300,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration, easing }),
+          withTiming(0.4, { duration, easing })
+        ),
+        -1,
+        false
+      )
+    );
+  }, []);
+
+  const a1 = useAnimatedStyle(() => ({
+    transform: [{ scale: s1.value }],
+    opacity: o1.value,
+  }));
+  const a2 = useAnimatedStyle(() => ({
+    transform: [{ scale: s2.value }],
+    opacity: o2.value,
+  }));
+  const a3 = useAnimatedStyle(() => ({
+    transform: [{ scale: s3.value }],
+    opacity: o3.value,
+  }));
+
+  return (
+    <View style={styles.typingBubbleWrap}>
+      <View style={styles.typingBubble}>
+        <View style={styles.typingDotsRow}>
+          <Animated.View style={[styles.typingDot, a1]} />
+          <Animated.View style={[styles.typingDot, a2]} />
+          <Animated.View style={[styles.typingDot, a3]} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// SCREEN
+// -----------------------------------------------------------------------------
+const STAGE_NAME = "The Focused";
+const PET_NAME = "Cat";
 
 export function TwinChatScreen() {
   const insets = useSafeAreaInsets();
@@ -83,416 +305,589 @@ export function TwinChatScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>(PLACEHOLDER_MESSAGES);
   const [inputText, setInputText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [fadingToneId, setFadingToneId] = useState<string | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
 
-  const headerHeight = insets.top + HEADER_HEIGHT;
-  const inputBarPaddingBottom = SPACING.md + insets.bottom;
+  const listData = useMemo(() => buildListData(messages), [messages]);
+  const inputBarPaddingBottom = Math.max(24, insets.bottom + 10);
 
   const handleClose = () => navigation.goBack();
 
-  const rateTone = useCallback((messageId: string) => {
+  const sendToneRating = useCallback(async (messageId: string, rating: "positive" | "neutral" | "negative") => {
+    try {
+      // Phase 2: await fetch(... POST /api/v1/twin/tone-rating { message_id, rating })
+    } catch (_) {}
+  }, []);
+
+  const rateTone = useCallback(
+    (messageId: string, rating: "positive" | "neutral" | "negative") => {
+      // Defer so native touch completes first — avoids iOS crash when updating state during gesture
+      setTimeout(() => {
+        setFadingToneId(messageId);
+        sendToneRating(messageId, rating);
+      }, 0);
+    },
+    [sendToneRating]
+  );
+
+  const onToneRowFadeEnd = useCallback((messageId: string) => {
     setMessages((prev) =>
-      prev.map((m) => (m.id === messageId && m.role === "twin" ? { ...m, twinRated: true } : m))
+      prev.map((m) => (m.id === messageId && m.role === "twin" ? { ...m, rated: true } : m))
     );
-    // Phase 2: send rating to backend
+    setFadingToneId((id) => (id === messageId ? null : id));
   }, []);
 
   const sendMessage = useCallback(() => {
     const text = inputText.trim();
     if (!text) return;
-
     setInputText("");
     Keyboard.dismiss();
 
     const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: id(),
       role: "user",
       content: text,
-      timestamp: Date.now(),
+      timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [userMsg, ...prev]);
     setIsTyping(true);
 
-    // Phase 1: canned response after delay. Phase 2: LLM with scope enforcement.
+    const response =
+      isOffTopic(text) ? OFF_TOPIC_RESPONSE : CANNED_RESPONSES[Math.floor(Math.random() * CANNED_RESPONSES.length)];
+
     setTimeout(() => {
-      const canned =
-        "That won't make you stronger."; // Scope: off-topic gets this. In-scope could vary.
       const twinMsg: ChatMessage = {
-        id: `twin-${Date.now()}`,
+        id: id(),
         role: "twin",
-        content: canned,
-        timestamp: Date.now(),
+        content: response,
+        timestamp: new Date().toISOString(),
+        rated: false,
       };
       setMessages((prev) => [twinMsg, ...prev]);
       setIsTyping(false);
-    }, CANNED_RESPONSE_DELAY_MS);
+    }, 800);
   }, [inputText]);
 
-  const renderItem: ListRenderItem<ChatMessage> = useCallback(
-    ({ item }) =>
-      item.role === "user" ? (
-        <View style={styles.userBubbleWrap}>
-          <View style={styles.userBubble}>
-            <Text style={styles.bubbleText}>{item.content}</Text>
-            <Text style={styles.timestampRight}>{formatTime(item.timestamp)}</Text>
-          </View>
-        </View>
-      ) : (
-        <View style={styles.twinBubbleWrap}>
-          <View
-            style={[
-              styles.twinBubble,
-              Platform.OS === "ios" ? styles.twinBubbleShadow : null,
-            ]}
-          >
-            <Text style={styles.twinBubbleText}>{item.content}</Text>
-            <Text style={styles.timestampLeft}>{formatTime(item.timestamp)}</Text>
-          </View>
-          {!item.twinRated ? (
-            <View style={styles.toneRow}>
-              <Pressable
-                onPress={() => rateTone(item.id)}
-                style={styles.toneBtn}
-                hitSlop={4}
-              >
-                <Ionicons name="thumbs-up-outline" size={18} color={COLORS.muted} />
-              </Pressable>
-              <Pressable
-                onPress={() => rateTone(item.id)}
-                style={styles.toneBtn}
-                hitSlop={4}
-              >
-                <Ionicons name="remove-outline" size={18} color={COLORS.muted} />
-              </Pressable>
-              <Pressable
-                onPress={() => rateTone(item.id)}
-                style={styles.toneBtn}
-                hitSlop={4}
-              >
-                <Ionicons name="thumbs-down-outline" size={18} color={COLORS.muted} />
-              </Pressable>
-            </View>
-          ) : null}
-        </View>
-      ),
-    [rateTone]
+  const getMarginTop = useCallback(
+    (index: number) => {
+      const item = listData[index];
+      if (item.type !== "message") return 0;
+      const prev = index > 0 ? listData[index - 1] : null;
+      if (!prev || prev.type === "date") return 12;
+      if (prev.type === "message") {
+        if (prev.message.role !== item.message.role) return 12;
+        return 3;
+      }
+      return 12;
+    },
+    [listData]
   );
 
-  const listContentStyle = {
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
-  };
+  const renderItem: ListRenderItem<ListItem> = useCallback(
+    ({ item, index }) => {
+      if (item.type === "date") {
+        return (
+          <View style={styles.dateSep}>
+            <View style={styles.dateLine} />
+            <Text style={styles.dateLabel}>{item.label}</Text>
+            <View style={styles.dateLine} />
+          </View>
+        );
+      }
+      const msg = item.message;
+      const marginTop = getMarginTop(index);
+
+      if (msg.role === "user") {
+        return (
+          <View style={[styles.userBubbleWrap, { marginTop }]}>
+            <LinearGradient
+              colors={["rgba(26,28,68,0.95)", "rgba(18,20,52,0.98)"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.userBubble}
+            >
+              <Text style={styles.userBubbleText}>{msg.content}</Text>
+              <Text style={styles.timestampRight}>{formatTime(msg.timestamp)}</Text>
+            </LinearGradient>
+          </View>
+        );
+      }
+
+      const showToneRow = !msg.rated;
+      return (
+        <View style={[styles.twinBubbleWrap, { marginTop }]}>
+          <View style={styles.twinBubble}>
+            <View style={styles.twinBubbleAccentLine}>
+              <LinearGradient
+                colors={["transparent", "rgba(139,92,246,0.50)", "transparent"]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
+            <View style={styles.twinBubbleTopGlow} />
+            <Text style={styles.twinBubbleText}>{msg.content}</Text>
+            <Text style={styles.timestampLeft}>{formatTime(msg.timestamp)}</Text>
+          </View>
+          {showToneRow && (
+            <ToneRowFadeWrapper
+              isFading={fadingToneId === msg.id}
+              onFadeEnd={() => onToneRowFadeEnd(msg.id)}
+              style={styles.toneRow}
+            >
+              <TouchableOpacity
+                onPress={() => rateTone(msg.id, "positive")}
+                style={styles.toneBtn}
+                activeOpacity={0.6}
+              >
+                <Ionicons name="thumbs-up-outline" size={14} color={MUTED} />
+              </TouchableOpacity>
+              <View style={styles.toneSep} />
+              <TouchableOpacity
+                onPress={() => rateTone(msg.id, "neutral")}
+                style={styles.toneBtn}
+                activeOpacity={0.6}
+              >
+                <Text style={styles.toneBtnDash}>—</Text>
+              </TouchableOpacity>
+              <View style={styles.toneSep} />
+              <TouchableOpacity
+                onPress={() => rateTone(msg.id, "negative")}
+                style={styles.toneBtn}
+                activeOpacity={0.6}
+              >
+                <Ionicons name="thumbs-down-outline" size={14} color={MUTED} />
+              </TouchableOpacity>
+            </ToneRowFadeWrapper>
+          )}
+        </View>
+      );
+    },
+    [getMarginTop, rateTone, fadingToneId]
+  );
+
+  const keyExtractor = useCallback((item: ListItem) => {
+    if (item.type === "date") return item.id;
+    return item.message.id;
+  }, []);
+
+  const headerHeight = 56;
+  const keyboardOffset = insets.top + headerHeight;
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
+      keyboardVerticalOffset={keyboardOffset}
     >
-      <View style={[styles.header, { paddingTop: insets.top, height: headerHeight }]}>
-        <Pressable onPress={handleClose} style={styles.closeBtn} hitSlop={8}>
-          <Ionicons name="close" size={24} color={COLORS.text} />
-        </Pressable>
+      <LinearGradient colors={BG_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+      {/* Atmosphere glow — Spec §3 */}
+      <View style={styles.atmosphere} pointerEvents="none" />
+      <LinearGradient
+        colors={["rgba(80,20,160,0.18)", "transparent"]}
+        style={styles.atmosphereGradient}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      />
 
-        <View style={styles.headerCenter}>
-          <View style={styles.twinThumb} />
-          <View style={styles.headerLabels}>
-            <Text style={styles.headerName}>Shadow Twin</Text>
-            <Text style={styles.headerStage}>The Focused</Text>
+      <View style={styles.main}>
+        {/* Header — Spec §4 left-aligned */}
+        <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+          {Platform.OS === "ios" ? <BlurView intensity={14} tint="dark" style={StyleSheet.absoluteFill} /> : null}
+          <View style={styles.headerRow}>
+            <Pressable onPress={handleClose} style={styles.closeBtn} hitSlop={8}>
+              <Ionicons name="close" size={16} color={MUTED} />
+            </Pressable>
+            <View style={styles.avatarWrap}>
+              <LinearGradient
+                colors={["rgba(110,40,210,0.70)", "rgba(20,15,50,0.95)"]}
+                start={{ x: 0.2, y: 0.2 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.avatarCircle}
+              />
+              <View style={styles.petDot}>
+                <LinearGradient
+                  colors={["rgba(100,40,200,0.80)", "rgba(20,15,50,0.95)"]}
+                  start={{ x: 0.2, y: 0.2 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </View>
+            </View>
+            <View style={styles.nameColumn}>
+              <Text style={styles.headerName}>Shadow Twin</Text>
+              <Text style={styles.headerStage}>{STAGE_NAME} · {PET_NAME}</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      <Pressable style={styles.listWrap} onPress={Keyboard.dismiss}>
-        <FlatList
-          data={messages}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          inverted
-          contentContainerStyle={listContentStyle}
-          showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            isTyping ? (
-              <Animated.View
-                entering={FadeIn.duration(200)}
-                exiting={FadeOut.duration(150)}
-                style={styles.typingWrap}
-              >
-                <TypingDots />
-              </Animated.View>
-            ) : null
-          }
-        />
-      </Pressable>
+        <View style={styles.listWrap} collapsable={false}>
+          <FlatList
+            data={listData}
+            renderItem={renderItem}
+            keyExtractor={keyExtractor}
+            style={styles.list}
+            contentContainerStyle={[styles.listContent, { paddingBottom: inputBarPaddingBottom + 80 }]}
+            showsVerticalScrollIndicator={true}
+            keyboardDismissMode="none"
+            keyboardShouldPersistTaps="handled"
+            ListFooterComponent={
+              isTyping ? (
+                <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
+                  <TypingDots />
+                </Animated.View>
+              ) : null
+            }
+          />
+        </View>
 
+        {/* Input bar — Spec §10 */}
       <View style={[styles.inputBar, { paddingBottom: inputBarPaddingBottom }]}>
+        {Platform.OS === "ios" ? <BlurView intensity={12} tint="dark" style={StyleSheet.absoluteFill} /> : null}
         <TextInput
-          style={styles.input}
+          style={[
+            styles.input,
+            inputFocused ? styles.inputBorderFocused : styles.inputBorder,
+          ]}
           value={inputText}
           onChangeText={setInputText}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           placeholder="Say something..."
-          placeholderTextColor={COLORS.muted}
+          placeholderTextColor="#4B5563"
           multiline={false}
           maxLength={500}
           returnKeyType="send"
           onSubmitEditing={sendMessage}
         />
+        {inputFocused && (
+          <TouchableOpacity
+            onPress={() => Keyboard.dismiss()}
+            style={styles.keyboardDismissBtn}
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-down" size={20} color={MUTED} />
+          </TouchableOpacity>
+        )}
         <Pressable
           onPress={sendMessage}
           disabled={!inputText.trim()}
-          style={[
-            styles.sendBtn,
+          style={({ pressed }) => [
+            styles.sendBtnWrap,
             !inputText.trim() && styles.sendBtnDisabled,
+            pressed && styles.sendBtnPressed,
           ]}
         >
-          <Ionicons
-            name="send"
-            size={18}
-            color={inputText.trim() ? "#FFFFFF" : COLORS.muted}
-          />
+          {inputText.trim() ? (
+            <LinearGradient
+              colors={[VIOLET_DEEP, VIOLET]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.sendBtnGradient}
+            >
+              <Ionicons name="send" size={16} color="#FFFFFF" style={{ transform: [{ rotate: "-45deg" }] }} />
+            </LinearGradient>
+          ) : (
+            <View style={styles.sendBtnDisabledInner}>
+              <Ionicons name="send" size={16} color={DIM} style={{ transform: [{ rotate: "-45deg" }] }} />
+            </View>
+          )}
         </Pressable>
+      </View>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-function TypingDots() {
-  const d1 = useSharedValue(0.6);
-  const d2 = useSharedValue(0.6);
-  const d3 = useSharedValue(0.6);
-
-  React.useEffect(() => {
-    const delay = 150;
-    d1.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 300, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0.6, { duration: 300, easing: Easing.inOut(Easing.ease) })
-      ),
-      -1,
-      false
-    );
-    d2.value = withDelay(
-      delay,
-      withRepeat(
-        withSequence(
-          withTiming(1, { duration: 300, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.6, { duration: 300, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        false
-      )
-    );
-    d3.value = withDelay(
-      delay * 2,
-      withRepeat(
-        withSequence(
-          withTiming(1, { duration: 300, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.6, { duration: 300, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        false
-      )
-    );
-  }, []);
-
-  const a1 = useAnimatedStyle(() => ({ transform: [{ scale: d1.value }] }));
-  const a2 = useAnimatedStyle(() => ({ transform: [{ scale: d2.value }] }));
-  const a3 = useAnimatedStyle(() => ({ transform: [{ scale: d3.value }] }));
-
-  return (
-    <View style={styles.typingBubble}>
-      <View style={styles.typingDotsRow}>
-        <Animated.View style={[styles.typingDot, a1]} />
-        <Animated.View style={[styles.typingDot, a2]} />
-        <Animated.View style={[styles.typingDot, a3]} />
-      </View>
-    </View>
-  );
-}
-
+// -----------------------------------------------------------------------------
+// STYLES
+// -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.bg1,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: SPACING.sm,
-    backgroundColor: HEADER_BG,
-    borderBottomWidth: 1,
-    borderBottomColor: HEADER_BORDER,
-  },
-  closeBtn: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerCenter: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "flex-start",
-    marginLeft: SPACING.sm,
-  },
-  twinThumb: {
-    width: TWIN_THUMB_SIZE,
-    height: TWIN_THUMB_SIZE,
-    borderRadius: TWIN_THUMB_SIZE / 2,
-    backgroundColor: COLORS.violetDeep,
-  },
-  headerLabels: {
-    marginLeft: SPACING.sm,
-  },
-  headerName: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: COLORS.text,
-  },
-  headerStage: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: COLORS.muted,
-    marginTop: 2,
-  },
-  listWrap: {
+  container: { flex: 1 },
+  main: {
     flex: 1,
     minHeight: 0,
   },
-  userBubbleWrap: {
-    alignSelf: "flex-end",
-    maxWidth: BUBBLE_MAX_WIDTH,
-    marginBottom: SPACING.sm,
+  atmosphere: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 160,
+    zIndex: 0,
   },
-  userBubble: {
-    backgroundColor: "#1A2040",
-    borderTopLeftRadius: RADIUS.card,
-    borderTopRightRadius: RADIUS.card,
-    borderBottomRightRadius: RADIUS.card,
-    borderBottomLeftRadius: 4,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    maxWidth: BUBBLE_MAX_WIDTH,
+  atmosphereGradient: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 160,
+    zIndex: 0,
   },
-  bubbleText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    color: COLORS.text,
-  },
-  timestampRight: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: COLORS.muted,
-    marginTop: 4,
-    alignSelf: "flex-end",
-  },
-  twinBubbleWrap: {
-    alignSelf: "flex-start",
-    maxWidth: BUBBLE_MAX_WIDTH,
-    marginBottom: SPACING.sm,
-  },
-  twinBubble: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: COLORS.violet,
-    borderTopLeftRadius: RADIUS.card,
-    borderTopRightRadius: RADIUS.card,
-    borderBottomRightRadius: 4,
-    borderBottomLeftRadius: RADIUS.card,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    maxWidth: BUBBLE_MAX_WIDTH,
-  },
-  twinBubbleShadow: {
-    shadowColor: COLORS.violet,
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: -2, height: 0 },
-    elevation: 4,
-  },
-  twinBubbleText: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    fontStyle: "italic",
-    color: COLORS.text,
-  },
-  timestampLeft: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 11,
-    color: COLORS.muted,
-    marginTop: 4,
-  },
-  toneRow: {
+  header: {
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    backgroundColor: HEADER_BG,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(42,48,80,0.40)",
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    marginTop: SPACING.sm,
+    justifyContent: "flex-start",
+    zIndex: 2,
+    position: "relative",
+    overflow: "hidden",
   },
-  toneBtn: {
-    width: TONE_BUTTON_SIZE,
-    height: TONE_BUTTON_SIZE,
+  headerRow: { flexDirection: "row", alignItems: "center", flex: 1 },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.40)",
     alignItems: "center",
     justifyContent: "center",
   },
-  typingWrap: {
-    alignSelf: "flex-start",
-    marginBottom: SPACING.sm,
+  avatarWrap: {
+    marginLeft: 12,
+    position: "relative",
+    flexShrink: 0,
   },
-  typingBubble: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: COLORS.violet,
-    borderTopLeftRadius: RADIUS.card,
-    borderTopRightRadius: RADIUS.card,
-    borderBottomRightRadius: 4,
-    borderBottomLeftRadius: RADIUS.card,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+  avatarCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1.5,
+    borderColor: "rgba(139,92,246,0.45)",
+    shadowColor: "rgba(109,40,217,0.35)",
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
   },
-  typingDotsRow: {
+  petDot: {
+    position: "absolute",
+    bottom: -2,
+    right: -3,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: "#08091A",
+    overflow: "hidden",
+  },
+  nameColumn: { marginLeft: 10, flex: 1 },
+  headerName: { fontSize: 14, fontWeight: "700", color: USER_TEXT },
+  headerStage: { fontSize: 10, color: MUTED, marginTop: 1 },
+
+  listWrap: { flex: 1, minHeight: 0, zIndex: 1 },
+  list: { flex: 1 },
+  listContent: { paddingHorizontal: 16, paddingVertical: 16 },
+
+  dateSep: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
+    marginVertical: 8,
   },
+  dateLine: { flex: 1, height: 1, backgroundColor: "rgba(42,48,80,0.30)" },
+  dateLabel: {
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "#2D3146",
+  },
+
+  twinBubbleWrap: { alignItems: "flex-start", flexDirection: "column", marginBottom: 0 },
+  twinBubble: {
+    maxWidth: 280,
+    backgroundColor: TWIN_BUBBLE_BG,
+    borderWidth: 1,
+    borderColor: TWIN_BUBBLE_BORDER,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderBottomRightRadius: 16,
+    borderBottomLeftRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 10,
+    position: "relative",
+    overflow: "hidden",
+    shadowColor: "rgba(109,40,217,0.10)",
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  twinBubbleAccentLine: {
+    position: "absolute",
+    left: 0,
+    top: 4,
+    bottom: 4,
+    width: 2,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  twinBubbleTopGlow: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: "rgba(139,92,246,0.08)",
+  },
+  twinBubbleText: {
+    fontSize: 14,
+    fontWeight: "400",
+    color: TWIN_TEXT,
+    fontStyle: "italic",
+    lineHeight: 21.7,
+    letterSpacing: 0.1,
+  },
+  timestampLeft: { fontSize: 10, color: "#374151", marginTop: 5, textAlign: "right" },
+
+  toneRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginTop: 5,
+    marginLeft: 2,
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.30)",
+    borderRadius: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    alignSelf: "flex-start",
+  },
+  toneBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  toneBtnPressed: { backgroundColor: "rgba(139,92,246,0.10)" },
+  toneBtnDash: { fontSize: 12, color: "#4B5563" },
+  toneSep: {
+    width: 1,
+    height: 16,
+    backgroundColor: "rgba(42,48,80,0.40)",
+    marginHorizontal: 2,
+  },
+
+  userBubbleWrap: { alignItems: "flex-end", flexDirection: "column", marginBottom: 0 },
+  userBubble: {
+    maxWidth: 280,
+    borderWidth: 1,
+    borderColor: USER_BUBBLE_BORDER,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderBottomRightRadius: 4,
+    borderBottomLeftRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    shadowColor: "rgba(0,0,0,0.30)",
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  userBubbleText: {
+    fontSize: 14,
+    fontWeight: "400",
+    color: USER_TEXT,
+    lineHeight: 21.7,
+  },
+  timestampRight: { fontSize: 10, color: "#374151", marginTop: 5, textAlign: "right" },
+
+  typingBubbleWrap: { alignItems: "flex-start", marginTop: 12, marginBottom: 8 },
+  typingBubble: {
+    maxWidth: 80,
+    backgroundColor: TWIN_BUBBLE_BG,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.28)",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderBottomRightRadius: 16,
+    borderBottomLeftRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  typingDotsRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   typingDot: {
-    width: TYPING_DOT_SIZE,
-    height: TYPING_DOT_SIZE,
-    borderRadius: TYPING_DOT_SIZE / 2,
-    backgroundColor: COLORS.violet,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: VIOLET,
+  },
+
+  keyboardDismissBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
   inputBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: SPACING.md,
-    paddingTop: 12,
-    backgroundColor: "rgba(20,24,36,0.95)",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    backgroundColor: "rgba(8,9,26,0.92)",
     borderTopWidth: 1,
-    borderTopColor: HEADER_BORDER,
-    gap: SPACING.sm,
+    borderTopColor: "rgba(42,48,80,0.30)",
+    zIndex: 2,
+    position: "relative",
+    overflow: "hidden",
   },
   input: {
     flex: 1,
-    height: INPUT_HEIGHT,
-    backgroundColor: COLORS.surface,
+    backgroundColor: INPUT_BG,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: INPUT_RADIUS,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 12,
-    fontFamily: "Inter_400Regular",
-    fontSize: 15,
-    color: COLORS.text,
+    borderRadius: 22,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    fontSize: 14,
+    color: USER_TEXT,
   },
-  sendBtn: {
-    width: SEND_SIZE,
-    height: SEND_SIZE,
-    borderRadius: SEND_SIZE / 2,
-    backgroundColor: COLORS.violet,
+  inputBorder: { borderColor: INPUT_BORDER },
+  inputBorderFocused: { borderColor: "rgba(139,92,246,0.35)" },
+  sendBtnWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    flexShrink: 0,
+    overflow: "hidden",
+    ...(Platform.OS === "ios"
+      ? { shadowColor: VIOLET, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.45, shadowRadius: 16 }
+      : { elevation: 10 }),
+  },
+  sendBtnGradient: {
+    width: "100%",
+    height: "100%",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.20)",
+    borderRadius: 20,
   },
+  sendBtnPressed: { opacity: 0.93, transform: [{ scale: 0.97 }] },
   sendBtnDisabled: {
-    backgroundColor: COLORS.surface2,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  sendBtnDisabledInner: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(42,48,80,0.40)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 20,
   },
 });

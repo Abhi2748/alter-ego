@@ -176,10 +176,16 @@ This document describes how the current ALTER EGO codebase actually works today 
     - `MainTabs` → `MainTabNavigator`.
     - `Paywall` → `PaywallScreen`.
     - `Settings` → `SettingsScreen`.
-    - `SettingsProfile` → `SettingsProfileScreen`.
+    - `SettingsProfile` → `ProfileEditScreen` (Edit Profile: avatar, username, display name).
+    - `AccountSettings` → `AccountScreen` (Account: signed-in method, connect Apple/Google/Email).
+    - `ContactUs` → `ContactUsScreen`.
+    - `ToneHistory` → `ToneHistoryScreen`.
     - `TwinChat` → `TwinChatScreen`.
     - `RankCard` → `RankCardScreen`.
+    - `PastReportDetail` → `PastReportDetailScreen`.
+    - `JournalList` → `JournalListScreen`.
     - `JournalEditor` → `JournalEditorScreen`.
+    - `JournalCalendar` → `JournalCalendarScreen`.
 
 - **`MainTabNavigator` + `CustomTabBar`**
   - Tabs:
@@ -297,17 +303,24 @@ This document describes how the current ALTER EGO codebase actually works today 
 - **`TwinChatScreen`**
   - UI:
     - Header with Twin avatar placeholder and stage.
-    - Inverted chat list of bubbles.
-    - Typing indicator and tone rating controls below last Twin message.
-    - Input area with text field and send button.
+    - Chat list of bubbles (oldest first) with date separators.
+    - Typing indicator and tone rating controls (👍 / — / 👎) below each unrated Twin message.
+    - Input area with text field and send button; when input is focused, a **chevron-down** button appears to dismiss the keyboard without sending.
+  - **Keyboard behaviour**:
+    - `KeyboardAvoidingView` with `keyboardVerticalOffset` (header height + safe area) so the whole screen shifts up and latest messages stay visible when the keyboard opens.
+    - `keyboardDismissMode="none"` so scrolling the list does not dismiss the keyboard; user can scroll past messages while typing.
+    - Tapping the chevron-down dismisses the keyboard.
+  - **Tone rating (iOS crash fix)**:
+    - Rating handlers run inside `setTimeout(..., 0)` so native touch completes before state updates.
+    - Tone row fade-out uses a mounted ref guard before calling `runOnJS` completion.
+    - Rating buttons use `TouchableOpacity` instead of `Pressable` for more reliable behaviour on iOS.
   - Behaviour (current state):
     - Uses a small local placeholder messages array.
     - On send:
       - Appends the user’s message.
-      - After a delay, appends a canned Twin reply `"That won't make you stronger."`.
+      - After a delay, appends a canned Twin reply or off-topic line.
   - **Not yet integrated**:
-    - There is **no call** to backend `/twin/chat`, even though the backend Twin Chat agent and `twin_chat` table are implemented.
-    - Tone ratings are not persisted.
+    - There is **no call** to backend `/twin/chat`; tone ratings are not persisted.
 
 ### 2.7 Leaderboard and weekly report
 
@@ -393,14 +406,33 @@ This document describes how the current ALTER EGO codebase actually works today 
 
 - **`SettingsScreen`**
   - Rows:
-    - **Profile** → navigates to **`SettingsProfile`** (sub-label: “Edit your information”). Navigation uses `navigation.navigate("SettingsProfile")` (with fallback to `getParent()` if needed).
+    - **Profile** → navigates to **`SettingsProfile`** (uses `ProfileEditScreen`; sub-label: “Edit your information”).
+    - **Account** → navigates to **`AccountSettings`** (uses `AccountScreen`; signed-in method, connect Apple/Google/Email).
     - Notifications (opens OS notification settings).
     - Notification Frequency (segmented control in AsyncStorage; not synced to backend `users.nudge_frequency`).
     - Streak Freezes (display only).
-    - Twin Tone History (opens `ToneHistoryModal` with static sample entries).
+    - **Contact Us** → `ContactUsScreen` (FAQs link, Suggestions/Concerns/Report a Bug open feedback sheet; POST `/api/v1/feedback`).
+    - **Twin Tone History** → `ToneHistoryScreen` (explanation card, positively/neutrally/negatively rated tones, progress bars, current blend, empty state).
     - Subscription (navigates to `PaywallScreen`).
     - **Log out** – full‑width **primary-style gradient button** (same as app CTAs), 52px height; signs out via Supabase and resets nav to SignUp.
   - No longer: Anonymous Mode row, Delete Account row, Preview Milestone Card row (milestone preview lives in Profile → Interests).
+
+- **`ProfileEditScreen`** (Settings → Profile)
+  - **Edit Profile**: shared header + gradient bg (`#09091A` → `#07080F`), surface `#111623`, border `#1A1F30`.
+  - **Avatar**: gradient circle or uploaded photo; **camera badge** is a **separate circle** (32×32) positioned at bottom-right of the avatar, outside the avatar’s clip region, so it is never cut off. Tap avatar or badge opens image picker; upload to Supabase `profiles` bucket `avatars/{userId}`.
+  - **Username**: @ prefix, clear button, 3+ chars, alphanumeric + underscore, `checkUsername`; **Display name** optional.
+  - **Save**: gradient when there are changes, disabled when not; uses `getUserMe`, `patchUserMe`, `checkUsername`. API: `UserMeOut` includes `display_name`, `profile_photo_url`; `PatchUserMePayload` supports those plus `username`.
+
+- **`AccountScreen`** (Settings → Account)
+  - **SIGNED IN AS** card: provider + email, “Manage” link to account management URL.
+  - **CONNECT ANOTHER METHOD**: Apple (SVG icon), Google, Email rows with Connected / Not connected; Apple/Google via `signInWithOAuth`; Email modal for linking.
+
+- **`ContactUsScreen`**
+  - Intro copy; **4 options** in a card: FAQs (opens URL), Suggestions, Concerns, Report a Bug (latter three open a feedback bottom sheet).
+  - **Feedback sheet**: subject (Suggestion/Concern/Bug Report), multiline input, Send disabled until 10+ chars; **KeyboardAvoidingView** wraps the modal so the sheet **moves up with the keyboard** when the user taps to type. POST `/api/v1/feedback` with subject, message, platform, app_version; response-time note in UI.
+
+- **`ToneHistoryScreen`** (Settings → Twin Tone History)
+  - Explanation card; **three sections**: “You responded positively/neutrally/negatively to” with tone rows (emoji, name, “Rated 👍/—/👎 · N times”, 60px progress bar). Only tones with count &gt; 0 shown. **Current blend** from top 2 positive tones (or italic message if &lt; 5 total ratings). **Empty state**: icon + “No ratings yet” when no ratings. Placeholder data (Cold & Direct, Intense & Urgent, Calm & Steady, Aggressive & Harsh). Shared header + gradient bg.
 
 - **`JournalEditorScreen`**
   - Calendar at top and text area beneath.
@@ -419,11 +451,6 @@ This document describes how the current ALTER EGO codebase actually works today 
   - Buttons:
     - “Share Rank Card” – currently logs to console; intended to use view‑shot and platform share sheet.
     - “Regenerate Oracle line” – currently logs; intended to call `/agents/oracle-line`.
-
-- **`SettingsProfileScreen`**
-  - Reached from Settings → Profile row.
-  - Header: back + “Profile” title.
-  - Content: single line **“Edit your information”** (placeholder for future avatar, username, email, etc.). No delete-account or full form in current build.
 
 - **`PaywallScreen`**
   - **Premium layout** (dark gradient `GRADIENTS.backgroundPremium`): Restore (top left), logo icon (centre), headline (“Invest in yourself and achieve your true potential in 66 days.”).
@@ -700,7 +727,7 @@ This section lists the key reusable components and what they do for the user.
 
 - **Miscellaneous**
   - `SecondaryButton` – outlined / secondary style button.
-  - `ToneHistoryModal` – modal listing historical Twin tone changes (static placeholder).
+  - `ToneHistoryModal` – legacy modal for tone history; Settings now uses full-screen `ToneHistoryScreen` instead.
   - `WhatWeLearnedModal` – modal for “What we learned about you” at day 14 (not yet wired).
 
 ---
@@ -830,4 +857,17 @@ Backend routes: `alter-ego-backend/main.py` includes `user` router (line 4, 24).
 | **Settings – Logout button** | `alter-ego-mobile/src/screens/SettingsScreen.tsx` | **Log out** is a full‑width **gradient primary button** (52px, `GRADIENTS.button`), same style as app CTAs; previously undefined styles made it small/black. |
 | **MainStack – SettingsProfile** | `alter-ego-mobile/src/navigation/MainStack.tsx` | Already had `SettingsProfile` screen; doc and Settings nav updated so Profile row opens it correctly. |
 | **Paywall – premium redesign** | `alter-ego-mobile/src/screens/PaywallScreen.tsx` | **Redesigned**: premium dark gradient; Restore (top left), logo icon (centre); headline; **timeline** (3 steps with violet circles + connector); **two plan cards** (MONTHLY / YEARLY, YEARLY with “7 DAYS FREE” badge and strikethrough + $4.16/mo, radio selection); “No Payment Due Now”; CTA “Start My 7-Day Free Trial”; footer disclaimer and Terms \| Privacy links. |
+
+### 7.6 Settings sub-screens, Twin Chat keyboard/rating, Profile Edit camera, Contact Us keyboard
+
+| Change | Location | Details |
+|--------|----------|---------|
+| **Settings → Profile** | `alter-ego-mobile/src/screens/ProfileEditScreen.tsx`, `MainStack.tsx` | **ProfileEditScreen** replaces SettingsProfileScreen for route `SettingsProfile`. Edit Profile: avatar (gradient or photo), **camera badge as separate circle** (see below), username (@, clear, 3+ chars, checkUsername), display name optional, Save (gradient when changes). Uses `getUserMe`, `patchUserMe`, `checkUsername`; `UserMeOut`/`PatchUserMePayload` extended with `display_name`, `profile_photo_url`. |
+| **Profile Edit – camera badge** | `alter-ego-mobile/src/screens/ProfileEditScreen.tsx` | Camera icon was clipped by avatar circle’s `overflow: hidden`. **Fix**: avatar and badge live in `avatarAndBadgeWrap` (relative, 88×88). Avatar circle is one child (overflow hidden); **camera badge is a sibling** positioned `bottom: -2`, `right: -2`, 32×32 circle with border `#09091A`, violet gradient, shadow, so the badge is fully visible and tappable. |
+| **Settings → Account** | `alter-ego-mobile/src/screens/AccountScreen.tsx`, `MainStack.tsx` | **AccountScreen** replaces AccountSettingsScreen for route `AccountSettings`. SIGNED IN AS card (provider + email, Manage link); CONNECT ANOTHER METHOD with Apple (SVG), Google, Email rows (Connected/Not connected); Apple/Google via OAuth, Email modal for linking. |
+| **Settings → Contact Us** | `alter-ego-mobile/src/screens/ContactUsScreen.tsx` | Intro; 4 options: FAQs (URL), Suggestions, Concerns, Report a Bug. Feedback sheet: subject, multiline input, Send disabled until 10+ chars; **KeyboardAvoidingView** wraps the modal so the **sheet moves up with the keyboard** when the user taps to type. POST `/api/v1/feedback`. |
+| **Settings → Tone History** | `alter-ego-mobile/src/screens/ToneHistoryScreen.tsx`, `MainStack.tsx` | **ToneHistoryScreen** (route `ToneHistory`): explanation card; three sections (positively/neutrally/negatively rated); tone rows (emoji, name, “Rated 👍/—/👎 · N times”, 60px progress bar); current blend from top 2 positive; empty state. Only tones with count &gt; 0 shown. |
+| **MainStack – new screens** | `alter-ego-mobile/src/navigation/MainStack.tsx` | `SettingsProfile` → `ProfileEditScreen`; `AccountSettings` → `AccountScreen`. Imports updated; route names unchanged. SettingsScreen still navigates to SettingsProfile, AccountSettings, ContactUs, ToneHistory. |
+| **Twin Chat – keyboard** | `alter-ego-mobile/src/screens/TwinChatScreen.tsx` | **KeyboardAvoidingView** with `keyboardVerticalOffset` (header + safe area) so screen shifts up and latest messages visible when keyboard opens. `keyboardDismissMode="none"` so scrolling does not dismiss keyboard. **Chevron-down** button (when input focused) dismisses keyboard without sending. |
+| **Twin Chat – rating crash (iOS)** | `alter-ego-mobile/src/screens/TwinChatScreen.tsx` | Rating tap could close the app on iOS. **Fixes**: (1) `rateTone` defers state update with `setTimeout(..., 0)`. (2) `ToneRowFadeWrapper` uses mounted ref and only calls `onFadeEnd` via `runOnJS` when mounted. (3) Rating buttons use `TouchableOpacity` instead of `Pressable`. |
 

@@ -26,7 +26,8 @@ This document describes how the current ALTER EGO codebase actually works today 
     1. `OnboardingFramingScreen` – philosophy framing and CTA.
     2. `OnboardingQuestionScreen` – reused for all 13 questions, driven by a questions constant.
     3. `ArchetypeRevealScreen` – reveals archetype and Twin’s first line.
-    4. `TwinIntroductionScreen` – sets up the rivalry and 14‑day framing; on Begin it resets the stack to the main tabs.
+    4. `Onboarding14DayScreen` – “Your first 7 days we learn how you work best.” plus privacy line; CTA continues to Twin intro.
+    5. `TwinIntroductionScreen` – sets up the rivalry; on Begin it resets the stack to the main tabs.
   - On the final onboarding question:
     - The screen collects all answers from `OnboardingAnswersContext`.
     - It calls `POST /api/v1/onboarding` with:
@@ -158,12 +159,16 @@ This document describes how the current ALTER EGO codebase actually works today 
   - Uses `archetypeContent` from context, which is only available after a successful onboarding POST.
   - CTA “Enter →” transitions to `TwinIntroductionScreen`.
 
+- **`Onboarding14DayScreen`**
+  - Shown after Archetype Reveal, before Twin Introduction.
+  - **Premium background gradient**, particle dots.
+  - Heading: “Your first 7 days we learn how you work best.” Subheading and privacy line; **Continue →** goes to `TwinIntroductionScreen`.
+
 - **`TwinIntroductionScreen`**
   - **Premium background gradient** for pre‑Main consistency.
   - Visualizes the rivalry:
     - Left side “You”, right side “Your Twin one week ahead”.
-    - Fracture line, short copy about the 14‑day learning window.
-    - Twin first line from archetype data or a default.
+    - Fracture line and Twin first line from archetype data or a default.
   - **Begin** button:
     - Performs a navigation reset so that the root stack now only contains `Main`.
     - From this point, the user is in the daily usage loop.
@@ -414,8 +419,9 @@ This document describes how the current ALTER EGO codebase actually works today 
     - **Contact Us** → `ContactUsScreen` (FAQs link, Suggestions/Concerns/Report a Bug open feedback sheet; POST `/api/v1/feedback`).
     - **Twin Tone History** → `ToneHistoryScreen` (explanation card, positively/neutrally/negatively rated tones, progress bars, current blend, empty state).
     - Subscription (navigates to `PaywallScreen`).
+    - **Shareable cards** (or equivalent) → **`ShareableCardsPreviewScreen`**: preview **6 title cards** (Rank 1–4 + Twin ahead/You ahead), **8 interest milestone cards**, **8 quit milestone cards** for design review.
     - **Log out** – full‑width **primary-style gradient button** (same as app CTAs), 52px height; signs out via Supabase and resets nav to SignUp.
-  - No longer: Anonymous Mode row, Delete Account row, Preview Milestone Card row (milestone preview lives in Profile → Interests).
+  - No longer: Anonymous Mode row, Delete Account row, single Preview Milestone Card row (replaced by full Shareable cards preview with all variants).
 
 - **`ProfileEditScreen`** (Settings → Profile)
   - **Edit Profile**: shared header + gradient bg (`#09091A` → `#07080F`), surface `#111623`, border `#1A1F30`.
@@ -870,4 +876,14 @@ Backend routes: `alter-ego-backend/main.py` includes `user` router (line 4, 24).
 | **MainStack – new screens** | `alter-ego-mobile/src/navigation/MainStack.tsx` | `SettingsProfile` → `ProfileEditScreen`; `AccountSettings` → `AccountScreen`. Imports updated; route names unchanged. SettingsScreen still navigates to SettingsProfile, AccountSettings, ContactUs, ToneHistory. |
 | **Twin Chat – keyboard** | `alter-ego-mobile/src/screens/TwinChatScreen.tsx` | **KeyboardAvoidingView** with `keyboardVerticalOffset` (header + safe area) so screen shifts up and latest messages visible when keyboard opens. `keyboardDismissMode="none"` so scrolling does not dismiss keyboard. **Chevron-down** button (when input focused) dismisses keyboard without sending. |
 | **Twin Chat – rating crash (iOS)** | `alter-ego-mobile/src/screens/TwinChatScreen.tsx` | Rating tap could close the app on iOS. **Fixes**: (1) `rateTone` defers state update with `setTimeout(..., 0)`. (2) `ToneRowFadeWrapper` uses mounted ref and only calls `onFadeEnd` via `runOnJS` when mounted. (3) Rating buttons use `TouchableOpacity` instead of `Pressable`. |
+
+### 7.7 Shareable cards preview, Q13, Rank/Leaderboard accent, Twin Chat import, 7-day copy
+
+| Change | Location | Details |
+|--------|----------|---------|
+| **Title / Rank / Twin cards – semi-circle unchanged** | `alter-ego-mobile/src/screens/RankCardScreen.tsx`, `LeaderboardScreen.tsx` | **Rank card**: The ambient glow (semi-circle at top centre) no longer uses gold/silver/bronze; it always uses `RANK_CARD_THEME.default.glowColor` (violet). **Leaderboard** top-3 rows: The thin accent line at the top of each card uses a fixed violet gradient instead of rank-based accent colours so the semi-circle/top line stays one colour. |
+| **Shareable cards preview – full variant list** | `alter-ego-mobile/src/screens/ShareableCardsPreviewScreen.tsx` | **Removed**: Single “Milestone achievement card” preview (MilestoneAchievementCard). **Added**: (1) **Title cards (6)** – buttons 1–4 open Rank Card (Gold, Silver, Bronze, Default); 5–6 open Twin Comparison (Twin ahead, You ahead). (2) **Interest milestone cards (8)** – buttons 1–8 open `MilestoneDetailModal` with mock `MilestoneOut` (milestone_number 1–8) so all 8 interest card themes can be reviewed. (3) **Quit target milestone cards (8)** – Day 1, Day 3, Day 7, Day 14, Day 30, Day 60, Comeback, Conquered open `QuitMilestoneModal` with mock `QuitMilestoneOut` so all 8 quit card themes can be reviewed. Helpers: `getInterestMilestoneMock(n)`, `getQuitMilestoneMock(type)`; state: `interestPreviewNumber`, `quitPreviewType`. |
+| **Q13 – hero value and slider alignment** | `alter-ego-mobile/src/screens/OnboardingQuestionScreen.tsx` | **Hero card**: Value (“3h”) and label centred in the box via `alignItems: "center"`, `justifyContent: "center"` on the card and `textAlign: "center"` on value/label. **Slider**: Track (5px) and thumb (26px) vertically centred in the 24px track wrap so the pointer sits on the line: `q13TrackBg` / `q13TrackFill` use `top: (24 - 5) / 2`; `q13Thumb` uses `top: (24 - 26) / 2`. |
+| **Twin Chat – useEffect import** | `alter-ego-mobile/src/screens/TwinChatScreen.tsx` | **Fix**: Added `useEffect` to the React import to resolve `ReferenceError: Property 'useEffect' doesn't exist` when opening Twin Chat. |
+| **Onboarding 14-day screen – 7-day copy** | `alter-ego-mobile/src/screens/Onboarding14DayScreen.tsx` | Heading copy changed from “Your first 14 days we learn how you work best.” to **“Your first 7 days we learn how you work best.”** (screen still named Onboarding14Day in nav/types). |
 

@@ -102,7 +102,7 @@ function ParticleDot({ config }: { config: ParticleConfig }) {
 }
 import type { OnboardingStackParamList } from "../navigation/types";
 import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
-import type { OnboardingAnswers, OnboardingInterestItem } from "../context/OnboardingAnswersContext";
+import type { OnboardingAnswers, OnboardingInterest, OnboardingQuitTarget } from "../context/OnboardingAnswersContext";
 import { COLORS, SPACING, RADIUS, GRADIENTS, SHADOWS } from "../constants/theme";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../utils/supabase";
@@ -120,25 +120,19 @@ type Nav = StackNavigationProp<OnboardingStackParamList, "ArchetypeReveal">;
 type Route = RouteProp<OnboardingStackParamList, "ArchetypeReveal">;
 
 function buildOnboardingPayload(answers: OnboardingAnswers) {
-  const interestItems = (answers.interestItems ?? []) as OnboardingInterestItem[];
-  const interests = interestItems.length > 0
-    ? interestItems.map((i) => i.name)
-    : (answers.interests ?? []);
+  const interestsList = (answers.interests ?? []) as OnboardingInterest[];
+  const interests = interestsList.map((i) => i.name);
   const interest_levels =
-    interestItems.length > 0
-      ? interestItems.map((i) => ({
+    interestsList.length > 0
+      ? interestsList.map((i) => ({
           interest: i.name,
           level: i.level,
-          learning_goal: i.learning_goal || undefined,
+          learning_goal: i.goal || undefined,
           schedule: i.schedule && i.schedule.length > 0 ? i.schedule : undefined,
         }))
       : undefined;
-  let quit_targets = (answers.quitTargets ?? []) as string[];
-  if (quit_targets.includes("Something else") && answers.quitOther?.trim()) {
-    quit_targets = quit_targets.map((x) =>
-      x === "Something else" ? (answers.quitOther as string).trim() : x
-    );
-  }
+  const quitTargetsList = (answers.quitTargets ?? []) as OnboardingQuitTarget[];
+  const quit_targets = quitTargetsList.map((q) => q.name);
   return {
     answers: {
       username: answers.username,

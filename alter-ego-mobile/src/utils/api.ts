@@ -479,7 +479,7 @@ export async function getJournalEntries(
   return res.json();
 }
 
-// Interests (Profile → Interests)
+// Interests (Profile → Interests). Spec §7.
 export type InterestProgressOut = {
   interest: string;
   total_xp: number;
@@ -488,7 +488,65 @@ export type InterestProgressOut = {
   learning_goal?: string | null;
   schedule?: number[] | null;
 };
-export type InterestsOut = { interests: InterestProgressOut[] };
+
+export type MilestoneOut = {
+  id: string;
+  milestone_number: number;
+  name: string;
+  trigger_label: string;
+  earned_at: string | null;
+  is_unlocked: boolean;
+  sessions_at_earn: number | null;
+  xp_at_earn: number | null;
+  xp_total_at_earn: number | null;
+  streak_at_earn: number | null;
+  tier_at_earn: string | null;
+  quote: string | null;
+};
+
+export type InterestOut = {
+  id: string;
+  interest_name: string;
+  interest_description: string;
+  level: number;
+  current_xp: number;
+  xp_for_next_level: number;
+  schedule_days: string[];
+  total_sessions: number;
+  tier: "easy" | "medium" | "hard";
+  goal_description: string;
+  milestones: MilestoneOut[];
+};
+
+export type InterestsOut = { interests: InterestOut[] };
+
+const INTEREST_LEVEL_THRESHOLDS = [0, 200, 600, 1400, 3000, 6000, 11000, 18000, 28000, 42000];
+const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+function rowToInterestOut(row: Record<string, unknown>): InterestOut {
+  const interest = String(row.interest ?? row.interest_name ?? "");
+  const level = Number(row.level ?? 1);
+  const totalXp = Number(row.total_xp ?? row.current_xp ?? 0);
+  const nextThreshold = INTEREST_LEVEL_THRESHOLDS[level] ?? 42000;
+  const schedule = row.schedule_days ?? row.schedule;
+  const scheduleDays = Array.isArray(schedule)
+    ? schedule.map((i: number | string) => (typeof i === "number" ? DAY_KEYS[i] : String(i)))
+    : [];
+  const milestones = (row.milestones as MilestoneOut[] | undefined) ?? [];
+  return {
+    id: String(row.id ?? interest),
+    interest_name: interest,
+    interest_description: String(row.interest_description ?? row.learning_goal ?? ""),
+    level,
+    current_xp: totalXp,
+    xp_for_next_level: nextThreshold,
+    schedule_days: scheduleDays,
+    total_sessions: Number(row.total_sessions ?? row.session_count ?? 0),
+    tier: (row.tier as "easy" | "medium" | "hard") ?? "medium",
+    goal_description: String(row.goal_description ?? row.learning_goal ?? ""),
+    milestones,
+  };
+}
 
 export async function getInterests(accessToken: string): Promise<InterestsOut> {
   if (apiMock) return apiMock.getInterests(accessToken);
@@ -498,6 +556,36 @@ export async function getInterests(accessToken: string): Promise<InterestsOut> {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Get interests failed: ${res.status}`);
+  }
+  const data = await res.json();
+  const raw = data.interests ?? [];
+  const interests: InterestOut[] = raw.map((row: Record<string, unknown>) => rowToInterestOut(row));
+  return { interests };
+}
+
+export type PostInterestPayload = {
+  interest_description: string;
+  interest_level: string;
+  goal_description: string;
+  schedule_days: number[];
+};
+
+export async function postInterest(
+  accessToken: string,
+  payload: PostInterestPayload
+): Promise<{ success: boolean; interest?: InterestOut }> {
+  if (apiMock) return apiMock.postInterest(accessToken, payload);
+  const res = await fetch(`${BASE}/api/v1/interests`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Create interest failed: ${res.status}`);
   }
   return res.json();
 }
@@ -519,6 +607,187 @@ export async function patchInterest(
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Patch interest failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function putInterestGoal(
+  accessToken: string,
+  interestId: string,
+  payload: {
+    new_goal: string;
+    progress_level: "just_started" | "part_way" | "almost_there";
+    progress_detail?: string;
+  }
+): Promise<{ success: boolean }> {
+  if (apiMock) return apiMock.putInterestGoal(accessToken, interestId, payload);
+  const res = await fetch(`${BASE}/api/v1/interests/${encodeURIComponent(interestId)}/goal`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Update goal failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function putInterestDifficulty(
+  accessToken: string,
+  interestId: string,
+  payload: { tier: "easy" | "medium" | "hard" }
+): Promise<{ success: boolean }> {
+  if (apiMock) return apiMock.putInterestDifficulty(accessToken, interestId, payload);
+  const res = await fetch(`${BASE}/api/v1/interests/${encodeURIComponent(interestId)}/difficulty`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Update difficulty failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function putInterestSchedule(
+  accessToken: string,
+  interestId: string,
+  payload: { days: string[] }
+): Promise<{ success: boolean }> {
+  if (apiMock) return apiMock.putInterestSchedule(accessToken, interestId, payload);
+  const res = await fetch(`${BASE}/api/v1/interests/${encodeURIComponent(interestId)}/schedule`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Update schedule failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteInterest(
+  accessToken: string,
+  interestId: string
+): Promise<{ success: boolean }> {
+  if (apiMock) return apiMock.deleteInterest(accessToken, interestId);
+  const res = await fetch(`${BASE}/api/v1/interests/${encodeURIComponent(interestId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Delete interest failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// -----------------------------------------------------------------------------
+// Quit targets (Profile → Quits). Spec §8.
+// -----------------------------------------------------------------------------
+export type QuitMilestoneOut = {
+  id: string;
+  milestone_type: string;
+  earned_at: string | null;
+  is_unlocked: boolean;
+  clean_days_at_earn: number | null;
+  cravings_at_earn: number | null;
+  phase_at_earn: string | null;
+  days_away: number | null;
+  quote: string | null;
+  slip_duration_hours: number | null;
+  return_speed: "strong" | "good" | null;
+};
+
+export type QuitTargetOut = {
+  id: string;
+  quit_description: string;
+  quit_name: string;
+  trigger_description: string;
+  underlying_need: string;
+  need_category: string;
+  status: "active" | "conquered" | "paused";
+  started_at: string;
+  current_clean_streak: number;
+  best_clean_streak: number;
+  total_clean_days: number;
+  slip_count: number;
+  cravings_resisted: number;
+  current_phase: string;
+  days_in_current_phase: number;
+  conquered_at: string | null;
+  last_active_date?: string | null;
+  milestones: QuitMilestoneOut[];
+};
+
+export type QuitTargetsOut = { targets: QuitTargetOut[] };
+
+export async function getQuitTargets(accessToken: string): Promise<QuitTargetsOut> {
+  if (apiMock) return apiMock.getQuitTargets(accessToken);
+  const res = await fetch(`${BASE}/api/v1/quit-targets`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Get quit targets failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export type PostQuitTargetPayload = {
+  quit_description: string;
+  trigger_description: string;
+};
+
+export async function postQuitTarget(
+  accessToken: string,
+  payload: PostQuitTargetPayload
+): Promise<{ success: boolean; target?: QuitTargetOut }> {
+  if (apiMock) return apiMock.postQuitTarget(accessToken, payload);
+  const res = await fetch(`${BASE}/api/v1/quit-targets`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Create quit target failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function postQuitTargetConquer(
+  accessToken: string,
+  targetId: string,
+  payload: { conquered_at: string; final_clean_days: number; cravings_resisted: number }
+): Promise<{ success: boolean }> {
+  if (apiMock) return apiMock.postQuitTargetConquer(accessToken, targetId, payload);
+  const res = await fetch(`${BASE}/api/v1/quit-targets/${encodeURIComponent(targetId)}/conquer`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Conquer quit target failed: ${res.status}`);
   }
   return res.json();
 }

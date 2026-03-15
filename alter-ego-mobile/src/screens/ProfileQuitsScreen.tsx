@@ -1,6 +1,6 @@
 /**
- * Profile → Interests. Header + ProfileInterestsTab (interest cards, milestones, add/edit sheets).
- * Spec: Interests tab with premium dark cinematic UI.
+ * Profile → Quits. Header + ProfileQuitsTab (quit cards, add, conquer, slip recovery).
+ * Spec: Quits tab with ember/amber accent. No schedule. No shame.
  */
 
 import React, { useState, useCallback } from "react";
@@ -9,26 +9,23 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ProfileInterestsTab } from "./ProfileInterestsTab";
+import { ProfileQuitsTab } from "./ProfileQuitsTab";
 import { supabase } from "../utils/supabase";
 import {
-  getInterests,
-  postInterest,
-  putInterestGoal,
-  putInterestDifficulty,
-  putInterestSchedule,
-  deleteInterest,
-  type InterestOut,
-  type PostInterestPayload,
+  getQuitTargets,
+  postQuitTarget,
+  postQuitTargetConquer,
+  type QuitTargetOut,
+  type PostQuitTargetPayload,
 } from "../utils/api";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const TEXT = "#E5E7EB";
 
-export function ProfileInterestsScreen() {
+export function ProfileQuitsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [interests, setInterests] = useState<InterestOut[]>([]);
+  const [targets, setTargets] = useState<QuitTargetOut[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refetch = useCallback(async () => {
@@ -37,13 +34,13 @@ export function ProfileInterestsScreen() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) {
-        setInterests([]);
+        setTargets([]);
         return;
       }
-      const res = await getInterests(session.access_token);
-      setInterests(res.interests ?? []);
+      const res = await getQuitTargets(session.access_token);
+      setTargets(res.targets ?? []);
     } catch (_) {
-      setInterests([]);
+      setTargets([]);
     } finally {
       setLoading(false);
     }
@@ -56,58 +53,34 @@ export function ProfileInterestsScreen() {
     }, [refetch])
   );
 
-  const handleAddInterest = useCallback(async (payload: PostInterestPayload) => {
+  const handleAddQuit = useCallback(async (payload: PostQuitTargetPayload) => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.access_token) throw new Error("Not signed in");
-    await postInterest(session.access_token, payload);
+    await postQuitTarget(session.access_token, payload);
   }, []);
 
-  const handleEditGoal = useCallback(
+  const handleConquer = useCallback(
     async (
-      interestId: string,
-      payload: { new_goal: string; progress_level: string; progress_detail?: string }
+      targetId: string,
+      payload: { conquered_at: string; final_clean_days: number; cravings_resisted: number }
     ) => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Not signed in");
-      await putInterestGoal(session.access_token, interestId, {
-        new_goal: payload.new_goal,
-        progress_level: payload.progress_level as "just_started" | "part_way" | "almost_there",
-        progress_detail: payload.progress_detail,
-      });
+      await postQuitTargetConquer(session.access_token, targetId, payload);
     },
     []
   );
 
-  const handleEditDifficulty = useCallback(
-    async (interestId: string, tier: "easy" | "medium" | "hard") => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not signed in");
-      await putInterestDifficulty(session.access_token, interestId, { tier });
+  const handleOpenTwinChat = useCallback(
+    (initialMessage: string) => {
+      (navigation.getParent() as any)?.navigate("TwinChat", { initialMessage });
     },
-    []
+    [navigation]
   );
-
-  const handleEditSchedule = useCallback(async (interestId: string, days: string[]) => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Not signed in");
-    await putInterestSchedule(session.access_token, interestId, { days });
-  }, []);
-
-  const handleDeleteInterest = useCallback(async (interestId: string) => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Not signed in");
-    await deleteInterest(session.access_token, interestId);
-  }, []);
 
   return (
     <LinearGradient
@@ -120,23 +93,21 @@ export function ProfileInterestsScreen() {
         <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
           <Ionicons name="chevron-back" size={22} color="#6B7280" />
         </Pressable>
-        <Text style={styles.title}>Interests</Text>
+        <Text style={styles.title}>Quits</Text>
         <View style={styles.headerRight} />
       </View>
 
-      {loading && interests.length === 0 ? (
+      {loading && targets.length === 0 ? (
         <View style={styles.loadingWrap}>
           <Text style={styles.loadingText}>Loading…</Text>
         </View>
       ) : (
-        <ProfileInterestsTab
-          interests={interests}
+        <ProfileQuitsTab
+          targets={targets}
           onRefetch={refetch}
-          onAddInterest={handleAddInterest}
-          onEditGoal={handleEditGoal}
-          onEditDifficulty={handleEditDifficulty}
-          onEditSchedule={handleEditSchedule}
-          onDeleteInterest={handleDeleteInterest}
+          onAddQuit={handleAddQuit}
+          onConquer={handleConquer}
+          onOpenTwinChat={handleOpenTwinChat}
         />
       )}
     </LinearGradient>

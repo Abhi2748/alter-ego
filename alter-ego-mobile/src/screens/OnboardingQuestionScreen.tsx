@@ -39,11 +39,12 @@ import {
   genderOptionToValue,
 } from "../constants/onboardingQuestions";
 import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
-import type { OnboardingAnswers, OnboardingInterestItem } from "../context/OnboardingAnswersContext";
+import type { OnboardingAnswers, OnboardingInterest, OnboardingQuitTarget } from "../context/OnboardingAnswersContext";
 import { OnboardingProgressBar } from "../components/OnboardingProgressBar";
 import { OnboardingOptionCard } from "../components/OnboardingOptionCard";
 import { OnboardingSlider } from "../components/OnboardingSlider";
-import { AddInterestOnboardingModal } from "../components/AddInterestOnboardingModal";
+import { InterestWizardSheet } from "../components/InterestWizardSheet";
+import { QuitWizardSheet } from "../components/QuitWizardSheet";
 import { checkUsername } from "../utils/api";
 import { COLORS, SPACING, RADIUS, ANIMATIONS, SHADOWS, GRADIENTS } from "../constants/theme";
 
@@ -159,9 +160,16 @@ export function OnboardingQuestionScreen() {
   const animationStartedRef = useRef(false);
   const [incomingContentHeight, setIncomingContentHeight] = useState(0);
   const [addInterestModalVisible, setAddInterestModalVisible] = useState(false);
+  const [wizardInterestName, setWizardInterestName] = useState("");
+  const [interestInputText, setInterestInputText] = useState("");
+  const [quitSheetVisible, setQuitSheetVisible] = useState(false);
+  const [wizardQuitName, setWizardQuitName] = useState("");
+  const [quitInputText, setQuitInputText] = useState("");
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [usernameChecking, setUsernameChecking] = useState(false);
+  const [usernameFocused, setUsernameFocused] = useState(false);
 
+  const q13TrackWidthRef = useRef(0);
   const randomUsernameRef = useRef<string | null>(null);
   if (randomUsernameRef.current === null) {
     const words = ["shadow", "steady", "quiet", "bold", "swift", "ember", "pulse", "strider", "runner"];
@@ -268,12 +276,12 @@ export function OnboardingQuestionScreen() {
     }
   }, [currentQuestionIndex, defaultUsername, getAnswer, updateAnswer]);
 
-  // Set default slider value when landing on Q13 so Next is enabled
+  // Set default slider value when landing on Q13 so Next is enabled (default 1.0h)
   useEffect(() => {
     if (currentQuestionIndex !== 13 || !config?.sliderRange) return;
     const existing = getAnswer("dailyHours");
     if (existing === undefined) {
-      updateAnswer("dailyHours", config.sliderRange[0]);
+      updateAnswer("dailyHours", 1.0);
     }
   }, [currentQuestionIndex]);
 
@@ -298,18 +306,10 @@ export function OnboardingQuestionScreen() {
       return u.trim().length > 0;
     }
     if (isInterestsAdd) {
-      const items = (getAnswer("interestItems") as OnboardingInterestItem[] | undefined) ?? [];
+      const items = (getAnswer("interests") as OnboardingInterest[] | undefined) ?? [];
       return items.length >= 1;
     }
-    if (isQuitWithOther) {
-      const current = (getAnswer("quitTargets") as string[] | undefined) ?? [];
-      if (current.length === 0) return false;
-      if (current.includes("Something else")) {
-        const other = (getAnswer("quitOther") as string) ?? "";
-        return other.trim().length > 0;
-      }
-      return true;
-    }
+    if (isQuitWithOther) return true;
     if (isSlider) return typeof currentAnswer === "number";
     if (isMulti) {
       if (!Array.isArray(currentAnswer) || currentAnswer.length === 0) return false;
@@ -340,7 +340,6 @@ export function OnboardingQuestionScreen() {
     }
     const snapshot: OnboardingAnswers = {
       ...answers,
-      interestItems: answers.interestItems ? [...answers.interestItems] : undefined,
       interests: answers.interests ? [...answers.interests] : undefined,
       quitTargets: answers.quitTargets ? [...answers.quitTargets] : undefined,
     };
@@ -359,7 +358,6 @@ export function OnboardingQuestionScreen() {
     }
     const snapshot: OnboardingAnswers = {
       ...answers,
-      interestItems: answers.interestItems ? [...answers.interestItems] : undefined,
       interests: answers.interests ? [...answers.interests] : undefined,
       quitTargets: answers.quitTargets ? [...answers.quitTargets] : undefined,
     };
@@ -390,22 +388,6 @@ export function OnboardingQuestionScreen() {
       const key = config.answerKey as keyof OnboardingAnswers;
       const current = (getAnswer(key) as string[]) ?? [];
 
-      if (config.answerKey === "quitTargets") {
-        const nothingOption = "Nothing right now";
-        const hasNothing = current.includes(nothingOption);
-        const isSelectingNothing = option === nothingOption;
-
-        if (current.includes(option)) {
-          updateAnswer(key, current.filter((x) => x !== option));
-          if (option === "Something else") updateAnswer("quitOther", "");
-          return;
-        }
-        if (isSelectingNothing && current.length > 0) return;
-        if (hasNothing && !isSelectingNothing) return;
-        updateAnswer(key, [...current, option]);
-        return;
-      }
-
       const next = current.includes(option)
         ? current.filter((x) => x !== option)
         : [...current, option];
@@ -426,22 +408,51 @@ export function OnboardingQuestionScreen() {
   );
 
   const handleAddInterest = useCallback(
-    (item: OnboardingInterestItem) => {
-      const prev = (getAnswer("interestItems") as OnboardingInterestItem[] | undefined) ?? [];
-      updateAnswer("interestItems", [...prev, item]);
-      const names = (getAnswer("interests") as string[] | undefined) ?? [];
-      updateAnswer("interests", [...names, item.name]);
+    (item: OnboardingInterest) => {
+      const prev = (getAnswer("interests") as OnboardingInterest[] | undefined) ?? [];
+      updateAnswer("interests", [...prev, item]);
+      setInterestInputText("");
+      setWizardInterestName("");
+      setAddInterestModalVisible(false);
     },
     [getAnswer, updateAnswer]
   );
 
+  const openInterestWizard = useCallback((name: string) => {
+    setWizardInterestName(name);
+    setAddInterestModalVisible(true);
+  }, []);
+
   const handleRemoveInterest = useCallback(
     (index: number) => {
-      const prev = (getAnswer("interestItems") as OnboardingInterestItem[] | undefined) ?? [];
+      const prev = (getAnswer("interests") as OnboardingInterest[] | undefined) ?? [];
       const next = prev.filter((_, i) => i !== index);
-      updateAnswer("interestItems", next.length ? next : undefined);
-      const names = next.map((x) => x.name);
-      updateAnswer("interests", names.length ? names : undefined);
+      updateAnswer("interests", next.length ? next : undefined);
+    },
+    [getAnswer, updateAnswer]
+  );
+
+  const handleAddQuit = useCallback(
+    (quit: OnboardingQuitTarget) => {
+      const prev = (getAnswer("quitTargets") as OnboardingQuitTarget[] | undefined) ?? [];
+      updateAnswer("quitTargets", [...prev, quit]);
+      setQuitInputText("");
+      setWizardQuitName("");
+      setQuitSheetVisible(false);
+    },
+    [getAnswer, updateAnswer]
+  );
+
+  const openQuitWizard = useCallback((name: string) => {
+    setWizardQuitName(name);
+    setQuitSheetVisible(true);
+  }, []);
+
+  const handleRemoveQuit = useCallback(
+    (index: number) => {
+      const prev = (getAnswer("quitTargets") as OnboardingQuitTarget[] | undefined) ?? [];
+      const next = prev.filter((_, i) => i !== index);
+      updateAnswer("quitTargets", next.length ? next : undefined);
     },
     [getAnswer, updateAnswer]
   );
@@ -462,20 +473,34 @@ export function OnboardingQuestionScreen() {
       const sliderVal = typeof answer === "number" ? answer : sliderRange[0];
       const noop = () => {};
 
+      const q13Value = c.questionNumber === 13 ? (typeof answer === "number" ? answer : 1.0) : sliderVal;
+      const q13Percent = c.questionNumber === 13 ? (q13Value - 0.5) / 2.5 : 0;
+
       return (
         <>
-          <Text style={styles.questionText}>{c.questionText}</Text>
+          <Text style={[styles.questionText, c.questionNumber === 12 && styles.questionTextQ12]}>{c.questionText}</Text>
+
+          {c.questionNumber === 13 && (
+            <Text style={styles.q13Hint}>
+              Even on your busiest day. This sets your mission floor — not a ceiling.
+            </Text>
+          )}
 
           {c.inputType === "username" && (
             <View style={styles.usernameSection}>
-              <Text style={styles.usernameHint}>Unique name others might see. Tap to edit.</Text>
               <TextInput
-                style={[styles.usernameInput, usernameError && styles.usernameInputError]}
+                style={[
+                  styles.usernameInput,
+                  usernameError && styles.usernameInputError,
+                  usernameFocused && styles.usernameInputFocusState,
+                ]}
                 placeholder={defaultUsername}
                 placeholderTextColor={COLORS.muted}
                 value={(answer as string) ?? ""}
                 onChangeText={interactive ? (t) => { setUsernameError(null); updateAnswer("username", t); } : noop}
+                onFocus={interactive ? () => setUsernameFocused(true) : noop}
                 onBlur={interactive ? async () => {
+                  setUsernameFocused(false);
                   const un = ((getAnswer("username") as string) ?? "").trim();
                   if (!un) return;
                   try {
@@ -489,90 +514,336 @@ export function OnboardingQuestionScreen() {
                 } : noop}
                 autoCapitalize="none"
                 autoCorrect={false}
-                maxLength={32}
+                maxLength={20}
                 editable={interactive}
               />
+              <Text style={styles.usernameHintBelow}>Tap to edit · Max 20 characters</Text>
               {usernameError ? <Text style={styles.usernameErrorText}>{usernameError}</Text> : null}
             </View>
           )}
 
           {c.inputType === "interests_add" && (
-            <View style={styles.interestsAddSection}>
-              <Text style={styles.multiHint}>Add at least one. Type freely — e.g. guitar, running, coding.</Text>
-              <View style={styles.interestChips}>
-                {((getAnswer("interestItems") as OnboardingInterestItem[] | undefined) ?? []).map((item, i) => (
-                  <View key={`${item.name}-${i}`} style={styles.interestChipRow}>
-                    <View style={styles.interestChip}>
-                      <Text style={styles.interestChipText}>{item.name}</Text>
-                      {interactive && (
-                        <Pressable
-                          onPress={() => handleRemoveInterest(i)}
-                          hitSlop={8}
-                          style={styles.interestChipRemove}
-                        >
-                          <Ionicons name="close-circle" size={20} color={COLORS.muted} />
-                        </Pressable>
-                      )}
-                    </View>
-                  </View>
-                ))}
-              </View>
-              {interactive && (
-                <Pressable
-                  onPress={() => setAddInterestModalVisible(true)}
-                  style={styles.addInterestBtn}
-                >
-                  <Ionicons name="add-circle-outline" size={22} color={COLORS.violet} />
-                  <Text style={styles.addInterestBtnLabel}>Add interest</Text>
-                </Pressable>
-              )}
-              <AddInterestOnboardingModal
-                visible={addInterestModalVisible}
-                onClose={() => setAddInterestModalVisible(false)}
-                onAdd={handleAddInterest}
-              />
+            <View style={styles.q11Section}>
+              <Text style={styles.q11Hint}>
+                Add at least one. Type freely — &apos;trail running&apos; or &apos;learning guitar&apos; works perfectly.
+              </Text>
+              {((): React.ReactNode => {
+                const interests = (getAnswer("interests") as OnboardingInterest[] | undefined) ?? [];
+                return (
+                  <>
+                    {interests.length === 0 ? (
+                      <View style={styles.q11EmptyTags}>
+                        <Text style={styles.q11EmptyMain}>No interests added yet</Text>
+                        <Text style={styles.q11EmptySub}>Add at least one to continue</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.q11Tags}>
+                        {interests.map((item, i) => (
+                          <View key={`${item.name}-${i}`} style={styles.q11Tag}>
+                            <Text style={styles.q11TagText}>{item.name}</Text>
+                            {interactive && (
+                              <Pressable onPress={() => handleRemoveInterest(i)} hitSlop={6} style={styles.q11TagRemove}>
+                                <Text style={styles.q11TagRemoveText}>×</Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    {interactive && (
+                      <>
+                        <View style={styles.q11InputRow}>
+                          <TextInput
+                            style={styles.q11Input}
+                            placeholder="e.g. fitness, guitar, coding..."
+                            placeholderTextColor="#2D3146"
+                            value={interestInputText}
+                            onChangeText={setInterestInputText}
+                            returnKeyType="done"
+                            onSubmitEditing={() => {
+                              if (interestInputText.trim().length >= 2) openInterestWizard(interestInputText.trim());
+                            }}
+                          />
+                          <Pressable
+                            onPress={() => {
+                              if (interestInputText.trim().length >= 2) openInterestWizard(interestInputText.trim());
+                            }}
+                            disabled={interestInputText.trim().length < 2}
+                            style={[styles.q11AddBtn, interestInputText.trim().length < 2 && styles.q11AddBtnDisabled]}
+                          >
+                            <LinearGradient
+                              colors={interestInputText.trim().length >= 2 ? ["#5B21B6", "#8B5CF6"] : ["rgba(42,48,80,0.35)", "rgba(42,48,80,0.35)"]}
+                              style={styles.q11AddBtnGrad}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                            >
+                              <Text style={styles.q11AddBtnLabel}>+</Text>
+                            </LinearGradient>
+                          </Pressable>
+                        </View>
+                        <Text style={styles.q11QuickLabel}>QUICK PICKS · TAP TO ADD</Text>
+                        <View style={styles.q11QuickRow}>
+                          {["Fitness", "Reading", "Coding", "Writing", "Music", "Art", "Language", "Photography"]
+                            .filter((label) => !interests.some((i) => i.name.toLowerCase() === label.toLowerCase()))
+                            .map((label) => (
+                              <Pressable
+                                key={label}
+                                onPress={() => openInterestWizard(label)}
+                                style={styles.q11QuickChip}
+                              >
+                                <Text style={styles.q11QuickChipText}>{label}</Text>
+                              </Pressable>
+                            ))}
+                        </View>
+                        <View style={styles.q11NoteRow}>
+                          <View style={styles.q11NoteDot} />
+                          <Text style={[styles.q11NoteText, interests.length > 0 && styles.q11NoteTextWith]}>
+                            {interests.length === 0
+                              ? "Minimum 1 interest required · editable from profile later"
+                              : `${interests.length} interests added · tap × to remove or edit`}
+                          </Text>
+                        </View>
+                      </>
+                    )}
+                    <InterestWizardSheet
+                      visible={addInterestModalVisible}
+                      onClose={() => { setAddInterestModalVisible(false); setWizardInterestName(""); }}
+                      onAdd={handleAddInterest}
+                      interestName={wizardInterestName || interestInputText.trim() || "Interest"}
+                    />
+                  </>
+                );
+              })()}
             </View>
           )}
 
           {c.inputType === "quit_with_other" && (
-            <View style={styles.multiSection}>
-              <Text style={styles.multiHint}>Select all that apply</Text>
-              <View style={styles.multiList}>
-                {c.options.map((opt) => (
-                  <View key={opt} style={styles.optionItem}>
-                    <OnboardingOptionCard
-                      label={opt}
-                      selected={(answer as string[] | undefined)?.includes(opt) ?? false}
-                      onSelect={interactive ? () => handleMultiToggle(opt) : noop}
-                      multiSelect
-                    />
-                  </View>
-                ))}
+            <View style={styles.q12Section}>
+              <View style={styles.q12InfoNote}>
+                <Ionicons name="information-circle-outline" size={18} color="#F97316" />
+                <Text style={styles.q12InfoText}>
+                  Our system handles <Text style={styles.q12InfoHighlight}>any quit</Text> — big or small. Nail biting,
+                  late-night snacking, doomscrolling. If it holds you back, it counts.
+                </Text>
               </View>
-              {(answer as string[] | undefined)?.includes("Something else") && (
-                <View style={styles.otherInterestWrap}>
-                  <Text style={styles.otherInterestLabel}>What habit are you trying to quit?</Text>
-                  <TextInput
-                    style={styles.otherInterestInput}
-                    placeholder="e.g. Late-night scrolling, stress eating…"
-                    placeholderTextColor={COLORS.muted}
-                    value={(getAnswer("quitOther") as string) ?? ""}
-                    onChangeText={interactive ? (t) => updateAnswer("quitOther", t) : noop}
-                    onFocus={() => {
-                      if (interactive)
-                        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-                    }}
-                    maxLength={80}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    editable={interactive}
-                  />
-                </View>
-              )}
+              {((): React.ReactNode => {
+                const raw = getAnswer("quitTargets");
+                const quits: OnboardingQuitTarget[] = Array.isArray(raw)
+                  ? raw.map((q) =>
+                      typeof q === "string"
+                        ? { name: q, description: "", trigger: "" }
+                        : (q as OnboardingQuitTarget)
+                    )
+                  : [];
+                return (
+                  <>
+                    {quits.length === 0 ? (
+                      <View style={styles.q12EmptyTags}>
+                        <Text style={styles.q12EmptyMain}>Nothing added · completely optional</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.q12Tags}>
+                        {quits.map((item, i) => (
+                          <View key={`${item.name}-${i}`} style={styles.q12Tag}>
+                            <Text style={styles.q12TagText}>{item.name}</Text>
+                            {interactive && (
+                              <Pressable onPress={() => handleRemoveQuit(i)} hitSlop={6} style={styles.q12TagRemove}>
+                                <Text style={styles.q12TagRemoveText}>×</Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    {interactive && (
+                      <>
+                        <View style={styles.q12InputRow}>
+                          <TextInput
+                            style={styles.q12Input}
+                            placeholder="e.g. social media, junk food, nail biting..."
+                            placeholderTextColor="#2D3146"
+                            value={quitInputText}
+                            onChangeText={setQuitInputText}
+                            returnKeyType="done"
+                            onSubmitEditing={() => {
+                              if (quitInputText.trim().length >= 2) openQuitWizard(quitInputText.trim());
+                            }}
+                          />
+                          <Pressable
+                            onPress={() => {
+                              if (quitInputText.trim().length >= 2) openQuitWizard(quitInputText.trim());
+                            }}
+                            disabled={quitInputText.trim().length < 2}
+                            style={[styles.q12AddBtn, quitInputText.trim().length < 2 && styles.q12AddBtnDisabled]}
+                          >
+                            <LinearGradient
+                              colors={quitInputText.trim().length >= 2 ? ["#C2410C", "#F97316"] : ["rgba(42,48,80,0.35)", "rgba(42,48,80,0.35)"]}
+                              style={styles.q12AddBtnGrad}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                            >
+                              <Text style={styles.q12AddBtnLabel}>+</Text>
+                            </LinearGradient>
+                          </Pressable>
+                        </View>
+                        <Text style={styles.q11QuickLabel}>COMMON PICKS</Text>
+                        <View style={styles.q12QuickRow}>
+                          {["Social media", "Gaming", "Junk food", "Alcohol", "Smoking", "Procrastinating"]
+                            .filter((label) => !quits.some((q) => q.name.toLowerCase() === label.toLowerCase()))
+                            .map((label) => (
+                              <Pressable key={label} onPress={() => openQuitWizard(label)} style={styles.q12QuickChip}>
+                                <Text style={styles.q12QuickChipText}>{label}</Text>
+                              </Pressable>
+                            ))}
+                        </View>
+                        <Text style={styles.q12OptionalNote}>This question is optional — tap Next to skip</Text>
+                      </>
+                    )}
+                    <QuitWizardSheet
+                      visible={quitSheetVisible}
+                      onClose={() => { setQuitSheetVisible(false); setWizardQuitName(""); }}
+                      onAdd={handleAddQuit}
+                      quitName={wizardQuitName || quitInputText.trim() || "Quit"}
+                    />
+                  </>
+                );
+              })()}
             </View>
           )}
 
-          {c.inputType === "slider" && (
+          {c.inputType === "slider" && c.questionNumber === 13 && (
+            <View style={styles.q13Wrap}>
+              <View style={styles.q13HeroCard} collapsable={false}>
+                <View style={styles.q13HeroAccent} pointerEvents="none">
+                  <LinearGradient
+                    colors={["transparent", "rgba(139,92,246,0.35)", "transparent"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                </View>
+                <Text style={styles.q13HeroValue}>
+                  {q13Value === 1 ? "1h" : `${q13Value}h`}
+                </Text>
+                <Text style={styles.q13HeroLabel}>
+                  {q13Value === 0.5
+                    ? "30 minutes / day"
+                    : q13Value === 1
+                      ? "1 hour / day"
+                      : `${q13Value} hours / day`}
+                </Text>
+              </View>
+              <View
+                style={styles.q13TrackWrap}
+                onLayout={(e) => {
+                  q13TrackWidthRef.current = e.nativeEvent.layout.width;
+                }}
+                onStartShouldSetResponder={() => interactive}
+                onMoveShouldSetResponder={() => interactive}
+                onResponderGrant={(e) => {
+                  if (!interactive) return;
+                  const x = e.nativeEvent.locationX;
+                  const w = q13TrackWidthRef.current;
+                  if (w <= 0) return;
+                  const p = Math.max(0, Math.min(1, x / w));
+                  const v = Math.round((0.5 + p * 2.5) * 2) / 2;
+                  handleSliderChange(Math.min(3, Math.max(0.5, v)));
+                }}
+                onResponderMove={(e) => {
+                  if (!interactive) return;
+                  const x = e.nativeEvent.locationX;
+                  const w = q13TrackWidthRef.current;
+                  if (w <= 0) return;
+                  const p = Math.max(0, Math.min(1, x / w));
+                  const v = Math.round((0.5 + p * 2.5) * 2) / 2;
+                  handleSliderChange(Math.min(3, Math.max(0.5, v)));
+                }}
+              >
+                <View style={styles.q13TrackBg} />
+                <View style={[styles.q13TrackFill, { width: `${q13Percent * 100}%` }]}>
+                  <LinearGradient
+                    colors={["#5B21B6", "#8B5CF6"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                </View>
+                <View
+                  style={[
+                    styles.q13Thumb,
+                    { left: `${q13Percent * 100}%`, marginLeft: -13 },
+                  ]}
+                  pointerEvents="none"
+                >
+                  <LinearGradient
+                    colors={["#7C3AED", "#A78BFA"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                </View>
+              </View>
+              <View style={styles.q13Ticks}>
+                {[0.5, 1, 1.5, 2, 2.5, 3].map((_) => (
+                  <View key={_} style={styles.q13Tick} />
+                ))}
+              </View>
+              <View style={styles.q13RangeLabels}>
+                <Text style={styles.q13RangeLabel}>0.5h</Text>
+                <Text style={styles.q13RangeLabel}>3h</Text>
+              </View>
+              <View style={styles.q13ContextNote}>
+                <View style={styles.q13ContextIconBox}>
+                  <Ionicons name="flash" size={16} color="#8B5CF6" />
+                </View>
+                <Text style={styles.q13ContextText}>
+                  {q13Value === 0.5 && (
+                    <>
+                      {"You'll get around "}
+                      <Text style={styles.q13ContextMissionCount}>2–3 short missions</Text>
+                      {" daily. A light start — the habit comes first."}
+                    </>
+                  )}
+                  {q13Value === 1 && (
+                    <>
+                      {"Around "}
+                      <Text style={styles.q13ContextMissionCount}>3–4 missions</Text>
+                      {" daily. Enough to build real momentum across your goals."}
+                    </>
+                  )}
+                  {q13Value === 1.5 && (
+                    <>
+                      {"Around "}
+                      <Text style={styles.q13ContextMissionCount}>4–5 missions</Text>
+                      {" daily. A solid daily practice with room for hard missions."}
+                    </>
+                  )}
+                  {q13Value === 2 && (
+                    <>
+                      {"Around "}
+                      <Text style={styles.q13ContextMissionCount}>5–6 missions</Text>
+                      {" daily. Full engagement across all your interests and targets."}
+                    </>
+                  )}
+                  {q13Value === 2.5 && (
+                    <>
+                      {"Around "}
+                      <Text style={styles.q13ContextMissionCount}>6–8 missions</Text>
+                      {" daily. Serious output. Expect longer, harder missions over time."}
+                    </>
+                  )}
+                  {q13Value === 3 && (
+                    <>
+                      {"Around "}
+                      <Text style={styles.q13ContextMissionCount}>8–10 missions</Text>
+                      {" daily. High output mode. You set the bar — we'll match it."}
+                    </>
+                  )}
+                </Text>
+              </View>
+            </View>
+          )}
+          {c.inputType === "slider" && c.questionNumber !== 13 && (
             <OnboardingSlider
               min={sliderRange[0]}
               max={sliderRange[1]}
@@ -626,9 +897,19 @@ export function OnboardingQuestionScreen() {
       handleSliderChange,
       handleAddInterest,
       handleRemoveInterest,
+      handleAddQuit,
+      handleRemoveQuit,
+      openInterestWizard,
+      openQuitWizard,
       defaultUsername,
       addInterestModalVisible,
+      quitSheetVisible,
+      interestInputText,
+      quitInputText,
+      wizardInterestName,
+      wizardQuitName,
       usernameError,
+      usernameFocused,
     ]
   );
 
@@ -645,10 +926,11 @@ export function OnboardingQuestionScreen() {
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={GRADIENTS.backgroundPremium.colors}
+        colors={["#07080F", "#09091A", "#07080F"]}
+        locations={[0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
-        start={GRADIENTS.backgroundPremium.start}
-        end={GRADIENTS.backgroundPremium.end}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
       />
       <View style={[StyleSheet.absoluteFill, styles.particleContainer]} pointerEvents="none">
         {particleConfigs.map((c, i) => (
@@ -730,11 +1012,11 @@ export function OnboardingQuestionScreen() {
               }}
               style={styles.buttonWrapper}
             >
-              <Animated.View style={[styles.buttonInner, buttonAnimatedStyle]}>
+              <Animated.View style={[styles.buttonInner, buttonAnimatedStyle, (!hasAnswer() || usernameChecking) && styles.buttonInnerDisabled]}>
                 <LinearGradient
-                  colors={["#6D28D9", "#8B5CF6"]}
+                  colors={(!hasAnswer() || usernameChecking) ? ["rgba(42,48,80,0.40)", "rgba(42,48,80,0.40)"] : ["#5B21B6", "#8B5CF6"]}
                   start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
+                  end={{ x: 1, y: 1 }}
                   style={[styles.buttonGradient, (!hasAnswer() || usernameChecking) && styles.buttonDisabled]}
                 >
                   {usernameChecking ? (
@@ -802,28 +1084,41 @@ const styles = StyleSheet.create({
   },
   optionsList: {},
   optionItem: {
-    marginBottom: SPACING.cardGap,
+    marginBottom: 0,
   },
   usernameSection: {
     marginTop: SPACING.xs,
   },
-  usernameHint: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: COLORS.muted,
-    marginBottom: SPACING.sm,
-    textAlign: "center",
+  usernameHintBelow: {
+    fontSize: 11,
+    color: "#2D3146",
+    marginTop: 8,
+    paddingLeft: 4,
   },
   usernameInput: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: COLORS.text,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: RADIUS.card,
-    paddingVertical: 14,
-    paddingHorizontal: SPACING.md,
+    fontSize: 17,
+    color: "#E5E7EB",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1.5,
+    borderColor: "rgba(42,48,80,0.60)",
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    ...(Platform.OS !== "web" && {
+      shadowColor: "rgba(0,0,0,0.30)",
+      shadowOffset: { width: 0, height: 0 },
+      shadowRadius: 16,
+      shadowOpacity: 1,
+      elevation: 8,
+    }),
+  },
+  usernameInputFocusState: {
+    borderColor: "rgba(139,92,246,0.50)",
+    ...(Platform.OS !== "web" && {
+      shadowColor: "rgba(139,92,246,0.12)",
+      shadowRadius: 12,
+      shadowOpacity: 1,
+    }),
   },
   usernameInputError: {
     borderColor: COLORS.danger,
@@ -833,6 +1128,231 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.danger,
     marginTop: SPACING.xs,
+  },
+  q11Section: { marginTop: SPACING.xs },
+  q11Hint: {
+    fontSize: 13,
+    color: "#4B5563",
+    lineHeight: 1.5,
+    marginBottom: 20,
+  },
+  q11EmptyTags: {
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: "rgba(42,48,80,0.40)",
+    borderRadius: 14,
+    marginBottom: 12,
+  },
+  q11EmptyMain: { fontSize: 13, color: "#2D3146" },
+  q11EmptySub: { fontSize: 11, color: "#1F2937", marginTop: 2 },
+  q11Tags: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 10,
+  },
+  q11Tag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(109,40,217,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.40)",
+    borderRadius: 24,
+    paddingVertical: 7,
+    paddingLeft: 12,
+    paddingRight: 7,
+  },
+  q11TagText: { fontSize: 13, fontWeight: "600", color: "#C4B5FD" },
+  q11TagRemove: {
+    width: 15,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: "rgba(139,92,246,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  q11TagRemoveText: { fontSize: 9, color: "#A78BFA", fontWeight: "700" },
+  q11InputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  q11Input: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1.5,
+    borderColor: "rgba(42,48,80,0.50)",
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 14,
+    color: "#E5E7EB",
+  },
+  q11AddBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  q11AddBtnDisabled: { opacity: 0.5 },
+  q11AddBtnGrad: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  q11AddBtnLabel: { fontSize: 20, color: "#FFFFFF", fontWeight: "600" },
+  q11QuickLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "#2D3146",
+    marginBottom: 6,
+  },
+  q11QuickRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 10,
+  },
+  q11QuickChip: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.40)",
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  q11QuickChipText: { fontSize: 12, color: "#4B5563" },
+  q11NoteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  q11NoteDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#8B5CF6",
+  },
+  q11NoteText: { fontSize: 11, color: "#374151" },
+  q11NoteTextWith: { color: "#4B5563" },
+  q12Section: { marginTop: SPACING.xs },
+  q12InfoNote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "rgba(249,115,22,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(249,115,22,0.14)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+  },
+  q12InfoText: {
+    fontSize: 12,
+    color: "#4B5563",
+    lineHeight: 18,
+    flex: 1,
+  },
+  q12InfoHighlight: { color: "#F97316", fontWeight: "600" },
+  q12EmptyTags: {
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: "rgba(249,115,22,0.20)",
+    borderRadius: 14,
+    marginBottom: 10,
+  },
+  q12EmptyMain: { fontSize: 13, color: "#2D3146" },
+  q12Tags: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 10,
+  },
+  q12Tag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(194,65,12,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(249,115,22,0.35)",
+    borderRadius: 24,
+    paddingVertical: 7,
+    paddingLeft: 12,
+    paddingRight: 7,
+  },
+  q12TagText: { fontSize: 13, fontWeight: "600", color: "#FDBA74" },
+  q12TagRemove: {
+    width: 15,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: "rgba(249,115,22,0.20)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  q12TagRemoveText: { fontSize: 9, color: "#FB923C", fontWeight: "700" },
+  q12InputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  q12Input: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1.5,
+    borderColor: "rgba(42,48,80,0.50)",
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 14,
+    color: "#E5E7EB",
+  },
+  q12AddBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    overflow: "hidden",
+    flexShrink: 0,
+  },
+  q12AddBtnDisabled: { opacity: 0.5 },
+  q12AddBtnGrad: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  q12AddBtnLabel: { fontSize: 20, color: "#FFFFFF", fontWeight: "600" },
+  q12QuickRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 10,
+  },
+  q12QuickChip: {
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.35)",
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  q12QuickChipText: { fontSize: 12, color: "#374151" },
+  q12OptionalNote: {
+    fontSize: 11,
+    color: "#2D3146",
+    marginTop: 6,
+    paddingHorizontal: 2,
   },
   interestsAddSection: {
     marginTop: SPACING.xs,
@@ -887,12 +1407,10 @@ const styles = StyleSheet.create({
     marginTop: SPACING.xs,
   },
   multiHint: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    fontWeight: "500",
-    color: COLORS.muted,
-    marginBottom: SPACING.sm,
-    letterSpacing: 0.3,
+    fontSize: 13,
+    color: "#4B5563",
+    lineHeight: 19.5,
+    marginBottom: 28,
   },
   interestsNote: {
     fontFamily: "Inter_400Regular",
@@ -930,11 +1448,162 @@ const styles = StyleSheet.create({
   },
   questionText: {
     fontFamily: "Inter_700Bold",
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: "700",
-    color: COLORS.text,
-    marginBottom: SPACING.lg,
+    color: "#E5E7EB",
+    letterSpacing: -0.4,
+    lineHeight: 32.5,
+    marginBottom: 8,
     textAlign: "center",
+  },
+  questionTextQ12: { fontSize: 22 },
+  q13Hint: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    marginBottom: 24,
+    paddingHorizontal: 8,
+  },
+  q13Wrap: {
+    width: "100%",
+    paddingHorizontal: 24,
+    alignItems: "center",
+  },
+  q13HeroCard: {
+    backgroundColor: "rgba(109,40,217,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.20)",
+    borderRadius: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    marginBottom: 28,
+    position: "relative",
+    overflow: "hidden",
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  q13HeroAccent: {
+    position: "absolute",
+    top: 0,
+    left: "20%",
+    right: "20%",
+    height: 1,
+    overflow: "hidden",
+  },
+  q13HeroValue: {
+    fontSize: 52,
+    fontWeight: "900",
+    letterSpacing: -2,
+    lineHeight: 52,
+    color: "#A78BFA",
+    marginBottom: 4,
+    textAlign: "center",
+  },
+  q13HeroLabel: {
+    fontSize: 13,
+    color: "#6B7280",
+    textAlign: "center",
+  },
+  q13TrackWrap: {
+    width: "100%",
+    height: 24,
+    position: "relative",
+    marginBottom: 8,
+  },
+  q13TrackBg: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: (24 - 5) / 2,
+    height: 5,
+    borderRadius: 4,
+    backgroundColor: "rgba(42,48,80,0.70)",
+  },
+  q13TrackFill: {
+    position: "absolute",
+    left: 0,
+    top: (24 - 5) / 2,
+    height: 5,
+    borderRadius: 4,
+    overflow: "hidden",
+    ...(Platform.OS === "ios" && {
+      shadowColor: "rgba(139,92,246,0.40)",
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 1,
+    }),
+  },
+  q13Thumb: {
+    position: "absolute",
+    top: (24 - 26) / 2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "rgba(139,92,246,0.20)",
+    ...(Platform.OS === "ios" && {
+      shadowColor: "rgba(109,40,217,0.50)",
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 1,
+    }),
+  },
+  q13Ticks: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 2,
+    marginBottom: 4,
+    width: "100%",
+  },
+  q13Tick: {
+    width: 1,
+    height: 6,
+    borderRadius: 1,
+    backgroundColor: "rgba(139,92,246,0.30)",
+  },
+  q13RangeLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  q13RangeLabel: {
+    fontSize: 11,
+    color: "#374151",
+  },
+  q13ContextNote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginTop: 16,
+    width: "100%",
+    backgroundColor: "rgba(255,255,255,0.025)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.35)",
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+  },
+  q13ContextIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: "rgba(109,40,217,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  q13ContextText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#4B5563",
+    lineHeight: 12 * 1.55,
+  },
+  q13ContextMissionCount: {
+    fontWeight: "600",
+    color: "#8B5CF6",
   },
   bottomSection: {
     paddingVertical: SPACING.md,
@@ -943,27 +1612,36 @@ const styles = StyleSheet.create({
   },
   buttonWrapper: { width: "100%", maxWidth: 358, alignSelf: "center" },
   buttonInner: {
-    ...SHADOWS.button,
-    borderRadius: RADIUS.card,
+    borderRadius: 18,
     overflow: "hidden",
+    ...(Platform.OS !== "web" && {
+      shadowColor: "rgba(139,92,246,0.35)",
+      shadowOffset: { width: 0, height: 0 },
+      shadowRadius: 24,
+      shadowOpacity: 1,
+      elevation: 12,
+    }),
+  },
+  buttonInnerDisabled: {
+    ...(Platform.OS !== "web" && { shadowOpacity: 0, elevation: 0 }),
   },
   buttonGradient: {
     height: 56,
-    borderRadius: RADIUS.card,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
   },
   buttonDisabled: {
-    backgroundColor: COLORS.surface2,
-    opacity: 0.6,
+    backgroundColor: "rgba(42,48,80,0.40)",
+    ...(Platform.OS !== "web" && { shadowOpacity: 0, elevation: 0 }),
   },
   buttonLabel: {
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "Inter_700Bold",
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#F3F4F6",
   },
   buttonLabelDisabled: {
-    color: COLORS.muted,
+    color: "#374151",
   },
 });

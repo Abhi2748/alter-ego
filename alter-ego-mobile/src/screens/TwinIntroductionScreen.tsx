@@ -1,14 +1,22 @@
 /**
- * Screen 15 — Twin Introduction. Shadow Twin fully introduced. User and Twin side by side.
- * Gap established. Last screen before main app. No back button.
- * Gender is not used for any visual — character art is always character_1_male (analytics only).
+ * Twin Introduction — final onboarding screen. Premium dark cinematic design,
+ * dual character arena, fracture line, Twin message, Begin → NotificationPermission.
+ * No back button. No scroll. Everything fits in viewport.
  */
 
 import React, { useEffect, useLayoutEffect } from "react";
-import { View, Text, StyleSheet, Dimensions, Pressable, Image } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Dimensions,
+  Pressable,
+  Platform,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp, CommonActions } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -16,319 +24,528 @@ import Animated, {
   withDelay,
   Easing,
 } from "react-native-reanimated";
+import Svg, { Path, Line } from "react-native-svg";
 import type { OnboardingStackParamList } from "../navigation/types";
-import { COLORS, SPACING, RADIUS, GRADIENTS, SHADOWS } from "../constants/theme";
+import { NOTIF_PERMISSION_ASKED_KEY } from "../constants/notificationPermission";
+import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-const TOP_ZONE_HEIGHT = SCREEN_HEIGHT * 0.35;
-const CHAR_PLACEHOLDER_WIDTH = 140;
-const CHAR_PLACEHOLDER_HEIGHT = 180;
-const BUTTON_WIDTH = 358;
-const BUTTON_HEIGHT = 56;
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const ARENA_HEIGHT = SCREEN_HEIGHT * 0.52;
+const CHAR_WIDTH = 130;
+const CHAR_HEIGHT = 180;
+
+const ARCHETYPE_MESSAGES: Record<string, string> = {
+  "The Restless Creator": "I'm already building. The question is whether you'll catch up.",
+  "The Reluctant Achiever": "You know what to do. I'm already doing it.",
+  "The Structured Climber": "Same start. I intend to stay ahead.",
+  "The Lone Wolf": "We work alone. I started yesterday.",
+  "The Social Performer": "They're watching both of us. I plan to be worth watching.",
+};
 
 const DEFAULT_TWIN_MESSAGE =
-  '"I\'m glad you\'re here. We have a long way to grow. Let\'s see what you\'re actually made of."';
+  "You know what to do. I'm already doing it.";
 
 type Route = RouteProp<OnboardingStackParamList, "TwinIntroduction">;
+
+function BeginArrowIcon() {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
+      <Line x1={2} y1={8} x2={10} y2={8} stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" />
+      <Path
+        d="M10 5l4 3-4 3"
+        stroke="#FFFFFF"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
 
 export function TwinIntroductionScreen() {
   const navigation = useNavigation();
   const route = useRoute<Route>();
   const insets = useSafeAreaInsets();
+  const { answers, archetypeContent } = useOnboardingAnswers();
   const params = route.params;
-  const username = "You";
-  const twinFirstMessage = params?.twinFirstMessage ?? DEFAULT_TWIN_MESSAGE;
-  // Character art: use placeholder until assets/images/characters/character_1_male.png exists
-  const characterSource = { uri: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQwAADgAHA/j+5qQAAAABJRU5ErkJggg==" };
+  const username = answers?.username ?? "You";
+  const archetype = params?.archetype ?? archetypeContent?.archetype;
+  const gender = params?.gender ?? answers?.gender ?? "male";
+  const twinFirstMessage =
+    params?.twinFirstMessage ??
+    (archetype ? ARCHETYPE_MESSAGES[archetype] ?? DEFAULT_TWIN_MESSAGE : DEFAULT_TWIN_MESSAGE);
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false, title: "" });
   }, [navigation]);
 
-  const fractureScaleY = useSharedValue(0);
+  const fractureHeight = useSharedValue(0);
   const userOpacity = useSharedValue(0);
   const userTranslateX = useSharedValue(-12);
   const twinOpacity = useSharedValue(0);
   const twinTranslateX = useSharedValue(12);
-  const gapTextOpacity = useSharedValue(0);
+  const labelsOpacity = useSharedValue(0);
   const cardOpacity = useSharedValue(0);
   const cardTranslateY = useSharedValue(20);
+  const taglineOpacity = useSharedValue(0);
   const buttonOpacity = useSharedValue(0);
 
   useEffect(() => {
     const easeOut = Easing.out(Easing.ease);
-    fractureScaleY.value = withDelay(0, withTiming(1, { duration: 400, easing: easeOut }));
-    userOpacity.value = withDelay(200, withTiming(0.85, { duration: 400, easing: easeOut }));
+    fractureHeight.value = withDelay(0, withTiming(ARENA_HEIGHT, { duration: 400, easing: easeOut }));
+    userOpacity.value = withDelay(200, withTiming(0.82, { duration: 400, easing: easeOut }));
     userTranslateX.value = withDelay(200, withTiming(0, { duration: 400, easing: easeOut }));
     twinOpacity.value = withDelay(400, withTiming(1, { duration: 400, easing: easeOut }));
     twinTranslateX.value = withDelay(400, withTiming(0, { duration: 400, easing: easeOut }));
-    gapTextOpacity.value = withDelay(600, withTiming(1, { duration: 300, easing: easeOut }));
+    labelsOpacity.value = withDelay(600, withTiming(1, { duration: 300, easing: easeOut }));
     cardOpacity.value = withDelay(900, withTiming(1, { duration: 400, easing: easeOut }));
     cardTranslateY.value = withDelay(900, withTiming(0, { duration: 400, easing: easeOut }));
-    buttonOpacity.value = withDelay(1300, withTiming(1, { duration: 300, easing: easeOut }));
+    taglineOpacity.value = withDelay(1300, withTiming(1, { duration: 300, easing: easeOut }));
+    buttonOpacity.value = withDelay(1600, withTiming(1, { duration: 400, easing: easeOut }));
   }, []);
 
   const fractureStyle = useAnimatedStyle(() => ({
-    transform: [{ scaleY: fractureScaleY.value }],
+    height: fractureHeight.value,
   }));
+
   const userStyle = useAnimatedStyle(() => ({
     opacity: userOpacity.value,
     transform: [{ translateX: userTranslateX.value }],
   }));
+
   const twinStyle = useAnimatedStyle(() => ({
     opacity: twinOpacity.value,
     transform: [{ translateX: twinTranslateX.value }],
   }));
-  const gapTextStyle = useAnimatedStyle(() => ({ opacity: gapTextOpacity.value }));
+
+  const labelsStyle = useAnimatedStyle(() => ({ opacity: labelsOpacity.value }));
   const cardStyle = useAnimatedStyle(() => ({
     opacity: cardOpacity.value,
     transform: [{ translateY: cardTranslateY.value }],
   }));
+  const taglineStyle = useAnimatedStyle(() => ({ opacity: taglineOpacity.value }));
   const buttonStyle = useAnimatedStyle(() => ({ opacity: buttonOpacity.value }));
 
-  const goToMain = () => {
-    type NavWithParent = ReturnType<typeof useNavigation> & {
-      getParent?: () => NavWithParent | undefined;
-      dispatch: (action: { type: string; payload?: unknown }) => void;
-    };
-    let nav: NavWithParent | undefined = navigation as NavWithParent;
-    while (nav?.getParent?.()) {
-      nav = nav.getParent();
+  const goToNotificationPermission = async () => {
+    const asked = await AsyncStorage.getItem(NOTIF_PERMISSION_ASKED_KEY);
+    if (asked) {
+      const root = navigation.getParent();
+      if (root && "dispatch" in root) {
+        (root as { dispatch: (a: unknown) => void }).dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: "Main" }],
+          })
+        );
+      }
+      return;
     }
-    nav?.dispatch(
-      CommonActions.reset({
-        index: 0,
-        routes: [{ name: "Main" }],
-      })
-    );
+    (navigation as { navigate: (name: string) => void }).navigate("NotificationPermission");
   };
 
+  const fractureColors = [
+    "transparent",
+    "rgba(192,132,252,0.60)",
+    "#C084FC",
+    "#C084FC",
+    "rgba(192,132,252,0.60)",
+    "transparent",
+  ];
+  const fractureLocations = [0, 0.2, 0.4, 0.6, 0.8, 1];
+
   return (
-    <LinearGradient
-      colors={GRADIENTS.backgroundPremium.colors}
-      style={styles.gradientRoot}
-      start={GRADIENTS.backgroundPremium.start}
-      end={GRADIENTS.backgroundPremium.end}
-    >
-      <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
-        <View style={styles.topZone}>
-          <View style={styles.splitRow}>
-            <Animated.View style={[styles.half, styles.leftHalf, userStyle]}>
+    <View style={styles.root}>
+      <LinearGradient
+        colors={["#07080F", "#0A0B18", "#06070C"]}
+        locations={[0, 0.5, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <SafeAreaView style={styles.safeContent} edges={["top"]}>
+      <View style={styles.arenaZone}>
+        {/* Atmosphere glows — linear approximation (no radial in RN) */}
+        <View style={styles.glowLeft} pointerEvents="none">
+          <LinearGradient
+            colors={["rgba(80,20,160,0.20)", "transparent"]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
+        <View style={styles.glowRight} pointerEvents="none">
+          <LinearGradient
+            colors={["rgba(40,20,120,0.28)", "transparent"]}
+            start={{ x: 1, y: 0.5 }}
+            end={{ x: 0, y: 0.5 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
+
+        <View style={styles.splitRow}>
+          {/* User half */}
+          <Animated.View style={[styles.half, styles.userHalf, userStyle]}>
+            <View style={styles.charWrap}>
               <LinearGradient
-                colors={["#1E2333", "#141824"]}
-                style={styles.charPlaceholder}
+                colors={["rgba(50,20,90,0.55)", "rgba(10,10,20,0.85)"]}
                 start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
+                end={{ x: 0.2, y: 1 }}
+                style={styles.userCharPlaceholder}
               >
-                <Text style={styles.placeholderLabel}>YOU</Text>
+                <LinearGradient
+                  colors={["transparent", "rgba(139,92,246,0.25)", "transparent"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.rimGradient}
+                />
               </LinearGradient>
-              <Text style={styles.userName}>{username}</Text>
-              <Text style={styles.stageMuted}>The Awakened</Text>
+              <Text style={styles.youLabel}>YOU</Text>
+            </View>
+            <Animated.View style={[styles.labelsWrap, labelsStyle]}>
+              <Text style={styles.userName} numberOfLines={1}>
+                {username}
+              </Text>
+              <Text style={styles.stageUser}>The Awakened</Text>
             </Animated.View>
+          </Animated.View>
 
-            <Animated.View style={[styles.fractureWrap, fractureStyle]}>
+          {/* Fracture line — draws from top */}
+          <Animated.View style={[styles.fractureWrap, fractureStyle]}>
+            <LinearGradient
+              colors={fractureColors}
+              locations={fractureLocations}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={styles.fractureLine}
+            />
+          </Animated.View>
+
+          {/* Twin half */}
+          <Animated.View style={[styles.half, styles.twinHalf, twinStyle]}>
+            <View style={styles.charWrap}>
               <LinearGradient
-                colors={GRADIENTS.fractureLine.colors}
-                start={GRADIENTS.fractureLine.start}
-                end={GRADIENTS.fractureLine.end}
-                style={styles.fractureLine}
-              />
-            </Animated.View>
-
-            <Animated.View style={[styles.half, styles.rightHalf, twinStyle]}>
-              <View style={styles.charWrap}>
-                <Image source={characterSource} style={styles.charImage} resizeMode="cover" />
-              </View>
-              <Text style={styles.twinLabel}>Shadow Twin</Text>
+                colors={["rgba(30,15,80,0.75)", "rgba(10,10,25,0.92)"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0.2, y: 1 }}
+                style={styles.twinCharPlaceholder}
+              >
+                <LinearGradient
+                  colors={["transparent", "rgba(192,132,252,0.40)", "transparent"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.rimGradient}
+                />
+              </LinearGradient>
+              <Text style={styles.twinCharLabel}>TWIN</Text>
+            </View>
+            <Animated.View style={[styles.labelsWrap, labelsStyle]}>
+              <Text style={styles.twinName}>Shadow Twin</Text>
               <Text style={styles.stageTwin}>The Focused</Text>
             </Animated.View>
-          </View>
-        </View>
-
-        <View style={styles.centerContent}>
-          <View style={styles.gapLine} />
-          <Animated.Text style={[styles.gapText, gapTextStyle]}>
-            Your rival is you — one week ahead.
-          </Animated.Text>
-          <View style={styles.gapBelow} />
-
-          <Animated.View style={[styles.twinCard, cardStyle]}>
-            <Text style={styles.twinCardLabel}>Your Twin</Text>
-            <Text style={styles.twinCardMessage}>{twinFirstMessage}</Text>
           </Animated.View>
         </View>
+      </View>
 
-        <Animated.View style={[styles.buttonWrap, { bottom: insets.bottom + 32 }, buttonStyle]}>
-          <Pressable onPress={goToMain} style={styles.button}>
-            <LinearGradient
-              colors={GRADIENTS.button.colors}
-              start={GRADIENTS.button.start}
-              end={GRADIENTS.button.end}
-              style={styles.buttonGradient}
-            >
-              <Text style={styles.buttonLabel}>Begin →</Text>
-            </LinearGradient>
-          </Pressable>
+      <View style={styles.contentZone}>
+        <Animated.View style={[styles.taglineWrap, taglineStyle]}>
+          <Text style={styles.tagline1}>Same start.</Text>
+          <Text style={styles.tagline2}>Different story — depending on you.</Text>
         </Animated.View>
+
+        <Animated.View style={[styles.twinCard, cardStyle]}>
+          <View style={styles.twinCardRim} />
+          <Text style={styles.twinCardLabel}>Your Twin</Text>
+          <Text style={styles.twinCardMessage}>{twinFirstMessage}</Text>
+        </Animated.View>
+      </View>
+
+      <Animated.View
+        style={[
+          styles.ctaWrap,
+          { paddingBottom: insets.bottom + 16 },
+          buttonStyle,
+        ]}
+      >
+        <Pressable onPress={goToNotificationPermission} style={styles.button}>
+          <LinearGradient
+            colors={["#5B21B6", "#8B5CF6"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.buttonGradient}
+          >
+            <Text style={styles.buttonLabel}>Begin</Text>
+            <BeginArrowIcon />
+          </LinearGradient>
+        </Pressable>
+      </Animated.View>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradientRoot: { position: "relative", flex: 1 },
-  safeArea: { flex: 1, paddingHorizontal: SPACING.screenPadding },
-  topZone: {
-    height: TOP_ZONE_HEIGHT,
+  root: {
+    flex: 1,
+    position: "relative",
+    overflow: "hidden",
+  },
+  safeContent: {
+    flex: 1,
+  },
+  arenaZone: {
+    height: ARENA_HEIGHT,
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    position: "relative",
+    overflow: "hidden",
+  },
+  glowLeft: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: "50%",
+  },
+  glowRight: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: "50%",
   },
   splitRow: {
+    flex: 1,
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100%",
+    position: "relative",
   },
   half: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-end",
+    position: "relative",
+    zIndex: 1,
   },
-  leftHalf: {},
-  rightHalf: {},
-  charPlaceholder: {
-    width: CHAR_PLACEHOLDER_WIDTH,
-    height: CHAR_PLACEHOLDER_HEIGHT,
-    borderRadius: RADIUS.card,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignItems: "center",
-    justifyContent: "center",
+  userHalf: {
+    paddingBottom: 16,
+    paddingRight: 12,
   },
-  placeholderLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 14,
-    color: COLORS.text2,
-    letterSpacing: 1,
+  twinHalf: {
+    paddingBottom: 16,
+    paddingLeft: 12,
   },
   charWrap: {
-    width: CHAR_PLACEHOLDER_WIDTH,
-    height: CHAR_PLACEHOLDER_HEIGHT,
-    borderRadius: RADIUS.card,
-    overflow: "hidden",
-    backgroundColor: COLORS.surface,
+    position: "relative",
   },
-  charImage: {
-    width: CHAR_PLACEHOLDER_WIDTH,
-    height: CHAR_PLACEHOLDER_HEIGHT,
+  userCharPlaceholder: {
+    width: CHAR_WIDTH,
+    height: CHAR_HEIGHT,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.20)",
+    overflow: "hidden",
+    ...Platform.select({
+      ios: {
+        shadowColor: "rgba(0,0,0,0.40)",
+        shadowRadius: 32,
+        shadowOffset: { width: 0, height: 4 },
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  twinCharPlaceholder: {
+    width: CHAR_WIDTH,
+    height: CHAR_HEIGHT,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(192,132,252,0.30)",
+    overflow: "hidden",
+    ...Platform.select({
+      ios: {
+        shadowColor: "rgba(50,20,120,0.35)",
+        shadowRadius: 40,
+        shadowOffset: { width: 0, height: 0 },
+      },
+      android: { elevation: 10 },
+    }),
+  },
+  rimGradient: {
+    position: "absolute",
+    top: 0,
+    left: "20%",
+    right: "20%",
+    height: 1,
+    width: "60%",
+  },
+  youLabel: {
+    position: "absolute",
+    bottom: 8,
+    left: 0,
+    right: 0,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 2,
+    color: "rgba(107,114,128,0.4)",
+    textAlign: "center",
+  },
+  twinCharLabel: {
+    position: "absolute",
+    bottom: 8,
+    left: 0,
+    right: 0,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 2,
+    color: "rgba(192,132,252,0.50)",
+    textAlign: "center",
+  },
+  labelsWrap: {
+    marginTop: 8,
+    alignItems: "center",
+    textAlign: "center",
   },
   userName: {
-    fontFamily: "Inter_400Regular",
     fontSize: 13,
-    color: COLORS.text2,
-    marginTop: SPACING.sm,
+    fontWeight: "600",
+    color: "#9CA3AF",
+    textAlign: "center",
   },
-  stageMuted: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: COLORS.muted,
+  stageUser: {
+    fontSize: 11,
+    color: "#4B5563",
+    marginTop: 1,
+    textAlign: "center",
   },
-  twinLabel: {
-    fontFamily: "Inter_400Regular",
+  twinName: {
     fontSize: 13,
-    color: COLORS.violet,
-    marginTop: SPACING.sm,
+    fontWeight: "600",
+    color: "#8B5CF6",
+    textAlign: "center",
   },
   stageTwin: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 12,
-    color: COLORS.text2,
+    fontSize: 11,
+    color: "#9CA3AF",
+    marginTop: 1,
+    textAlign: "center",
   },
   fractureWrap: {
+    position: "absolute",
+    top: 0,
+    left: "50%",
+    marginLeft: -1,
     width: 2,
-    height: TOP_ZONE_HEIGHT,
-    alignItems: "center",
-    justifyContent: "center",
+    zIndex: 10,
     overflow: "hidden",
   },
   fractureLine: {
     width: 2,
-    height: "100%",
-    shadowColor: "#C084FC",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
-    elevation: 8,
+    height: ARENA_HEIGHT,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#C084FC",
+        shadowOpacity: 0.7,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 0 },
+      },
+      android: { elevation: 8 },
+    }),
   },
-  centerContent: {
+  contentZone: {
     flex: 1,
-    paddingHorizontal: SPACING.screenPadding,
-    paddingTop: SPACING.lg,
-    paddingBottom: 120,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    justifyContent: "flex-start",
+    position: "relative",
+    zIndex: 1,
   },
-  gapLine: {
-    height: 1,
-    backgroundColor: COLORS.surface2,
-    width: "100%",
-    marginBottom: SPACING.lg,
+  taglineWrap: {
+    marginBottom: 16,
   },
-  gapText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    fontWeight: "600",
-    color: COLORS.text,
+  tagline1: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#E5E7EB",
+    letterSpacing: -0.3,
+    lineHeight: 18 * 1.3,
     textAlign: "center",
   },
-  gapBelow: { height: SPACING.sm },
+  tagline2: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#A78BFA",
+    letterSpacing: -0.3,
+    lineHeight: 18 * 1.3,
+    textAlign: "center",
+  },
   twinCard: {
-    backgroundColor: "#141824",
-    borderRadius: 16,
-    padding: 16,
-    width: "100%",
+    backgroundColor: "rgba(10,8,22,0.70)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.28)",
     borderLeftWidth: 3,
     borderLeftColor: "#8B5CF6",
-    marginTop: SPACING.lg,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    position: "relative",
+    overflow: "hidden",
+    ...Platform.select({
+      ios: {
+        shadowColor: "rgba(109,40,217,0.10)",
+        shadowRadius: 20,
+        shadowOffset: { width: 0, height: 0 },
+      },
+      android: { elevation: 4 },
+    }),
+  },
+  twinCardRim: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: "rgba(139,92,246,0.08)",
   },
   twinCardLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
     color: "#8B5CF6",
-    marginBottom: 8,
+    marginBottom: 6,
   },
   twinCardMessage: {
-    fontFamily: "Inter_400Regular_Italic",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "400",
-    color: "#E5E7EB",
+    color: "#C4B5FD",
     fontStyle: "italic",
+    lineHeight: 14 * 1.55,
   },
-  buttonWrap: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    alignItems: "center",
+  ctaWrap: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
   },
   button: {
-    width: "100%",
-    maxWidth: BUTTON_WIDTH,
-    ...SHADOWS.button,
-    borderRadius: RADIUS.card,
+    height: 56,
+    borderRadius: 18,
     overflow: "hidden",
-    height: BUTTON_HEIGHT,
+    ...Platform.select({
+      ios: {
+        shadowColor: "rgba(139,92,246,0.40)",
+        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 4 },
+      },
+      android: { elevation: 8 },
+    }),
   },
   buttonGradient: {
-    height: BUTTON_HEIGHT,
-    borderRadius: RADIUS.card,
+    flex: 1,
+    height: 56,
+    borderRadius: 18,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
   },
   buttonLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#F3F4F6",
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    letterSpacing: -0.2,
   },
 });

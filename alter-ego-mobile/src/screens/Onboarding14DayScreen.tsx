@@ -155,7 +155,7 @@ export function Onboarding14DayScreen() {
       <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
         <View style={styles.content}>
           <Animated.Text style={[styles.heading, headingStyle]}>
-            Your first 14 days we learn how you work best.
+            Your first 7 days we learn how you work best.
           </Animated.Text>
           <Animated.Text style={[styles.subheading, subheadingStyle]}>
             Work at your own pace and in your own style.

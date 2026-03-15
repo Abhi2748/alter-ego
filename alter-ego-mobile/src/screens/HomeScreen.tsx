@@ -84,7 +84,36 @@ type PlaceholderMission = {
   missionType: MissionType;
   interestName?: string;
   missionStreak?: number;
+  quitTargetName?: string;
+  dayCounter?: number;
 };
+
+const RESISTANCE_PLACEHOLDER_MISSIONS: PlaceholderMission[] = [
+  {
+    id: "res-1",
+    title: "Put your phone on the charger in another room before 10pm",
+    category: "Resistance",
+    difficulty: "Medium",
+    xpValue: 20,
+    petFoodValue: 16,
+    status: "pending",
+    missionType: "resistance",
+    quitTargetName: "Social Media",
+    dayCounter: 23,
+  },
+  {
+    id: "res-2",
+    title: "Drink a glass of water and do 10 pushups when the craving hits",
+    category: "Resistance",
+    difficulty: "Easy",
+    xpValue: 10,
+    petFoodValue: 8,
+    status: "pending",
+    missionType: "resistance",
+    quitTargetName: "Junk Food",
+    dayCounter: 5,
+  },
+];
 
 function missionToCard(m: MissionOut): PlaceholderMission {
   return {
@@ -131,6 +160,7 @@ export function HomeScreen() {
   const [coreMissions, setCoreMissions] = useState<PlaceholderMission[]>([]);
   const [interestMissions, setInterestMissions] = useState<PlaceholderMission[]>([]);
   const [personalMissions, setPersonalMissions] = useState<PlaceholderMission[]>([]);
+  const [resistanceMissions] = useState<PlaceholderMission[]>(RESISTANCE_PLACEHOLDER_MISSIONS);
   const [twinStripMessage, setTwinStripMessage] = useState<string | null>(null);
   const [petStage, setPetStage] = useState(0);
   const [petHealthState, setPetHealthState] = useState<string>("idle");
@@ -494,7 +524,7 @@ export function HomeScreen() {
           </View>
         </View>
 
-        {/* 6. Today's Focus */}
+        {/* 6. Today's Focus (Interest) */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderLeft}>
@@ -526,7 +556,39 @@ export function HomeScreen() {
           </View>
         </View>
 
-        {/* 7. Personal */}
+        {/* 7. Resistance (Quit Target Missions) */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionHeaderLeft}>
+              <View style={styles.sectionBarResistance} />
+              <Text style={[styles.sectionTitle, { color: EMBER, fontSize: 13, fontWeight: "600" }]}>RESISTANCE</Text>
+            </View>
+            <Text style={styles.sectionFraction}>
+              <Text style={styles.sectionFractionDone}>{resistanceMissions.filter((m) => m.status === "complete").length}</Text>
+              /{resistanceMissions.length} done
+            </Text>
+          </View>
+          <View style={styles.cards}>
+            {resistanceMissions.map((m, i) => (
+              <HomeMissionCard
+                key={m.id}
+                title={m.title}
+                category={m.category}
+                difficulty={m.difficulty}
+                xpValue={m.xpValue}
+                petFoodValue={m.petFoodValue}
+                status={m.status}
+                onComplete={() => {}}
+                missionType="resistance"
+                quitTargetName={m.quitTargetName}
+                dayCounter={m.dayCounter}
+                appearIndex={i}
+              />
+            ))}
+          </View>
+        </View>
+
+        {/* 8. Personal (last) */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderLeft}>
@@ -559,7 +621,7 @@ export function HomeScreen() {
             <Text style={styles.startAnywhereHelper}>Start anywhere. Every mission counts.</Text>
           )}
 
-          {/* 8. Add Personal Mission */}
+          {/* Add Personal Mission */}
           <Pressable style={styles.addPersonalButton} onPress={() => setAddModalVisible(true)}>
             <Text style={styles.addPersonalPlus}>+</Text>
             <Text style={styles.addPersonalLabel}>Add Personal Mission</Text>
@@ -873,6 +935,12 @@ const styles = StyleSheet.create({
   sectionBarCore: { width: 3, height: 13, borderRadius: 2 },
   sectionBarFocus: { width: 3, height: 13, borderRadius: 2 },
   sectionBarPersonal: { width: 3, height: 13, borderRadius: 2 },
+  sectionBarResistance: {
+    width: 3,
+    height: 13,
+    borderRadius: 2,
+    backgroundColor: EMBER,
+  },
   sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.8, textTransform: "uppercase" },
   sectionFraction: { fontSize: 11, fontWeight: "600", color: "#374151" },
   sectionFractionDone: { color: VIOLET_GLOW },

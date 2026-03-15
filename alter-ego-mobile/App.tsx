@@ -35,6 +35,12 @@ const navTheme = {
   },
 };
 
+/**
+ * Register push token and timezone with backend when the user has a session.
+ * In Expo Go (SDK 53+), expo-notifications shows a warning and push does not work;
+ * use a development build for real push. The warning appears when this code runs
+ * (e.g. after sign-in or on app open with existing session).
+ */
 async function registerPushTokenAndTimezone(accessToken: string) {
   try {
     const { status: existing } = await Notifications.getPermissionsAsync();

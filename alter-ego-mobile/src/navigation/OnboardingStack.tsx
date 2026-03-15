@@ -7,6 +7,7 @@ import { OnboardingQuestionScreen } from "../screens/OnboardingQuestionScreen";
 import { ArchetypeRevealScreen } from "../screens/ArchetypeRevealScreen";
 import { Onboarding14DayScreen } from "../screens/Onboarding14DayScreen";
 import { TwinIntroductionScreen } from "../screens/TwinIntroductionScreen";
+import { NotificationPermissionScreen } from "../screens/NotificationPermissionScreen";
 import { COLORS } from "../constants/theme";
 
 const Stack = createStackNavigator<OnboardingStackParamList>();
@@ -27,6 +28,11 @@ export function OnboardingStack() {
         <Stack.Screen
           name="TwinIntroduction"
           component={TwinIntroductionScreen}
+          options={{ headerShown: false, title: "" }}
+        />
+        <Stack.Screen
+          name="NotificationPermission"
+          component={NotificationPermissionScreen}
           options={{ headerShown: false, title: "" }}
         />
       </Stack.Navigator>

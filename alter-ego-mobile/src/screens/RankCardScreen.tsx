@@ -21,10 +21,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import { PetAnimation } from "../components/PetAnimation";
+import type { MainStackParamList } from "../navigation/types";
 
 const CARD_MARGIN_H = 24;
 const CARD_RADIUS = 22;
@@ -46,11 +47,112 @@ const PLACEHOLDER_RANK_CARD = {
     "Seven days of silence, then four of fire. This is what the pattern looks like when you decide.",
 };
 
+// Position-based theme (gold/silver/bronze) — matches LeaderboardScreen podium
+const GOLD = "#FFD700";
+const SILVER = "#C0C0C0";
+const BRONZE = "#CD7F32";
+
+type RankPosition = 1 | 2 | 3;
+const RANK_CARD_THEME: Record<
+  RankPosition | "default",
+  {
+    gradientColors: readonly [string, string, string];
+    borderColor: string;
+    glowColor: string;
+    fractureColor: string;
+    rankBadgeBg: string;
+    rankBadgeBorder: string;
+    rankBadgeNumColor: string;
+    brandColor: string;
+    powerScoreColor: string;
+    stageBadgeBg: string;
+    stageBadgeBorder: string;
+    stageBadgeTextColor: string;
+    charGlowColor: string;
+    charFillBorder: string;
+    petCircleBorder: string;
+  }
+> = {
+  1: {
+    gradientColors: ["#1A1535", "#151028", "#0C0B1E"],
+    borderColor: "rgba(255,215,0,0.32)",
+    glowColor: "rgba(255,215,0,0.08)",
+    fractureColor: "rgba(255,215,0,0.35)",
+    rankBadgeBg: "rgba(255,215,0,0.16)",
+    rankBadgeBorder: "rgba(255,215,0,0.38)",
+    rankBadgeNumColor: GOLD,
+    brandColor: "rgba(255,215,0,0.95)",
+    powerScoreColor: GOLD,
+    stageBadgeBg: "rgba(255,215,0,0.15)",
+    stageBadgeBorder: "rgba(255,215,0,0.28)",
+    stageBadgeTextColor: "rgba(255,215,0,0.9)",
+    charGlowColor: "rgba(255,215,0,0.12)",
+    charFillBorder: "rgba(255,215,0,0.22)",
+    petCircleBorder: "rgba(255,215,0,0.38)",
+  },
+  2: {
+    gradientColors: ["#141820", "#10141C", "#0C0E18"],
+    borderColor: "rgba(192,192,192,0.22)",
+    glowColor: "rgba(192,192,220,0.06)",
+    fractureColor: "rgba(200,200,220,0.28)",
+    rankBadgeBg: "rgba(200,200,220,0.10)",
+    rankBadgeBorder: "rgba(200,200,220,0.25)",
+    rankBadgeNumColor: SILVER,
+    brandColor: "rgba(200,200,220,0.9)",
+    powerScoreColor: "#C0C0DC",
+    stageBadgeBg: "rgba(200,200,220,0.10)",
+    stageBadgeBorder: "rgba(200,200,220,0.22)",
+    stageBadgeTextColor: "#C0C0DC",
+    charGlowColor: "rgba(160,160,180,0.10)",
+    charFillBorder: "rgba(180,180,200,0.18)",
+    petCircleBorder: "rgba(180,180,200,0.28)",
+  },
+  3: {
+    gradientColors: ["#1A1410", "#14100C", "#0E0C0A"],
+    borderColor: "rgba(205,127,50,0.28)",
+    glowColor: "rgba(180,100,40,0.06)",
+    fractureColor: "rgba(200,120,50,0.30)",
+    rankBadgeBg: "rgba(180,90,30,0.14)",
+    rankBadgeBorder: "rgba(180,90,30,0.28)",
+    rankBadgeNumColor: BRONZE,
+    brandColor: "rgba(205,127,50,0.9)",
+    powerScoreColor: "#CD9060",
+    stageBadgeBg: "rgba(180,90,30,0.12)",
+    stageBadgeBorder: "rgba(180,90,30,0.25)",
+    stageBadgeTextColor: "#CD9060",
+    charGlowColor: "rgba(180,90,30,0.08)",
+    charFillBorder: "rgba(180,100,40,0.20)",
+    petCircleBorder: "rgba(180,100,40,0.30)",
+  },
+  default: {
+    gradientColors: ["#1A1535", "#111028", "#0C0B1E"],
+    borderColor: "rgba(139,92,246,0.22)",
+    glowColor: "rgba(100,40,200,0.06)",
+    fractureColor: "rgba(192,132,252,0.25)",
+    rankBadgeBg: "rgba(139,92,246,0.12)",
+    rankBadgeBorder: "rgba(139,92,246,0.22)",
+    rankBadgeNumColor: "#8B5CF6",
+    brandColor: "#A78BFA",
+    powerScoreColor: "#8B5CF6",
+    stageBadgeBg: "rgba(139,92,246,0.15)",
+    stageBadgeBorder: "rgba(139,92,246,0.25)",
+    stageBadgeTextColor: "#A78BFA",
+    charGlowColor: "rgba(100,40,200,0.20)",
+    charFillBorder: "rgba(139,92,246,0.16)",
+    petCircleBorder: "rgba(139,92,246,0.38)",
+  },
+};
+
 export function RankCardScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<MainStackParamList, "RankCard">>();
   const { width: screenWidth } = useWindowDimensions();
   const cardRef = useRef<View>(null);
+  const rankPosition = route.params?.rankPosition;
+  const theme = rankPosition
+    ? RANK_CARD_THEME[rankPosition]
+    : RANK_CARD_THEME.default;
 
   const [showRank, setShowRank] = useState(true);
   const [oracleLine, setOracleLine] = useState(PLACEHOLDER_RANK_CARD.oracle_line);
@@ -167,32 +269,64 @@ export function RankCardScreen() {
           style={[styles.cardOuter, { width: cardWidth }]}
         >
           <LinearGradient
-            colors={["#1A1535", "#111028", "#0C0B1E"]}
+            colors={[...theme.gradientColors]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0.2, y: 1 }}
-            style={[styles.cardGradient, { borderRadius: CARD_RADIUS }]}
+            style={[
+              styles.cardGradient,
+              { borderRadius: CARD_RADIUS, borderColor: theme.borderColor },
+            ]}
           />
-          {/* Ambient glow — soft diffuse glow, not a hard half circle */}
-          <View style={styles.ambientGlow} pointerEvents="none" />
+          {/* Ambient glow — fixed violet; do not tint by rank (gold/silver/bronze) */}
+          <View
+            style={[styles.ambientGlow, { backgroundColor: RANK_CARD_THEME.default.glowColor }]}
+            pointerEvents="none"
+          />
           {/* Corner fracture */}
           <View style={styles.cornerFractureWrap} pointerEvents="none">
-            <View style={styles.cornerFractureLine} />
+            <View
+              style={[
+                styles.cornerFractureLine,
+                { backgroundColor: theme.fractureColor },
+              ]}
+            />
           </View>
 
           <View style={styles.cardInner}>
             {/* Top row: app name up first, then power score */}
             <View style={styles.topRow}>
-              <Text style={styles.brandLabel}>ALTER EGO</Text>
-              <Text style={styles.powerScore}>
+              <Text style={[styles.brandLabel, { color: theme.brandColor }]}>
+                ALTER EGO
+              </Text>
+              <Text
+                style={[styles.powerScore, { color: theme.powerScoreColor }]}
+              >
                 {PLACEHOLDER_RANK_CARD.power_score}
               </Text>
             </View>
 
             {/* Global rank badge — below ALTER EGO, only when showRank */}
             {showRank && (
-              <View style={styles.rankBadge}>
-                <Text style={styles.rankBadgeHash}>#</Text>
-                <Text style={styles.rankBadgeNum}>
+              <View
+                style={[
+                  styles.rankBadge,
+                  {
+                    backgroundColor: theme.rankBadgeBg,
+                    borderColor: theme.rankBadgeBorder,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.rankBadgeHash,
+                    { color: theme.rankBadgeNumColor, opacity: 0.8 },
+                  ]}
+                >
+                  #
+                </Text>
+                <Text
+                  style={[styles.rankBadgeNum, { color: theme.rankBadgeNumColor }]}
+                >
                   {PLACEHOLDER_RANK_CARD.global_rank}
                 </Text>
                 <Text style={styles.rankBadgeLabel}>global</Text>
@@ -202,7 +336,13 @@ export function RankCardScreen() {
             {/* Art zone: character + pet */}
             <View style={styles.artZone}>
               <View style={styles.charCardWrap}>
-                <View style={styles.charGlow} pointerEvents="none" />
+                <View
+                  style={[
+                    styles.charGlow,
+                    { backgroundColor: theme.charGlowColor },
+                  ]}
+                  pointerEvents="none"
+                />
                 <LinearGradient
                   colors={[
                     "rgba(60,25,130,0.32)",
@@ -210,16 +350,37 @@ export function RankCardScreen() {
                   ]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 0.5, y: 1 }}
-                  style={styles.charFill}
+                  style={[
+                    styles.charFill,
+                    { borderColor: theme.charFillBorder },
+                  ]}
                 />
-                <View style={styles.stageBadge}>
-                  <Text style={styles.stageBadgeText}>
+                <View
+                  style={[
+                    styles.stageBadge,
+                    {
+                      backgroundColor: theme.stageBadgeBg,
+                      borderColor: theme.stageBadgeBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.stageBadgeText,
+                      { color: theme.stageBadgeTextColor },
+                    ]}
+                  >
                     Stage {PLACEHOLDER_RANK_CARD.stage}
                   </Text>
                 </View>
               </View>
               <View style={styles.petZone}>
-                <View style={styles.petCircle}>
+                <View
+                  style={[
+                    styles.petCircle,
+                    { borderColor: theme.petCircleBorder },
+                  ]}
+                >
                   <PetAnimation
                     stage={PLACEHOLDER_RANK_CARD.pet_stage}
                     isHappy

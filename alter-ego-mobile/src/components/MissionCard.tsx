@@ -17,7 +17,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { COLORS, SPACING, RADIUS, SHADOWS, ANIMATIONS } from "../constants/theme";
 import { DifficultyChip } from "./DifficultyChip";
 
-export type MissionType = "core" | "interest" | "personal" | "recovery";
+export type MissionType = "core" | "interest" | "personal" | "recovery" | "resistance";
 export type MissionDifficulty = "Easy" | "Medium" | "Hard";
 export type MissionStatus = "pending" | "complete" | "expired";
 

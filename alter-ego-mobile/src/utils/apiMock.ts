@@ -21,6 +21,12 @@ import type {
   JournalSaveOut,
   JournalListOut,
   JournalEntryOut,
+  InterestOut,
+  InterestsOut,
+  PostInterestPayload,
+  QuitTargetOut,
+  QuitTargetsOut,
+  PostQuitTargetPayload,
 } from "./api";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -310,28 +316,83 @@ export async function getJournalEntries(
   return { entries };
 }
 
-export async function getInterests(_accessToken: string): Promise<{ interests: any[] }> {
-  await delay(MOCK_DELAY);
+function mockMilestone(
+  num: number,
+  name: string,
+  trigger: string,
+  unlocked: boolean,
+  quote: string | null = null,
+  earnedAt: string | null = null
+): InterestOut["milestones"][0] {
   return {
-    interests: [
-      {
-        interest: "Fitness",
-        total_xp: 360,
-        level: 2,
-        self_level: "Getting the hang of it",
-        learning_goal: "Run a 5K.",
-        schedule: [0, 2, 4],
-      },
-      {
-        interest: "Reading",
-        total_xp: 30,
-        level: 1,
-        self_level: "Still figuring it out",
-        learning_goal: "Finish 1 book a month.",
-        schedule: [1, 3, 5],
-      },
-    ],
+    id: `ms-${num}`,
+    milestone_number: num,
+    name,
+    trigger_label: trigger,
+    earned_at: earnedAt,
+    is_unlocked: unlocked,
+    sessions_at_earn: unlocked ? num * 10 : null,
+    xp_at_earn: unlocked ? 15 : null,
+    xp_total_at_earn: unlocked ? 100 + num * 20 : null,
+    streak_at_earn: num === 2 && unlocked ? 7 : null,
+    tier_at_earn: unlocked ? "Easy" : null,
+    quote,
   };
+}
+
+// Mutable list so added interests appear after refetch; delete removes from list.
+const seedInterests: InterestOut[] = [
+  {
+    id: "fitness-1",
+    interest_name: "Fitness",
+    interest_description: "I love running outdoors, mainly trail running.",
+    level: 2,
+    current_xp: 360,
+    xp_for_next_level: 600,
+    schedule_days: ["mon", "wed", "fri"],
+    total_sessions: 12,
+    tier: "medium",
+    goal_description: "Run a 5K by June.",
+    milestones: [
+      mockMilestone(1, "First Step", "Session 1", true, "The day you decided this was worth one hour.", "2026-03-01T10:00:00Z"),
+      mockMilestone(2, "7 Days In", "7-day streak", true, "Seven days of showing up. Most people stop at three.", "2026-03-10T10:00:00Z"),
+      mockMilestone(3, "10 Sessions", "10 sessions", true, "Ten sessions is where dabbling ends and doing begins.", "2026-03-15T10:00:00Z"),
+      mockMilestone(4, "One Month", "30 sessions", false),
+      mockMilestone(5, "50 Sessions", "50 sessions", false),
+      mockMilestone(6, "100 Sessions", "100 sessions", false),
+      mockMilestone(7, "200 Sessions", "200 sessions", false),
+      mockMilestone(8, "365 Sessions", "365 sessions", false),
+    ],
+  },
+  {
+    id: "reading-1",
+    interest_name: "Reading",
+    interest_description: "I want to read more non-fiction.",
+    level: 1,
+    current_xp: 30,
+    xp_for_next_level: 200,
+    schedule_days: ["tue", "thu", "sat"],
+    total_sessions: 2,
+    tier: "easy",
+    goal_description: "Finish 1 book a month.",
+    milestones: [
+      mockMilestone(1, "First Step", "Session 1", true, "The day you decided this was worth one hour.", "2026-03-12T10:00:00Z"),
+      mockMilestone(2, "7 Days In", "7-day streak", false),
+      mockMilestone(3, "10 Sessions", "10 sessions", false),
+      mockMilestone(4, "One Month", "30 sessions", false),
+      mockMilestone(5, "50 Sessions", "50 sessions", false),
+      mockMilestone(6, "100 Sessions", "100 sessions", false),
+      mockMilestone(7, "200 Sessions", "200 sessions", false),
+      mockMilestone(8, "365 Sessions", "365 sessions", false),
+    ],
+  },
+];
+
+let mockInterestsList: InterestOut[] = [...seedInterests];
+
+export async function getInterests(_accessToken: string): Promise<InterestsOut> {
+  await delay(MOCK_DELAY);
+  return { interests: [...mockInterestsList] };
 }
 
 export async function patchInterest(
@@ -340,5 +401,205 @@ export async function patchInterest(
   _payload: { self_level?: string; learning_goal?: string; schedule?: number[] }
 ): Promise<{ success: boolean }> {
   await delay(MOCK_DELAY);
+  return { success: true };
+}
+
+export async function postInterest(
+  _accessToken: string,
+  _payload: PostInterestPayload
+): Promise<{ success: boolean; interest?: InterestOut }> {
+  await delay(MOCK_DELAY);
+  const id = `new-${Date.now()}`;
+  const name = _payload.interest_description.trim().slice(0, 30) || "New interest";
+  const newInterest: InterestOut = {
+    id,
+    interest_name: name,
+    interest_description: _payload.interest_description,
+    level: 1,
+    current_xp: 0,
+    xp_for_next_level: 200,
+    schedule_days: _payload.schedule_days.map((d) => ["mon", "tue", "wed", "thu", "fri", "sat", "sun"][d] ?? "mon"),
+    total_sessions: 0,
+    tier: "easy",
+    goal_description: _payload.goal_description,
+    milestones: [],
+  };
+  mockInterestsList = [...mockInterestsList, newInterest];
+  return { success: true, interest: newInterest };
+}
+
+export async function deleteInterest(
+  _accessToken: string,
+  interestId: string
+): Promise<{ success: boolean }> {
+  await delay(MOCK_DELAY);
+  mockInterestsList = mockInterestsList.filter((i) => i.id !== interestId);
+  return { success: true };
+}
+
+export async function putInterestGoal(
+  _accessToken: string,
+  _interestId: string,
+  _payload: { new_goal: string; progress_level: string; progress_detail?: string }
+): Promise<{ success: boolean }> {
+  await delay(MOCK_DELAY);
+  return { success: true };
+}
+
+export async function putInterestDifficulty(
+  _accessToken: string,
+  _interestId: string,
+  _payload: { tier: "easy" | "medium" | "hard" }
+): Promise<{ success: boolean }> {
+  await delay(MOCK_DELAY);
+  return { success: true };
+}
+
+export async function putInterestSchedule(
+  _accessToken: string,
+  _interestId: string,
+  _payload: { days: string[] }
+): Promise<{ success: boolean }> {
+  await delay(MOCK_DELAY);
+  return { success: true };
+}
+
+// -----------------------------------------------------------------------------
+// Quit targets (mock — stateful list)
+// -----------------------------------------------------------------------------
+function mockQuitMilestone(
+  type: string,
+  unlocked: boolean,
+  quote: string | null = null,
+  earnedAt: string | null = null,
+  cleanDays: number | null = null,
+  cravings: number | null = null,
+  daysAway: number | null = null
+) {
+  return {
+    id: `qm-${type}-${Date.now()}`,
+    milestone_type: type,
+    earned_at: earnedAt,
+    is_unlocked: unlocked,
+    clean_days_at_earn: cleanDays,
+    cravings_at_earn: cravings,
+    phase_at_earn: unlocked ? "replacement" : null,
+    days_away: daysAway,
+    quote,
+    slip_duration_hours: null,
+    return_speed: null,
+  };
+}
+
+const seedQuitTargets: QuitTargetOut[] = [
+  {
+    id: "quit-1",
+    quit_description: "I want to stop scrolling social media for hours, especially Instagram and TikTok late at night.",
+    quit_name: "Social Media",
+    trigger_description: "Late at night when I'm in bed, and when I'm bored at work.",
+    underlying_need: "Boredom / Dopamine",
+    need_category: "boredom_dopamine",
+    status: "active",
+    started_at: "2026-03-01",
+    current_clean_streak: 12,
+    best_clean_streak: 12,
+    total_clean_days: 12,
+    slip_count: 0,
+    cravings_resisted: 72,
+    current_phase: "replacement",
+    days_in_current_phase: 2,
+    conquered_at: null,
+    milestones: [
+      mockQuitMilestone("day_1", true, "The decision was made. That's harder than it looks.", "2026-03-01T12:00:00Z", 1, 6),
+      mockQuitMilestone("day_3", true, "72 hours. The biology peaks here. You held.", "2026-03-04T12:00:00Z", 3, 18),
+      mockQuitMilestone("day_7", true, "One week. The hardest seven days. They're done.", "2026-03-08T12:00:00Z", 7, 42),
+      mockQuitMilestone("day_14", false, null, null, null, null, 2),
+      mockQuitMilestone("day_30", false, null, null, null, null, 18),
+      mockQuitMilestone("day_60", false, null, null, null, null, 48),
+      mockQuitMilestone("day_90", false, null, null, null, null, 78),
+      mockQuitMilestone("day_365", false, null, null, null, null, 353),
+    ],
+  },
+];
+
+let mockQuitTargetsList: QuitTargetOut[] = [...seedQuitTargets];
+
+export async function getQuitTargets(_accessToken: string): Promise<QuitTargetsOut> {
+  await delay(MOCK_DELAY);
+  return { targets: [...mockQuitTargetsList] };
+}
+
+export async function postQuitTarget(
+  _accessToken: string,
+  payload: PostQuitTargetPayload
+): Promise<{ success: boolean; target?: QuitTargetOut }> {
+  await delay(MOCK_DELAY);
+  const id = `quit-${Date.now()}`;
+  const name = (payload.quit_description || "Quit").trim().slice(0, 24);
+  const newTarget: QuitTargetOut = {
+    id,
+    quit_description: payload.quit_description,
+    quit_name: name,
+    trigger_description: payload.trigger_description,
+    underlying_need: "Boredom / Dopamine",
+    need_category: "boredom_dopamine",
+    status: "active",
+    started_at: new Date().toISOString().slice(0, 10),
+    current_clean_streak: 0,
+    best_clean_streak: 0,
+    total_clean_days: 0,
+    slip_count: 0,
+    cravings_resisted: 0,
+    current_phase: "awareness",
+    days_in_current_phase: 0,
+    conquered_at: null,
+    milestones: [
+      mockQuitMilestone("day_1", false, null, null, null, null, 1),
+      mockQuitMilestone("day_3", false, null, null, null, null, 3),
+      mockQuitMilestone("day_7", false, null, null, null, null, 7),
+      mockQuitMilestone("day_14", false, null, null, null, null, 14),
+      mockQuitMilestone("day_30", false, null, null, null, null, 30),
+      mockQuitMilestone("day_60", false, null, null, null, null, 60),
+      mockQuitMilestone("day_90", false, null, null, null, null, 90),
+      mockQuitMilestone("day_365", false, null, null, null, null, 365),
+    ],
+  };
+  mockQuitTargetsList = [...mockQuitTargetsList, newTarget];
+  return { success: true, target: newTarget };
+}
+
+export async function postQuitTargetConquer(
+  _accessToken: string,
+  targetId: string,
+  payload: { conquered_at: string; final_clean_days: number; cravings_resisted: number }
+): Promise<{ success: boolean }> {
+  await delay(MOCK_DELAY);
+  mockQuitTargetsList = mockQuitTargetsList.map((t) =>
+    t.id === targetId
+      ? {
+          ...t,
+          status: "conquered" as const,
+          conquered_at: payload.conquered_at,
+          total_clean_days: payload.final_clean_days,
+          cravings_resisted: payload.cravings_resisted,
+          milestones: [
+            ...t.milestones,
+            {
+              id: `qm-conquered-${Date.now()}`,
+              milestone_type: "conquered",
+              earned_at: payload.conquered_at,
+              is_unlocked: true,
+              clean_days_at_earn: payload.final_clean_days,
+              cravings_at_earn: payload.cravings_resisted,
+              phase_at_earn: "free",
+              days_away: null,
+              quote: "You decided you were done. And then you stayed done. Not everyone gets here.",
+              slip_duration_hours: null,
+              return_speed: null,
+            },
+          ],
+        }
+      : t
+  );
   return { success: true };
 }

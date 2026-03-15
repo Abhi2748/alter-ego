@@ -10,6 +10,7 @@ import { ProfileStatsScreen } from "../screens/ProfileStatsScreen";
 import { ProfileStreakScreen } from "../screens/ProfileStreakScreen";
 import { ProfileTitlesScreen } from "../screens/ProfileTitlesScreen";
 import { ProfileInterestsScreen } from "../screens/ProfileInterestsScreen";
+import { ProfileQuitsScreen } from "../screens/ProfileQuitsScreen";
 import { COLORS } from "../constants/theme";
 
 const Stack = createStackNavigator<ProfileStackParamList>();
@@ -27,6 +28,7 @@ export function ProfileStack() {
       <Stack.Screen name="ProfileStreak" component={ProfileStreakScreen} />
       <Stack.Screen name="ProfileTitles" component={ProfileTitlesScreen} />
       <Stack.Screen name="ProfileInterests" component={ProfileInterestsScreen} />
+      <Stack.Screen name="ProfileQuits" component={ProfileQuitsScreen} />
     </Stack.Navigator>
   );
 }

@@ -9,6 +9,7 @@ import { ContactUsScreen } from "../screens/ContactUsScreen";
 import { ToneHistoryScreen } from "../screens/ToneHistoryScreen";
 import { TwinChatScreen } from "../screens/TwinChatScreen";
 import { RankCardScreen } from "../screens/RankCardScreen";
+import { ShareableCardsPreviewScreen } from "../screens/ShareableCardsPreviewScreen";
 import { PastReportDetailScreen } from "../screens/PastReportDetailScreen";
 import { PaywallScreen } from "../screens/PaywallScreen";
 import { JournalListScreen } from "../screens/JournalListScreen";
@@ -39,6 +40,7 @@ export function MainStack() {
       <Stack.Screen name="ToneHistory" component={ToneHistoryScreen} />
       <Stack.Screen name="TwinChat" component={TwinChatScreen} />
       <Stack.Screen name="RankCard" component={RankCardScreen} />
+      <Stack.Screen name="ShareableCardsPreview" component={ShareableCardsPreviewScreen} />
       <Stack.Screen name="PastReportDetail" component={PastReportDetailScreen} />
       <Stack.Screen name="JournalList" component={JournalListScreen} />
       <Stack.Screen name="JournalEditor" component={JournalEditorScreen} />

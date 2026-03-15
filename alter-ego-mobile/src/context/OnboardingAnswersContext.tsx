@@ -6,11 +6,27 @@
 import React, { createContext, useContext, useCallback, useState } from "react";
 import type { ArchetypeContent } from "../utils/api";
 
-/** One interest in the add-interest flow (name + self-reported level + learning goal). */
+/** One interest from Q11 — full object for Planner. */
+export type OnboardingInterest = {
+  name: string;
+  level: "beginner" | "intermediate" | "advanced";
+  goal: string;
+  schedule: number[]; // 0=Mon … 6=Sun; we convert to ["mon","wed","fri"] for API
+};
+
+/** One quit target from Q12 — full object for Planner. */
+export type OnboardingQuitTarget = {
+  name: string;
+  description: string;
+  trigger: string;
+};
+
+/** @deprecated Use OnboardingInterest. Kept for type compatibility during migration. */
 export type OnboardingInterestItem = {
   name: string;
   level: "Still figuring it out" | "Getting the hang of it" | "Pretty solid";
   learning_goal: string;
+  schedule?: number[];
 };
 
 export type OnboardingAnswers = {
@@ -24,13 +40,11 @@ export type OnboardingAnswers = {
   motivation?: string;
   autonomy?: string;
   comparison?: string;
-  /** Populated by add-interest flow (Q11). Sent as interest_levels + interests to backend. */
-  interestItems?: OnboardingInterestItem[];
-  /** Legacy / derived: list of interest names for API. */
-  interests?: string[];
+  /** Q11: full interest objects (min 1 required). */
+  interests?: OnboardingInterest[];
   interestOther?: string;
-  quitTargets?: string[];
-  /** Free text when "Something else" is selected on quit question. */
+  /** Q12: full quit target objects (optional, can be []). */
+  quitTargets?: OnboardingQuitTarget[];
   quitOther?: string;
   dailyHours?: number;
   commitmentTimeline?: string;

@@ -17,6 +17,7 @@ export type OnboardingStackParamList = {
   ArchetypeReveal: { answers?: OnboardingAnswers };
   Onboarding14Day: { twinFirstMessage?: string; archetype?: string } | undefined;
   TwinIntroduction: { archetype?: string; twinFirstMessage?: string; gender?: "male" | "female" | "other" } | undefined;
+  NotificationPermission: undefined;
 };
 
 export type MainTabParamList = {
@@ -34,8 +35,9 @@ export type MainStackParamList = {
   AccountSettings: undefined;
   ContactUs: undefined;
   ToneHistory: undefined;
-  TwinChat: undefined;
-  RankCard: undefined;
+  TwinChat: { initialMessage?: string } | undefined;
+  RankCard: { rankPosition?: 1 | 2 | 3 } | undefined;
+  ShareableCardsPreview: undefined;
   PastReportDetail: { report_id: string };
   Paywall: { dismissable?: boolean } | undefined;
   SubscriptionManagement: undefined;
@@ -50,4 +52,5 @@ export type ProfileStackParamList = {
   ProfileStreak: undefined;
   ProfileTitles: undefined;
   ProfileInterests: undefined;
+  ProfileQuits: undefined;
 };

@@ -84,8 +84,8 @@ const Q12_OPTIONS = [
   "Something else",
 ];
 
-/** Q13: slider 0.5h–6h, step 0.5. No options array. */
-const Q13_SLIDER: [number, number, number] = [0.5, 6, 0.5];
+/** Q13: minimum guaranteed daily time — 0.5h–3h, step 0.5. Planner floor, not cap. */
+const Q13_SLIDER: [number, number, number] = [0.5, 3, 0.5];
 
 const Q14_OPTIONS = ["2 weeks", "1 month", "3 months", "However long it takes"];
 
@@ -184,7 +184,7 @@ export const ONBOARDING_QUESTIONS: OnboardingQuestionConfig[] = [
   },
   {
     questionNumber: 13,
-    questionText: "How many hours a day can you honestly give to your goals?",
+    questionText: "What's the minimum time you can guarantee every day?",
     options: [],
     inputType: "slider",
     answerKey: "dailyHours",

@@ -122,6 +122,15 @@ function InterestsIcon() {
   );
 }
 
+function QuitsIcon() {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+      <Circle cx={9} cy={9} r={7} stroke="#FB923C" strokeWidth={1.5} fill="none" />
+      <Path d="M6 9h6" stroke="#FB923C" strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 const NAV_ENTRIES: {
   key: keyof Omit<ProfileStackParamList, "ProfileMain">;
   label: string;
@@ -131,6 +140,7 @@ const NAV_ENTRIES: {
   { key: "ProfileStreak", label: "Streak", Icon: StreakIcon },
   { key: "ProfileTitles", label: "Titles", Icon: TitlesIcon },
   { key: "ProfileInterests", label: "Interests", Icon: InterestsIcon },
+  { key: "ProfileQuits", label: "Quits", Icon: QuitsIcon },
 ];
 
 const PET_STAGE_NAMES: Record<number, string> = {

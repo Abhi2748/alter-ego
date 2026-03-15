@@ -1,47 +1,40 @@
 /**
- * Onboarding option card §2.2 — selectable, single or multi.
- * Unselected: #141824, 1px #1E2333. Selected: 1.5px #8B5CF6, glow, checkmark.
+ * Onboarding option card §2.2 — premium dark. Single or multi.
+ * Unselected: glass card + outline radio. Selected: violet tint + left accent bar + filled radio.
+ * Press scale 0.98 (80ms).
  */
 
 import React from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
 } from "react-native-reanimated";
-import { COLORS, RADIUS, SPACING, ANIMATIONS, SHADOWS } from "../constants/theme";
 
 type Props = {
   label: string;
   selected: boolean;
   onSelect: () => void;
-  /** When true, show "multiple" hint (e.g. checkbox style). */
   multiSelect?: boolean;
 };
 
-export function OnboardingOptionCard({ label, selected, onSelect, multiSelect }: Props) {
+const PRESS_SCALE = 0.98;
+const PRESS_DURATION = 80;
+
+export function OnboardingOptionCard({ label, selected, onSelect, multiSelect: _multiSelect }: Props) {
   const scale = useSharedValue(1);
-  const checkOpacity = useSharedValue(selected ? 1 : 0);
 
   const animatedCard = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
-  const animatedCheck = useAnimatedStyle(() => ({
-    opacity: checkOpacity.value,
-  }));
-
-  React.useEffect(() => {
-    checkOpacity.value = withTiming(selected ? 1 : 0, { duration: 100 });
-  }, [selected]);
-
   const onPressIn = () => {
-    scale.value = withTiming(ANIMATIONS.pressScale, { duration: ANIMATIONS.pressIn });
+    scale.value = withTiming(PRESS_SCALE, { duration: PRESS_DURATION });
   };
   const onPressOut = () => {
-    scale.value = withTiming(1, { duration: ANIMATIONS.pressOut });
+    scale.value = withTiming(1, { duration: 120 });
   };
 
   return (
@@ -55,23 +48,31 @@ export function OnboardingOptionCard({ label, selected, onSelect, multiSelect }:
         style={[
           styles.card,
           selected && styles.cardSelected,
-          selected && styles.cardGlow,
+          selected && styles.cardShadow,
           animatedCard,
         ]}
       >
+        {selected && (
+          <View style={styles.accentBarWrap} pointerEvents="none">
+            <LinearGradient
+              colors={["#8B5CF6", "#5B21B6"]}
+              style={styles.accentBar}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+            />
+          </View>
+        )}
         <View style={styles.contentRow}>
           <Text style={[styles.label, selected && styles.labelSelected]} numberOfLines={3}>
             {label}
           </Text>
-          <View style={styles.circleWrap} pointerEvents="none">
+          <View style={styles.radioWrap} pointerEvents="none">
             {selected ? (
-              <Animated.View style={animatedCheck}>
-                <Ionicons name="checkmark-circle" size={22} color={COLORS.violet} />
-              </Animated.View>
-            ) : (
-              <View style={styles.circleOutline}>
-                <Ionicons name="ellipse-outline" size={22} color={COLORS.border} />
+              <View style={styles.radioSelected}>
+                <View style={styles.radioDot} />
               </View>
+            ) : (
+              <View style={styles.radioOutline} />
             )}
           </View>
         </View>
@@ -83,23 +84,48 @@ export function OnboardingOptionCard({ label, selected, onSelect, multiSelect }:
 const styles = StyleSheet.create({
   wrapper: {
     width: "100%",
+    marginBottom: 10,
   },
   card: {
-    minHeight: 64,
-    borderRadius: RADIUS.card,
-    paddingVertical: SPACING.cardPadding,
-    paddingHorizontal: SPACING.cardPadding,
-    borderWidth: 1,
-    borderColor: COLORS.surface2,
-    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    paddingVertical: 17,
+    paddingHorizontal: 18,
+    borderWidth: 1.5,
+    borderColor: "rgba(42,48,80,0.50)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    position: "relative",
+    overflow: "hidden",
   },
   cardSelected: {
-    borderWidth: 1.5,
-    borderColor: COLORS.violet,
-    backgroundColor: "rgba(139,92,246,0.15)",
+    backgroundColor: "rgba(109,40,217,0.12)",
+    borderColor: "rgba(139,92,246,0.55)",
+    ...(Platform.OS !== "web" && {
+      shadowColor: "rgba(139,92,246,0.12)",
+      shadowOffset: { width: 0, height: 0 },
+      shadowRadius: 1,
+      shadowOpacity: 1,
+      borderWidth: 1.5,
+      elevation: 0,
+    }),
   },
-  cardGlow: {
-    ...SHADOWS.violet,
+  cardShadow: {
+    ...(Platform.OS === "web" && {
+      boxShadow: "0 0 0 1px rgba(139,92,246,0.12)",
+    }),
+  },
+  accentBarWrap: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    borderTopLeftRadius: 3,
+    borderBottomLeftRadius: 3,
+    overflow: "hidden",
+  },
+  accentBar: {
+    flex: 1,
+    width: 3,
   },
   contentRow: {
     flexDirection: "row",
@@ -109,23 +135,42 @@ const styles = StyleSheet.create({
   },
   label: {
     flex: 1,
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    fontWeight: "400",
-    color: COLORS.text2,
-    paddingRight: SPACING.sm,
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#E5E7EB",
+    paddingRight: 12,
   },
   labelSelected: {
-    color: COLORS.text,
+    fontWeight: "600",
+    color: "#C4B5FD",
   },
-  circleWrap: {
+  radioWrap: {
     width: 22,
     height: 22,
     alignItems: "center",
     justifyContent: "center",
   },
-  circleOutline: {
+  radioOutline: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: "rgba(42,48,80,0.60)",
+  },
+  radioSelected: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: "#8B5CF6",
+    backgroundColor: "rgba(139,92,246,0.15)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#8B5CF6",
   },
 });

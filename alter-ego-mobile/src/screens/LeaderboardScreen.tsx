@@ -246,9 +246,10 @@ function Top3Row({
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
         />
+        {/* Top accent — fixed color; do not change for gold/silver/bronze */}
         <View style={[styles.top3Accent, { overflow: "hidden" }]}>
           <LinearGradient
-            colors={config.accentColors}
+            colors={["transparent", "rgba(139,92,246,0.35)", "transparent"]}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={StyleSheet.absoluteFill}
@@ -441,7 +442,13 @@ export function LeaderboardScreen() {
   const userVisible = myRank != null;
   const displayTotal = totalUsers ?? entries.length;
   const goToRankCard = () => {
-    (navigation.getParent() as any)?.navigate("RankCard");
+    const rankPosition =
+      myRank != null && myRank >= 1 && myRank <= 3
+        ? (myRank as 1 | 2 | 3)
+        : undefined;
+    (navigation.getParent() as any)?.navigate("RankCard", {
+      rankPosition,
+    });
   };
   const showShare = userVisible;
 

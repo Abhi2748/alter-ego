@@ -13,17 +13,17 @@ const DIFFICULTY_STYLES: Record<
   Easy: {
     bg: "rgba(107,114,128,0.1)",
     border: "#374151",
-    text: COLORS.muted,
+    text: "#10B981",
   },
   Medium: {
     bg: "rgba(139,92,246,0.1)",
     border: COLORS.violet,
-    text: COLORS.violet,
+    text: "#F97316",
   },
   Hard: {
     bg: "rgba(127,29,29,0.15)",
     border: COLORS.danger,
-    text: "#FCA5A5",
+    text: "#EF4444",
   },
 };
 

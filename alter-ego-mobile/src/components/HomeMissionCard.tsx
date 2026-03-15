@@ -17,7 +17,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 
-export type HomeMissionType = "core" | "interest" | "personal" | "recovery";
+export type HomeMissionType = "core" | "interest" | "personal" | "recovery" | "resistance";
 export type HomeMissionDifficulty = "Easy" | "Medium" | "Hard";
 export type HomeMissionStatus = "pending" | "complete" | "expired";
 
@@ -28,6 +28,12 @@ const TEXT_DIM = "#4B5563";
 const VIOLET = "#8B5CF6";
 const VIOLET_GLOW = "#A78BFA";
 const EMBER = "#F97316";
+
+const DIFFICULTY_TEXT_COLOR: Record<HomeMissionDifficulty, string> = {
+  Easy: "#10B981",
+  Medium: "#F97316",
+  Hard: "#EF4444",
+};
 const STAGGER_DELAY = 40;
 const CARD_APPEAR_MS = 250;
 const PRESS_SCALE = 0.98;
@@ -56,6 +62,11 @@ const LEFT_EDGE_GRADIENTS: Record<
     Medium: ["#EF4444", "#B91C1C"],
     Hard: ["#DC2626", "#7F1D1D"],
   },
+  resistance: {
+    Easy: ["#F97316", "#F97316"],
+    Medium: ["#F97316", "#F97316"],
+    Hard: ["#F97316", "#F97316"],
+  },
 };
 
 const CHIP_STYLES: Record<
@@ -66,6 +77,7 @@ const CHIP_STYLES: Record<
   interest: { bg: "rgba(139,92,246,0.10)", color: "#A78BFA", border: "rgba(139,92,246,0.2)" },
   personal: { bg: "rgba(75,85,99,0.10)", color: "#9CA3AF", border: "rgba(75,85,99,0.2)" },
   recovery: { bg: "rgba(239,68,68,0.10)", color: "#F87171", border: "rgba(239,68,68,0.18)" },
+  resistance: { bg: "rgba(194,65,12,0.12)", color: "#FB923C", border: "rgba(249,115,22,0.30)" },
 };
 
 export interface HomeMissionCardProps {
@@ -81,6 +93,10 @@ export interface HomeMissionCardProps {
   onPress?: () => void;
   appearIndex?: number;
   missionStreak?: number;
+  /** Resistance (quit target) only: e.g. "Social Media", "Junk Food". */
+  quitTargetName?: string;
+  /** Resistance only: day counter e.g. 23. */
+  dayCounter?: number;
 }
 
 export function HomeMissionCard({
@@ -96,6 +112,8 @@ export function HomeMissionCard({
   onPress,
   appearIndex,
   missionStreak = 0,
+  quitTargetName,
+  dayCounter,
 }: HomeMissionCardProps) {
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -160,9 +178,20 @@ export function HomeMissionCard({
   };
 
   const isComplete = status === "complete";
+  const isResistance = missionType === "resistance";
   const edgeColors = LEFT_EDGE_GRADIENTS[missionType][difficulty];
   const chipStyle = CHIP_STYLES[missionType];
-  const sectionLabel = missionType === "interest" && interestName ? interestName : missionType === "core" ? "Core" : missionType === "personal" ? "Personal" : "Recovery";
+  const sectionLabel =
+    missionType === "interest" && interestName
+      ? interestName
+      : missionType === "resistance" && quitTargetName
+        ? quitTargetName
+        : missionType === "core"
+          ? "Core"
+          : missionType === "personal"
+            ? "Personal"
+            : "Recovery";
+  const difficultyTextColor = DIFFICULTY_TEXT_COLOR[difficulty];
 
   return (
     <GestureDetector gesture={panGesture}>
@@ -178,7 +207,23 @@ export function HomeMissionCard({
         <Animated.View style={[styles.doneOverlayBg, doneOverlayStyle]} pointerEvents="none">
           <Text style={styles.doneText}>Done</Text>
         </Animated.View>
-        <Animated.View style={[styles.card, cardStyle]}>
+        <Animated.View
+          style={[
+            styles.card,
+            isResistance && styles.cardResistance,
+            cardStyle,
+          ]}
+        >
+          {isResistance && (
+            <View style={styles.resistanceTopAccent} pointerEvents="none">
+              <LinearGradient
+                colors={["transparent", "rgba(249,115,22,0.12)", "transparent"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
+          )}
           <View style={styles.edgeWrap}>
             <LinearGradient
               colors={edgeColors}
@@ -217,8 +262,14 @@ export function HomeMissionCard({
                     <Text style={styles.streakNum}>{missionStreak}</Text>
                   </View>
                 )}
+                {isResistance && typeof dayCounter === "number" && (
+                  <View style={styles.dayCounterRow}>
+                    <View style={styles.dayCounterDot} />
+                    <Text style={styles.dayCounterText}>Day {dayCounter}</Text>
+                  </View>
+                )}
                 <View style={styles.difficultyPill}>
-                  <Text style={styles.difficultyText}>{difficulty}</Text>
+                  <Text style={[styles.difficultyText, { color: difficultyTextColor }]}>{difficulty}</Text>
                 </View>
               </>
             )}
@@ -312,7 +363,36 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     paddingHorizontal: 6,
   },
-  difficultyText: { fontSize: 9, fontWeight: "600", color: VIOLET },
+  difficultyText: { fontSize: 9, fontWeight: "600" },
+  cardResistance: {
+    backgroundColor: "rgba(20,10,4,0.70)",
+    borderColor: "rgba(249,115,22,0.18)",
+  },
+  resistanceTopAccent: {
+    position: "absolute",
+    top: 0,
+    left: "10%",
+    right: "10%",
+    height: 1,
+    overflow: "hidden",
+    zIndex: 1,
+  },
+  dayCounterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  dayCounterDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: EMBER,
+    opacity: 0.6,
+  },
+  dayCounterText: {
+    fontSize: 10,
+    color: TEXT_DIM,
+  },
   doneOverlayBg: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "center",

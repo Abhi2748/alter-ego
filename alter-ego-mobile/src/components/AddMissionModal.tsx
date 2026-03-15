@@ -1,5 +1,6 @@
 /**
- * Add Mission Modal §2.8 — Bottom sheet. Title input (§2.4), difficulty chip picker (§2.3), Add Mission button.
+ * Add Mission Modal — Premium bottom sheet. Title input, suggest tier, difficulty chips,
+ * XP/PF preview, Add Mission button. KeyboardAvoidingView, gradient background, top accent.
  */
 
 import React, { useEffect, useState, useRef } from "react";
@@ -14,8 +15,11 @@ import {
   Platform,
   KeyboardAvoidingView,
   Keyboard,
+  ActivityIndicator,
+  ScrollView,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -23,37 +27,54 @@ import Animated, {
   runOnJS,
   Easing,
 } from "react-native-reanimated";
-import { COLORS, SPACING, RADIUS, GRADIENTS } from "../constants/theme";
+import { Ionicons } from "@expo/vector-icons";
 
 const BACKDROP_OPACITY = 0.7;
 const SHEET_ANIM_IN_MS = 300;
 const SHEET_ANIM_OUT_MS = 250;
 const MAX_HEIGHT_RATIO = 0.85;
 const HANDLE_WIDTH = 36;
-const HANDLE_HEIGHT = 4;
-const HANDLE_MARGIN = 12;
+const HANDLE_HEIGHT = 3;
+const HANDLE_MARGIN_BOTTOM = 18;
 const TITLE_MAX_LENGTH = 80;
 
-/** §2.3 — Difficulty chips (Easy / Medium / Hard) for picker. Padding 4px vertical, 10px horizontal. */
+const XP_PET_FOOD: Record<"Easy" | "Medium" | "Hard", { xp: number; pf: number }> = {
+  Easy: { xp: 10, pf: 8 },
+  Medium: { xp: 20, pf: 16 },
+  Hard: { xp: 40, pf: 32 },
+};
+
+const DIFFICULTY_CHIP_UNSELECTED = {
+  bg: "rgba(255,255,255,0.03)",
+  border: "rgba(42,48,80,0.45)",
+  text: "#4B5563",
+};
+
 const DIFFICULTY_CHIP_STYLES: Record<
   "Easy" | "Medium" | "Hard",
   { bg: string; border: string; text: string }
 > = {
   Easy: {
-    bg: "rgba(139,92,246,0.15)",
-    border: "#8B5CF6",
-    text: "#8B5CF6",
+    bg: "rgba(16,185,129,0.10)",
+    border: "rgba(16,185,129,0.45)",
+    text: "#10B981",
   },
   Medium: {
-    bg: "rgba(245,158,11,0.15)",
-    border: "#F59E0B",
-    text: "#F59E0B",
+    bg: "rgba(249,115,22,0.10)",
+    border: "rgba(249,115,22,0.45)",
+    text: "#F97316",
   },
   Hard: {
-    bg: "rgba(239,68,68,0.12)",
-    border: "#EF4444",
+    bg: "rgba(239,68,68,0.10)",
+    border: "rgba(239,68,68,0.45)",
     text: "#EF4444",
   },
+};
+
+const RESULT_DOT_COLOR: Record<"Easy" | "Medium" | "Hard", string> = {
+  Easy: "#10B981",
+  Medium: "#F97316",
+  Hard: "#EF4444",
 };
 
 export type AddMissionDifficulty = "Easy" | "Medium" | "Hard";
@@ -68,7 +89,6 @@ export interface AddMissionModalProps {
   visible: boolean;
   onClose: () => void;
   onAdd: (title: string, difficulty: AddMissionDifficulty) => void;
-  /** Optional: call to get suggested tier from title. User sees tier before saving and can adjust. */
   onSuggestTier?: (title: string) => Promise<SuggestedTier | null>;
 }
 
@@ -78,8 +98,9 @@ export function AddMissionModal({
   onAdd,
   onSuggestTier,
 }: AddMissionModalProps) {
+  const insets = useSafeAreaInsets();
   const [title, setTitle] = useState("");
-  const [difficulty, setDifficulty] = useState<AddMissionDifficulty>("Easy");
+  const [difficulty, setDifficulty] = useState<AddMissionDifficulty | null>(null);
   const [suggestedTier, setSuggestedTier] = useState<SuggestedTier | null>(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState<string | null>(null);
@@ -103,7 +124,7 @@ export function AddMissionModal({
     setIsClosing(false);
     setInputFocused(false);
     setTitle("");
-    setDifficulty("Easy");
+    setDifficulty(null);
     setSuggestedTier(null);
     setSuggestError(null);
     setAddError(null);
@@ -192,7 +213,6 @@ export function AddMissionModal({
       duration: SHEET_ANIM_OUT_MS,
       easing: Easing.in(Easing.ease),
     });
-    // Fallback: if Reanimated completion callback never runs, finish close so screen doesn't stay stuck
     closeTimeoutRef.current = setTimeout(() => {
       closeTimeoutRef.current = null;
       finishClose();
@@ -201,10 +221,13 @@ export function AddMissionModal({
 
   const handleAdd = async () => {
     const t = title.trim();
-    if (!t) return;
+    if (!t || !difficulty) return;
     setAddError(null);
     const result = onAdd(t, difficulty);
-    const promise = result != null && typeof (result as Promise<void>).then === "function" ? (result as Promise<void>) : null;
+    const promise =
+      result != null && typeof (result as Promise<void>).then === "function"
+        ? (result as Promise<void>)
+        : null;
     if (promise) {
       setAddLoading(true);
       try {
@@ -220,108 +243,213 @@ export function AddMissionModal({
     }
   };
 
-  // Never unmount Modal: use visible prop so native layer properly dismisses and doesn't leave
-  // an orphaned view that blocks touches (known RN + Reanimated issue when Modal is unmounted).
+  const selectedDifficulty = difficulty ?? (suggestedTier?.suggested_difficulty ?? null);
+  const xpPf = selectedDifficulty ? XP_PET_FOOD[selectedDifficulty] : null;
+  const canAdd = !!title.trim() && !!difficulty && !addLoading;
+
   return (
-    <Modal visible={showContent} transparent animationType="none" onRequestClose={handleBackdropPress}>
+    <Modal
+      visible={showContent}
+      transparent
+      animationType="none"
+      onRequestClose={handleBackdropPress}
+    >
       {showContent ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFill} onPress={handleBackdropPress} />
           <Animated.View style={[styles.backdrop, backdropStyle]} pointerEvents="none" />
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
             style={styles.keyboard}
           >
             <Animated.View
               style={[
                 styles.sheet,
-                { height: sheetHeight, paddingHorizontal: SPACING.lg, paddingVertical: 20 },
+                {
+                  paddingHorizontal: 20,
+                  paddingTop: 20,
+                  paddingBottom: insets.bottom + 24,
+                },
                 sheetStyle,
               ]}
             >
+              <LinearGradient
+                colors={["#111623", "#0E1020"]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.sheetTopAccent} pointerEvents="none">
+                <LinearGradient
+                  colors={["transparent", "rgba(139,92,246,0.30)", "transparent"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </View>
+
               <View style={styles.handleWrap}>
                 <View style={styles.handle} />
               </View>
-              {/* §2.4 — Label above input: 12px / 500 / #9CA3AF, 8px gap */}
-              <Text style={styles.inputLabel}>Mission title</Text>
-              <TextInput
-                style={[styles.input, inputFocused && styles.inputFocused]}
-                placeholder="What will you do?"
-                placeholderTextColor={COLORS.muted}
-                value={title}
-                onChangeText={setTitle}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => setInputFocused(false)}
-                maxLength={TITLE_MAX_LENGTH}
-                autoFocus
-                cursorColor={COLORS.violet}
-              />
-              <Text style={styles.charCount}>
-                {title.length}/{TITLE_MAX_LENGTH}
-              </Text>
-              {/* Suggest tier: user sees assigned XP before saving (§5.1) */}
-              {onSuggestTier && title.trim().length >= 2 && (
+
+              <View style={styles.headerRow}>
+                <Text style={styles.headerTitle}>Add Mission</Text>
+                <Pressable
+                  onPress={handleBackdropPress}
+                  style={styles.closeButton}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={13} color="#6B7280" />
+                </Pressable>
+              </View>
+
+              <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={styles.scrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.inputLabel}>MISSION TITLE</Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    inputFocused && styles.inputFocused,
+                  ]}
+                  placeholder="What do you want to accomplish?"
+                  placeholderTextColor="#2D3146"
+                  value={title}
+                  onChangeText={setTitle}
+                  onFocus={() => setInputFocused(true)}
+                  onBlur={() => setInputFocused(false)}
+                  maxLength={TITLE_MAX_LENGTH}
+                  cursorColor="#8B5CF6"
+                />
+                <Text
+                  style={[
+                    styles.charCount,
+                    title.length > 0 && styles.charCountTyping,
+                  ]}
+                >
+                  {title.length} / {TITLE_MAX_LENGTH}
+                </Text>
+
                 <View style={styles.suggestRow}>
                   <Pressable
                     onPress={handleSuggestTier}
-                    disabled={suggestLoading}
-                    style={[styles.suggestBtn, suggestLoading && styles.suggestBtnDisabled]}
+                    disabled={!title.trim() || suggestLoading}
+                    style={[
+                      styles.suggestBtn,
+                      (!title.trim() || suggestLoading) && styles.suggestBtnDisabled,
+                    ]}
                   >
-                    <Text style={styles.suggestBtnText}>
-                      {suggestLoading ? "…" : "Suggest tier"}
-                    </Text>
+                    {suggestLoading ? (
+                      <ActivityIndicator size="small" color="#A78BFA" />
+                    ) : (
+                      <>
+                        <Text style={styles.starIcon}>★</Text>
+                        <Text style={styles.suggestBtnText}>Suggest tier</Text>
+                      </>
+                    )}
                   </Pressable>
-                  {suggestError ? (
-                    <Text style={styles.suggestError}>{suggestError}</Text>
-                  ) : suggestedTier ? (
-                    <Text style={styles.suggestedValue}>
-                      {suggestedTier.suggested_difficulty} — {suggestedTier.xp_value} XP, {suggestedTier.pet_food_value} PF
-                    </Text>
-                  ) : null}
+                  <View style={styles.resultDisplay}>
+                    {!suggestedTier ? (
+                      <Text style={styles.resultPlaceholder}>Type a mission first</Text>
+                    ) : (
+                      <>
+                        <View
+                          style={[
+                            styles.resultDot,
+                            {
+                              backgroundColor:
+                                RESULT_DOT_COLOR[suggestedTier.suggested_difficulty],
+                            },
+                          ]}
+                        />
+                        <Text style={styles.resultTierName}>
+                          {suggestedTier.suggested_difficulty}
+                        </Text>
+                        <Text style={styles.resultXpPf}>
+                          {suggestedTier.xp_value} XP · {suggestedTier.pet_food_value} PF
+                        </Text>
+                      </>
+                    )}
+                  </View>
                 </View>
-              )}
-              {/* §2.3 — Difficulty chip picker: Easy / Medium / Hard, single select. User can adjust after suggestion. */}
-              <Text style={styles.difficultyLabel}>Difficulty</Text>
-              <View style={styles.difficultyRow}>
-                {(["Easy", "Medium", "Hard"] as const).map((d) => {
-                  const chipStyle = DIFFICULTY_CHIP_STYLES[d];
-                  const selected = difficulty === d;
-                  return (
-                    <Pressable
-                      key={d}
-                      onPress={() => setDifficulty(d)}
-                      style={[
-                        styles.difficultyChip,
-                        {
-                          backgroundColor: chipStyle.bg,
-                          borderColor: chipStyle.border,
-                          borderWidth: 1,
-                        },
-                        selected && styles.difficultyChipGlow,
-                      ]}
-                    >
-                      <Text style={[styles.difficultyChipText, { color: chipStyle.text }]}>{d}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {addError ? <Text style={styles.suggestError}>{addError}</Text> : null}
-              <Pressable
-                onPress={handleAdd}
-                disabled={!title.trim() || addLoading}
-                style={({ pressed }) => [styles.addWrap, pressed && styles.addPressed]}
-              >
-                <LinearGradient
-                  colors={GRADIENTS.button.colors}
-                  start={GRADIENTS.button.start}
-                  end={GRADIENTS.button.end}
-                  style={[styles.addBtn, (!title.trim() || addLoading) && styles.addDisabled]}
+
+                <Text style={styles.difficultyLabel}>DIFFICULTY</Text>
+                <View style={styles.difficultyRow}>
+                  {(["Easy", "Medium", "Hard"] as const).map((d) => {
+                    const selected = difficulty === d;
+                    const chipStyle = selected
+                      ? DIFFICULTY_CHIP_STYLES[d]
+                      : DIFFICULTY_CHIP_UNSELECTED;
+                    return (
+                      <Pressable
+                        key={d}
+                        onPress={() => setDifficulty(d)}
+                        style={[
+                          styles.difficultyChip,
+                          {
+                            backgroundColor: chipStyle.bg,
+                            borderColor: chipStyle.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.difficultyChipText, { color: chipStyle.text }]}>
+                          {d}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {xpPf && selectedDifficulty && (
+                  <View style={styles.xpPreviewRow}>
+                    <View style={styles.xpPreviewItem}>
+                      <View style={styles.xpPreviewTop}>
+                        <Text style={styles.xpStar}>★</Text>
+                        <Text style={styles.xpNumber}>{xpPf.xp}</Text>
+                      </View>
+                      <Text style={styles.xpLabel}>XP EARNED</Text>
+                    </View>
+                    <View style={styles.xpPreviewDivider} />
+                    <View style={styles.xpPreviewItem}>
+                      <View style={styles.xpPreviewTop}>
+                        <Text style={styles.pfEmoji}>🌿</Text>
+                        <Text style={styles.pfNumber}>{xpPf.pf}</Text>
+                      </View>
+                      <Text style={styles.xpLabel}>PET FOOD</Text>
+                    </View>
+                  </View>
+                )}
+
+                {addError ? (
+                  <Text style={styles.addError}>{addError}</Text>
+                ) : null}
+
+                <Pressable
+                  onPress={handleAdd}
+                  disabled={!canAdd}
+                  style={({ pressed }) => [styles.addWrap, pressed && canAdd && styles.addPressed]}
                 >
-                  <Text style={[styles.addLabel, (!title.trim() || addLoading) && styles.addLabelDisabled]}>
-                    {addLoading ? "Adding…" : "Add Mission"}
-                  </Text>
-                </LinearGradient>
-              </Pressable>
+                  {canAdd ? (
+                    <LinearGradient
+                      colors={["#5B21B6", "#8B5CF6"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.addBtnGradient}
+                    >
+                      <Ionicons name="add" size={16} color="#FFFFFF" />
+                      <Text style={styles.addLabel}>Add Mission</Text>
+                    </LinearGradient>
+                  ) : (
+                    <View style={styles.addBtnDisabled}>
+                      <Ionicons name="add" size={16} color="#374151" />
+                      <Text style={styles.addLabelDisabled}>Add Mission</Text>
+                    </View>
+                  )}
+                </Pressable>
+              </ScrollView>
             </Animated.View>
           </KeyboardAvoidingView>
         </View>
@@ -340,13 +468,15 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: RADIUS.modal,
-    borderTopRightRadius: RADIUS.modal,
+    alignSelf: "stretch",
+    borderRadius: 24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.55)",
+    borderBottomWidth: 0,
+    overflow: "hidden",
+    maxHeight: Dimensions.get("window").height * 0.85,
     ...(Platform.OS === "ios"
       ? {
           shadowColor: "#000",
@@ -356,133 +486,271 @@ const styles = StyleSheet.create({
         }
       : { elevation: 16 }),
   },
+  sheetTopAccent: {
+    position: "absolute",
+    top: 0,
+    left: "15%",
+    right: "15%",
+    height: 1,
+    overflow: "hidden",
+    zIndex: 1,
+  },
   handleWrap: {
-    alignItems: "center",
-    marginTop: HANDLE_MARGIN,
-    marginBottom: 8,
+    alignSelf: "center",
+    marginBottom: HANDLE_MARGIN_BOTTOM,
   },
   handle: {
     width: HANDLE_WIDTH,
     height: HANDLE_HEIGHT,
     borderRadius: 2,
-    backgroundColor: COLORS.border,
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
-  /* §2.4 — Label above input: Inter 12px / 500 / #9CA3AF, 8px gap */
-  inputLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: COLORS.text2,
-    marginBottom: SPACING.sm,
-  },
-  input: {
-    fontFamily: "Inter_400Regular",
-    fontSize: 16,
-    color: COLORS.text,
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.card,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 14,
-    height: 52,
-    borderWidth: 1,
-    borderColor: "#1E2333",
-    marginBottom: 4,
-  },
-  inputFocused: {
-    borderColor: COLORS.violet,
-    backgroundColor: "rgba(139,92,246,0.1)",
-  },
-  charCount: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 11,
-    color: COLORS.muted,
-    alignSelf: "flex-end",
-    marginBottom: SPACING.lg,
-  },
-  difficultyLabel: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: COLORS.text2,
-    marginBottom: SPACING.sm,
-  },
-  difficultyRow: {
+  headerRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: SPACING.lg,
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 18,
   },
-  /* §2.3 — Padding 4px vertical, 10px horizontal; radius 10px; text 12px / 600 */
-  difficultyChip: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: RADIUS.chip,
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#E5E7EB",
+    letterSpacing: -0.3,
   },
-  difficultyChipGlow: {
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "#E5E7EB",
-          shadowOpacity: 0.5,
-          shadowRadius: 10,
-          shadowOffset: { width: 0, height: 0 },
-        }
-      : { elevation: 6 }),
-  },
-  difficultyChipText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-  },
-  addWrap: {
-    alignSelf: "stretch",
-  },
-  addPressed: {
-    opacity: 0.9,
-  },
-  addBtn: {
-    paddingVertical: 14,
-    borderRadius: RADIUS.card,
+  closeButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.45)",
     alignItems: "center",
     justifyContent: "center",
   },
-  addDisabled: {
-    opacity: 0.5,
+  scroll: { flexGrow: 0 },
+  scrollContent: { paddingBottom: 24 },
+  inputLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "#374151",
+    marginBottom: 7,
   },
-  addLabel: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 16,
-    color: COLORS.text,
+  input: {
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1.5,
+    borderColor: "rgba(42,48,80,0.55)",
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 15,
+    color: "#E5E7EB",
+    ...(Platform.OS === "ios" && {
+      shadowColor: "rgba(255,255,255,0.03)",
+      shadowOffset: { width: 0, height: -1 },
+      shadowRadius: 0,
+      shadowOpacity: 1,
+    }),
   },
-  addLabelDisabled: {
-    color: COLORS.muted,
+  inputFocused: {
+    borderColor: "rgba(139,92,246,0.50)",
+    ...(Platform.OS === "ios" && {
+      shadowColor: "rgba(139,92,246,0.08)",
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 1,
+    }),
+  },
+  charCount: {
+    fontSize: 10,
+    color: "#2D3146",
+    marginTop: 5,
+    marginBottom: 14,
+    textAlign: "right",
+  },
+  charCountTyping: {
+    color: "#4B5563",
   },
   suggestRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    marginBottom: SPACING.md,
-    flexWrap: "wrap",
+    marginBottom: 16,
   },
   suggestBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: RADIUS.chip,
-    backgroundColor: "rgba(139,92,246,0.2)",
+    height: 38,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: "rgba(109,40,217,0.10)",
     borderWidth: 1,
-    borderColor: COLORS.violet,
+    borderColor: "rgba(139,92,246,0.45)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
   suggestBtnDisabled: {
-    opacity: 0.6,
+    opacity: 0.4,
+  },
+  starIcon: {
+    fontSize: 13,
+    color: "#A78BFA",
   },
   suggestBtnText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 12,
-    color: COLORS.violet,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#A78BFA",
   },
-  suggestedValue: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 12,
-    color: COLORS.text2,
+  resultDisplay: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.40)",
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
   },
-  suggestError: {
-    fontFamily: "Inter_400Regular",
+  resultPlaceholder: {
     fontSize: 12,
-    color: COLORS.danger,
+    color: "#2D3146",
+  },
+  resultDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  resultTierName: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#E5E7EB",
+  },
+  resultXpPf: {
+    fontSize: 11,
+    color: "#374151",
+    marginLeft: "auto",
+  },
+  difficultyLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "#374151",
+    marginBottom: 8,
+  },
+  difficultyRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 20,
+  },
+  difficultyChip: {
+    flex: 1,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  difficultyChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  xpPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    backgroundColor: "rgba(255,255,255,0.025)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.30)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+  },
+  xpPreviewItem: {
+    alignItems: "center",
+  },
+  xpPreviewTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  xpPreviewDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: "rgba(42,48,80,0.50)",
+  },
+  xpStar: {
+    fontSize: 13,
+    color: "#8B5CF6",
+  },
+  xpNumber: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#E5E7EB",
+  },
+  pfEmoji: {
+    fontSize: 13,
+  },
+  pfNumber: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#E5E7EB",
+  },
+  xpLabel: {
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "#374151",
+    marginTop: 2,
+  },
+  addError: {
+    fontSize: 12,
+    color: "#7F1D1D",
+    marginBottom: 8,
+  },
+  addWrap: {
+    alignSelf: "stretch",
+  },
+  addPressed: {
+    opacity: 0.95,
+  },
+  addBtnGradient: {
+    height: 52,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    ...(Platform.OS === "ios" && {
+      shadowColor: "rgba(139,92,246,0.30)",
+      shadowRadius: 20,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 1,
+    }),
+  },
+  addBtnDisabled: {
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: "rgba(42,48,80,0.35)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  addLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  addLabelDisabled: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#374151",
   },
 });

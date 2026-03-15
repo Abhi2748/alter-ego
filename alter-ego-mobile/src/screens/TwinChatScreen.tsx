@@ -4,7 +4,7 @@
  * Spec: §1–§14.
  */
 
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -19,7 +19,8 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import type { MainStackParamList } from "../navigation/types";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
@@ -33,7 +34,6 @@ import Animated, {
   Easing,
   FadeIn,
   FadeOut,
-  runOnJS,
 } from "react-native-reanimated";
 
 // -----------------------------------------------------------------------------
@@ -169,49 +169,6 @@ function buildListData(messages: ChatMessage[]): ListItem[] {
 // -----------------------------------------------------------------------------
 // TYPING DOTS — Spec §9 (scale 0.6→1→0.6, opacity 0.4→1→0.4, 600ms, stagger 150ms)
 // -----------------------------------------------------------------------------
-function ToneRowFadeWrapper({
-  isFading,
-  onFadeEnd,
-  children,
-  style,
-}: {
-  isFading: boolean;
-  onFadeEnd: () => void;
-  children: React.ReactNode;
-  style?: object;
-}) {
-  const opacity = useSharedValue(1);
-  const onFadeEndRef = React.useRef(onFadeEnd);
-  const mountedRef = React.useRef(true);
-  onFadeEndRef.current = onFadeEnd;
-  React.useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-  React.useEffect(() => {
-    if (isFading) {
-      opacity.value = withTiming(
-        0,
-        { duration: 200, easing: Easing.inOut(Easing.ease) },
-        (finished) => {
-          if (finished)
-            runOnJS(() => {
-              if (mountedRef.current) onFadeEndRef.current();
-            })();
-        }
-      );
-    }
-  }, [isFading]);
-  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
-  return (
-    <Animated.View style={[style, animatedStyle]}>
-      {children}
-    </Animated.View>
-  );
-}
-
 function TypingDots() {
   const s1 = useSharedValue(0.6);
   const o1 = useSharedValue(0.4);
@@ -302,14 +259,17 @@ const PET_NAME = "Cat";
 export function TwinChatScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<MainStackParamList, "TwinChat">>();
   const [messages, setMessages] = useState<ChatMessage[]>(PLACEHOLDER_MESSAGES);
   const [inputText, setInputText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [fadingToneId, setFadingToneId] = useState<string | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
+  const listRef = useRef<FlatList<ListItem> | null>(null);
+  const initialMessageSentRef = useRef(false);
 
   const listData = useMemo(() => buildListData(messages), [messages]);
-  const inputBarPaddingBottom = Math.max(24, insets.bottom + 10);
+  const listDataReversed = useMemo(() => [...listData].reverse(), [listData]);
+  const HEADER_HEIGHT = insets.top + 64;
 
   const handleClose = () => navigation.goBack();
 
@@ -319,28 +279,21 @@ export function TwinChatScreen() {
     } catch (_) {}
   }, []);
 
+  // No Reanimated — immediate state update to avoid iOS crash when rating
   const rateTone = useCallback(
     (messageId: string, rating: "positive" | "neutral" | "negative") => {
-      // Defer so native touch completes first — avoids iOS crash when updating state during gesture
-      setTimeout(() => {
-        setFadingToneId(messageId);
-        sendToneRating(messageId, rating);
-      }, 0);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId && m.role === "twin" ? { ...m, rated: true } : m))
+      );
+      sendToneRating(messageId, rating);
     },
     [sendToneRating]
   );
 
-  const onToneRowFadeEnd = useCallback((messageId: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === messageId && m.role === "twin" ? { ...m, rated: true } : m))
-    );
-    setFadingToneId((id) => (id === messageId ? null : id));
-  }, []);
-
-  const sendMessage = useCallback(() => {
-    const text = inputText.trim();
+  const sendMessage = useCallback((overrideText?: string) => {
+    const text = (overrideText !== undefined ? overrideText : inputText).trim();
     if (!text) return;
-    setInputText("");
+    if (overrideText === undefined) setInputText("");
     Keyboard.dismiss();
 
     const userMsg: ChatMessage = {
@@ -368,6 +321,15 @@ export function TwinChatScreen() {
     }, 800);
   }, [inputText]);
 
+  useEffect(() => {
+    const initialMessage = route.params?.initialMessage;
+    if (!initialMessage || initialMessageSentRef.current) return;
+    initialMessageSentRef.current = true;
+    navigation.setParams({ initialMessage: undefined });
+    setMessages([]);
+    setTimeout(() => sendMessage(initialMessage), 0);
+  }, [route.params?.initialMessage, navigation, sendMessage]);
+
   const getMarginTop = useCallback(
     (index: number) => {
       const item = listData[index];
@@ -383,6 +345,12 @@ export function TwinChatScreen() {
     [listData]
   );
 
+  // For inverted FlatList: reversed index -> logical index in listData (oldest-first)
+  const getMarginTopReversed = useCallback(
+    (reversedIndex: number) => getMarginTop(listData.length - 1 - reversedIndex),
+    [listData.length, getMarginTop]
+  );
+
   const renderItem: ListRenderItem<ListItem> = useCallback(
     ({ item, index }) => {
       if (item.type === "date") {
@@ -395,7 +363,7 @@ export function TwinChatScreen() {
         );
       }
       const msg = item.message;
-      const marginTop = getMarginTop(index);
+      const marginTop = getMarginTopReversed(index);
 
       if (msg.role === "user") {
         return (
@@ -430,11 +398,7 @@ export function TwinChatScreen() {
             <Text style={styles.timestampLeft}>{formatTime(msg.timestamp)}</Text>
           </View>
           {showToneRow && (
-            <ToneRowFadeWrapper
-              isFading={fadingToneId === msg.id}
-              onFadeEnd={() => onToneRowFadeEnd(msg.id)}
-              style={styles.toneRow}
-            >
+            <View style={styles.toneRow}>
               <TouchableOpacity
                 onPress={() => rateTone(msg.id, "positive")}
                 style={styles.toneBtn}
@@ -458,12 +422,12 @@ export function TwinChatScreen() {
               >
                 <Ionicons name="thumbs-down-outline" size={14} color={MUTED} />
               </TouchableOpacity>
-            </ToneRowFadeWrapper>
+            </View>
           )}
         </View>
       );
     },
-    [getMarginTop, rateTone, fadingToneId]
+    [getMarginTopReversed, rateTone]
   );
 
   const keyExtractor = useCallback((item: ListItem) => {
@@ -471,17 +435,15 @@ export function TwinChatScreen() {
     return item.message.id;
   }, []);
 
-  const headerHeight = 56;
-  const keyboardOffset = insets.top + headerHeight;
-
+  // KeyboardAvoidingView is the ROOT — nothing wraps it
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={keyboardOffset}
+      style={[styles.container, { backgroundColor: "#08091A" }]}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={HEADER_HEIGHT}
     >
+      {/* Background + atmosphere (absolute, do not affect layout) */}
       <LinearGradient colors={BG_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
-      {/* Atmosphere glow — Spec §3 */}
       <View style={styles.atmosphere} pointerEvents="none" />
       <LinearGradient
         colors={["rgba(80,20,160,0.18)", "transparent"]}
@@ -490,110 +452,117 @@ export function TwinChatScreen() {
         end={{ x: 0.5, y: 1 }}
       />
 
-      <View style={styles.main}>
-        {/* Header — Spec §4 left-aligned */}
-        <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-          {Platform.OS === "ios" ? <BlurView intensity={14} tint="dark" style={StyleSheet.absoluteFill} /> : null}
-          <View style={styles.headerRow}>
-            <Pressable onPress={handleClose} style={styles.closeBtn} hitSlop={8}>
-              <Ionicons name="close" size={16} color={MUTED} />
-            </Pressable>
-            <View style={styles.avatarWrap}>
+      {/* Header inside KeyboardAvoidingView */}
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        {Platform.OS === "ios" ? <BlurView intensity={14} tint="dark" style={StyleSheet.absoluteFill} /> : null}
+        <View style={styles.headerRow}>
+          <Pressable onPress={handleClose} style={styles.closeBtn} hitSlop={8}>
+            <Ionicons name="close" size={16} color={MUTED} />
+          </Pressable>
+          <View style={styles.avatarWrap}>
+            <LinearGradient
+              colors={["rgba(110,40,210,0.70)", "rgba(20,15,50,0.95)"]}
+              start={{ x: 0.2, y: 0.2 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.avatarCircle}
+            />
+            <View style={styles.petDot}>
               <LinearGradient
-                colors={["rgba(110,40,210,0.70)", "rgba(20,15,50,0.95)"]}
+                colors={["rgba(100,40,200,0.80)", "rgba(20,15,50,0.95)"]}
                 start={{ x: 0.2, y: 0.2 }}
                 end={{ x: 1, y: 1 }}
-                style={styles.avatarCircle}
+                style={StyleSheet.absoluteFill}
               />
-              <View style={styles.petDot}>
-                <LinearGradient
-                  colors={["rgba(100,40,200,0.80)", "rgba(20,15,50,0.95)"]}
-                  start={{ x: 0.2, y: 0.2 }}
-                  end={{ x: 1, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                />
-              </View>
-            </View>
-            <View style={styles.nameColumn}>
-              <Text style={styles.headerName}>Shadow Twin</Text>
-              <Text style={styles.headerStage}>{STAGE_NAME} · {PET_NAME}</Text>
             </View>
           </View>
+          <View style={styles.nameColumn}>
+            <Text style={styles.headerName}>Shadow Twin</Text>
+            <Text style={styles.headerStage}>{STAGE_NAME} · {PET_NAME}</Text>
+          </View>
         </View>
-
-        <View style={styles.listWrap} collapsable={false}>
-          <FlatList
-            data={listData}
-            renderItem={renderItem}
-            keyExtractor={keyExtractor}
-            style={styles.list}
-            contentContainerStyle={[styles.listContent, { paddingBottom: inputBarPaddingBottom + 80 }]}
-            showsVerticalScrollIndicator={true}
-            keyboardDismissMode="none"
-            keyboardShouldPersistTaps="handled"
-            ListFooterComponent={
-              isTyping ? (
-                <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
-                  <TypingDots />
-                </Animated.View>
-              ) : null
-            }
-          />
-        </View>
-
-        {/* Input bar — Spec §10 */}
-      <View style={[styles.inputBar, { paddingBottom: inputBarPaddingBottom }]}>
-        {Platform.OS === "ios" ? <BlurView intensity={12} tint="dark" style={StyleSheet.absoluteFill} /> : null}
-        <TextInput
-          style={[
-            styles.input,
-            inputFocused ? styles.inputBorderFocused : styles.inputBorder,
-          ]}
-          value={inputText}
-          onChangeText={setInputText}
-          onFocus={() => setInputFocused(true)}
-          onBlur={() => setInputFocused(false)}
-          placeholder="Say something..."
-          placeholderTextColor="#4B5563"
-          multiline={false}
-          maxLength={500}
-          returnKeyType="send"
-          onSubmitEditing={sendMessage}
-        />
-        {inputFocused && (
-          <TouchableOpacity
-            onPress={() => Keyboard.dismiss()}
-            style={styles.keyboardDismissBtn}
-            hitSlop={8}
-          >
-            <Ionicons name="chevron-down" size={20} color={MUTED} />
-          </TouchableOpacity>
-        )}
-        <Pressable
-          onPress={sendMessage}
-          disabled={!inputText.trim()}
-          style={({ pressed }) => [
-            styles.sendBtnWrap,
-            !inputText.trim() && styles.sendBtnDisabled,
-            pressed && styles.sendBtnPressed,
-          ]}
-        >
-          {inputText.trim() ? (
-            <LinearGradient
-              colors={[VIOLET_DEEP, VIOLET]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.sendBtnGradient}
-            >
-              <Ionicons name="send" size={16} color="#FFFFFF" style={{ transform: [{ rotate: "-45deg" }] }} />
-            </LinearGradient>
-          ) : (
-            <View style={styles.sendBtnDisabledInner}>
-              <Ionicons name="send" size={16} color={DIM} style={{ transform: [{ rotate: "-45deg" }] }} />
-            </View>
-          )}
-        </Pressable>
       </View>
+
+      {/* FlatList takes all remaining flex space; inverted so newest at bottom */}
+      <FlatList
+        ref={listRef}
+        data={listDataReversed}
+        inverted
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={true}
+        keyboardDismissMode="none"
+        keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={
+          isTyping ? (
+            <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
+              <TypingDots />
+            </Animated.View>
+          ) : null
+        }
+      />
+
+      {/* Input bar — outer has insets.bottom + BlurView; inner has fixed padding so TextInput aligns correctly */}
+      <View style={[styles.inputBarOuter, { paddingBottom: insets.bottom }]}>
+        {Platform.OS === "ios" ? <BlurView intensity={12} tint="dark" style={StyleSheet.absoluteFill} /> : null}
+        <View style={styles.inputBarInner}>
+          <TextInput
+            style={[
+              styles.input,
+              inputFocused ? styles.inputBorderFocused : styles.inputBorder,
+            ]}
+            value={inputText}
+            onChangeText={setInputText}
+            onFocus={() => {
+              setInputFocused(true);
+              setTimeout(() => {
+                listRef.current?.scrollToOffset({ offset: 0, animated: true });
+              }, 100);
+            }}
+            onBlur={() => setInputFocused(false)}
+            placeholder="Say something..."
+            placeholderTextColor="#4B5563"
+            multiline={false}
+            maxLength={500}
+            returnKeyType="send"
+            onSubmitEditing={sendMessage}
+            blurOnSubmit={false}
+          />
+          {inputFocused && (
+            <TouchableOpacity
+              onPress={() => Keyboard.dismiss()}
+              style={styles.keyboardDismissBtn}
+              hitSlop={8}
+            >
+              <Ionicons name="chevron-down" size={20} color={MUTED} />
+            </TouchableOpacity>
+          )}
+          <Pressable
+            onPress={sendMessage}
+            disabled={!inputText.trim()}
+            style={({ pressed }) => [
+              styles.sendBtnWrap,
+              !inputText.trim() && styles.sendBtnDisabled,
+              pressed && styles.sendBtnPressed,
+            ]}
+          >
+            {inputText.trim() ? (
+              <LinearGradient
+                colors={[VIOLET_DEEP, VIOLET]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.sendBtnGradient}
+              >
+                <Ionicons name="send" size={16} color="#FFFFFF" style={{ transform: [{ rotate: "-45deg" }] }} />
+              </LinearGradient>
+            ) : (
+              <View style={styles.sendBtnDisabledInner}>
+                <Ionicons name="send" size={16} color={DIM} style={{ transform: [{ rotate: "-45deg" }] }} />
+              </View>
+            )}
+          </Pressable>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -604,10 +573,6 @@ export function TwinChatScreen() {
 // -----------------------------------------------------------------------------
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  main: {
-    flex: 1,
-    minHeight: 0,
-  },
   atmosphere: {
     position: "absolute",
     top: 0,
@@ -679,8 +644,7 @@ const styles = StyleSheet.create({
   headerName: { fontSize: 14, fontWeight: "700", color: USER_TEXT },
   headerStage: { fontSize: 10, color: MUTED, marginTop: 1 },
 
-  listWrap: { flex: 1, minHeight: 0, zIndex: 1 },
-  list: { flex: 1 },
+  list: { flex: 1, minHeight: 0 },
   listContent: { paddingHorizontal: 16, paddingVertical: 16 },
 
   dateSep: {
@@ -833,18 +797,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
-  inputBar: {
+  inputBarOuter: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(42,48,80,0.30)",
+    backgroundColor: "rgba(8,9,26,0.92)",
+    position: "relative",
+  },
+  inputBarInner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 16,
     paddingTop: 10,
-    backgroundColor: "rgba(8,9,26,0.92)",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(42,48,80,0.30)",
-    zIndex: 2,
-    position: "relative",
-    overflow: "hidden",
+    paddingBottom: 10,
   },
   input: {
     flex: 1,

@@ -15,8 +15,11 @@ import {
   getQuitTargets,
   postQuitTarget,
   postQuitTargetConquer,
+  patchQuitTarget,
+  deleteQuitTarget,
   type QuitTargetOut,
   type PostQuitTargetPayload,
+  type PatchQuitTargetPayload,
 } from "../utils/api";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
@@ -75,6 +78,25 @@ export function ProfileQuitsScreen() {
     []
   );
 
+  const handlePatchQuit = useCallback(
+    async (targetId: string, payload: PatchQuitTargetPayload) => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error("Not signed in");
+      await patchQuitTarget(session.access_token, targetId, payload);
+    },
+    []
+  );
+
+  const handleDeleteQuit = useCallback(async (targetId: string) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("Not signed in");
+    await deleteQuitTarget(session.access_token, targetId);
+  }, []);
+
   const handleOpenTwinChat = useCallback(
     (initialMessage: string) => {
       (navigation.getParent() as any)?.navigate("TwinChat", { initialMessage });
@@ -107,6 +129,8 @@ export function ProfileQuitsScreen() {
           onRefetch={refetch}
           onAddQuit={handleAddQuit}
           onConquer={handleConquer}
+          onPatchQuit={handlePatchQuit}
+          onDeleteQuit={handleDeleteQuit}
           onOpenTwinChat={handleOpenTwinChat}
         />
       )}

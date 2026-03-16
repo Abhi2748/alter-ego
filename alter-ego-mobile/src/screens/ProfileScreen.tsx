@@ -3,7 +3,7 @@
  * No fixed header; hero bleeds edge to edge. Do NOT touch sub-screens or bottom nav.
  */
 
-import React, { useRef, useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -165,8 +165,7 @@ export function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(PLACEHOLDER_PROFILE);
   const [journeyDropdownVisible, setJourneyDropdownVisible] = useState(false);
-  const [journeyDropdownTop, setJourneyDropdownTop] = useState<number>(260);
-  const journeyRowRef = useRef<View>(null);
+  const journeyDropdownTop = 260;
 
   const petFloat = useSharedValue(0);
 
@@ -419,21 +418,12 @@ export function ProfileScreen() {
             return (
               <Pressable
                 key={key}
-                ref={isJourney ? journeyRowRef : undefined}
                 style={({ pressed }) => [
                   styles.navRow,
                   pressed && styles.navRowPressed,
                 ]}
                 onPress={() =>
-                  isJourney
-                    ? (() => {
-                        journeyRowRef.current?.measureInWindow((_x, y, _w, h) => {
-                          // Drop the menu just under the Journey row.
-                          setJourneyDropdownTop(Math.max(0, y + h + 4));
-                          setJourneyDropdownVisible(true);
-                        });
-                      })()
-                    : openEntry(key)
+                  isJourney ? setJourneyDropdownVisible(true) : openEntry(key)
                 }
               >
                 <View style={styles.navIconWrap}>

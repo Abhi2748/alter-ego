@@ -267,24 +267,33 @@ export function DayDetailScreen() {
           {/* Evolution banner */}
           {history.evolved_today && (
             <View style={styles.evolutionBanner}>
-              <View style={styles.evolutionIconBox}>
-                <Text style={{ color: "#C084FC", fontSize: 16 }}>✦</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.evolutionTitle}>Character evolved on this day</Text>
-                <Text style={styles.evolutionSub}>
-                  {history.evolved_from ?? history.character_stage_name}{" "}
-                  <Text style={styles.evolutionStageArrow}>→</Text>{" "}
-                  <Text style={styles.evolutionStageNew}>
-                    {history.evolved_to ?? history.character_stage_name}
+              <LinearGradient
+                colors={["rgba(109,40,217,0.15)", "rgba(88,28,135,0.10)"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.evolutionTopAccent} />
+              <View style={styles.evolutionContent}>
+                <View style={styles.evolutionIconBox}>
+                  <Text style={{ color: "#C084FC", fontSize: 16 }}>✦</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.evolutionTitle}>Character evolved on this day</Text>
+                  <Text style={styles.evolutionSub}>
+                    {history.evolved_from ?? history.character_stage_name}{" "}
+                    <Text style={styles.evolutionStageArrow}>→</Text>{" "}
+                    <Text style={styles.evolutionStageNew}>
+                      {history.evolved_to ?? history.character_stage_name}
+                    </Text>
                   </Text>
-                </Text>
+                </View>
               </View>
             </View>
           )}
 
           {/* Snapshot card */}
-          <View style={styles.snapshotCard}>
+            <View style={styles.snapshotCard}>
             <LinearGradient
               colors={["transparent", "rgba(139,92,246,0.25)", "transparent"]}
               start={{ x: 0, y: 0 }}
@@ -562,7 +571,13 @@ export function DayDetailScreen() {
               </View>
             );
           })}
-          <View style={styles.summaryCard}>
+          <View
+            style={[
+              styles.summaryCard,
+              !history.is_streak_day && styles.summaryCardMissed,
+              history.evolved_today && styles.summaryCardEvolution,
+            ]}
+          >
             <Text style={styles.summaryLabel}>DAY SUMMARY</Text>
             <Text
               style={[
@@ -676,15 +691,28 @@ const styles = StyleSheet.create({
   streakStripSubOff: { fontSize: 11, color: "#2D3146" },
 
   evolutionBanner: {
+    borderRadius: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.30)",
+    overflow: "hidden",
+    position: "relative",
+  },
+  evolutionTopAccent: {
+    position: "absolute",
+    top: 0,
+    left: "15%",
+    right: "15%",
+    height: 1,
+    backgroundColor: "rgba(192,132,252,0.50)",
+  },
+  evolutionContent: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 12,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.30)",
   },
   evolutionIconBox: {
     width: 32,
@@ -892,6 +920,12 @@ const styles = StyleSheet.create({
     marginTop: 6,
     borderLeftWidth: 3,
     borderLeftColor: "rgba(139,92,246,0.40)",
+  },
+  summaryCardMissed: {
+    borderLeftColor: "rgba(42,48,80,0.50)",
+  },
+  summaryCardEvolution: {
+    borderLeftColor: "rgba(192,132,252,0.55)",
   },
   summaryLabel: {
     fontSize: 9,

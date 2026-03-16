@@ -23,26 +23,28 @@ import type { TwinComparisonOut, MilestoneOut, QuitMilestoneOut } from "../utils
 const CARD_MARGIN = 16;
 const SECTION_GAP = 28;
 
-// Interest milestone theme titles (1–8)
+// Interest milestone theme titles (1–8) — sessions-based ordering
 const INTEREST_MILESTONE_TITLES: Record<number, string> = {
   1: "First Step",
   2: "7 Days In",
   3: "10 Sessions",
-  4: "Levelled Up",
-  5: "One Month",
-  6: "50 Sessions",
-  7: "100 Sessions",
-  8: "Legendary",
+  4: "One Month (30 Sessions)",
+  5: "50 Sessions",
+  6: "100 Sessions",
+  7: "200 Sessions",
+  8: "365 Sessions",
 };
 
-// Quit milestone types we expose (8)
+// Quit milestone types we expose (10): first day → one year + comeback + conquered
 const QUIT_MILESTONE_PREVIEW_TYPES: { type: string; label: string }[] = [
   { type: "day_1", label: "Day 1" },
   { type: "day_3", label: "Day 3" },
   { type: "day_7", label: "Day 7" },
   { type: "day_14", label: "Day 14" },
   { type: "day_30", label: "Day 30" },
-  { type: "day_60", label: "Day 60" },
+  { type: "day_60", label: "2 Months" },
+  { type: "day_90", label: "3 Months" },
+  { type: "day_365", label: "One Year" },
   { type: "comeback", label: "Comeback" },
   { type: "conquered", label: "Conquered" },
 ];
@@ -108,6 +110,8 @@ function getQuitMilestoneMock(milestoneType: string): QuitMilestoneOut {
     day_14: 14,
     day_30: 30,
     day_60: 60,
+    day_90: 90,
+    day_365: 365,
     comeback: 14,
     conquered: 365,
   };
@@ -250,14 +254,14 @@ export function ShareableCardsPreviewScreen() {
           </View>
         </View>
 
-        {/* Quit target milestone cards (8) */}
+        {/* Quit target milestone cards (10) */}
         <View style={[styles.section, { marginTop: SECTION_GAP }]}>
-          <Text style={styles.sectionTitle}>Quit target milestone cards (8)</Text>
+          <Text style={styles.sectionTitle}>Quit target milestone cards (10)</Text>
           <Text style={styles.sectionSub}>
             Profile → Quits: tap a milestone to see its card theme.
           </Text>
           <View style={styles.buttonRow}>
-            {QUIT_MILESTONE_PREVIEW_TYPES.slice(0, 4).map(({ type, label }) => (
+            {QUIT_MILESTONE_PREVIEW_TYPES.slice(0, 5).map(({ type, label }) => (
               <Pressable
                 key={type}
                 onPress={() => setQuitPreviewType(type)}
@@ -268,7 +272,7 @@ export function ShareableCardsPreviewScreen() {
             ))}
           </View>
           <View style={styles.buttonRow}>
-            {QUIT_MILESTONE_PREVIEW_TYPES.slice(4, 8).map(({ type, label }) => (
+            {QUIT_MILESTONE_PREVIEW_TYPES.slice(5, 10).map(({ type, label }) => (
               <Pressable
                 key={type}
                 onPress={() => setQuitPreviewType(type)}

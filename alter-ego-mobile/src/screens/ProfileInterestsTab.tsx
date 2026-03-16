@@ -223,6 +223,9 @@ export function ProfileInterestsTab({
                   const isLast = idx === MILESTONE_DEFS.length - 1;
 
                   if (unlocked) {
+                    const isGold = def.number >= 6;
+                    const isTwoHundred = def.number === 7;
+                    const isThreeSixtyFive = def.number === 8;
                     return (
                       <Pressable
                         key={ms.id}
@@ -237,19 +240,56 @@ export function ProfileInterestsTab({
                       >
                         <View style={styles.milestoneAccentWrap}>
                           <LinearGradient
-                            colors={["transparent", "rgba(139,92,246,0.60)", "transparent"]}
+                            colors={
+                              isTwoHundred
+                                ? ["transparent", "rgba(251,191,36,0.60)", "transparent"]
+                                : isThreeSixtyFive
+                                  ? ["transparent", "rgba(251,191,36,0.70)", "transparent"]
+                                  : ["transparent", "rgba(139,92,246,0.60)", "transparent"]
+                            }
                             start={{ x: 0.5, y: 0 }}
                             end={{ x: 0.5, y: 1 }}
                             style={StyleSheet.absoluteFill}
                           />
                         </View>
-                        <View style={styles.milestoneIconBox}>
-                          <MilestoneIcon number={def.number} color={VIOLET} size={26} />
+                        <View
+                          style={[
+                            styles.milestoneIconBox,
+                            isTwoHundred && {
+                              backgroundColor: "rgba(120,53,15,0.20)",
+                              borderColor: "rgba(245,158,11,0.30)",
+                            },
+                            isThreeSixtyFive && {
+                              backgroundColor: "rgba(120,53,15,0.28)",
+                              borderColor: "rgba(251,191,36,0.45)",
+                              shadowColor: "rgba(251,191,36,0.20)",
+                              shadowRadius: 8,
+                              shadowOffset: { width: 0, height: 0 },
+                            },
+                          ]}
+                        >
+                          {isTwoHundred ? (
+                            <MilestoneIcon number={7} color={GOLD} size={26} />
+                          ) : isThreeSixtyFive ? (
+                            <MilestoneIcon number={8} color={GOLD} size={26} />
+                          ) : (
+                            <MilestoneIcon
+                              number={def.number}
+                              color={isGold ? GOLD : VIOLET}
+                              size={26}
+                            />
+                          )}
                         </View>
                         <View style={styles.milestoneInfo}>
                           <Text style={styles.milestoneName}>{ms.name}</Text>
                           <Text style={styles.milestoneSub}>
-                            Earned {ms.earned_at ? new Date(ms.earned_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
+                            Earned{" "}
+                            {ms.earned_at
+                              ? new Date(ms.earned_at).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                })
+                              : ""}
                           </Text>
                         </View>
                         <Ionicons name="chevron-forward" size={13} color={VERY_DIM} />
@@ -264,7 +304,11 @@ export function ProfileInterestsTab({
                       <View style={styles.milestoneInfo}>
                         <Text style={styles.milestoneNameLocked}>{ms.name}</Text>
                         <Text style={styles.milestoneSubLocked}>
-                          {sessionsToGo != null ? `${sessionsToGo} sessions to go` : "Locked"}
+                          {sessionsToGo != null
+                            ? def.number === 8
+                              ? `${sessionsToGo} sessions`
+                              : `${sessionsToGo} sessions to go`
+                            : "Locked"}
                         </Text>
                       </View>
                       <Ionicons name="lock-closed-outline" size={13} color={VERY_DIM} />

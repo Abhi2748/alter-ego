@@ -262,18 +262,21 @@ export function SignUpScreen() {
       const { data, error } = await supabase.auth.signInAnonymously();
       if (error) throw error;
       if (data?.user) {
-        // Session is persisted (Supabase auth + AsyncStorage). When they return,
-        // all progress (onboarding, missions, XP, character, pet) is loaded from the backend.
         await ensureUserAndNavigate(data.user.id, undefined);
       } else {
         showError("Could not continue");
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Something went wrong";
+      const lower = typeof msg === "string" ? msg.toLowerCase() : "";
       const isAnonymousDisabled =
-        typeof msg === "string" &&
-        (msg.toLowerCase().includes("anonymous") || msg.toLowerCase().includes("sign-in is disabled"));
-      if (isAnonymousDisabled) {
+        lower.includes("anonymous") || lower.includes("sign-in is disabled");
+      const isNetworkError =
+        lower.includes("network request failed") ||
+        lower.includes("failed to fetch") ||
+        lower.includes("network error") ||
+        lower.includes("could not connect");
+      if (isAnonymousDisabled || isNetworkError) {
         await setGuestMode();
         navigation.replace("Onboarding");
       } else {

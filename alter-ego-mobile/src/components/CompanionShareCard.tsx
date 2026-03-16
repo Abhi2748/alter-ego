@@ -433,47 +433,36 @@ export const CompanionShareCard = forwardRef<View, CompanionShareCardProps>(
             </View>
           </View>
 
-          {/* Creature zone */}
-          <View
-            style={[
-              styles.creatureZone,
-              { backgroundColor: s.creatureZone.bg, borderColor: s.creatureZone.border },
-            ]}
-          >
+          {/* Top row: pet left, info right (Identity-style) */}
+          <View style={styles.topRow}>
             <View
-              pointerEvents="none"
               style={[
-                styles.creatureGlow,
-                {
-                  width: s.creatureZone.glowSize,
-                  height: s.creatureZone.glowSize,
-                  marginLeft: -s.creatureZone.glowSize / 2,
-                  marginTop: -s.creatureZone.glowSize / 2,
-                  backgroundColor: s.creatureZone.glow,
-                },
+                styles.petLeftBox,
+                { backgroundColor: s.creatureZone.bg, borderColor: s.creatureZone.border },
               ]}
-            />
-            <View style={styles.creatureCircle}>
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.creatureCircleBorder,
-                  { borderColor: s.creatureZone.border },
-                ]}
-              />
-              <Text style={[styles.creaturePlaceholder, { color: s.creatureZone.placeholder }]}>
-                {petName.toUpperCase()}
+            >
+              <View style={styles.petLeftCircle}>
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.petLeftCircleBorder,
+                    { borderColor: s.creatureZone.border },
+                  ]}
+                />
+                <Text style={[styles.petLeftPlaceholder, { color: s.creatureZone.placeholder }]}>
+                  {petName.toUpperCase()}
+                </Text>
+                <Text style={styles.petLeftSoon}>Art coming soon</Text>
+              </View>
+            </View>
+            <View style={styles.petMetaCol}>
+              <Text style={[styles.petName, { color: s.nameColor, fontSize: s.nameSize }]}>
+                {petName}
               </Text>
-              <Text style={styles.creatureSoon}>Art coming soon</Text>
+              <Text style={styles.userLine}>{`${username} · Day ${reachedDay}`}</Text>
+              <Text style={[styles.dateLine, { color: s.dateColor }]}>{reachedDate}</Text>
             </View>
           </View>
-
-          {/* Name + username + date */}
-          <Text style={[styles.petName, { color: s.nameColor, fontSize: s.nameSize }]}>
-            {petName}
-          </Text>
-          <Text style={styles.userLine}>{`${username} · Day ${reachedDay}`}</Text>
-          <Text style={[styles.dateLine, { color: s.dateColor }]}>{reachedDate}</Text>
 
           {/* Stats row */}
           <View style={styles.statsRow}>
@@ -610,47 +599,49 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.8,
   },
-  creatureZone: {
-    width: "100%",
-    borderRadius: 14,
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
     marginBottom: 14,
-    paddingVertical: 28,
+  },
+  petLeftBox: {
+    width: 88,
+    height: 88,
+    borderRadius: 14,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    position: "relative",
     overflow: "hidden",
-    borderWidth: 1,
   },
-  creatureCircle: {
-    width: 140,
-    height: 140,
+  petLeftCircle: {
+    width: 72,
+    height: 72,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
-  creatureCircleBorder: {
+  petLeftCircleBorder: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 999,
     borderWidth: 1,
     opacity: 0.9,
   },
-  creatureGlow: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    borderRadius: 999,
-  },
-  creaturePlaceholder: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  creatureSoon: {
+  petLeftPlaceholder: {
     fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  petLeftSoon: {
+    fontSize: 8,
     color: "rgba(255,255,255,0.08)",
+  },
+  petMetaCol: {
+    flex: 1,
+    justifyContent: "center",
   },
   petName: {
     fontWeight: "900",

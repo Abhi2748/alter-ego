@@ -862,3 +862,45 @@ export async function postQuitTargetConquer(
   }
   return res.json();
 }
+
+export type PatchQuitTargetPayload = {
+  quit_description?: string;
+  trigger_description?: string;
+};
+
+export async function patchQuitTarget(
+  accessToken: string,
+  targetId: string,
+  payload: PatchQuitTargetPayload
+): Promise<{ success: boolean }> {
+  if (apiMock) return apiMock.patchQuitTarget(accessToken, targetId, payload);
+  const res = await fetch(`${BASE}/api/v1/quit-targets/${encodeURIComponent(targetId)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Update quit target failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteQuitTarget(
+  accessToken: string,
+  targetId: string
+): Promise<{ success: boolean }> {
+  if (apiMock) return apiMock.deleteQuitTarget(accessToken, targetId);
+  const res = await fetch(`${BASE}/api/v1/quit-targets/${encodeURIComponent(targetId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Delete quit target failed: ${res.status}`);
+  }
+  return res.json();
+}

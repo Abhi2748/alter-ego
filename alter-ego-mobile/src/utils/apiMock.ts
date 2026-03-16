@@ -766,3 +766,34 @@ export async function postQuitTargetConquer(
   );
   return { success: true };
 }
+
+export async function patchQuitTarget(
+  _accessToken: string,
+  targetId: string,
+  payload: import("./api").PatchQuitTargetPayload
+): Promise<{ success: boolean }> {
+  await delay(MOCK_DELAY);
+  mockQuitTargetsList = mockQuitTargetsList.map((t) => {
+    if (t.id !== targetId) return t;
+    const next = { ...t };
+    if (payload.quit_description !== undefined) {
+      const name = (payload.quit_description || "Quit").trim().slice(0, 24);
+      next.quit_name = name;
+      next.quit_description = payload.quit_description;
+    }
+    if (payload.trigger_description !== undefined) {
+      next.trigger_description = payload.trigger_description;
+    }
+    return next;
+  });
+  return { success: true };
+}
+
+export async function deleteQuitTarget(
+  _accessToken: string,
+  targetId: string
+): Promise<{ success: boolean }> {
+  await delay(MOCK_DELAY);
+  mockQuitTargetsList = mockQuitTargetsList.filter((t) => t.id !== targetId);
+  return { success: true };
+}

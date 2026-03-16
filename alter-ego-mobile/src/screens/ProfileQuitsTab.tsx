@@ -18,6 +18,7 @@ import {
 import { QuitMilestoneIcon } from "../components/QuitMilestoneIcons";
 import { QuitMilestoneModal } from "../components/QuitMilestoneModal";
 import { AddQuitSheet } from "../components/AddQuitSheet";
+import { EditQuitSheet } from "../components/EditQuitSheet";
 import { SlipRecoveryModal } from "../components/SlipRecoveryModal";
 import { MarkAsConqueredSheet } from "../components/MarkAsConqueredSheet";
 
@@ -66,6 +67,8 @@ interface ProfileQuitsTabProps {
   onRefetch: () => void;
   onAddQuit: (payload: { quit_description: string; trigger_description: string }) => Promise<void>;
   onConquer: (targetId: string, payload: { conquered_at: string; final_clean_days: number; cravings_resisted: number }) => Promise<void>;
+  onPatchQuit: (targetId: string, payload: { quit_description?: string; trigger_description?: string }) => Promise<void>;
+  onDeleteQuit: (targetId: string) => Promise<void>;
   onOpenTwinChat?: (contextMessage: string) => void;
 }
 
@@ -74,11 +77,14 @@ export function ProfileQuitsTab({
   onRefetch,
   onAddQuit,
   onConquer,
+  onPatchQuit,
+  onDeleteQuit,
   onOpenTwinChat,
 }: ProfileQuitsTabProps) {
   const insets = useSafeAreaInsets();
   const [addSheetVisible, setAddSheetVisible] = useState(false);
   const [editTarget, setEditTarget] = useState<QuitTargetOut | null>(null);
+  const [editSheetTarget, setEditSheetTarget] = useState<QuitTargetOut | null>(null);
   const [milestoneModal, setMilestoneModal] = useState<{
     milestone: QuitMilestoneOut;
     quitName: string;
@@ -113,6 +119,11 @@ export function ProfileQuitsTab({
     setConquerSheetTarget(target);
   }, []);
   const closeConquerSheet = useCallback(() => setConquerSheetTarget(null), []);
+  const openEditSheet = useCallback((target: QuitTargetOut) => {
+    setEditTarget(null);
+    setEditSheetTarget(target);
+  }, []);
+  const closeEditSheet = useCallback(() => setEditSheetTarget(null), []);
 
   const handleAddSuccess = useCallback(() => {
     closeAddSheet();
@@ -369,27 +380,54 @@ export function ProfileQuitsTab({
           <View style={styles.editSheetOverlay}>
             <Pressable style={StyleSheet.absoluteFill} onPress={closeEditMenu} />
             <View style={[styles.editSheetInner, { paddingBottom: insets.bottom + 24 }]} onStartShouldSetResponder={() => true}>
-            <Text style={styles.editSheetTitle}>{editTarget.quit_name}</Text>
-            <Text style={styles.editSheetSub}>What would you like to do?</Text>
-            <Pressable
-              style={styles.editMenuCard}
-              onPress={() => openConquerSheet(editTarget)}
-            >
-              <View style={styles.editMenuIconGreen}>
-                <QuitMilestoneIcon type="conquered" color={GREEN} size={22} />
-              </View>
-              <View style={styles.editMenuText}>
-                <Text style={styles.editMenuTitleText}>Mark as Conquered</Text>
-                <Text style={styles.editMenuSubText}>I'm done with this — for good</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={VERY_DIM} />
-            </Pressable>
-            <Pressable onPress={closeEditMenu} style={styles.editSheetClose}>
-              <Text style={styles.editSheetCloseText}>Cancel</Text>
-            </Pressable>
-          </View>
+              <Text style={styles.editSheetTitle}>{editTarget.quit_name}</Text>
+              <Text style={styles.editSheetSub}>What would you like to do?</Text>
+              <Pressable
+                style={styles.editMenuCard}
+                onPress={() => openConquerSheet(editTarget)}
+              >
+                <View style={styles.editMenuIconGreen}>
+                  <QuitMilestoneIcon type="conquered" color={GREEN} size={22} />
+                </View>
+                <View style={styles.editMenuText}>
+                  <Text style={styles.editMenuTitleText}>Mark as Conquered</Text>
+                  <Text style={styles.editMenuSubText}>I'm done with this — for good</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={VERY_DIM} />
+              </Pressable>
+              <Pressable
+                style={[styles.editMenuCard, styles.editMenuCardSecond]}
+                onPress={() => openEditSheet(editTarget)}
+              >
+                <View style={styles.editMenuIconViolet}>
+                  <Ionicons name="pencil" size={20} color={VIOLET} />
+                </View>
+                <View style={styles.editMenuText}>
+                  <Text style={styles.editMenuTitleText}>Update info</Text>
+                  <Text style={styles.editMenuSubText}>Change what you're quitting or your triggers</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={VERY_DIM} />
+              </Pressable>
+              <Pressable onPress={closeEditMenu} style={styles.editSheetClose}>
+                <Text style={styles.editSheetCloseText}>Cancel</Text>
+              </Pressable>
+            </View>
           </View>
         </Modal>
+      )}
+
+      {editSheetTarget && (
+        <EditQuitSheet
+          visible
+          target={editSheetTarget}
+          onClose={closeEditSheet}
+          onSave={onPatchQuit}
+          onDelete={onDeleteQuit}
+          onSuccess={() => {
+            closeEditSheet();
+            onRefetch();
+          }}
+        />
       )}
 
       {conquerSheetTarget && (
@@ -619,6 +657,17 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 10,
+  },
+  editMenuCardSecond: { marginBottom: 10 },
+  editMenuIconViolet: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    backgroundColor: "rgba(139,92,246,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   editMenuIconGreen: {
     width: 44,

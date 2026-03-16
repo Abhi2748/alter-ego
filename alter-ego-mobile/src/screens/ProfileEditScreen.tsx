@@ -1,5 +1,5 @@
 /**
- * Settings → Edit Profile. Avatar upload, username, display name, save.
+ * Settings → Edit Profile. Avatar upload, username, save.
  * Shared header pattern + gradient bg. Spec: Profile Edit.
  */
 
@@ -41,10 +41,8 @@ export function ProfileEditScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [initialUsername, setInitialUsername] = useState("");
-  const [initialDisplayName, setInitialDisplayName] = useState("");
   const [initialPhotoUri, setInitialPhotoUri] = useState<string | null>(null);
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -52,7 +50,6 @@ export function ProfileEditScreen() {
 
   const hasChanges =
     username !== initialUsername ||
-    displayName !== initialDisplayName ||
     photoUri !== initialPhotoUri;
   const canSave =
     hasChanges &&
@@ -69,17 +66,13 @@ export function ProfileEditScreen() {
       if (!session?.access_token) return;
       const me = await getUserMe(session.access_token);
       const u = (me.username ?? "").replace(/^@/, "");
-      const d = me.display_name ?? "";
       setUsername(u);
-      setDisplayName(d);
       setInitialUsername(u);
-      setInitialDisplayName(d);
       const photo = me.profile_photo_url ?? null;
       setPhotoUri(photo);
       setInitialPhotoUri(photo);
     } catch (_) {
       setUsername("");
-      setDisplayName("");
     } finally {
       setLoading(false);
     }
@@ -168,11 +161,9 @@ export function ProfileEditScreen() {
       }
       await patchUserMe(session.access_token, {
         username: username.trim(),
-        display_name: displayName.trim() || undefined,
         profile_photo_url: photoUri || undefined,
       });
       setInitialUsername(username.trim());
-      setInitialDisplayName(displayName.trim());
       setInitialPhotoUri(photoUri);
       Alert.alert("Saved", "Your profile has been updated.", [
         { text: "OK", onPress: () => navigation.goBack() },
@@ -182,7 +173,7 @@ export function ProfileEditScreen() {
     } finally {
       setSaving(false);
     }
-  }, [canSave, saving, username, displayName, photoUri, usernameError, validateUsername, navigation]);
+  }, [canSave, saving, username, photoUri, usernameError, validateUsername, navigation]);
 
   return (
     <View style={styles.container}>
@@ -218,7 +209,7 @@ export function ProfileEditScreen() {
               )}
               {!photoUri && (
                 <Text style={styles.avatarInitial}>
-                  {(displayName || username || "U").charAt(0).toUpperCase()}
+                  {(username || "U").charAt(0).toUpperCase()}
                 </Text>
               )}
             </Pressable>
@@ -262,20 +253,6 @@ export function ProfileEditScreen() {
         </View>
         <Text style={styles.fieldHint}>Visible on the leaderboard. Max 20 characters.</Text>
         {usernameError ? <Text style={styles.errorText}>{usernameError}</Text> : null}
-
-        <Text style={styles.sectionLabel}>DISPLAY NAME</Text>
-        <View style={styles.field}>
-          <Ionicons name="person-outline" size={16} color="#4B5563" style={styles.fieldIcon} />
-          <TextInput
-            style={styles.inputFlex}
-            value={displayName}
-            onChangeText={setDisplayName}
-            placeholder="Add a display name (optional)"
-            placeholderTextColor={VERY_DIM}
-            maxLength={40}
-            editable={!loading}
-          />
-        </View>
 
         <Pressable
           onPress={handleSave}

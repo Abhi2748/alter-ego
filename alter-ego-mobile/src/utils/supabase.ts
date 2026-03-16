@@ -21,6 +21,30 @@ if (!url || !anonKey) {
   );
 }
 
+/** Retry fetch on transient "Network request failed" (common on Android / flaky networks). */
+const MAX_FETCH_RETRIES = 3;
+const FETCH_RETRY_DELAY_MS = 800;
+
+async function fetchWithRetry(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
+    try {
+      return await fetch(input, init);
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      const isNetworkFailure =
+        /network request failed|failed to fetch|network error|could not connect/i.test(msg);
+      if (!isNetworkFailure || attempt === MAX_FETCH_RETRIES) throw e;
+      await new Promise((r) => setTimeout(r, FETCH_RETRY_DELAY_MS));
+    }
+  }
+  throw lastErr;
+}
+
 const GUEST_STORAGE_KEY = "alter_ego_guest";
 
 const guestSession = {
@@ -54,6 +78,7 @@ export async function isGuestMode(): Promise<boolean> {
 }
 
 export const supabase = createClient(url, anonKey, {
+  global: { fetch: fetchWithRetry },
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,

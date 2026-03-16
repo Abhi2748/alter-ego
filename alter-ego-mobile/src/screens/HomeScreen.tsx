@@ -271,6 +271,7 @@ export function HomeScreen() {
     setCharacterStage(char.stage);
     setCharacterGender(char.gender ?? "male");
     setPetStage(pet.stage);
+    setTotalPetFood(pet.total_pet_food);
     setPetHealthState(pet.pet_health_state);
     if (res.twin_strip_message != null) setTwinStripMessage(res.twin_strip_message);
     if (res.stage_up) {
@@ -501,22 +502,24 @@ export function HomeScreen() {
             <View style={styles.petFoodBar}>
               <View style={styles.petFoodLabelRow}>
                 <Text style={styles.petFoodLabelLeft}>🌿 Pet Food</Text>
-                <Text style={styles.petFoodLabelRight}>{totalPetFood} PF</Text>
+                {nextPetName ? (
+                  <Text style={styles.petFoodLabelRight}>→ {nextPetName}</Text>
+                ) : (
+                  <Text style={styles.petFoodLabelRight}>Max</Text>
+                )}
               </View>
               <View style={styles.petFoodTrack}>
-                {nextPetName && (
-                  <View pointerEvents="none" style={styles.petFoodNextBadge}>
-                    <Text style={styles.petFoodNextText}>{`→ ${nextPetName}`}</Text>
-                  </View>
-                )}
                 <View
-                  style={[
-                    styles.petFoodFill,
-                    {
-                      width: `${(petLevelPct * 100).toFixed(1)}%`,
-                    },
-                  ]}
-                />
+                  style={[styles.petFoodFillWrap, { width: `${(petLevelPct * 100).toFixed(1)}%` }]}
+                  pointerEvents="none"
+                >
+                  <LinearGradient
+                    colors={["#047857", "#10B981", "#34D399"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.petFoodFill}
+                  />
+                </View>
               </View>
             </View>
           )}
@@ -944,6 +947,7 @@ const styles = StyleSheet.create({
   xpLabelRight: { fontSize: 10, color: TEXT_DIM },
   petFoodBar: {
     marginTop: 10,
+    width: 252,
   },
   petFoodLabelRow: {
     flexDirection: "row",
@@ -959,34 +963,25 @@ const styles = StyleSheet.create({
     color: TEXT_MUTED,
   },
   petFoodTrack: {
-    height: 6,
-    borderRadius: 4,
-    backgroundColor: "#050F0A",
+    height: 5,
+    borderRadius: 5,
+    backgroundColor: "rgba(20,24,36,1)",
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#064E3B",
+    position: "relative",
   },
-  petFoodNextBadge: {
+  petFoodFillWrap: {
     position: "absolute",
-    right: -2,
-    top: -16,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    backgroundColor: "rgba(6,78,59,0.22)",
-    borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.22)",
-  },
-  petFoodNextText: {
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-    color: "rgba(52,211,153,0.80)",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 5,
+    overflow: "hidden",
   },
   petFoodFill: {
-    height: "100%",
-    borderRadius: 4,
-    backgroundColor: "#10B981",
+    flex: 1,
+    height: 5,
+    borderRadius: 5,
+    minWidth: 0,
   },
 
   twinStrip: {

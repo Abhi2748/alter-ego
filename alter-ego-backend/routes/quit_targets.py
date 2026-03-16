@@ -183,6 +183,53 @@ async def post_quit_target_conquer(
     return {"success": True}
 
 
+class PatchQuitBody(BaseModel):
+    quit_description: Optional[str] = None
+    trigger_description: Optional[str] = None
+
+
+@router.patch("/{target_id}")
+async def patch_quit_target(
+    target_id: str, payload: PatchQuitBody, user_id: str = Depends(get_user_id)
+):
+    """Update quit target description or triggers (active only)."""
+    supabase = get_supabase()
+    updates = {}
+    if payload.quit_description is not None:
+        name = (payload.quit_description or "Quit")[:50].strip() or "Quit"
+        updates["quit_name"] = name
+        updates["quit_description"] = payload.quit_description
+    if payload.trigger_description is not None:
+        updates["trigger_description"] = payload.trigger_description
+    if not updates:
+        return {"success": True}
+    try:
+        supabase.table("quit_targets").update(updates).eq(
+            "id", target_id
+        ).eq("user_id", user_id).eq("status", "active").execute()
+    except Exception:
+        pass
+    return {"success": True}
+
+
+@router.delete("/{target_id}")
+async def delete_quit_target(
+    target_id: str, user_id: str = Depends(get_user_id)
+):
+    """Delete a quit target (active only)."""
+    supabase = get_supabase()
+    try:
+        supabase.table("quit_milestones").delete().eq(
+            "quit_target_id", target_id
+        ).eq("user_id", user_id).execute()
+        supabase.table("quit_targets").delete().eq(
+            "id", target_id
+        ).eq("user_id", user_id).execute()
+    except Exception:
+        pass
+    return {"success": True}
+
+
 class SlipOut(BaseModel):
     success: bool
     quit_name: str

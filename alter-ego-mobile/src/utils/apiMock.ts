@@ -27,6 +27,8 @@ import type {
   QuitTargetOut,
   QuitTargetsOut,
   PostQuitTargetPayload,
+  IdentityData,
+  CompanionData,
 } from "./api";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -104,6 +106,167 @@ export async function getHome(_accessToken: string): Promise<HomeOut> {
     username: "preview_user",
     streak: 14,
     week_dots: [true, true, true, false, false, false, false],
+  };
+}
+
+export async function getProfileIdentity(
+  _accessToken: string
+): Promise<IdentityData> {
+  await delay(MOCK_DELAY);
+  return {
+    current_stage: 2,
+    current_stage_name: "The Focused",
+    current_xp: 3240,
+    next_stage_xp_threshold: 10000,
+    total_xp: 3240,
+    days_active: 45,
+    days_to_next_stage_estimate: 18,
+    stage_history: [
+      {
+        stage: 1,
+        name: "The Awakened",
+        status: "completed",
+        reached_day: 1,
+        left_day: 27,
+        days_spent: 27,
+        xp_required: 0,
+      },
+      {
+        stage: 2,
+        name: "The Focused",
+        status: "current",
+        reached_day: 28,
+        left_day: null,
+        days_spent: 18,
+        xp_required: 10000,
+      },
+      {
+        stage: 3,
+        name: "The Burning",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        xp_required: 50000,
+      },
+      {
+        stage: 4,
+        name: "The Relentless",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        xp_required: 200000,
+      },
+      {
+        stage: 5,
+        name: "The Formidable",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        xp_required: 600000,
+      },
+      {
+        stage: 6,
+        name: "The Sovereign",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        xp_required: 1500000,
+      },
+    ],
+  };
+}
+
+export async function getProfileCompanion(
+  _accessToken: string
+): Promise<CompanionData> {
+  await delay(MOCK_DELAY);
+  return {
+    current_stage: 2,
+    current_pet_name: "Cat",
+    total_pf: 5200,
+    today_pf: 120,
+    daily_cap: 600,
+    next_stage_pf_threshold: 7000,
+    unlocked_day: 7,
+    days_to_next_estimate: 28,
+    stage_history: [
+      {
+        stage: 1,
+        name: "Cub",
+        status: "completed",
+        reached_day: 7,
+        left_day: 25,
+        days_spent: 19,
+        pf_required: 0,
+      },
+      {
+        stage: 2,
+        name: "Cat",
+        status: "current",
+        reached_day: 26,
+        left_day: null,
+        days_spent: 14,
+        pf_required: 400,
+      },
+      {
+        stage: 3,
+        name: "Fox",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        pf_required: 2000,
+      },
+      {
+        stage: 4,
+        name: "Wolf",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        pf_required: 7000,
+      },
+      {
+        stage: 5,
+        name: "Snow Leopard",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        pf_required: 18000,
+      },
+      {
+        stage: 6,
+        name: "Panther",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        pf_required: 40000,
+      },
+      {
+        stage: 7,
+        name: "Griffin",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        pf_required: 80000,
+      },
+      {
+        stage: 8,
+        name: "Dragon",
+        status: "locked",
+        reached_day: null,
+        left_day: null,
+        days_spent: null,
+        pf_required: 150000,
+      },
+    ],
   };
 }
 

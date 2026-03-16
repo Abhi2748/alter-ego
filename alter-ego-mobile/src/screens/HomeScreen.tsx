@@ -43,6 +43,8 @@ import {
 
 const STAGE_NAMES = ["The Awakened", "The Focused", "The Burning", "The Relentless", "The Formidable", "The Sovereign"];
 const TRIAL_START_KEY = "@alter_ego_trial_start_date";
+const PET_THRESHOLDS = [0, 400, 2000, 7000, 18000, 40000, 80000, 150000] as const;
+const PET_NAMES = ["Cub", "Cat", "Fox", "Wolf", "Snow Leopard", "Panther", "Griffin", "Dragon"] as const;
 
 // Design tokens (spec Section 1)
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
@@ -160,10 +162,11 @@ export function HomeScreen() {
   const [coreMissions, setCoreMissions] = useState<PlaceholderMission[]>([]);
   const [interestMissions, setInterestMissions] = useState<PlaceholderMission[]>([]);
   const [personalMissions, setPersonalMissions] = useState<PlaceholderMission[]>([]);
-  const [resistanceMissions] = useState<PlaceholderMission[]>(RESISTANCE_PLACEHOLDER_MISSIONS);
+  const [resistanceMissions, setResistanceMissions] = useState<PlaceholderMission[]>(RESISTANCE_PLACEHOLDER_MISSIONS);
   const [twinStripMessage, setTwinStripMessage] = useState<string | null>(null);
   const [petStage, setPetStage] = useState(0);
   const [petHealthState, setPetHealthState] = useState<string>("idle");
+  const [totalPetFood, setTotalPetFood] = useState(0);
   const [streak, setStreak] = useState(0);
   const [weekDots, setWeekDots] = useState<boolean[]>([false, false, false, false, false, false, false]);
   const [evolutionOverlayVisible, setEvolutionOverlayVisible] = useState(false);
@@ -178,6 +181,14 @@ export function HomeScreen() {
   const [isDay1To14, setIsDay1To14] = useState<boolean>(false);
   const [username, setUsername] = useState<string>("");
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
+
+  const nextPetName = petStage >= 1 && petStage < 8 ? PET_NAMES[petStage] : null;
+  const petFrom = petStage >= 1 ? PET_THRESHOLDS[Math.max(0, petStage - 1)] : 0;
+  const petTo = petStage >= 1 && petStage < 8 ? PET_THRESHOLDS[petStage] : PET_THRESHOLDS[PET_THRESHOLDS.length - 1];
+  const petLevelPct =
+    petStage >= 1 && petStage < 8 && petTo > petFrom
+      ? Math.min(1, Math.max(0, (totalPetFood - petFrom) / (petTo - petFrom)))
+      : 1;
 
   const fetchHome = useCallback(async () => {
     try {
@@ -197,6 +208,7 @@ export function HomeScreen() {
       setCharacterStage(char.stage);
       setCharacterGender(char.gender ?? "male");
       setPetStage(pet.stage);
+      setTotalPetFood(pet.total_pet_food);
       setPetHealthState(pet.pet_health_state);
       setTwinStripMessage(home.twin_strip_message ?? null);
       setStreak(home.streak ?? 0);
@@ -313,6 +325,18 @@ export function HomeScreen() {
       setPersonalMissions((prev) =>
         prev.map((m) => (m.id === id ? { ...m, status: "complete" as const } : m))
       );
+      completeMissionAndSync(id, mission);
+    }
+  };
+
+  const handleCompleteResistance = (id: string) => {
+    const mission = resistanceMissions.find((m) => m.id === id);
+    if (mission) {
+      setResistanceMissions((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, status: "complete" as const } : m))
+      );
+      setDisplayXP((prev) => prev + mission.xpValue);
+      triggerXpBarAnimation();
       completeMissionAndSync(id, mission);
     }
   };
@@ -473,6 +497,29 @@ export function HomeScreen() {
               width={252}
               hideLabels
             />
+          {petStage > 0 && (
+            <View style={styles.petFoodBar}>
+              <View style={styles.petFoodLabelRow}>
+                <Text style={styles.petFoodLabelLeft}>🌿 Pet Food</Text>
+                <Text style={styles.petFoodLabelRight}>{totalPetFood} PF</Text>
+              </View>
+              <View style={styles.petFoodTrack}>
+                {nextPetName && (
+                  <View pointerEvents="none" style={styles.petFoodNextBadge}>
+                    <Text style={styles.petFoodNextText}>{`→ ${nextPetName}`}</Text>
+                  </View>
+                )}
+                <View
+                  style={[
+                    styles.petFoodFill,
+                    {
+                      width: `${(petLevelPct * 100).toFixed(1)}%`,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          )}
           </View>
         </View>
 
@@ -578,7 +625,7 @@ export function HomeScreen() {
                 xpValue={m.xpValue}
                 petFoodValue={m.petFoodValue}
                 status={m.status}
-                onComplete={() => {}}
+                onComplete={() => handleCompleteResistance(m.id)}
                 missionType="resistance"
                 quitTargetName={m.quitTargetName}
                 dayCounter={m.dayCounter}
@@ -895,6 +942,52 @@ const styles = StyleSheet.create({
   xpLabelRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 5 },
   xpLabelLeft: { fontSize: 10, fontWeight: "600", color: VIOLET_GLOW },
   xpLabelRight: { fontSize: 10, color: TEXT_DIM },
+  petFoodBar: {
+    marginTop: 10,
+  },
+  petFoodLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  petFoodLabelLeft: {
+    fontSize: 10,
+    color: TEXT_DIM,
+  },
+  petFoodLabelRight: {
+    fontSize: 10,
+    color: TEXT_MUTED,
+  },
+  petFoodTrack: {
+    height: 6,
+    borderRadius: 4,
+    backgroundColor: "#050F0A",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#064E3B",
+  },
+  petFoodNextBadge: {
+    position: "absolute",
+    right: -2,
+    top: -16,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: "rgba(6,78,59,0.22)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.22)",
+  },
+  petFoodNextText: {
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    color: "rgba(52,211,153,0.80)",
+  },
+  petFoodFill: {
+    height: "100%",
+    borderRadius: 4,
+    backgroundColor: "#10B981",
+  },
 
   twinStrip: {
     height: 50,

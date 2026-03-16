@@ -69,7 +69,7 @@ const PLACEHOLDER_STREAK: StreakScreenData = {
   pet_name: "Cat",
 };
 
-const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -286,10 +286,22 @@ export function ProfileStreakScreen() {
                   const isTodayNotCompleted = isToday && !todayCompleted;
                   const key = rowIndex * 7 + colIndex;
 
+                  const dateString =
+                    day && !isEmpty
+                      ? `${displayYear}-${String(viewMonth.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+                      : "";
+
                   return (
-                    <View
+                    <Pressable
                       key={key}
-                      style={[
+                      disabled={isEmpty}
+                      onPress={() => {
+                        if (!isEmpty && dateString) {
+                          // @ts-ignore navigation typed via useNavigation
+                          (navigation as any).navigate?.("DayDetail", { date: dateString });
+                        }
+                      }}
+                      style={({ pressed }) => [
                         styles.calendarCell,
                         {
                           width: cellSize,
@@ -301,6 +313,7 @@ export function ProfileStreakScreen() {
                         completed && !isToday && styles.calendarCellCompleted,
                         isToday && todayCompleted && styles.calendarCellTodayDone,
                         isTodayNotCompleted && styles.calendarCellTodayPending,
+                        pressed && !isEmpty && styles.calendarCellPressed,
                       ]}
                     >
                       {!isEmpty && (
@@ -322,11 +335,15 @@ export function ProfileStreakScreen() {
                           )}
                         </>
                       )}
-                    </View>
+                    </Pressable>
                   );
                 })}
               </View>
             ))}
+          </View>
+          <View style={styles.tapHint}>
+            <Ionicons name="finger-print-outline" size={12} color="#374151" />
+            <Text style={styles.tapHintText}>Tap any day to see your mission history</Text>
           </View>
         </View>
 
@@ -734,5 +751,19 @@ const styles = StyleSheet.create({
   },
   freezesBadgeTextDanger: {
     color: "#F87171",
+  },
+  tapHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 10,
+    marginBottom: 4,
+    opacity: 0.7,
+  },
+  tapHintText: {
+    fontSize: 11,
+    color: "#374151",
+    fontStyle: "italic",
   },
 });

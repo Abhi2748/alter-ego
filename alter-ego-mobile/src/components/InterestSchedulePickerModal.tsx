@@ -31,7 +31,7 @@ const HANDLE_HEIGHT = 4;
 const HANDLE_MARGIN = 12;
 const DAY_BUTTON_SIZE = 40;
 
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"] as const;
 
 export interface InterestSchedulePickerModalProps {
   visible: boolean;

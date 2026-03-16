@@ -23,7 +23,7 @@ import { COLORS, SPACING, RADIUS, SHADOWS } from "../constants/theme";
 import { INTEREST_LEVEL_OPTIONS, type InterestLevelOption } from "../constants/onboardingQuestions";
 import { OnboardingOptionCard } from "./OnboardingOptionCard";
 
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 type Step = 1 | 2 | 3; // maps to onboarding steps 2–4
 

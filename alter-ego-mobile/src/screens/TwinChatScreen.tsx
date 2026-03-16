@@ -291,10 +291,10 @@ export function TwinChatScreen() {
   );
 
   const sendMessage = useCallback((overrideText?: string) => {
-    const text = (overrideText !== undefined ? overrideText : inputText).trim();
+    const raw = overrideText !== undefined ? overrideText : inputText;
+    const text = (typeof raw === "string" ? raw : "").trim();
     if (!text) return;
     if (overrideText === undefined) setInputText("");
-    Keyboard.dismiss();
 
     const userMsg: ChatMessage = {
       id: id(),
@@ -440,7 +440,8 @@ export function TwinChatScreen() {
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: "#08091A" }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={HEADER_HEIGHT}
+      //keyboardVerticalOffset={HEADER_HEIGHT}
+      keyboardVerticalOffset={0}
     >
       {/* Background + atmosphere (absolute, do not affect layout) */}
       <LinearGradient colors={BG_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
@@ -453,7 +454,9 @@ export function TwinChatScreen() {
       />
 
       {/* Header inside KeyboardAvoidingView */}
-      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+      <View
+        style={[styles.header, { paddingTop: insets.top + 10 }]}
+      >
         {Platform.OS === "ios" ? <BlurView intensity={14} tint="dark" style={StyleSheet.absoluteFill} /> : null}
         <View style={styles.headerRow}>
           <Pressable onPress={handleClose} style={styles.closeBtn} hitSlop={8}>
@@ -503,9 +506,16 @@ export function TwinChatScreen() {
         }
       />
 
-      {/* Input bar — outer has insets.bottom + BlurView; inner has fixed padding so TextInput aligns correctly */}
-      <View style={[styles.inputBarOuter, { paddingBottom: insets.bottom }]}>
-        {Platform.OS === "ios" ? <BlurView intensity={12} tint="dark" style={StyleSheet.absoluteFill} /> : null}
+      {/* Input bar — apply safe area here only when keyboard is closed */}
+      <View
+        style={[
+          styles.inputBarOuter,
+          { paddingBottom: inputFocused ? 0 : insets.bottom }
+        ]}
+      >
+        {Platform.OS === "ios" ? (
+          <BlurView intensity={12} tint="dark" style={StyleSheet.absoluteFill} />
+        ) : null}
         <View style={styles.inputBarInner}>
           <TextInput
             style={[
@@ -526,7 +536,7 @@ export function TwinChatScreen() {
             multiline={false}
             maxLength={500}
             returnKeyType="send"
-            onSubmitEditing={sendMessage}
+            onSubmitEditing={() => sendMessage()}
             blurOnSubmit={false}
           />
           {inputFocused && (
@@ -539,15 +549,15 @@ export function TwinChatScreen() {
             </TouchableOpacity>
           )}
           <Pressable
-            onPress={sendMessage}
-            disabled={!inputText.trim()}
+            onPress={() => sendMessage()}
+            disabled={!(inputText ?? "").trim()}
             style={({ pressed }) => [
               styles.sendBtnWrap,
-              !inputText.trim() && styles.sendBtnDisabled,
+              !(inputText ?? "").trim() && styles.sendBtnDisabled,
               pressed && styles.sendBtnPressed,
             ]}
           >
-            {inputText.trim() ? (
+            {(inputText ?? "").trim() ? (
               <LinearGradient
                 colors={[VIOLET_DEEP, VIOLET]}
                 start={{ x: 0, y: 0 }}

@@ -124,6 +124,49 @@ export type HomeOut = {
   week_dots?: boolean[]; // Mon–Sun
 };
 
+export type IdentityStageHistoryItem = {
+  stage: number;
+  name: string;
+  status: "current" | "completed" | "locked";
+  reached_day: number | null;
+  left_day: number | null;
+  days_spent: number | null;
+  xp_required: number;
+};
+
+export type IdentityData = {
+  current_stage: number;
+  current_stage_name: string;
+  current_xp: number;
+  next_stage_xp_threshold: number;
+  total_xp: number;
+  days_active: number;
+  days_to_next_stage_estimate: number;
+  stage_history: IdentityStageHistoryItem[];
+};
+
+export type CompanionStageHistoryItem = {
+  stage: number;
+  name: string;
+  status: "current" | "completed" | "locked";
+  reached_day: number | null;
+  left_day: number | null;
+  days_spent: number | null;
+  pf_required: number;
+};
+
+export type CompanionData = {
+  current_stage: number;
+  current_pet_name: string;
+  total_pf: number;
+  today_pf: number;
+  daily_cap: number;
+  next_stage_pf_threshold: number;
+  unlocked_day: number;
+  days_to_next_estimate: number;
+  stage_history: CompanionStageHistoryItem[];
+};
+
 export type EarnedMilestoneOut = {
   interest: string;
   milestone_name: string;
@@ -152,6 +195,34 @@ export async function getHome(accessToken: string): Promise<HomeOut> {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Home failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getProfileIdentity(
+  accessToken: string
+): Promise<IdentityData> {
+  if (apiMock) return apiMock.getProfileIdentity(accessToken);
+  const res = await fetch(`${BASE}/api/v1/profile/identity`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Profile identity failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getProfileCompanion(
+  accessToken: string
+): Promise<CompanionData> {
+  if (apiMock) return apiMock.getProfileCompanion(accessToken);
+  const res = await fetch(`${BASE}/api/v1/profile/companion`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Profile companion failed: ${res.status}`);
   }
   return res.json();
 }

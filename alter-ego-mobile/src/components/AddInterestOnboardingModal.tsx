@@ -32,7 +32,7 @@ export type OnboardingInterestItem = {
   schedule?: number[];
 };
 
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 type Step = 1 | 2 | 3 | 4;
 
 type Props = {

@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import type { OnboardingInterest } from "../context/OnboardingAnswersContext";
 
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 const LEVEL_OPTIONS: { label: string; sub: string; value: "beginner" | "intermediate" | "advanced" }[] = [
   { label: "Still figuring it out", sub: "Just starting, mostly beginner", value: "beginner" },

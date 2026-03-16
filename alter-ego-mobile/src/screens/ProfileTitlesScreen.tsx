@@ -366,7 +366,7 @@ function StageRow({
 // ACHIEVEMENT CARD MODAL
 // -----------------------------------------------------------------------------
 
-function AchievementCardModal({
+export function AchievementCardModal({
   visible,
   stage,
   onClose,

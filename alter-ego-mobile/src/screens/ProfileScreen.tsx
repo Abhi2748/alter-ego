@@ -3,7 +3,7 @@
  * No fixed header; hero bleeds edge to edge. Do NOT touch sub-screens or bottom nav.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import {
   Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { CompositeNavigationProp } from "@react-navigation/native";
@@ -89,14 +90,18 @@ function StreakIcon() {
   );
 }
 
-function TitlesIcon() {
+function JourneyIcon() {
   return (
     <Svg width={20} height={18} viewBox="0 0 20 18" fill="none">
       <Path
-        d="M10 1L12.5 7H19L13.8 10.8L15.8 17L10 13.2L4.2 17L6.2 10.8L1 7H7.5L10 1Z"
-        fill="#8B5CF6"
-        opacity={0.85}
+        d="M3 15C5 11 7 10 10 10C13 10 15 9 17 5"
+        stroke="#8B5CF6"
+        strokeWidth={1.5}
+        strokeLinecap="round"
       />
+      <Circle cx={10} cy={10} r={1.5} fill="#8B5CF6" />
+      <Circle cx={17} cy={5} r={1.5} fill="#8B5CF6" opacity={0.6} />
+      <Circle cx={3} cy={15} r={1.5} fill="#4B5563" />
     </Svg>
   );
 }
@@ -138,7 +143,7 @@ const NAV_ENTRIES: {
 }[] = [
   { key: "ProfileStats", label: "Stats", Icon: StatsIcon },
   { key: "ProfileStreak", label: "Streak", Icon: StreakIcon },
-  { key: "ProfileTitles", label: "Titles", Icon: TitlesIcon },
+  { key: "ProfileIdentity", label: "Journey", Icon: JourneyIcon },
   { key: "ProfileInterests", label: "Interests", Icon: InterestsIcon },
   { key: "ProfileQuits", label: "Quits", Icon: QuitsIcon },
 ];
@@ -159,6 +164,9 @@ export function ProfileScreen() {
   const navigation = useNavigation<Nav>();
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(PLACEHOLDER_PROFILE);
+  const [journeyDropdownVisible, setJourneyDropdownVisible] = useState(false);
+  const [journeyDropdownTop, setJourneyDropdownTop] = useState<number>(260);
+  const journeyRowRef = useRef<View>(null);
 
   const petFloat = useSharedValue(0);
 
@@ -406,24 +414,124 @@ export function ProfileScreen() {
 
         {/* Nav rows */}
         <View style={[styles.navSection, { paddingHorizontal: 16 }]}>
-          {NAV_ENTRIES.map(({ key, label, Icon }) => (
-            <Pressable
-              key={key}
-              style={({ pressed }) => [
-                styles.navRow,
-                pressed && styles.navRowPressed,
-              ]}
-              onPress={() => openEntry(key)}
-            >
-              <View style={styles.navIconWrap}>
-                <Icon />
-              </View>
-              <Text style={styles.navRowTitle}>{label}</Text>
-              <Ionicons name="chevron-forward" size={16} color="#374151" />
-            </Pressable>
-          ))}
+          {NAV_ENTRIES.map(({ key, label, Icon }) => {
+            const isJourney = key === "ProfileIdentity";
+            return (
+              <Pressable
+                key={key}
+                ref={isJourney ? journeyRowRef : undefined}
+                style={({ pressed }) => [
+                  styles.navRow,
+                  pressed && styles.navRowPressed,
+                ]}
+                onPress={() =>
+                  isJourney
+                    ? (() => {
+                        journeyRowRef.current?.measureInWindow((_x, y, _w, h) => {
+                          // Drop the menu just under the Journey row.
+                          setJourneyDropdownTop(Math.max(0, y + h + 4));
+                          setJourneyDropdownVisible(true);
+                        });
+                      })()
+                    : openEntry(key)
+                }
+              >
+                <View style={styles.navIconWrap}>
+                  <Icon />
+                </View>
+                {isJourney ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Text style={styles.navRowTitle}>Journey</Text>
+                    <Ionicons
+                      name="chevron-down"
+                      size={10}
+                      color="#6B7280"
+                    />
+                  </View>
+                ) : (
+                  <Text style={styles.navRowTitle}>{label}</Text>
+                )}
+                <Ionicons name="chevron-forward" size={16} color="#374151" />
+              </Pressable>
+            );
+          })}
         </View>
       </ScrollView>
+
+      {journeyDropdownVisible && (
+        <>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setJourneyDropdownVisible(false)}
+          >
+            <BlurView intensity={6} tint="dark" style={StyleSheet.absoluteFill} />
+          </Pressable>
+          <View style={[styles.journeyDropdownCard, { top: journeyDropdownTop }]}>
+            <LinearGradient
+              colors={["transparent", "rgba(139,92,246,0.30)", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.journeyDropdownAccent}
+            />
+            <Text style={styles.journeyDropdownTitle}>Journey</Text>
+            <Pressable
+              style={styles.journeyOption}
+              onPress={() => {
+                setJourneyDropdownVisible(false);
+                navigation.navigate("ProfileIdentity");
+              }}
+            >
+              <View style={styles.journeyIconBoxIdentity}>
+                <Svg width={18} height={22} viewBox="0 0 18 22" fill="none">
+                  <Path
+                    d="M9 2.5C6.514 2.5 4.5 4.514 4.5 7C4.5 10.25 9 19.5 9 19.5C9 19.5 13.5 10.25 13.5 7C13.5 4.514 11.486 2.5 9 2.5Z"
+                    stroke="#8B5CF6"
+                    strokeWidth={1.4}
+                  />
+                  <Circle cx={9} cy={7} r={2} fill="#8B5CF6" />
+                </Svg>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.journeyOptionTitle}>Identity</Text>
+                <Text style={styles.journeyOptionSub}>
+                  Your character stages, XP progress & evolution history
+                </Text>
+              </View>
+            </Pressable>
+            <Pressable
+              style={[styles.journeyOption, styles.journeyOptionLast]}
+              onPress={() => {
+                setJourneyDropdownVisible(false);
+                navigation.navigate("ProfileCompanion");
+              }}
+            >
+              <View style={styles.journeyIconBoxCompanion}>
+                <Svg width={20} height={20} viewBox="0 0 20 20" fill="none">
+                  <Path
+                    d="M5 14C5 10 7 7 10 7C13 7 15 9 15 12C15 14.5 13.5 16 11.5 16C10 16 9 15 8.5 14"
+                    stroke="#10B981"
+                    strokeWidth={1.4}
+                    strokeLinecap="round"
+                  />
+                  <Circle cx={7} cy={6} r={1.3} fill="#10B981" />
+                </Svg>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.journeyOptionTitle}>Companion</Text>
+                <Text style={styles.journeyOptionSub}>
+                  Your pet stages, Pet Food progress & companion history
+                </Text>
+              </View>
+            </Pressable>
+          </View>
+        </>
+      )}
     </LinearGradient>
   );
 }
@@ -663,5 +771,82 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
     color: "#E5E7EB",
+  },
+  journeyDropdownCard: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    top: 260,
+    backgroundColor: "#111623",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.60)",
+    overflow: "hidden",
+    shadowColor: "rgba(0,0,0,0.60)",
+    shadowRadius: 48,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 20,
+  },
+  journeyDropdownAccent: {
+    position: "absolute",
+    top: 0,
+    left: "15%",
+    right: "15%",
+    height: 1,
+  },
+  journeyDropdownTitle: {
+    paddingTop: 14,
+    paddingBottom: 10,
+    paddingHorizontal: 16,
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "#374151",
+    textAlign: "center",
+  },
+  journeyOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(42,48,80,0.35)",
+  },
+  journeyOptionLast: {
+    borderBottomWidth: 0,
+  },
+  journeyIconBoxIdentity: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: "rgba(109,40,217,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.28)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 14,
+  },
+  journeyIconBoxCompanion: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: "rgba(6,78,59,0.20)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.28)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 14,
+  },
+  journeyOptionTitle: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    color: "#E5E7EB",
+    marginBottom: 2,
+  },
+  journeyOptionSub: {
+    fontSize: 12,
+    color: "#4B5563",
+    lineHeight: 16,
   },
 });

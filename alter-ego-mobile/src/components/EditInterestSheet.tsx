@@ -30,7 +30,7 @@ const TEXT = "#E5E7EB";
 const MUTED = "#6B7280";
 const DIM = "#374151";
 const VERY_DIM = "#2D3146";
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 function IconGoal() {

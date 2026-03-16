@@ -39,6 +39,7 @@ export type MainStackParamList = {
   RankCard: { rankPosition?: 1 | 2 | 3 } | undefined;
   ShareableCardsPreview: undefined;
   PastReportDetail: { report_id: string };
+  DayDetail: { date: string };
   Paywall: { dismissable?: boolean } | undefined;
   SubscriptionManagement: undefined;
   JournalList: undefined;
@@ -50,7 +51,8 @@ export type ProfileStackParamList = {
   ProfileMain: undefined;
   ProfileStats: undefined;
   ProfileStreak: undefined;
-  ProfileTitles: undefined;
+  ProfileIdentity: undefined;
+  ProfileCompanion: undefined;
   ProfileInterests: undefined;
   ProfileQuits: undefined;
 };

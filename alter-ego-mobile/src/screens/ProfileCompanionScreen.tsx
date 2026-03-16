@@ -1,0 +1,800 @@
+import React, { useEffect, useRef, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  Modal,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { CompanionShareCard } from "../components/CompanionShareCard";
+
+interface PetStageHistoryItem {
+  stage: number;
+  name: string;
+  status: "current" | "completed" | "locked";
+  reached_day: number | null;
+  left_day: number | null;
+  days_spent: number | null;
+  pf_required: number;
+}
+
+interface CompanionData {
+  current_stage: number;
+  current_pet_name: string;
+  total_pf: number;
+  today_pf: number;
+  daily_cap: number;
+  next_stage_pf_threshold: number;
+  unlocked_day: number;
+  days_to_next_estimate: number;
+  stage_history: PetStageHistoryItem[];
+}
+
+const PLACEHOLDER_COMPANION: CompanionData = {
+  current_stage: 2,
+  current_pet_name: "Cat",
+  total_pf: 5200,
+  today_pf: 120,
+  daily_cap: 600,
+  next_stage_pf_threshold: 7000,
+  unlocked_day: 7,
+  days_to_next_estimate: 28,
+  stage_history: [
+    {
+      stage: 1,
+      name: "Cub",
+      status: "completed",
+      reached_day: 7,
+      left_day: 25,
+      days_spent: 19,
+      pf_required: 0,
+    },
+    {
+      stage: 2,
+      name: "Cat",
+      status: "current",
+      reached_day: 26,
+      left_day: null,
+      days_spent: 14,
+      pf_required: 400,
+    },
+    {
+      stage: 3,
+      name: "Fox",
+      status: "locked",
+      reached_day: null,
+      left_day: null,
+      days_spent: null,
+      pf_required: 2000,
+    },
+    {
+      stage: 4,
+      name: "Wolf",
+      status: "locked",
+      reached_day: null,
+      left_day: null,
+      days_spent: null,
+      pf_required: 7000,
+    },
+    {
+      stage: 5,
+      name: "Snow Leopard",
+      status: "locked",
+      reached_day: null,
+      left_day: null,
+      days_spent: null,
+      pf_required: 18000,
+    },
+    {
+      stage: 6,
+      name: "Panther",
+      status: "locked",
+      reached_day: null,
+      left_day: null,
+      days_spent: null,
+      pf_required: 40000,
+    },
+    {
+      stage: 7,
+      name: "Griffin",
+      status: "locked",
+      reached_day: null,
+      left_day: null,
+      days_spent: null,
+      pf_required: 80000,
+    },
+    {
+      stage: 8,
+      name: "Dragon",
+      status: "locked",
+      reached_day: null,
+      left_day: null,
+      days_spent: null,
+      pf_required: 150000,
+    },
+  ],
+};
+
+export function ProfileCompanionScreen() {
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation();
+  const [data, setData] = useState<CompanionData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [cardVisible, setCardVisible] = useState(false);
+  const [selectedStage, setSelectedStage] = useState<number>(1);
+  const [selectedPetName, setSelectedPetName] = useState<string>("Cub");
+  const cardRef = useRef<View>(null);
+
+  useEffect(() => {
+    setData(PLACEHOLDER_COMPANION);
+    setLoading(false);
+  }, []);
+
+  const current = data;
+  const currentStage = current?.current_stage ?? 1;
+  const pfThreshold = current?.next_stage_pf_threshold ?? 400;
+  const pfPct =
+    current && pfThreshold > 0
+      ? Math.min(1, current.total_pf / pfThreshold)
+      : 0;
+
+  const username = "shadow_wolf";
+
+  const openShareCardFor = (st: PetStageHistoryItem) => {
+    if (st.status === "locked") return;
+    setSelectedStage(st.stage);
+    setSelectedPetName(st.name);
+    setCardVisible(true);
+  };
+
+  const tierLabelForStage = (stage: number): string => {
+    const tiers = [
+      "Gift",
+      "Easy",
+      "Medium",
+      "Med-Hard",
+      "Hard",
+      "Very Hard",
+      "Hellish",
+      "Monument",
+    ];
+    return tiers[Math.min(7, Math.max(0, stage - 1))] ?? "Gift";
+  };
+
+  const reachedDateFor = (_st: PetStageHistoryItem) => {
+    // Phase 1: we don't have a real reached_date in backend yet.
+    const d = new Date();
+    return d.toLocaleDateString(undefined, { month: "long", day: "2-digit", year: "numeric" });
+  };
+
+  return (
+    <View style={styles.container}>
+      <LinearGradient
+        colors={["#060E08", "#030A06", "#060E08"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: insets.top + 10,
+            paddingBottom: 14,
+          },
+        ]}
+      >
+        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
+          <Ionicons name="chevron-back" size={22} color="#6EE7B7" />
+        </Pressable>
+        <Text style={styles.headerTitle}>Companion</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      {loading || !current ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color="#10B981" />
+        </View>
+      ) : (
+        <>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 32 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.currentCard}>
+            <LinearGradient
+              colors={["transparent", "rgba(52,211,153,0.30)", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.currentTopAccent}
+            />
+
+            <View style={styles.currentRow}>
+              <View style={styles.petArtWrap}>
+                <LinearGradient
+                  colors={
+                    currentStage === 1
+                      ? ["rgba(6,78,59,0.35)", "rgba(4,40,25,0.75)"]
+                      : currentStage === 2
+                      ? ["rgba(6,78,59,0.45)", "rgba(4,40,25,0.85)"]
+                      : currentStage === 3
+                      ? ["rgba(5,95,75,0.45)", "rgba(4,50,35,0.85)"]
+                      : ["rgba(5,120,80,0.55)", "rgba(3,30,18,0.90)"]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={styles.petArt}
+                />
+                <View style={styles.petArtBorder} />
+                <Text style={styles.petArtLabel}>{current.current_pet_name}</Text>
+              </View>
+
+              <View style={styles.metaCol}>
+                <Text style={styles.stageBadge}>{`STAGE ${currentStage} · CURRENT`}</Text>
+                <Text style={styles.petName}>{current.current_pet_name}</Text>
+                <Text style={styles.petSub}>
+                  {`Unlocked Day ${current.unlocked_day} · ${current.total_pf.toLocaleString()} PF reached`}
+                </Text>
+
+                <View style={styles.pfRow}>
+                  <Text style={styles.pfLabelLeft}>
+                    {`🌿 ${current.total_pf.toLocaleString()} / ${pfThreshold.toLocaleString()} PF`}
+                  </Text>
+                  <Text style={styles.pfLabelRight}>{`→ ${nextPetName(currentStage + 1)}`}</Text>
+                </View>
+
+                <View style={styles.pfTrackBg}>
+                  <LinearGradient
+                    colors={["#059669", "#10B981", "#34D399"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.pfTrackFill, { width: `${pfPct * 100}%` }]}
+                  />
+                </View>
+
+                <Text style={styles.daysEstimate}>
+                  {`~${current.days_to_next_estimate} days to ${nextPetName(
+                    currentStage + 1
+                  )} at current pace`}
+                </Text>
+
+                <View style={styles.statsRow}>
+                  <View style={styles.statsPill}>
+                    <Text style={styles.statsValue}>
+                      {current.total_pf.toLocaleString()}
+                    </Text>
+                    <Text style={styles.statsLabel}>TOTAL PF</Text>
+                  </View>
+                  <View style={styles.statsPill}>
+                    <Text style={styles.statsValue}>
+                      {current.today_pf.toLocaleString()}
+                    </Text>
+                    <Text style={styles.statsLabel}>TODAY'S PF</Text>
+                  </View>
+                  <View style={styles.statsPill}>
+                    <Text style={styles.statsValue}>
+                      {current.daily_cap.toLocaleString()}
+                    </Text>
+                    <Text style={styles.statsLabel}>DAILY CAP</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.historyLabel}>ALL COMPANIONS</Text>
+
+            {current.stage_history.map((st, idx) => {
+              const isLast = idx === current.stage_history.length - 1;
+              const isCurrent = st.status === "current";
+              const isLocked = st.status === "locked";
+              const isCompleted = st.status === "completed";
+
+              const opacity =
+                isLocked && st.stage > currentStage
+                  ? 0.28 - 0.04 * Math.max(0, st.stage - currentStage - 1)
+                  : 1;
+
+              return (
+                <Pressable
+                  key={st.stage}
+                  style={[
+                    styles.stageRow,
+                    !isLast && styles.stageRowBorder,
+                    { opacity },
+                  ]}
+                  onPress={() => openShareCardFor(st)}
+                >
+                  {isCurrent && <View style={styles.currentAccentBar} />}
+                  <View
+                    style={[
+                      styles.stageThumb,
+                      isCurrent
+                        ? styles.stageThumbCurrent
+                        : isLocked
+                        ? styles.stageThumbLocked
+                        : styles.stageThumbDone,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.stageThumbText,
+                        isLocked && styles.stageThumbTextLocked,
+                      ]}
+                    >
+                      {`S${st.stage}`}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.stageRowName,
+                        isCurrent
+                          ? styles.stageRowNameCurrent
+                          : isLocked
+                          ? styles.stageRowNameLocked
+                          : styles.stageRowNameDone,
+                      ]}
+                    >
+                      {st.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.stageRowSub,
+                        isLocked && styles.stageRowSubLocked,
+                      ]}
+                    >
+                      {isCompleted
+                        ? `Day ${st.reached_day} → Day ${st.left_day} · ${st.days_spent} days`
+                        : isCurrent
+                        ? `Day ${st.reached_day} → now · current`
+                        : `${st.pf_required.toLocaleString()} PF · ~${roughTimeForPf(
+                            st.pf_required
+                          )}`}
+                    </Text>
+                  </View>
+                  {isCurrent ? (
+                    <View style={styles.nowBadge}>
+                      <Text style={styles.nowBadgeText}>NOW</Text>
+                    </View>
+                  ) : isLocked ? (
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={14}
+                      color="#0A1A0C"
+                    />
+                  ) : (
+                    <View style={styles.stageRightWrap}>
+                      <Pressable
+                        onPress={() => openShareCardFor(st)}
+                        hitSlop={10}
+                        style={({ pressed }) => [
+                          styles.shareIconBtn,
+                          pressed && { transform: [{ scale: 0.97 }] },
+                        ]}
+                      >
+                        <Ionicons name="share-outline" size={14} color="#34D399" />
+                      </Pressable>
+                      <Ionicons name="checkmark" size={14} color="#10B981" />
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+
+            <View style={styles.dragonCard}>
+              <View style={styles.dragonIconBox}>
+                <Text style={styles.dragonIconText}>S8</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dragonTitle}>Dragon · Stage 8</Text>
+                <Text style={styles.dragonBody}>
+                  150,000 PF · ~1,800 days. A Dragon is not an achievement. It is a biography.
+                </Text>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+
+        <Modal
+          visible={cardVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setCardVisible(false)}
+        >
+          <Pressable
+            style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.88)" }]}
+            onPress={() => setCardVisible(false)}
+          />
+          <View style={styles.cardContainer} pointerEvents="box-none">
+            <View style={styles.cardInner}>
+              <CompanionShareCard
+                ref={cardRef}
+                stage={selectedStage}
+                petName={selectedPetName}
+                username={username}
+                reachedDay={
+                  current.stage_history.find((s) => s.stage === selectedStage)?.reached_day ?? 0
+                }
+                reachedDate={
+                  reachedDateFor(
+                    current.stage_history.find((s) => s.stage === selectedStage) ??
+                      current.stage_history[0]
+                  )
+                }
+                totalDays={
+                  current.stage_history.find((s) => s.stage === selectedStage)?.days_spent ??
+                  current.days_to_next_estimate
+                }
+                totalPF={current.total_pf}
+                tierLabel={tierLabelForStage(selectedStage)}
+              />
+              <Pressable onPress={() => setCardVisible(false)} style={styles.closeBtn}>
+                <Ionicons name="close" size={20} color="#6B7280" />
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+        </>
+      )}
+    </View>
+  );
+}
+
+function nextPetName(stage: number): string {
+  const names = [
+    "Cub",
+    "Cat",
+    "Fox",
+    "Wolf",
+    "Snow Leopard",
+    "Panther",
+    "Griffin",
+    "Dragon",
+  ];
+  return names[Math.min(names.length - 1, Math.max(0, stage - 1))];
+}
+
+function roughTimeForPf(pf: number): string {
+  if (pf >= 150000) return "years";
+  if (pf >= 80000) return "many months";
+  if (pf >= 40000) return "months";
+  if (pf >= 2000) return "weeks";
+  return "days";
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(16,185,129,0.15)",
+    backgroundColor: "rgba(4,12,6,0.92)",
+  },
+  backBtn: { padding: 4, marginRight: 8 },
+  headerTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#D1FAE5",
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scroll: { flex: 1 },
+  currentCard: {
+    backgroundColor: "rgba(6,78,59,0.15)",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.20)",
+    padding: 18,
+    marginTop: 16,
+    marginBottom: 14,
+    overflow: "hidden",
+  },
+  currentTopAccent: {
+    position: "absolute",
+    top: 0,
+    left: "15%",
+    right: "15%",
+    height: 1,
+  },
+  currentRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    columnGap: 16,
+    marginBottom: 16,
+  },
+  petArtWrap: {
+    width: 90,
+    height: 90,
+    borderRadius: 18,
+    overflow: "hidden",
+    position: "relative",
+  },
+  petArt: {
+    flex: 1,
+    borderRadius: 18,
+  },
+  petArtBorder: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.20)",
+  },
+  petArtLabel: {
+    position: "absolute",
+    bottom: 6,
+    left: 8,
+    fontSize: 10,
+    fontWeight: "600",
+    color: "rgba(16,185,129,0.55)",
+  },
+  metaCol: { flex: 1 },
+  stageBadge: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "rgba(52,211,153,0.65)",
+    marginBottom: 4,
+  },
+  petName: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: "#E5E7EB",
+    letterSpacing: -0.4,
+  },
+  petSub: {
+    fontSize: 11,
+    color: "rgba(52,211,153,0.50)",
+    marginBottom: 12,
+  },
+  pfRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  pfLabelLeft: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "rgba(52,211,153,0.70)",
+  },
+  pfLabelRight: {
+    fontSize: 10,
+    color: "rgba(16,185,129,0.30)",
+  },
+  pfTrackBg: {
+    height: 6,
+    borderRadius: 4,
+    backgroundColor: "rgba(5,20,10,0.90)",
+    overflow: "hidden",
+  },
+  pfTrackFill: {
+    height: "100%",
+    borderRadius: 4,
+    shadowColor: "rgba(16,185,129,0.35)",
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    ...Platform.select({
+      android: { elevation: 4 },
+    }),
+  },
+  daysEstimate: {
+    fontSize: 10,
+    color: "rgba(16,185,129,0.30)",
+    textAlign: "right",
+    marginTop: 4,
+  },
+  statsRow: {
+    flexDirection: "row",
+    columnGap: 8,
+    marginTop: 4,
+  },
+  statsPill: {
+    flex: 1,
+    backgroundColor: "rgba(6,78,59,0.20)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.15)",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    alignItems: "center",
+  },
+  statsValue: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#34D399",
+  },
+  statsLabel: {
+    fontSize: 8,
+    fontWeight: "600",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: "rgba(16,185,129,0.40)",
+    marginTop: 2,
+  },
+  historyLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "rgba(16,185,129,0.25)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(16,185,129,0.12)",
+    paddingTop: 12,
+    marginBottom: 10,
+    marginTop: 12,
+  },
+  stageRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingLeft: 10,
+    columnGap: 12,
+    position: "relative",
+  },
+  stageRightWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    columnGap: 8,
+  },
+  shareIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    backgroundColor: "rgba(6,78,59,0.20)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stageRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(10,25,12,0.35)",
+  },
+  currentAccentBar: {
+    position: "absolute",
+    left: 0,
+    top: 6,
+    bottom: 6,
+    width: 2,
+    backgroundColor: "#10B981",
+  },
+  stageThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stageThumbDone: {
+    backgroundColor: "rgba(6,78,59,0.30)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.22)",
+  },
+  stageThumbCurrent: {
+    backgroundColor: "rgba(6,78,59,0.40)",
+    borderWidth: 1.5,
+    borderColor: "rgba(16,185,129,0.40)",
+  },
+  stageThumbLocked: {
+    backgroundColor: "rgba(5,15,8,0.50)",
+    borderWidth: 1,
+    borderColor: "rgba(10,25,12,0.40)",
+  },
+  stageThumbText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "rgba(52,211,153,0.65)",
+  },
+  stageThumbTextLocked: {
+    color: "#0A1A0C",
+  },
+  stageRowName: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  stageRowNameDone: {
+    color: "#6B7280",
+  },
+  stageRowNameCurrent: {
+    color: "#E5E7EB",
+  },
+  stageRowNameLocked: {
+    color: "#0A1A0C",
+  },
+  stageRowSub: {
+    fontSize: 11,
+    color: "rgba(16,185,129,0.35)",
+  },
+  stageRowSubLocked: {
+    color: "rgba(16,185,129,0.20)",
+  },
+  nowBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.28)",
+    backgroundColor: "rgba(16,185,129,0.12)",
+  },
+  nowBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#34D399",
+  },
+  dragonCard: {
+    marginTop: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.15)",
+    paddingVertical: 12,
+    paddingHorizontal: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    columnGap: 12,
+    backgroundColor: "rgba(6,78,59,0.18)",
+  },
+  dragonIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: "rgba(6,78,59,0.40)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dragonIconText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "rgba(16,185,129,0.35)",
+  },
+  dragonTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(52,211,153,0.55)",
+    marginBottom: 3,
+  },
+  dragonBody: {
+    fontSize: 11,
+    color: "rgba(16,185,129,0.30)",
+    lineHeight: 16,
+  },
+  cardContainer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  cardInner: {
+    width: "100%",
+  },
+  closeBtn: {
+    position: "absolute",
+    top: -10,
+    right: -6,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "rgba(4,12,6,0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
+

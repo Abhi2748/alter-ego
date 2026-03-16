@@ -15,6 +15,7 @@ import { PaywallScreen } from "../screens/PaywallScreen";
 import { JournalListScreen } from "../screens/JournalListScreen";
 import { JournalEditorScreen } from "../screens/JournalEditorScreen";
 import { JournalCalendarScreen } from "../screens/JournalCalendarScreen";
+import { DayDetailScreen } from "../screens/DayDetailScreen";
 import { COLORS } from "../constants/theme";
 
 const Stack = createStackNavigator<MainStackParamList>();
@@ -45,6 +46,7 @@ export function MainStack() {
       <Stack.Screen name="JournalList" component={JournalListScreen} />
       <Stack.Screen name="JournalEditor" component={JournalEditorScreen} />
       <Stack.Screen name="JournalCalendar" component={JournalCalendarScreen} />
+      <Stack.Screen name="DayDetail" component={DayDetailScreen} />
     </Stack.Navigator>
   );
 }

@@ -8,7 +8,8 @@ import type { ProfileStackParamList } from "./types";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { ProfileStatsScreen } from "../screens/ProfileStatsScreen";
 import { ProfileStreakScreen } from "../screens/ProfileStreakScreen";
-import { ProfileTitlesScreen } from "../screens/ProfileTitlesScreen";
+import { ProfileIdentityScreen } from "../screens/ProfileIdentityScreen";
+import { ProfileCompanionScreen } from "../screens/ProfileCompanionScreen";
 import { ProfileInterestsScreen } from "../screens/ProfileInterestsScreen";
 import { ProfileQuitsScreen } from "../screens/ProfileQuitsScreen";
 import { COLORS } from "../constants/theme";
@@ -26,7 +27,8 @@ export function ProfileStack() {
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
       <Stack.Screen name="ProfileStats" component={ProfileStatsScreen} />
       <Stack.Screen name="ProfileStreak" component={ProfileStreakScreen} />
-      <Stack.Screen name="ProfileTitles" component={ProfileTitlesScreen} />
+      <Stack.Screen name="ProfileIdentity" component={ProfileIdentityScreen} />
+      <Stack.Screen name="ProfileCompanion" component={ProfileCompanionScreen} />
       <Stack.Screen name="ProfileInterests" component={ProfileInterestsScreen} />
       <Stack.Screen name="ProfileQuits" component={ProfileQuitsScreen} />
     </Stack.Navigator>

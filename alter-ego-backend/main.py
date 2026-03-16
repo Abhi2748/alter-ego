@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import auth, onboarding, missions, home, twin, leaderboard, agents, user, analytics, journal, interests, quit_targets
+from routes import auth, onboarding, missions, home, twin, leaderboard, agents, user, analytics, journal, interests, quit_targets, profile
 
 app = FastAPI(title="ALTER EGO API", version="1.0.0")
 
@@ -26,6 +26,7 @@ app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(journal.router, prefix="/api/v1")
 app.include_router(interests.router, prefix="/api/v1")
 app.include_router(quit_targets.router, prefix="/api/v1")
+app.include_router(profile.router, prefix="/api/v1")
 
 
 @app.get("/health")

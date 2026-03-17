@@ -1,34 +1,30 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
-from routes import auth, onboarding, missions, home, twin, leaderboard, agents, user, analytics, journal, interests, quit_targets, profile
+from app.api.auth import router as auth_router
+from app.api.missions import router as missions_router
+from app.api.onboarding import router as onboarding_router
+from app.core.scheduler import setup_scheduler
 
 app = FastAPI(title="ALTER EGO API", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Only routers built in the current build
+app.include_router(auth_router)
+app.include_router(onboarding_router)
+app.include_router(missions_router)
 
-# All routes under /api/v1 — schema, auth, onboarding, home, missions (completion + add mission)
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(onboarding.router, prefix="/api/v1")
-app.include_router(missions.router, prefix="/api/v1")
-app.include_router(home.router, prefix="/api/v1")
-app.include_router(twin.router, prefix="/api/v1")
-app.include_router(leaderboard.router, prefix="/api/v1")
-app.include_router(agents.router, prefix="/api/v1")
-app.include_router(user.router, prefix="/api/v1")
-app.include_router(analytics.router, prefix="/api/v1")
-app.include_router(journal.router, prefix="/api/v1")
-app.include_router(interests.router, prefix="/api/v1")
-app.include_router(quit_targets.router, prefix="/api/v1")
-app.include_router(profile.router, prefix="/api/v1")
+@app.on_event("startup")
+async def startup_event():
+    scheduler = setup_scheduler()
+    scheduler.start()
+    app.state.scheduler = scheduler
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    if hasattr(app.state, "scheduler"):
+        app.state.scheduler.shutdown()
 
 
 @app.get("/health")
 def health():
-    return {"status": "ALTER EGO backend is alive"}
+    return {"status": "ok"}

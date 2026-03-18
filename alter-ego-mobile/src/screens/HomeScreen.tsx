@@ -19,7 +19,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RouteProp } from "@react-navigation/native";
-import type { MainTabParamList } from "../navigation/types";
+import type { MainStackParamList, MainTabParamList } from "../navigation/types";
 import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { XPProgressBar, XPProgressBarRef } from "../components/XPProgressBar";
@@ -29,6 +29,7 @@ import type { MissionType, MissionStatus } from "../components/MissionCard";
 import { AddMissionModal } from "../components/AddMissionModal";
 import { CharacterEvolutionOverlay } from "../components/CharacterEvolutionOverlay";
 import { MilestoneAchievementCard } from "../components/MilestoneAchievementCard";
+import { SkeletonCard } from "@/components/SkeletonCard";
 import { useUserStore } from "@/store/userStore";
 import { useTodayMissions, useCompleteMission } from "@/hooks/useMissions";
 import { useTwinStrip } from "@/hooks/useTwinStrip";
@@ -104,6 +105,39 @@ function missionApiToCard(
           ? "resistance"
           : "personal") as MissionType,
     missionStreak: 0,
+  };
+}
+
+function missionApiToDetailParam(
+  m: Mission,
+  type: "core" | "interest" | "resistance" | "personal",
+  date: string
+): MainStackParamList["MissionDetail"]["mission"] {
+  const difficulty =
+    m.difficulty === "Easy"
+      ? ("easy" as const)
+      : m.difficulty === "Medium"
+        ? ("medium" as const)
+        : m.difficulty === "Hard"
+          ? ("hard" as const)
+          : ("medium" as const);
+
+  return {
+    id: m.id,
+    type,
+    title: m.title,
+    difficulty,
+    xp_value: m.xp_value ?? 0,
+    pf_value: m.pf_value ?? 0,
+    completed: !!m.completed,
+    completed_at: m.completed_at ?? null,
+    is_journal_mission: !!m.is_journal_mission,
+    core_pillar: m.core_pillar ?? null,
+    interest_id: m.interest_id ?? null,
+    rationale: m.rationale ?? null,
+    domain_knowledge: m.domain_knowledge ?? null,
+    estimated_minutes: m.estimated_minutes ?? null,
+    mission_date: m.mission_date ?? date,
   };
 }
 
@@ -282,13 +316,20 @@ export function HomeScreen() {
 
   const openTwin = () => navigation.navigate("Twin");
 
-  if (isLoading) {
-    return (
-      <LinearGradient colors={BG_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color={VIOLET} />
-      </LinearGradient>
-    );
-  }
+  const openMissionDetail = useCallback(
+    (apiMission: Mission, type: "core" | "interest" | "resistance" | "personal") => {
+      const parentNav = (navigation as any).getParent?.();
+      const target = parentNav ?? navigation;
+      target.navigate("MissionDetail", {
+        mission: missionApiToDetailParam(
+          apiMission,
+          type,
+          todayData?.date ?? new Date().toISOString().slice(0, 10)
+        ),
+      });
+    },
+    [navigation, todayData?.date]
+  );
 
   const greeting = getGreeting();
   const todayDotIndex = new Date().getDay();
@@ -481,21 +522,33 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {coreMissions.map((m, i) => (
-              <HomeMissionCard
-                key={m.id}
-                title={m.title}
-                category={m.category}
-                difficulty={m.difficulty}
-                xpValue={m.xpValue}
-                petFoodValue={m.petFoodValue}
-                status={m.status}
-                onComplete={() => handleComplete(m.id)}
-                missionType={m.missionType}
-                missionStreak={m.missionStreak ?? 0}
-                appearIndex={i}
-              />
-            ))}
+            {isLoading ? (
+              <>
+                <SkeletonCard leftEdgeColor="#7F1D1D" delay={0} />
+                <SkeletonCard leftEdgeColor="#7F1D1D" delay={100} />
+                <SkeletonCard leftEdgeColor="#7F1D1D" delay={200} />
+              </>
+            ) : (
+              (todayData?.missions.core ?? []).map((apiMission, i) => {
+                const m = missionApiToCard(apiMission, "Core");
+                return (
+                  <HomeMissionCard
+                    key={m.id}
+                    title={m.title}
+                    category={m.category}
+                    difficulty={m.difficulty}
+                    xpValue={m.xpValue}
+                    petFoodValue={m.petFoodValue}
+                    status={m.status}
+                    onComplete={() => handleComplete(m.id)}
+                    onPress={() => openMissionDetail(apiMission, "core")}
+                    missionType={m.missionType}
+                    missionStreak={m.missionStreak ?? 0}
+                    appearIndex={i}
+                  />
+                );
+              })
+            )}
           </View>
         </View>
 
@@ -512,22 +565,33 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {interestMissions.map((m, i) => (
-              <HomeMissionCard
-                key={m.id}
-                title={m.title}
-                category={m.category}
-                difficulty={m.difficulty}
-                xpValue={m.xpValue}
-                petFoodValue={m.petFoodValue}
-                status={m.status}
-                onComplete={() => handleComplete(m.id)}
-                missionType={m.missionType}
-                interestName={m.interestName}
-                missionStreak={m.missionStreak ?? 0}
-                appearIndex={i}
-              />
-            ))}
+            {isLoading ? (
+              <>
+                <SkeletonCard leftEdgeColor="#8B5CF6" delay={300} />
+                <SkeletonCard leftEdgeColor="#8B5CF6" delay={400} />
+              </>
+            ) : (
+              (todayData?.missions.interest ?? []).map((apiMission, i) => {
+                const m = missionApiToCard(apiMission, "Interest");
+                return (
+                  <HomeMissionCard
+                    key={m.id}
+                    title={m.title}
+                    category={m.category}
+                    difficulty={m.difficulty}
+                    xpValue={m.xpValue}
+                    petFoodValue={m.petFoodValue}
+                    status={m.status}
+                    onComplete={() => handleComplete(m.id)}
+                    onPress={() => openMissionDetail(apiMission, "interest")}
+                    missionType={m.missionType}
+                    interestName={m.interestName}
+                    missionStreak={m.missionStreak ?? 0}
+                    appearIndex={i}
+                  />
+                );
+              })
+            )}
           </View>
         </View>
 
@@ -544,22 +608,32 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {resistanceMissions.map((m, i) => (
-              <HomeMissionCard
-                key={m.id}
-                title={m.title}
-                category={m.category}
-                difficulty={m.difficulty}
-                xpValue={m.xpValue}
-                petFoodValue={m.petFoodValue}
-                status={m.status}
-                onComplete={() => handleComplete(m.id)}
-                missionType="resistance"
-                quitTargetName={m.quitTargetName}
-                dayCounter={m.dayCounter}
-                appearIndex={i}
-              />
-            ))}
+            {isLoading ? (
+              <>
+                <SkeletonCard leftEdgeColor="#7F1D1D" delay={450} />
+              </>
+            ) : (
+              (todayData?.missions.resistance ?? []).map((apiMission, i) => {
+                const m = missionApiToCard(apiMission, "Resistance");
+                return (
+                  <HomeMissionCard
+                    key={m.id}
+                    title={m.title}
+                    category={m.category}
+                    difficulty={m.difficulty}
+                    xpValue={m.xpValue}
+                    petFoodValue={m.petFoodValue}
+                    status={m.status}
+                    onComplete={() => handleComplete(m.id)}
+                    onPress={() => openMissionDetail(apiMission, "resistance")}
+                    missionType="resistance"
+                    quitTargetName={m.quitTargetName}
+                    dayCounter={m.dayCounter}
+                    appearIndex={i}
+                  />
+                );
+              })
+            )}
           </View>
         </View>
 
@@ -576,21 +650,29 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {personalMissions.map((m, i) => (
-              <HomeMissionCard
-                key={m.id}
-                title={m.title}
-                category={m.category}
-                difficulty={m.difficulty}
-                xpValue={m.xpValue}
-                petFoodValue={m.petFoodValue}
-                status={m.status}
-                onComplete={() => handleComplete(m.id)}
-                missionType={m.missionType}
-                missionStreak={m.missionStreak ?? 0}
-                appearIndex={i}
-              />
-            ))}
+            {isLoading ? (
+              <SkeletonCard delay={500} />
+            ) : (
+              (todayData?.missions.personal ?? []).map((apiMission, i) => {
+                const m = missionApiToCard(apiMission, "Personal");
+                return (
+                  <HomeMissionCard
+                    key={m.id}
+                    title={m.title}
+                    category={m.category}
+                    difficulty={m.difficulty}
+                    xpValue={m.xpValue}
+                    petFoodValue={m.petFoodValue}
+                    status={m.status}
+                    onComplete={() => handleComplete(m.id)}
+                    onPress={() => openMissionDetail(apiMission, "personal")}
+                    missionType={m.missionType}
+                    missionStreak={m.missionStreak ?? 0}
+                    appearIndex={i}
+                  />
+                );
+              })
+            )}
           </View>
           {showStartAnywhereHelper && (
             <Text style={styles.startAnywhereHelper}>Start anywhere. Every mission counts.</Text>

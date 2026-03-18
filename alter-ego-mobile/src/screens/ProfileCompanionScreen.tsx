@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { CompanionShareCard } from "../components/CompanionShareCard";
 import { useProfileCompanion } from "@/hooks/useProfile";
 import { useUserStore } from "@/store/userStore";
+import { SkeletonBlock } from "@/components/SkeletonBlock";
 
 interface PetStageHistoryItem {
   stage: number;
@@ -92,6 +93,72 @@ export function ProfileCompanionScreen() {
     const d = new Date();
     return d.toLocaleDateString(undefined, { month: "long", day: "2-digit", year: "numeric" });
   };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient
+          colors={["#060E08", "#030A06", "#060E08"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+
+        <View
+          style={[
+            styles.header,
+            {
+              paddingTop: insets.top + 10,
+              paddingBottom: 14,
+            },
+          ]}
+        >
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color="#6EE7B7" />
+          </Pressable>
+          <Text style={styles.headerTitle}>Companion</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 32 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ marginTop: 16 }}>
+            <SkeletonBlock width={120} height={120} borderRadius={60} style={{ alignSelf: "center" }} />
+            <View style={{ height: 14 }} />
+            <SkeletonBlock width={100} height={20} style={{ alignSelf: "center" }} delay={100} />
+            <View style={{ height: 14 }} />
+            <SkeletonBlock width="100%" height={8} borderRadius={99} delay={150} />
+
+            <View style={{ marginTop: 16 }}>
+              {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                <View
+                  key={i}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                    paddingVertical: 10,
+                  }}
+                >
+                  <SkeletonBlock width={40} height={40} borderRadius={20} delay={i * 50} />
+                  <SkeletonBlock width={100} height={14} delay={i * 50 + 20} />
+                  <SkeletonBlock
+                    width={50}
+                    height={10}
+                    delay={i * 50 + 40}
+                    style={{ marginLeft: "auto" }}
+                  />
+                </View>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

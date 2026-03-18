@@ -20,6 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTwinState, useTwinStrip } from "@/hooks/useTwin";
 import type { TwinActivity, TwinComparisonOut } from "../utils/api";
 import { TwinComparisonShareCard } from "../components/TwinComparisonShareCard";
+import { SkeletonBlock } from "@/components/SkeletonBlock";
 
 const ARENA_HEIGHT = 230;
 const CHAR_CARD_W = 96;
@@ -113,7 +114,12 @@ export function TwinComparisonScreen() {
         end={{ x: 0, y: 1 }}
         style={[styles.container, styles.centered]}
       >
-        <View style={[styles.header, { paddingTop: insets.top + 10, paddingBottom: 14, paddingHorizontal: 16 }]}>
+        <View
+          style={[
+            styles.header,
+            { paddingTop: insets.top + 10, paddingBottom: 14, paddingHorizontal: 16 },
+          ]}
+        >
           <View
             style={[
               styles.headerTitleWrap,
@@ -125,7 +131,87 @@ export function TwinComparisonScreen() {
           </View>
           <View style={styles.shareBtn} />
         </View>
-        <ActivityIndicator size="large" color="#8B5CF6" style={styles.loader} />
+
+        {/* Skeleton layout — approximate comparison screen */}
+        <View style={{ flex: 1, width: "100%" }}>
+          {/* Top bar area — approximate */}
+          <View
+            style={{
+              height: 56,
+              paddingHorizontal: 16,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <SkeletonBlock width={80} height={14} />
+            <SkeletonBlock width={60} height={14} />
+          </View>
+
+          {/* Character zone — two columns */}
+          <View
+            style={{
+              flex: 1,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 32,
+              paddingHorizontal: 24,
+            }}
+          >
+            {/* User side */}
+            <View style={{ alignItems: "center", gap: 12, flex: 1 }}>
+              <SkeletonBlock width={80} height={120} borderRadius={12} />
+              <SkeletonBlock width={70} height={12} delay={100} />
+              <SkeletonBlock width={50} height={10} delay={150} />
+              <SkeletonBlock width={60} height={14} borderRadius={10} delay={200} />
+            </View>
+
+            {/* Center fracture line — keep it simple */}
+            <View
+              style={{
+                width: 2,
+                height: 120,
+                backgroundColor: "#1E2333",
+                opacity: 0.5,
+              }}
+            />
+
+            {/* Twin side */}
+            <View style={{ alignItems: "center", gap: 12, flex: 1 }}>
+              <SkeletonBlock width={80} height={120} borderRadius={12} delay={50} />
+              <SkeletonBlock width={70} height={12} delay={150} />
+              <SkeletonBlock width={50} height={10} delay={200} />
+              <SkeletonBlock width={60} height={14} borderRadius={10} delay={250} />
+            </View>
+          </View>
+
+          {/* Stats row */}
+          <View style={{ paddingHorizontal: 24, gap: 12 }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <SkeletonBlock width={80} height={12} delay={100} />
+              <SkeletonBlock width={80} height={12} delay={150} />
+            </View>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <SkeletonBlock width={64} height={12} delay={200} />
+              <SkeletonBlock width={64} height={12} delay={250} />
+            </View>
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <SkeletonBlock width={72} height={12} delay={300} />
+              <SkeletonBlock width={72} height={12} delay={350} />
+            </View>
+          </View>
+
+          {/* Gap indicator area */}
+          <View style={{ paddingHorizontal: 24, marginTop: 16 }}>
+            <SkeletonBlock width="100%" height={48} borderRadius={12} delay={200} />
+          </View>
+
+          {/* Chat button area */}
+          <View style={{ paddingHorizontal: 24, marginTop: 16 }}>
+            <SkeletonBlock width="100%" height={56} borderRadius={16} delay={300} />
+          </View>
+        </View>
       </LinearGradient>
     );
   }

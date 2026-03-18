@@ -55,6 +55,25 @@ export type MainStackParamList = {
   JournalList: undefined;
   JournalEditor: { entry_id: string | null; read_only: boolean };
   JournalCalendar: undefined;
+  MissionDetail: {
+    mission: {
+      id: string;
+      type: "core" | "interest" | "resistance" | "personal";
+      title: string;
+      difficulty: "easy" | "medium" | "hard" | "elite";
+      xp_value: number;
+      pf_value: number;
+      completed: boolean;
+      completed_at: string | null;
+      is_journal_mission: boolean;
+      core_pillar: string | null;
+      interest_id: string | null;
+      rationale: string | null;
+      domain_knowledge: string | null;
+      estimated_minutes: number | null;
+      mission_date: string;
+    };
+  };
 };
 
 export type ProfileStackParamList = {

@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useProfileQuits } from "@/hooks/useProfile";
+import { SkeletonBlock } from "@/components/SkeletonBlock";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const TEXT = "#E5E7EB";
@@ -43,8 +44,33 @@ export function ProfileQuitsScreen() {
       </View>
 
       {isLoading && targets.length === 0 ? (
-        <View style={styles.loadingWrap}>
-          <Text style={styles.loadingText}>Loading…</Text>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 80 + insets.bottom }}>
+          {[0, 1].map((i) => (
+            <View
+              key={i}
+              style={{
+                backgroundColor: "#141824",
+                borderRadius: 16,
+                padding: 16,
+                marginBottom: 12,
+                gap: 12,
+              }}
+            >
+              <SkeletonBlock width={160} height={16} delay={i * 100} />
+              <SkeletonBlock width={80} height={32} borderRadius={8} delay={i * 100 + 50} />
+              <View style={{ flexDirection: "row", gap: 4 }}>
+                {[0, 1, 2, 3, 4].map((j) => (
+                  <SkeletonBlock
+                    key={j}
+                    width="20%"
+                    height={6}
+                    borderRadius={3}
+                    delay={i * 100 + j * 30}
+                  />
+                ))}
+              </View>
+            </View>
+          ))}
         </View>
       ) : error ? (
         <View style={styles.loadingWrap}>

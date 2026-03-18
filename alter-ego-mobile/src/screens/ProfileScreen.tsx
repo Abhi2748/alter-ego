@@ -33,6 +33,7 @@ import Animated, {
 import { PetAnimation } from "../components/PetAnimation";
 import type { ProfileStackParamList } from "../navigation/types";
 import { useUserStore } from "@/store/userStore";
+import { SkeletonBlock } from "@/components/SkeletonBlock";
 
 const ARCHETYPE_DISPLAY: Record<string, string> = {
   restless_creator: "The Restless Creator",
@@ -248,7 +249,26 @@ export function ProfileScreen() {
 
             {/* Character + pet row */}
             {profileLoading || !profile ? (
-              <ActivityIndicator size="large" color="#8B5CF6" style={{ marginVertical: 24 }} />
+              <View style={{ marginVertical: 24, width: "100%", alignItems: "center" }}>
+                <SkeletonBlock width={120} height={18} />
+                <View style={{ height: 10 }} />
+                <SkeletonBlock width={80} height={12} delay={100} />
+                <View style={{ height: 16 }} />
+                <SkeletonBlock
+                  width="100%"
+                  height={8}
+                  borderRadius={99}
+                  delay={200}
+                  style={{ marginHorizontal: 16 }}
+                />
+                <View style={{ height: 18 }} />
+                <View style={{ flexDirection: "row", gap: 18 }}>
+                  <SkeletonBlock width={40} height={20} />
+                  <SkeletonBlock width={40} height={20} delay={50} />
+                  <SkeletonBlock width={40} height={20} delay={100} />
+                  <SkeletonBlock width={40} height={20} delay={150} />
+                </View>
+              </View>
             ) : (
               <>
                 <View style={styles.charPetRow}>

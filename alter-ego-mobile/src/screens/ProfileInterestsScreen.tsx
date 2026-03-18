@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useProfileInterests } from "@/hooks/useProfile";
+import { SkeletonBlock } from "@/components/SkeletonBlock";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const TEXT = "#E5E7EB";
@@ -43,8 +44,34 @@ export function ProfileInterestsScreen() {
       </View>
 
       {isLoading && interests.length === 0 ? (
-        <View style={styles.loadingWrap}>
-          <Text style={styles.loadingText}>Loading…</Text>
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 80 + insets.bottom }}>
+          {[0, 1, 2].map((i) => (
+            <View
+              key={i}
+              style={{
+                backgroundColor: "#141824",
+                borderRadius: 16,
+                padding: 16,
+                marginBottom: 12,
+                gap: 10,
+              }}
+            >
+              <SkeletonBlock width={140} height={16} delay={i * 100} />
+              <SkeletonBlock width={80} height={10} delay={i * 100 + 50} />
+              <SkeletonBlock width="100%" height={6} borderRadius={99} delay={i * 100 + 100} />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {[0, 1, 2].map((j) => (
+                  <SkeletonBlock
+                    key={j}
+                    width={60}
+                    height={22}
+                    borderRadius={10}
+                    delay={i * 100 + j * 50}
+                  />
+                ))}
+              </View>
+            </View>
+          ))}
         </View>
       ) : error ? (
         <View style={styles.loadingWrap}>

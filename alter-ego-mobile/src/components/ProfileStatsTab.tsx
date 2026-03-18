@@ -10,6 +10,7 @@ import { View, Text, StyleSheet, useWindowDimensions } from "react-native";
 import { CartesianChart, Line, Area, Bar } from "victory-native";
 import { COLORS, SPACING } from "../constants/theme";
 import { useProfileStats } from "@/hooks/useProfile";
+import { SkeletonBlock } from "@/components/SkeletonBlock";
 
 const XP_CHART_HEIGHT = 160;
 const COMPLETION_CHART_HEIGHT = 140;
@@ -41,6 +42,41 @@ export function ProfileStatsTab() {
   const completionData = [{ week: 1, rate: completionRate }];
   const streakData =
     data?.streak_chart?.map((p, idx) => ({ day: idx + 1, streak: p.streak })) ?? [];
+
+  if (isLoading) {
+    return (
+      <View style={styles.content}>
+        <SkeletonBlock width="100%" height={160} borderRadius={12} />
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-around",
+            marginTop: 16,
+          }}
+        >
+          <View style={{ alignItems: "center", gap: 6 }}>
+            <SkeletonBlock width={50} height={24} borderRadius={6} />
+            <SkeletonBlock width={70} height={10} delay={100} />
+          </View>
+          <View style={{ alignItems: "center", gap: 6 }}>
+            <SkeletonBlock width={50} height={24} borderRadius={6} delay={50} />
+            <SkeletonBlock width={70} height={10} delay={150} />
+          </View>
+          <View style={{ alignItems: "center", gap: 6 }}>
+            <SkeletonBlock width={50} height={24} borderRadius={6} delay={100} />
+            <SkeletonBlock width={70} height={10} delay={200} />
+          </View>
+        </View>
+        <SkeletonBlock
+          width="100%"
+          height={120}
+          borderRadius={12}
+          style={{ marginTop: 16 }}
+          delay={200}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.content}>

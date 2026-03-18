@@ -17,6 +17,7 @@ import { JournalListScreen } from "../screens/JournalListScreen";
 import { JournalEditorScreen } from "../screens/JournalEditorScreen";
 import { JournalCalendarScreen } from "../screens/JournalCalendarScreen";
 import { DayDetailScreen } from "../screens/DayDetailScreen";
+import { MissionDetailScreen } from "../screens/MissionDetailScreen";
 import { COLORS } from "../constants/theme";
 
 const Stack = createStackNavigator<MainStackParamList>();
@@ -55,6 +56,7 @@ export function MainStack() {
       <Stack.Screen name="JournalEditor" component={JournalEditorScreen} />
       <Stack.Screen name="JournalCalendar" component={JournalCalendarScreen} />
       <Stack.Screen name="DayDetail" component={DayDetailScreen} />
+      <Stack.Screen name="MissionDetail" component={MissionDetailScreen} />
     </Stack.Navigator>
   );
 }

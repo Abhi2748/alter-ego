@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import type { StackNavigationProp } from "@react-navigation/stack";
 import type { MainStackParamList } from "../navigation/types";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -27,6 +28,7 @@ import { BlurView } from "expo-blur";
 import { useTwinChatHistory, useSendTwinMessage } from "@/hooks/useTwin";
 import { useUserStore } from "@/store/userStore";
 import Animated, {
+  type SharedValue,
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
@@ -128,7 +130,7 @@ function TypingDots() {
   React.useEffect(() => {
     const duration = 300;
     const easing = Easing.inOut(Easing.ease);
-    const cycle = (s: Animated.SharedValue<number>, o: Animated.SharedValue<number>) =>
+    const cycle = (s: SharedValue<number>, o: SharedValue<number>) =>
       withRepeat(
         withSequence(
           withTiming(1, { duration, easing }),
@@ -203,7 +205,7 @@ function TypingDots() {
 // -----------------------------------------------------------------------------
 export function TwinChatScreen() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const navigation = useNavigation<StackNavigationProp<MainStackParamList, "TwinChat">>();
   const route = useRoute<RouteProp<MainStackParamList, "TwinChat">>();
   const [inputText, setInputText] = useState("");
   const [inputFocused, setInputFocused] = useState(false);

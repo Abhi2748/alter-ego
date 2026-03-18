@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useProfileIdentity } from "@/hooks/useProfile";
 import { useUserStore } from "@/store/userStore";
 import { AchievementCardModal, type TitleStage } from "./ProfileTitlesScreen";
+import { SkeletonBlock } from "@/components/SkeletonBlock";
 
 type IdentityStage = {
   stage: number;
@@ -73,6 +74,75 @@ export function ProfileIdentityScreen() {
   const currentStage = current?.current_stage ?? 1;
   const xpToNext = current?.xp_to_next ?? 0;
   const progressPct = current?.progress_pct ?? 0;
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient
+          colors={["#09091A", "#07080F"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+
+        <View
+          style={[
+            styles.header,
+            {
+              paddingTop: insets.top + 10,
+              paddingBottom: 14,
+            },
+          ]}
+        >
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color="#6B7280" />
+          </Pressable>
+          <Text style={styles.headerTitle}>Identity</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 32 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ marginTop: 16 }}>
+            <SkeletonBlock width={200} height={28} style={{ alignSelf: "center" }} />
+            <View style={{ height: 14 }} />
+            <SkeletonBlock width="100%" height={8} borderRadius={99} delay={100} />
+            <View style={{ height: 12 }} />
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <SkeletonBlock width={80} height={12} delay={150} />
+              <SkeletonBlock width={80} height={12} delay={150} />
+            </View>
+
+            <View style={{ marginTop: 16 }}>
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <View
+                  key={i}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                    paddingVertical: 12,
+                  }}
+                >
+                  <SkeletonBlock width={32} height={32} borderRadius={16} delay={i * 60} />
+                  <SkeletonBlock width={120} height={14} delay={i * 60 + 30} />
+                  <SkeletonBlock
+                    width={60}
+                    height={10}
+                    delay={i * 60 + 60}
+                    style={{ marginLeft: "auto" }}
+                  />
+                </View>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

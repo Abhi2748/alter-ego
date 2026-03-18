@@ -324,7 +324,7 @@ export function ProfileStreakScreen() {
                 {row.map((day, colIndex) => {
                   const isEmpty = day === null;
                   const isToday = day === todayDay;
-                  const completed = day !== null && isViewingDataMonth && completedSet.has(day);
+                  const completed = day !== null && completedSet.has(day);
                   const isTodayNotCompleted = isToday && !todayCompleted;
                   const key = rowIndex * 7 + colIndex;
 

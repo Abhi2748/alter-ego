@@ -16,9 +16,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
+  Modal,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { supabase } from "../utils/supabase";
+import { supabase } from "@/utils/supabase";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -32,6 +34,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from "react-native-reanimated";
+import Svg, { Polygon } from "react-native-svg";
 import type { OnboardingStackParamList } from "../navigation/types";
 import {
   ONBOARDING_QUESTIONS,
@@ -45,7 +48,8 @@ import { OnboardingOptionCard } from "../components/OnboardingOptionCard";
 import { OnboardingSlider } from "../components/OnboardingSlider";
 import { InterestWizardSheet } from "../components/InterestWizardSheet";
 import { QuitWizardSheet } from "../components/QuitWizardSheet";
-import { checkUsername } from "../utils/api";
+import { onboardingService } from "@/services/onboarding";
+import { useOnboarding } from "@/hooks/useOnboarding";
 import { COLORS, SPACING, RADIUS, ANIMATIONS, SHADOWS, GRADIENTS } from "../constants/theme";
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -55,6 +59,161 @@ const DRAFT_SAVE_DEBOUNCE_MS = 600;
 const PARTICLE_COLORS = ["#8B5CF6", "#6D28D9", "#A78BFA"] as const;
 const PARTICLE_SEED = 43;
 const PARTICLE_COUNT = 24;
+
+const ONBOARDING_COMPLETION_MESSAGES = [
+  "Reading your answers...",
+  "Building your discipline DNA...",
+  "Preparing your first missions...",
+];
+
+/** Backend question_key per step (Q15 timezone saved silently after Q14). */
+const QUESTION_KEYS: Record<number, string> = {
+  1: "q1_username",
+  2: "q2_gender",
+  3: "q3_age",
+  4: "q4_situation",
+  5: "q5_reason",
+  6: "q6_approach",
+  7: "q7_recovery",
+  8: "q8_motivation",
+  9: "q9_autonomy",
+  10: "q10_comparison",
+  11: "q11_interests",
+  12: "q12_quits",
+  13: "q13_hours",
+};
+
+/**
+ * Map onboarding UI labels (Q4–Q10) to backend scoring keys.
+ * If a label is missing from the map, we fall back to raw label.
+ */
+const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
+  q4_situation: {
+    "Grinding hard but staying inconsistent": "overwhelmed",
+    "Starting completely fresh": "rebuilding",
+    "Trying to quit something that's holding me back": "stuck",
+    "Looking to become a better version of myself": "ambitious",
+  },
+  q5_reason: {
+    "I keep failing at habits and I'm tired of it": "escape_habit",
+    "I want to become someone genuinely different": "prove_to_self",
+    "I need to quit something for good": "escape_habit",
+    "Someone showed me this": "level_up",
+  },
+  q6_approach: {
+    "Plan it out properly before starting": "systems_first",
+    "Dive straight in and figure it out": "jump_in",
+    "Put it off until I can't anymore": "depends_on_mood",
+    "Break it into the smallest possible steps": "research_first",
+  },
+  q7_recovery: {
+    "Feel guilty and spiral further": "guilt_spiral",
+    "Shake it off and start again": "restart_immediately",
+    "Use it as fuel to come back harder": "restart_immediately",
+    "Pretend it didn't happen and move on": "need_time",
+  },
+  q8_motivation: {
+    "I could see the progress happening": "internal_standards",
+    "I didn't want to let myself down": "fear_of_regret",
+    "It was genuinely enjoyable": "curiosity",
+    "Someone was counting on me": "external_validation",
+  },
+  q9_autonomy: {
+    "Appreciate the structure — it helps": "guidance_welcome",
+    "Feel a little annoyed by it": "full_control",
+    "Depends entirely on who's telling me": "flexible",
+    "Tune it out almost automatically": "full_control",
+  },
+  q10_comparison: {
+    "I love it — competition drives me": "drives_me",
+    "Indifferent — I don't think about it": "dont_care",
+    "Mildly motivating when I'm ahead": "motivates_briefly",
+    "I'd rather just run my own race": "dont_care",
+  },
+};
+
+const LEVEL_TO_API: Record<string, string> = {
+  beginner: "still_figuring_it_out",
+  intermediate: "getting_the_hang_of_it",
+  advanced: "pretty_solid",
+};
+
+function ageRangeToInt(ageRange: string | undefined): number {
+  const m: Record<string, number> = {
+    "Under 18": 17,
+    "18–24": 21,
+    "25–34": 30,
+    "35–44": 40,
+    "45+": 50,
+  };
+  return m[ageRange ?? ""] ?? 24;
+}
+
+function commitmentLabelToApi(
+  label: string | undefined
+): "2_weeks" | "1_month" | "3_months" | "however_long" {
+  if (label === "2 weeks") return "2_weeks";
+  if (label === "1 month") return "1_month";
+  if (label === "3 months") return "3_months";
+  return "however_long";
+}
+
+function mapInterestToStepApi(i: OnboardingInterest) {
+  const days = i.schedule?.length ? i.schedule.map((d) => d + 1) : [1, 2, 3, 4, 5, 6, 7];
+  return {
+    raw_text: i.name,
+    level_text: LEVEL_TO_API[i.level] || "still_figuring_it_out",
+    goal: i.goal || null,
+    active_days: days,
+  };
+}
+
+function buildStepPayload(
+  questionNum: number,
+  a: OnboardingAnswers
+): Record<string, unknown> | null {
+  if (questionNum === 1) {
+    return { value: ((a.username as string) || "").trim().toLowerCase() };
+  }
+  if (questionNum === 2) return { value: a.gender };
+  if (questionNum === 3) return { value: ageRangeToInt(a.ageRange) };
+  if (questionNum >= 4 && questionNum <= 10) {
+    const key = QUESTION_KEYS[questionNum];
+    const rawValue =
+      questionNum === 4
+        ? a.situation
+        : questionNum === 5
+          ? a.reason
+          : questionNum === 6
+            ? a.taskApproach
+            : questionNum === 7
+              ? a.offTrack
+              : questionNum === 8
+                ? a.motivation
+                : questionNum === 9
+                  ? a.autonomy
+                  : a.comparison;
+    const mappedValue =
+      key && typeof rawValue === "string"
+        ? ARCHETYPE_ANSWER_MAP[key]?.[rawValue] ?? rawValue
+        : rawValue;
+    return { value: mappedValue };
+  }
+  if (questionNum === 11) {
+    const list = (a.interests ?? []).map(mapInterestToStepApi);
+    return { interests: list };
+  }
+  if (questionNum === 12) {
+    const quits = (a.quitTargets ?? []).map((q) => ({
+      raw_text: q.name,
+      description: q.description || null,
+      trigger: q.trigger || null,
+    }));
+    return { quit_targets: quits };
+  }
+  if (questionNum === 13) return { value: a.dailyHours ?? 1 };
+  return null;
+}
 
 type ParticleConfig = {
   x: number;
@@ -168,6 +327,59 @@ export function OnboardingQuestionScreen() {
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [usernameChecking, setUsernameChecking] = useState(false);
   const [usernameFocused, setUsernameFocused] = useState(false);
+  const [completingOnboarding, setCompletingOnboarding] = useState(false);
+  const [completionMsgIdx, setCompletionMsgIdx] = useState(0);
+  const completionPulse = useSharedValue(0);
+  const completionTextOpacity = useSharedValue(1);
+  const completionHexRotation = useSharedValue(0);
+
+  const {
+    initializeProfile,
+    saveAnswer,
+    checkUsername: debouncedCheckUsername,
+    usernameAvailable,
+    usernameSuggestion,
+    isCheckingUsername,
+    completeOnboarding,
+    isCompleting,
+    error: completeOnboardingError,
+  } = useOnboarding();
+
+  useEffect(() => {
+    void initializeProfile();
+  }, [initializeProfile]);
+
+  useEffect(() => {
+    if (!completingOnboarding && !isCompleting) return;
+    setCompletionMsgIdx(0);
+    const id = setInterval(() => {
+      setCompletionMsgIdx((i) => (i + 1) % ONBOARDING_COMPLETION_MESSAGES.length);
+    }, 2000);
+    completionHexRotation.value = 0;
+    completionHexRotation.value = withRepeat(
+      withTiming(1, { duration: 9000, easing: Easing.linear }),
+      -1,
+      false
+    );
+    return () => {
+      clearInterval(id);
+      completionHexRotation.value = 0;
+    };
+  }, [completingOnboarding, isCompleting, completionHexRotation]);
+
+  useEffect(() => {
+    if (!completingOnboarding && !isCompleting) return;
+    completionTextOpacity.value = 0;
+    completionTextOpacity.value = withTiming(1, { duration: 520, easing: Easing.out(Easing.ease) });
+  }, [completionMsgIdx, completingOnboarding, isCompleting, completionTextOpacity]);
+
+  const completionHexStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${completionHexRotation.value * 2 * Math.PI}rad` }],
+  }));
+
+  const completionTextStyle = useAnimatedStyle(() => ({
+    opacity: completionTextOpacity.value,
+  }));
 
   const q13TrackWidthRef = useRef(0);
   const randomUsernameRef = useRef<string | null>(null);
@@ -320,49 +532,108 @@ export function OnboardingQuestionScreen() {
 
   const checkUsernameAndProceed = useCallback(async () => {
     if (currentQuestionIndex !== 1 || !hasAnswer() || !config || transitionToIndex !== null) return;
-    const un = ((getAnswer("username") as string) ?? "").trim();
+    const un = ((getAnswer("username") as string) ?? "").trim().toLowerCase();
     if (!un) return;
     setUsernameError(null);
     setUsernameChecking(true);
     try {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session?.session?.access_token;
-      if (token) await checkUsername(un, token);
+      const res = await onboardingService.checkUsername(un);
+      if (!res.available) {
+        setUsernameChecking(false);
+        setUsernameError(
+          res.suggestion ? `That name is taken. Try ${res.suggestion}` : "Username already taken"
+        );
+        return;
+      }
+      await onboardingService.saveStep({
+        question_key: "q1_username",
+        answer_json: { value: un },
+      });
     } catch (e) {
       setUsernameChecking(false);
-      setUsernameError(e instanceof Error ? e.message : "Username already taken");
+      setUsernameError(e instanceof Error ? e.message : "Could not verify username");
       return;
     }
     setUsernameChecking(false);
-    if (currentQuestionIndex < TOTAL_ONBOARDING_QUESTIONS) {
-      setQuestionState((prev) => ({ ...prev, transitionToIndex: prev.currentQuestionIndex + 1 }));
-      return;
+    setQuestionState((prev) => ({ ...prev, transitionToIndex: prev.currentQuestionIndex + 1 }));
+  }, [currentQuestionIndex, config, hasAnswer, transitionToIndex, getAnswer]);
+
+  const handleFinalNext = useCallback(async () => {
+    if (currentQuestionIndex !== 14 || completingOnboarding || isCompleting) return;
+    const label = getAnswer("commitmentTimeline") as string | undefined;
+    const apiVal = commitmentLabelToApi(label);
+    setCompletingOnboarding(true);
+    setCompletionMsgIdx(0);
+    try {
+      await onboardingService.saveStep({
+        question_key: "q14_commitment",
+        answer_json: { value: apiVal },
+      });
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+      await onboardingService.saveStep({
+        question_key: "q15_timezone",
+        answer_json: { value: tz },
+      });
+      const result = await completeOnboarding();
+      if (result) {
+        navigation.replace("ArchetypeReveal", { archetypeResult: result });
+      } else {
+        Alert.alert(
+          "Something went wrong",
+          completeOnboardingError ?? "Please check your connection and try again.",
+          [{ text: "OK" }]
+        );
+        setCompletingOnboarding(false);
+      }
+    } catch (e) {
+      Alert.alert(
+        "Something went wrong",
+        e instanceof Error ? e.message : "Please try again.",
+        [{ text: "OK" }]
+      );
+      setCompletingOnboarding(false);
     }
-    const snapshot: OnboardingAnswers = {
-      ...answers,
-      interests: answers.interests ? [...answers.interests] : undefined,
-      quitTargets: answers.quitTargets ? [...answers.quitTargets] : undefined,
-    };
-    navigation.replace("ArchetypeReveal", { answers: snapshot });
-  }, [currentQuestionIndex, config, hasAnswer, transitionToIndex, navigation, answers, getAnswer]);
+  }, [
+    currentQuestionIndex,
+    completingOnboarding,
+    isCompleting,
+    getAnswer,
+    completeOnboarding,
+    completeOnboardingError,
+    navigation,
+  ]);
 
   const handleNext = useCallback(() => {
     if (!hasAnswer() || !config || transitionToIndex !== null) return;
+    if (completingOnboarding || isCompleting) return;
     if (currentQuestionIndex === 1) {
-      checkUsernameAndProceed();
+      void checkUsernameAndProceed();
       return;
+    }
+    if (currentQuestionIndex === 14) {
+      void handleFinalNext();
+      return;
+    }
+    const key = QUESTION_KEYS[currentQuestionIndex];
+    const payload = buildStepPayload(currentQuestionIndex, answers);
+    if (key && payload) {
+      void saveAnswer({ question_key: key, answer_json: payload });
     }
     if (currentQuestionIndex < TOTAL_ONBOARDING_QUESTIONS) {
       setQuestionState((prev) => ({ ...prev, transitionToIndex: prev.currentQuestionIndex + 1 }));
-      return;
     }
-    const snapshot: OnboardingAnswers = {
-      ...answers,
-      interests: answers.interests ? [...answers.interests] : undefined,
-      quitTargets: answers.quitTargets ? [...answers.quitTargets] : undefined,
-    };
-    navigation.replace("ArchetypeReveal", { answers: snapshot });
-  }, [currentQuestionIndex, config, hasAnswer, transitionToIndex, navigation, answers, checkUsernameAndProceed]);
+  }, [
+    currentQuestionIndex,
+    config,
+    hasAnswer,
+    transitionToIndex,
+    completingOnboarding,
+    isCompleting,
+    checkUsernameAndProceed,
+    handleFinalNext,
+    answers,
+    saveAnswer,
+  ]);
 
   const handleBack = useCallback(() => {
     if (currentQuestionIndex <= 1 || transitionToIndex !== null) return;
@@ -497,19 +768,31 @@ export function OnboardingQuestionScreen() {
                 placeholder={defaultUsername}
                 placeholderTextColor={COLORS.muted}
                 value={(answer as string) ?? ""}
-                onChangeText={interactive ? (t) => { setUsernameError(null); updateAnswer("username", t); } : noop}
+                onChangeText={
+                  interactive
+                    ? (t) => {
+                        setUsernameError(null);
+                        updateAnswer("username", t);
+                        debouncedCheckUsername(t.trim().toLowerCase());
+                      }
+                    : noop
+                }
                 onFocus={interactive ? () => setUsernameFocused(true) : noop}
                 onBlur={interactive ? async () => {
                   setUsernameFocused(false);
-                  const un = ((getAnswer("username") as string) ?? "").trim();
-                  if (!un) return;
+                  const un = ((getAnswer("username") as string) ?? "").trim().toLowerCase();
+                  if (un.length < 3) return;
                   try {
-                    const { data: session } = await supabase.auth.getSession();
-                    const token = session?.session?.access_token;
-                    if (token) await checkUsername(un, token);
-                    setUsernameError(null);
+                    const res = await onboardingService.checkUsername(un);
+                    if (!res.available) {
+                      setUsernameError(
+                        res.suggestion ? `That name is taken. Try ${res.suggestion}` : "Username already taken"
+                      );
+                    } else {
+                      setUsernameError(null);
+                    }
                   } catch (_) {
-                    setUsernameError("Username already taken");
+                    setUsernameError(null);
                   }
                 } : noop}
                 autoCapitalize="none"
@@ -518,6 +801,27 @@ export function OnboardingQuestionScreen() {
                 editable={interactive}
               />
               <Text style={styles.usernameHintBelow}>Tap to edit · Max 20 characters</Text>
+              {interactive && (answer as string)?.trim().length >= 3 && !usernameError ? (
+                <Text
+                  style={
+                    usernameAvailable === true
+                      ? styles.usernameAvailOk
+                      : usernameAvailable === false
+                        ? styles.usernameAvailBad
+                        : styles.usernameAvailPending
+                  }
+                >
+                  {isCheckingUsername
+                    ? "Checking…"
+                    : usernameAvailable === true
+                      ? "Available"
+                      : usernameAvailable === false
+                        ? usernameSuggestion
+                          ? `Taken · try ${usernameSuggestion}`
+                          : "Taken"
+                        : ""}
+                </Text>
+              ) : null}
               {usernameError ? <Text style={styles.usernameErrorText}>{usernameError}</Text> : null}
             </View>
           )}
@@ -910,6 +1214,10 @@ export function OnboardingQuestionScreen() {
       wizardQuitName,
       usernameError,
       usernameFocused,
+      debouncedCheckUsername,
+      usernameAvailable,
+      usernameSuggestion,
+      isCheckingUsername,
     ]
   );
 
@@ -1003,7 +1311,13 @@ export function OnboardingQuestionScreen() {
           <View style={styles.bottomSection}>
             <Pressable
               onPress={handleNext}
-              disabled={!hasAnswer() || isTransitioning || usernameChecking}
+              disabled={
+                !hasAnswer() ||
+                isTransitioning ||
+                usernameChecking ||
+                completingOnboarding ||
+                isCompleting
+              }
               onPressIn={() => {
                 buttonScale.value = withTiming(ANIMATIONS.pressScale, { duration: ANIMATIONS.pressIn });
               }}
@@ -1012,14 +1326,29 @@ export function OnboardingQuestionScreen() {
               }}
               style={styles.buttonWrapper}
             >
-              <Animated.View style={[styles.buttonInner, buttonAnimatedStyle, (!hasAnswer() || usernameChecking) && styles.buttonInnerDisabled]}>
+              <Animated.View
+                style={[
+                  styles.buttonInner,
+                  buttonAnimatedStyle,
+                  (!hasAnswer() || usernameChecking || completingOnboarding || isCompleting) &&
+                    styles.buttonInnerDisabled,
+                ]}
+              >
                 <LinearGradient
-                  colors={(!hasAnswer() || usernameChecking) ? ["rgba(42,48,80,0.40)", "rgba(42,48,80,0.40)"] : ["#5B21B6", "#8B5CF6"]}
+                  colors={
+                    !hasAnswer() || usernameChecking || completingOnboarding || isCompleting
+                      ? ["rgba(42,48,80,0.40)", "rgba(42,48,80,0.40)"]
+                      : ["#5B21B6", "#8B5CF6"]
+                  }
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  style={[styles.buttonGradient, (!hasAnswer() || usernameChecking) && styles.buttonDisabled]}
+                  style={[
+                    styles.buttonGradient,
+                    (!hasAnswer() || usernameChecking || completingOnboarding || isCompleting) &&
+                      styles.buttonDisabled,
+                  ]}
                 >
-                  {usernameChecking ? (
+                  {usernameChecking || completingOnboarding || isCompleting ? (
                     <ActivityIndicator size="small" color={COLORS.text} />
                   ) : (
                     <Text style={[styles.buttonLabel, !hasAnswer() && styles.buttonLabelDisabled]}>
@@ -1032,6 +1361,29 @@ export function OnboardingQuestionScreen() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      <Modal visible={completingOnboarding || isCompleting} animationType="fade" transparent>
+        <View style={styles.completionOverlay}>
+          <View style={styles.completionContent}>
+            <Animated.View style={[styles.completionHexWrap, completionHexStyle]}>
+              <Svg width={168} height={168} viewBox="0 0 100 100">
+                <Polygon
+                  points="50,6 86,28 86,72 50,94 14,72 14,28"
+                  fill="transparent"
+                  stroke="#8B5CF6"
+                  strokeWidth={2.6}
+                  strokeLinejoin="round"
+                  opacity={0.9}
+                />
+              </Svg>
+            </Animated.View>
+            <Text style={styles.completionLogo}>ALTER EGO</Text>
+            <Animated.Text style={[styles.completionOverlayText, completionTextStyle]}>
+              {ONBOARDING_COMPLETION_MESSAGES[completionMsgIdx]}
+            </Animated.Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1122,6 +1474,61 @@ const styles = StyleSheet.create({
   },
   usernameInputError: {
     borderColor: COLORS.danger,
+  },
+  completionOverlay: {
+    flex: 1,
+    backgroundColor: "#09091A",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  completionContent: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: SPACING.xl,
+  },
+  completionHexWrap: {
+    width: 168,
+    height: 168,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#8B5CF6",
+    shadowRadius: 40,
+    shadowOpacity: 0.6,
+    shadowOffset: { width: 0, height: 0 },
+    ...(Platform.OS === "android" ? { elevation: 16 } : null),
+  },
+  completionLogo: {
+    marginTop: SPACING.lg,
+    fontSize: 13,
+    letterSpacing: 6,
+    fontWeight: "700",
+    color: "#8B5CF6",
+    textTransform: "uppercase",
+  },
+  completionOverlayText: {
+    marginTop: SPACING.md,
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#6B7280",
+    letterSpacing: 3,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  usernameAvailOk: {
+    marginTop: SPACING.xs,
+    fontSize: 13,
+    color: COLORS.violetGlow,
+  },
+  usernameAvailBad: {
+    marginTop: SPACING.xs,
+    fontSize: 13,
+    color: COLORS.text2,
+  },
+  usernameAvailPending: {
+    marginTop: SPACING.xs,
+    fontSize: 13,
+    color: COLORS.muted,
+    minHeight: 18,
   },
   usernameErrorText: {
     fontFamily: "Inter_400Regular",

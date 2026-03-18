@@ -22,7 +22,7 @@ import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import Svg, { Path, Circle } from "react-native-svg";
-import { supabase } from "../utils/supabase";
+import { supabase } from "@/utils/supabase";
 import Constants from "expo-constants";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;

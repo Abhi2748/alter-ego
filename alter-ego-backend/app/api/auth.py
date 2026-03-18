@@ -51,7 +51,7 @@ class VerifyTokenRequest(BaseModel):
     token: str
 
 
-@router.post("/verify-token")
+@router.post("/verify-token", response_model=dict)
 async def verify_token(body: VerifyTokenRequest):
     """Verify a Supabase JWT and return the user_id."""
     try:
@@ -67,7 +67,7 @@ async def verify_token(body: VerifyTokenRequest):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-@router.post("/link-google")
+@router.post("/link-google", response_model=dict)
 async def link_google(authorization: str = Header(None)):
     """
     Called after an anonymous user successfully links their Google account.
@@ -92,7 +92,7 @@ async def link_google(authorization: str = Header(None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/me")
+@router.get("/me", response_model=dict)
 async def get_me(authorization: str = Header(None)):
     """
     Returns the current user's basic profile.

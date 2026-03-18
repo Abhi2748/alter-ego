@@ -19,8 +19,8 @@ import { useNavigation, CommonActions } from "@react-navigation/native";
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../utils/supabase";
-import { patchUserMe } from "../utils/api";
+import { supabase } from "@/utils/supabase";
+import { apiClient } from "@/services/api";
 import { NOTIF_PERMISSION_ASKED_KEY } from "../constants/notificationPermission";
 
 const TWIN_STAGE_TITLE = "The Focused";
@@ -56,11 +56,14 @@ export function NotificationPermissionScreen() {
           const pushToken = tokenData?.data ?? "";
           const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
           const { data } = await supabase.auth.getSession();
-          if (data?.session?.access_token && (pushToken || timezone)) {
-            await patchUserMe(data.session.access_token, {
-              push_token: pushToken || undefined,
-              timezone,
-            }).catch(() => {});
+          if (pushToken || timezone) {
+            await apiClient
+              .post("/api/v1/settings/notifications", {
+                push_token: pushToken || undefined,
+                timezone,
+                notifications_enabled: true,
+              })
+              .catch(() => {});
           }
         }
       } catch (_) {}

@@ -28,45 +28,26 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { PetAnimation } from "../components/PetAnimation";
+import { useProfileStreak } from "@/hooks/useProfile";
+import { useUserStore } from "@/store/userStore";
 
 // -----------------------------------------------------------------------------
 // DATA SHAPE
 // -----------------------------------------------------------------------------
 
-export interface StreakScreenData {
+type StreakApiResponse = {
   current_streak: number;
   longest_streak: number;
-  active_days_this_year: number;
-  active_days_this_month: number;
-  total_days_in_month: number;
-  month_name: string;
-  year: number;
-  first_day_of_month: number; // 0=Mon ... 6=Sun
-  completed_days: number[];
-  today_day: number;
-  today_completed: boolean;
-  streak_freezes_available: number;
-  streak_freezes_mode: "automatic" | "manual";
-  pet_stage: number;
-  pet_name: string;
-}
-
-const PLACEHOLDER_STREAK: StreakScreenData = {
-  current_streak: 12,
-  longest_streak: 28,
-  active_days_this_year: 67,
-  active_days_this_month: 12,
-  total_days_in_month: 31,
-  month_name: "March",
-  year: 2026,
-  first_day_of_month: 6,
-  completed_days: [10, 11, 12, 13, 14],
-  today_day: 14,
-  today_completed: true,
-  streak_freezes_available: 2,
-  streak_freezes_mode: "automatic",
-  pet_stage: 2,
-  pet_name: "Cat",
+  streak_requirement_tier: string;
+  heatmap: Array<{
+    date: string;
+    maintained: boolean;
+    streak_count: number;
+    missions_done: number;
+    missions_total: number;
+    xp_earned: number;
+  }>;
+  hint_text?: string;
 };
 
 const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
@@ -86,11 +67,17 @@ const MONTH_NAMES = [
 export function ProfileStreakScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [data, setData] = useState<StreakScreenData>(PLACEHOLDER_STREAK);
   const [viewMonth, setViewMonth] = useState<{ month: number; year: number }>(() => {
     const d = new Date();
     return { month: d.getMonth(), year: d.getFullYear() };
   });
+  const profile = useUserStore((s) => s.profile);
+  const { data, isLoading, error, refetch } = useProfileStreak() as {
+    data: StreakApiResponse | undefined;
+    isLoading: boolean;
+    error: unknown;
+    refetch: () => void;
+  };
 
   const petFloat = useSharedValue(0);
 
@@ -162,13 +149,51 @@ export function ProfileStreakScreen() {
     return rows;
   }, [viewMonthCells]);
 
-  const completedSet = useMemo(() => new Set(data.completed_days), [data.completed_days]);
+  const monthEntries = useMemo(() => {
+    if (!data?.heatmap) return [];
+    const m = viewMonth.month;
+    const y = viewMonth.year;
+    return data.heatmap.filter((r) => {
+      const d = new Date(r.date);
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+  }, [data?.heatmap, viewMonth.month, viewMonth.year]);
+
+  const completedSet = useMemo(() => {
+    const set = new Set<number>();
+    for (const r of monthEntries) {
+      const d = new Date(r.date);
+      if (r.maintained) set.add(d.getDate());
+    }
+    return set;
+  }, [monthEntries]);
+
+  const activeDaysThisMonth = useMemo(
+    () => monthEntries.filter((r) => (r.missions_done ?? 0) > 0).length,
+    [monthEntries]
+  );
+
+  const activeDaysThisYear = useMemo(() => {
+    if (!data?.heatmap) return 0;
+    const y = viewMonth.year;
+    return data.heatmap.filter((r) => {
+      const d = new Date(r.date);
+      return d.getFullYear() === y && (r.missions_done ?? 0) > 0;
+    }).length;
+  }, [data?.heatmap, viewMonth.year]);
+
   const isViewingCurrentMonth =
     viewMonth.year === now.getFullYear() && viewMonth.month === now.getMonth();
-  const isViewingDataMonth =
-    viewMonth.year === data.year && displayMonthName === data.month_name;
   const todayDay = isViewingCurrentMonth ? now.getDate() : null;
-  const todayCompleted = isViewingDataMonth && isViewingCurrentMonth ? data.today_completed : false;
+  const todayCompleted = useMemo(() => {
+    if (!isViewingCurrentMonth) return false;
+    const todayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      .toISOString()
+      .slice(0, 10);
+    const row = data?.heatmap?.find((r) => String(r.date).slice(0, 10) === todayIso);
+    if (!row) return false;
+    return row.maintained;
+  }, [data?.heatmap, isViewingCurrentMonth, now]);
 
   return (
     <View style={styles.container}>
@@ -201,6 +226,17 @@ export function ProfileStreakScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 + 80 }]}
         showsVerticalScrollIndicator={false}
       >
+        {error ? (
+          <View style={{ marginTop: 8, marginBottom: 8 }}>
+            <Text style={{ color: "#6B7280", fontSize: 12 }}>
+              {error instanceof Error ? error.message : "Could not load streak"}
+            </Text>
+            <Text onPress={() => refetch()} style={{ color: "#8B5CF6", marginTop: 6, fontSize: 12 }}>
+              Retry
+            </Text>
+          </View>
+        ) : null}
+
         {/* Streak hero */}
         <View style={styles.hero}>
           <View style={styles.heroLeftWrap}>
@@ -208,7 +244,7 @@ export function ProfileStreakScreen() {
             <View style={styles.heroLeft}>
               <View style={styles.streakNumberRow}>
                 <Text style={styles.streakNumber} allowFontScaling={true}>
-                  {String(data.current_streak ?? 0)}
+                  {isLoading ? "—" : String(data?.current_streak ?? 0)}
                 </Text>
                 <Text style={styles.streakFlame}>🔥</Text>
               </View>
@@ -219,7 +255,7 @@ export function ProfileStreakScreen() {
             <View style={styles.petCircleOuter}>
               <View style={styles.petCircleInner}>
                 <PetAnimation
-                stage={Math.min(8, Math.max(1, data.pet_stage))}
+                stage={Math.min(8, Math.max(1, profile?.pet_stage ?? 1))}
                 isHappy
                 size={86}
               />
@@ -232,17 +268,23 @@ export function ProfileStreakScreen() {
         <View style={styles.statCardsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statCardLabel}>CURRENT</Text>
-            <Text style={[styles.statCardValue, { color: "#F97316" }]}>🔥{data.current_streak}</Text>
+            <Text style={[styles.statCardValue, { color: "#F97316" }]}>
+              🔥{isLoading ? "—" : String(data?.current_streak ?? 0)}
+            </Text>
             <Text style={styles.statCardSub}>days</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statCardLabel}>LONGEST</Text>
-            <Text style={[styles.statCardValue, { color: "#E5E7EB" }]}>{data.longest_streak}</Text>
+            <Text style={[styles.statCardValue, { color: "#E5E7EB" }]}>
+              {isLoading ? "—" : String(data?.longest_streak ?? 0)}
+            </Text>
             <Text style={styles.statCardSub}>days</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statCardLabel}>THIS YEAR</Text>
-            <Text style={[styles.statCardValueYear, { color: "#A78BFA" }]}>{data.active_days_this_year}</Text>
+            <Text style={[styles.statCardValueYear, { color: "#A78BFA" }]}>
+              {isLoading ? "—" : String(activeDaysThisYear)}
+            </Text>
             <Text style={styles.statCardSub}>active days</Text>
           </View>
         </View>
@@ -350,9 +392,9 @@ export function ProfileStreakScreen() {
         {/* Month progress bar */}
         <View style={styles.progressCard}>
           <View style={styles.progressTopRow}>
-            <Text style={styles.progressActiveText}>{data.active_days_this_month} active days</Text>
+            <Text style={styles.progressActiveText}>{isLoading ? "—" : `${activeDaysThisMonth} active days`}</Text>
             <Text style={styles.progressFractionText}>
-              {data.active_days_this_month} / {data.total_days_in_month}
+              {isLoading ? "—" : `${activeDaysThisMonth} / ${daysInViewMonth}`}
             </Text>
           </View>
           <View style={styles.progressTrack}>
@@ -362,47 +404,13 @@ export function ProfileStreakScreen() {
               end={{ x: 1, y: 0 }}
               style={[
                 styles.progressFill,
-                { width: `${(data.active_days_this_month / data.total_days_in_month) * 100}%` },
+                { width: `${daysInViewMonth > 0 ? (activeDaysThisMonth / daysInViewMonth) * 100 : 0}%` },
               ]}
             />
           </View>
           <Text style={styles.progressSubText}>
-            {Math.max(0, data.total_days_in_month - data.active_days_this_month)} days remaining in {data.month_name}
+            {Math.max(0, daysInViewMonth - activeDaysThisMonth)} days remaining in {displayMonthName}
           </Text>
-        </View>
-
-        {/* Streak freezes */}
-        <View style={styles.freezesCard}>
-          <View style={styles.freezesHeader}>
-            <Ionicons name="shield-checkmark-outline" size={20} color="#8B5CF6" />
-            <Text style={styles.freezesTitle}>Streak Freezes</Text>
-            <Text style={styles.freezesCount}>{data.streak_freezes_available} available</Text>
-          </View>
-          <Text style={styles.freezesDesc}>
-            Automatically protects your streak on days you miss all Core missions.
-          </Text>
-          <View
-            style={[
-              styles.freezesBadge,
-              data.streak_freezes_available === 0 && styles.freezesBadgeDanger,
-            ]}
-          >
-            <Ionicons
-              name="flash-outline"
-              size={11}
-              color={data.streak_freezes_available === 0 ? "#F87171" : "#8B5CF6"}
-            />
-            <Text
-              style={[
-                styles.freezesBadgeText,
-                data.streak_freezes_available === 0 && styles.freezesBadgeTextDanger,
-              ]}
-            >
-              {data.streak_freezes_available === 0
-                ? "No freezes remaining"
-                : `Automatic · ${data.streak_freezes_available} freezes remaining`}
-            </Text>
-          </View>
         </View>
       </ScrollView>
     </View>

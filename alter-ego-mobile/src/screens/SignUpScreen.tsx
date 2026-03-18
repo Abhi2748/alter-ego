@@ -35,7 +35,9 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { COLORS, RADIUS, SPACING, ANIMATIONS, GRADIENTS } from "../constants/theme";
-import { supabase, setGuestMode } from "../utils/supabase";
+import { supabase, setGuestMode } from "@/utils/supabase";
+import { apiClient, isAuthError } from "@/services/api";
+import { onboardingService } from "@/services/onboarding";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -208,6 +210,25 @@ export function SignUpScreen() {
 
   const redirectTo = makeRedirectUri({ scheme: "alterego", path: "auth" });
 
+  /** Stale JWT (e.g. pre-backend): session exists but backend returns 401 — clear so user can sign in fresh. */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const t = sessionData?.session?.access_token;
+      if (!t || t === "guest") return;
+      try {
+        await apiClient.get("/api/v1/auth/me");
+      } catch (e) {
+        if (cancelled || !isAuthError(e)) return;
+        await supabase.auth.signOut();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const showError = useCallback((message: string) => {
     setErrorMessage(message);
     setTimeout(() => setErrorMessage(null), TOAST_DURATION_MS);
@@ -215,44 +236,34 @@ export function SignUpScreen() {
 
   const ensureUserAndNavigate = useCallback(
     async (userId: string, email: string | undefined) => {
-      const { data: existing } = await supabase.from("users").select("id, email, archetype").eq("id", userId).maybeSingle();
-      if (existing) {
-        if (email != null && email !== existing.email) {
-          await supabase.from("users").update({ email }).eq("id", userId).select().maybeSingle();
+      try {
+        if (email != null) {
+          const { data: row } = await supabase
+            .from("users")
+            .select("id, email")
+            .eq("id", userId)
+            .maybeSingle();
+          if (row && row.email !== email) {
+            await supabase.from("users").update({ email }).eq("id", userId);
+          }
         }
-        const onboardingComplete = existing.archetype != null && String(existing.archetype).trim() !== "";
-        navigation.replace(onboardingComplete ? "Main" : "Onboarding");
-        return;
+      } catch (_) {
+        /* non-blocking */
       }
-      const { error: userError } = await supabase.from("users").insert({
-        id: userId,
-        email: email ?? null,
-        trial_start_date: new Date().toISOString(),
-      });
-      if (userError) {
-        showError(userError.message);
-        return;
+      try {
+        await onboardingService.createProfile();
+        const me = await apiClient.get<{
+          exists: boolean;
+          onboarding_complete?: boolean;
+        }>("/api/v1/auth/me");
+        navigation.replace(
+          me.exists && me.onboarding_complete ? "Main" : "Onboarding"
+        );
+      } catch {
+        navigation.replace("Onboarding");
       }
-      await supabase.from("character_state").insert({
-        user_id: userId,
-        stage: 1,
-        total_xp: 0,
-      });
-      await supabase.from("pet_state").insert({
-        user_id: userId,
-        stage: 0,
-        total_pet_food: 0,
-      });
-      await supabase.from("twin_state").insert({
-        user_id: userId,
-        twin_xp: 0,
-        twin_character_stage: 1,
-        twin_pet_stage: 0,
-        streak: 0,
-      });
-      navigation.replace("Onboarding");
     },
-    [navigation, showError]
+    [navigation]
   );
 
   const signInLater = useCallback(async () => {

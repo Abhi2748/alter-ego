@@ -1,6 +1,6 @@
 /**
- * Onboarding Q1–Q14: username (new), then gender, age… interests (add-interest), quit (with Something else), slider, commitment.
- * Answer keys match OnboardingAnswers in context.
+ * Onboarding Q1–Q14 visible; Q15 timezone is auto-saved after Q14 (no UI).
+ * Username, gender, age, archetype Q4–Q10, interests, quits, hours, commitment horizon.
  */
 
 export type OnboardingInputType = "single" | "multi" | "slider" | "username" | "interests_add" | "quit_with_other";

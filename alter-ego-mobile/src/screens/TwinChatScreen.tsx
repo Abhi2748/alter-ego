@@ -24,6 +24,8 @@ import type { MainStackParamList } from "../navigation/types";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
+import { useTwinChatHistory, useSendTwinMessage } from "@/hooks/useTwin";
+import { useUserStore } from "@/store/userStore";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -65,56 +67,6 @@ export interface ChatMessage {
   rated?: boolean;
 }
 
-const PLACEHOLDER_MESSAGES: ChatMessage[] = [
-  {
-    id: "1",
-    role: "twin",
-    content: '"Seven days. That\'s the gap. I\'ve been watching your hesitation."',
-    timestamp: "2026-03-13T04:24:00Z",
-    rated: false,
-  },
-  {
-    id: "2",
-    role: "user",
-    content: "I'm going to close it.",
-    timestamp: "2026-03-13T04:24:10Z",
-  },
-  {
-    id: "3",
-    role: "twin",
-    content: '"Everyone says that. Show me."',
-    timestamp: "2026-03-13T04:24:15Z",
-    rated: false,
-  },
-  {
-    id: "4",
-    role: "user",
-    content: "What should I focus on today?",
-    timestamp: "2026-03-14T04:28:00Z",
-  },
-];
-
-const CANNED_RESPONSES = [
-  '"Seven days. That\'s the gap. I\'ve completed every mission you skipped."',
-  '"Everyone says that. Show me."',
-  '"The question isn\'t whether you can close it. It\'s whether you\'ll decide to."',
-  '"You hesitated yesterday. I didn\'t."',
-  '"Stop thinking about it. Start."',
-];
-
-const OFF_TOPIC_RESPONSE = "That won't make you stronger.";
-
-// In-scope keywords (simplified): discipline, focus, mission, streak, close, today, etc.
-const IN_SCOPE_WORDS = [
-  "focus", "mission", "streak", "close", "today", "discipline", "habit", "twin",
-  "gap", "show", "work", "start", "complete", "win", "hesitate", "decide",
-];
-
-function isOffTopic(text: string): boolean {
-  const lower = text.toLowerCase();
-  return !IN_SCOPE_WORDS.some((w) => lower.includes(w));
-}
-
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -140,10 +92,6 @@ function formatDateLabel(dateKey: string): string {
   const day = d.getDate();
   const monthShort = d.toLocaleDateString("en-GB", { month: "short" });
   return `${weekday}, ${day} ${monthShort}`;
-}
-
-function id(): string {
-  return "msg-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
 }
 
 type ListItem =
@@ -253,24 +201,34 @@ function TypingDots() {
 // -----------------------------------------------------------------------------
 // SCREEN
 // -----------------------------------------------------------------------------
-const STAGE_NAME = "The Focused";
-const PET_NAME = "Cat";
-
 export function TwinChatScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute<RouteProp<MainStackParamList, "TwinChat">>();
-  const [messages, setMessages] = useState<ChatMessage[]>(PLACEHOLDER_MESSAGES);
   const [inputText, setInputText] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
+  const [ratedMessageIds, setRatedMessageIds] = useState<Record<string, boolean>>({});
   const listRef = useRef<FlatList<ListItem> | null>(null);
   const initialMessageSentRef = useRef(false);
 
+  const profile = useUserStore((state) => state.profile);
+
+  const { data: chatData, isLoading: historyLoading } = useTwinChatHistory(50);
+  const { mutate: sendTwinMessage, isPending: isSending } = useSendTwinMessage();
+
+  const messages: ChatMessage[] = useMemo(() => {
+    const raw = chatData?.messages ?? [];
+    return raw.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      timestamp: m.created_at,
+      rated: ratedMessageIds[m.id] ?? false,
+    }));
+  }, [chatData?.messages, ratedMessageIds]);
+
   const listData = useMemo(() => buildListData(messages), [messages]);
   const listDataReversed = useMemo(() => [...listData].reverse(), [listData]);
-  const HEADER_HEIGHT = insets.top + 64;
-
   const handleClose = () => navigation.goBack();
 
   const sendToneRating = useCallback(async (messageId: string, rating: "positive" | "neutral" | "negative") => {
@@ -282,53 +240,46 @@ export function TwinChatScreen() {
   // No Reanimated — immediate state update to avoid iOS crash when rating
   const rateTone = useCallback(
     (messageId: string, rating: "positive" | "neutral" | "negative") => {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === messageId && m.role === "twin" ? { ...m, rated: true } : m))
-      );
+      setRatedMessageIds((prev) => ({ ...prev, [messageId]: true }));
       sendToneRating(messageId, rating);
     },
     [sendToneRating]
   );
 
-  const sendMessage = useCallback((overrideText?: string) => {
-    const raw = overrideText !== undefined ? overrideText : inputText;
-    const text = (typeof raw === "string" ? raw : "").trim();
-    if (!text) return;
-    if (overrideText === undefined) setInputText("");
+  const sendMessage = useCallback(
+    (overrideText?: string) => {
+      const raw = overrideText !== undefined ? overrideText : inputText;
+      const text = (typeof raw === "string" ? raw : "").trim();
+      if (!text) return;
+      if (isSending) return;
 
-    const userMsg: ChatMessage = {
-      id: id(),
-      role: "user",
-      content: text,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((prev) => [userMsg, ...prev]);
-    setIsTyping(true);
+      if (overrideText === undefined) {
+        setInputText("");
+      }
 
-    const response =
-      isOffTopic(text) ? OFF_TOPIC_RESPONSE : CANNED_RESPONSES[Math.floor(Math.random() * CANNED_RESPONSES.length)];
-
-    setTimeout(() => {
-      const twinMsg: ChatMessage = {
-        id: id(),
-        role: "twin",
-        content: response,
-        timestamp: new Date().toISOString(),
-        rated: false,
-      };
-      setMessages((prev) => [twinMsg, ...prev]);
-      setIsTyping(false);
-    }, 800);
-  }, [inputText]);
+      sendTwinMessage(text, {
+        onError: () => {
+          if (overrideText === undefined) {
+            setInputText(text);
+          }
+        },
+      });
+    },
+    [inputText, isSending, sendTwinMessage]
+  );
 
   useEffect(() => {
     const initialMessage = route.params?.initialMessage;
     if (!initialMessage || initialMessageSentRef.current) return;
     initialMessageSentRef.current = true;
     navigation.setParams({ initialMessage: undefined });
-    setMessages([]);
     setTimeout(() => sendMessage(initialMessage), 0);
   }, [route.params?.initialMessage, navigation, sendMessage]);
+
+  useEffect(() => {
+    if (messages.length <= 0) return;
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [messages.length]);
 
   const getMarginTop = useCallback(
     (index: number) => {
@@ -480,7 +431,9 @@ export function TwinChatScreen() {
           </View>
           <View style={styles.nameColumn}>
             <Text style={styles.headerName}>Shadow Twin</Text>
-            <Text style={styles.headerStage}>{STAGE_NAME} · {PET_NAME}</Text>
+            <Text style={styles.headerStage}>
+              {profile?.character_stage_name ?? "—"} · {profile?.pet_name ?? "—"}
+            </Text>
           </View>
         </View>
       </View>
@@ -498,11 +451,24 @@ export function TwinChatScreen() {
         keyboardDismissMode="none"
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
-          isTyping ? (
+          isSending ? (
             <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
               <TypingDots />
             </Animated.View>
           ) : null
+        }
+        ListEmptyComponent={
+          historyLoading ? (
+            <View style={{ paddingVertical: 24 }}>
+              <Text style={styles.emptyText}>Loading…</Text>
+            </View>
+          ) : (
+            <View style={{ paddingVertical: 24 }}>
+              <Text style={styles.emptyText}>
+                Your Twin is watching. Say something.
+              </Text>
+            </View>
+          )
         }
       />
 
@@ -539,6 +505,9 @@ export function TwinChatScreen() {
             onSubmitEditing={() => sendMessage()}
             blurOnSubmit={false}
           />
+          {inputText.length >= 400 ? (
+            <Text style={styles.charCount}>{inputText.length}/500</Text>
+          ) : null}
           {inputFocused && (
             <TouchableOpacity
               onPress={() => Keyboard.dismiss()}
@@ -550,10 +519,10 @@ export function TwinChatScreen() {
           )}
           <Pressable
             onPress={() => sendMessage()}
-            disabled={!(inputText ?? "").trim()}
+            disabled={!(inputText ?? "").trim() || isSending}
             style={({ pressed }) => [
               styles.sendBtnWrap,
-              !(inputText ?? "").trim() && styles.sendBtnDisabled,
+              (!(inputText ?? "").trim() || isSending) && styles.sendBtnDisabled,
               pressed && styles.sendBtnPressed,
             ]}
           >
@@ -653,6 +622,7 @@ const styles = StyleSheet.create({
   nameColumn: { marginLeft: 10, flex: 1 },
   headerName: { fontSize: 14, fontWeight: "700", color: USER_TEXT },
   headerStage: { fontSize: 10, color: MUTED, marginTop: 1 },
+  emptyText: { fontSize: 12, color: MUTED, textAlign: "center" },
 
   list: { flex: 1, minHeight: 0 },
   listContent: { paddingHorizontal: 16, paddingVertical: 16 },
@@ -830,6 +800,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     fontSize: 14,
     color: USER_TEXT,
+  },
+  charCount: {
+    position: "absolute",
+    right: 76,
+    bottom: 18,
+    fontSize: 10,
+    color: DIM,
   },
   inputBorder: { borderColor: INPUT_BORDER },
   inputBorderFocused: { borderColor: "rgba(139,92,246,0.35)" },

@@ -1,16 +1,15 @@
 /**
- * Supabase client for ALTER EGO mobile. Uses anon key + RLS.
- * Session persisted with AsyncStorage (required for React Native).
- * When "Sign in later" is used and Anonymous sign-in is disabled in Supabase,
- * we fall back to guest mode: a local-only session so the app can be used with mock API.
+ * Single Supabase client for ALTER EGO mobile. Uses anon key + RLS.
+ * Session persisted with Expo SecureStore (iOS/Android) or AsyncStorage (web).
+ * Optional guest mode when "Sign in later" is used and anonymous sign-in is disabled.
  *
- * In project root .env add (Expo loads EXPO_PUBLIC_* automatically):
- *   EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
- *   EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+ * In .env: EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY
  */
 
 import { createClient } from "@supabase/supabase-js";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
@@ -21,7 +20,7 @@ if (!url || !anonKey) {
   );
 }
 
-/** Retry fetch on transient "Network request failed" (common on Android / flaky networks). */
+/** Retry fetch on transient network failures (common on Android / flaky networks). */
 const MAX_FETCH_RETRIES = 3;
 const FETCH_RETRY_DELAY_MS = 800;
 
@@ -37,13 +36,51 @@ async function fetchWithRetry(
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
       const isNetworkFailure =
-        /network request failed|failed to fetch|network error|could not connect/i.test(msg);
+        /network request failed|failed to fetch|network error|could not connect/i.test(
+          msg
+        );
       if (!isNetworkFailure || attempt === MAX_FETCH_RETRIES) throw e;
       await new Promise((r) => setTimeout(r, FETCH_RETRY_DELAY_MS));
     }
   }
   throw lastErr;
 }
+
+const ExpoSecureStoreAdapter = {
+  getItem: async (key: string): Promise<string | null> => {
+    try {
+      if (Platform.OS === "web") {
+        return AsyncStorage.getItem(key);
+      }
+      const value = await SecureStore.getItemAsync(key);
+      return value ?? null;
+    } catch {
+      return AsyncStorage.getItem(key);
+    }
+  },
+  setItem: async (key: string, value: string): Promise<void> => {
+    try {
+      if (Platform.OS === "web") {
+        await AsyncStorage.setItem(key, value);
+        return;
+      }
+      await SecureStore.setItemAsync(key, value);
+    } catch {
+      await AsyncStorage.setItem(key, value);
+    }
+  },
+  removeItem: async (key: string): Promise<void> => {
+    try {
+      if (Platform.OS === "web") {
+        await AsyncStorage.removeItem(key);
+        return;
+      }
+      await SecureStore.deleteItemAsync(key);
+    } catch {
+      await AsyncStorage.removeItem(key);
+    }
+  },
+};
 
 const GUEST_STORAGE_KEY = "alter_ego_guest";
 
@@ -80,7 +117,7 @@ export async function isGuestMode(): Promise<boolean> {
 export const supabase = createClient(url, anonKey, {
   global: { fetch: fetchWithRetry },
   auth: {
-    storage: AsyncStorage,
+    storage: ExpoSecureStoreAdapter,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

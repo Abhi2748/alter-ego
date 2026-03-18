@@ -1,8 +1,14 @@
 from fastapi import FastAPI
 
 from app.api.auth import router as auth_router
+from app.api.leaderboard import router as leaderboard_router
+from app.api.mail import router as mail_router
 from app.api.missions import router as missions_router
 from app.api.onboarding import router as onboarding_router
+from app.api.profile import router as profile_router
+from app.api.reports import router as reports_router
+from app.api.settings import router as settings_router
+from app.api.twin import router as twin_router
 from app.core.scheduler import setup_scheduler
 
 app = FastAPI(title="ALTER EGO API", version="1.0.0")
@@ -11,6 +17,13 @@ app = FastAPI(title="ALTER EGO API", version="1.0.0")
 app.include_router(auth_router)
 app.include_router(onboarding_router)
 app.include_router(missions_router)
+app.include_router(twin_router)
+app.include_router(leaderboard_router)
+app.include_router(reports_router)
+app.include_router(mail_router)
+app.include_router(profile_router)
+app.include_router(settings_router)
+
 
 @app.on_event("startup")
 async def startup_event():

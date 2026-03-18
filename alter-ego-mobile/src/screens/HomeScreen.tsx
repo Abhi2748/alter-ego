@@ -1,7 +1,6 @@
 /**
  * Home Screen — Premium dark cinematic layout.
- * Top bar (avatar + greeting), streak strip, hero zone, twin alert, Core / Today's Focus / Personal sections.
- * Mission completion logic, pet roaming, XP, journal FAB unchanged.
+ * Wired to backend: useTodayMissions, useUserStore, useTwinStrip, useCompleteMission.
  */
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
@@ -16,7 +15,6 @@ import {
   Platform,
   Image,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -31,20 +29,12 @@ import type { MissionType, MissionStatus } from "../components/MissionCard";
 import { AddMissionModal } from "../components/AddMissionModal";
 import { CharacterEvolutionOverlay } from "../components/CharacterEvolutionOverlay";
 import { MilestoneAchievementCard } from "../components/MilestoneAchievementCard";
-import { supabase } from "../utils/supabase";
-import {
-  getHome,
-  completeMission,
-  createMission,
-  estimatePersonalTier,
-  type MissionOut,
-  type MissionCompleteOut,
-} from "../utils/api";
+import { useUserStore } from "@/store/userStore";
+import { useTodayMissions, useCompleteMission } from "@/hooks/useMissions";
+import { useTwinStrip } from "@/hooks/useTwinStrip";
+import type { Mission } from "@/services/missions";
+import { missionsService } from "@/services/missions";
 
-const STAGE_NAMES = ["The Awakened", "The Focused", "The Burning", "The Relentless", "The Formidable", "The Sovereign"];
-const TRIAL_START_KEY = "@alter_ego_trial_start_date";
-const PET_THRESHOLDS = [0, 400, 2000, 7000, 18000, 40000, 80000, 150000] as const;
-const PET_NAMES = ["Cub", "Cat", "Fox", "Wolf", "Snow Leopard", "Panther", "Griffin", "Dragon"] as const;
 
 // Design tokens (spec Section 1)
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
@@ -90,45 +80,30 @@ type PlaceholderMission = {
   dayCounter?: number;
 };
 
-const RESISTANCE_PLACEHOLDER_MISSIONS: PlaceholderMission[] = [
-  {
-    id: "res-1",
-    title: "Put your phone on the charger in another room before 10pm",
-    category: "Resistance",
-    difficulty: "Medium",
-    xpValue: 20,
-    petFoodValue: 16,
-    status: "pending",
-    missionType: "resistance",
-    quitTargetName: "Social Media",
-    dayCounter: 23,
-  },
-  {
-    id: "res-2",
-    title: "Drink a glass of water and do 10 pushups when the craving hits",
-    category: "Resistance",
-    difficulty: "Easy",
-    xpValue: 10,
-    petFoodValue: 8,
-    status: "pending",
-    missionType: "resistance",
-    quitTargetName: "Junk Food",
-    dayCounter: 5,
-  },
-];
-
-function missionToCard(m: MissionOut): PlaceholderMission {
+function missionApiToCard(
+  m: Mission,
+  category: "Core" | "Interest" | "Resistance" | "Personal"
+): PlaceholderMission {
+  const difficulty =
+    m.difficulty === "Easy" || m.difficulty === "Medium" || m.difficulty === "Hard"
+      ? m.difficulty
+      : "Medium";
   return {
     id: m.id,
     title: m.title,
-    category: m.type === "core" ? "Core" : m.type === "interest" ? (m.interest ?? "Interest") : "Personal",
-    difficulty: m.difficulty as "Easy" | "Medium" | "Hard",
-    xpValue: m.xp_value,
-    petFoodValue: m.pet_food_value,
-    status: m.completed_at ? ("complete" as const) : ("pending" as const),
-    missionType: m.type as MissionType,
-    interestName: m.interest ?? undefined,
-    missionStreak: m.mission_streak ?? 0,
+    category,
+    difficulty,
+    xpValue: m.xp_value ?? 0,
+    petFoodValue: m.pf_value ?? 0,
+    status: m.completed ? ("complete" as const) : ("pending" as const),
+    missionType: (category === "Core"
+      ? "core"
+      : category === "Interest"
+        ? "interest"
+        : category === "Resistance"
+          ? "resistance"
+          : "personal") as MissionType,
+    missionStreak: 0,
   };
 }
 
@@ -139,6 +114,8 @@ function getGreeting(): string {
   if (h >= 17 && h < 21) return "Good evening 👋";
   return "Good night 🌙";
 }
+
+const PET_NAMES = ["Cub", "Cat", "Fox", "Wolf", "Snow Leopard", "Panther", "Griffin", "Dragon"] as const;
 
 export function HomeScreen() {
   const navigation = useNavigation();
@@ -151,26 +128,24 @@ export function HomeScreen() {
   const heroX = (windowWidth - (CHARACTER_WIDTH + PET_OFFSET + ROAMING_PET_SIZE)) / 2 + CHARACTER_WIDTH + PET_OFFSET;
   const heroY = 20 + 4 + CHARACTER_HEIGHT / 2 - ROAMING_PET_SIZE / 2;
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [displayXP, setDisplayXP] = useState(0);
-  const [nextStageXP, setNextStageXP] = useState(800);
-  const [nextStageName, setNextStageName] = useState("The Focused");
-  const [stageTitle, setStageTitle] = useState("The Awakened");
-  const [characterStage, setCharacterStage] = useState(1);
-  const [characterGender, setCharacterGender] = useState<string>("male");
-  const [coreMissions, setCoreMissions] = useState<PlaceholderMission[]>([]);
-  const [interestMissions, setInterestMissions] = useState<PlaceholderMission[]>([]);
-  const [personalMissions, setPersonalMissions] = useState<PlaceholderMission[]>([]);
-  const [resistanceMissions, setResistanceMissions] = useState<PlaceholderMission[]>(RESISTANCE_PLACEHOLDER_MISSIONS);
-  const [twinStripMessage, setTwinStripMessage] = useState<string | null>(null);
-  const [petStage, setPetStage] = useState(0);
-  const [petHealthState, setPetHealthState] = useState<string>("idle");
-  const [totalPetFood, setTotalPetFood] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [weekDots, setWeekDots] = useState<boolean[]>([false, false, false, false, false, false, false]);
-  const [evolutionOverlayVisible, setEvolutionOverlayVisible] = useState(false);
-  const [evolutionStageName, setEvolutionStageName] = useState("The Focused");
+  const profile = useUserStore((state) => state.profile);
+  const { data: todayData, isLoading, error, refetch } = useTodayMissions();
+  const { mutate: completeMission, isPending: isCompleting } = useCompleteMission();
+  const { data: twinStrip } = useTwinStrip();
+
+  const [streakAnimationData, setStreakAnimationData] = useState<{
+    show: boolean;
+    count: number;
+    tier: string;
+  } | null>(null);
+  const [evolutionData, setEvolutionData] = useState<{
+    new_stage: number;
+    new_stage_name: string;
+  } | null>(null);
+  const [petEvolutionData, setPetEvolutionData] = useState<{
+    new_stage: number;
+    new_pet_name: string;
+  } | null>(null);
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [milestoneCard, setMilestoneCard] = useState<{
     interestName: string;
@@ -178,195 +153,136 @@ export function HomeScreen() {
     milestoneName: string;
     twinCongratulation: string;
   } | null>(null);
-  const [isDay1To14, setIsDay1To14] = useState<boolean>(false);
-  const [username, setUsername] = useState<string>("");
+  const [evolutionOverlayVisible, setEvolutionOverlayVisible] = useState(false);
+  const [evolutionStageName, setEvolutionStageName] = useState("The Focused");
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
 
-  const nextPetName = petStage >= 1 && petStage < 8 ? PET_NAMES[petStage] : null;
-  const petFrom = petStage >= 1 ? PET_THRESHOLDS[Math.max(0, petStage - 1)] : 0;
-  const petTo = petStage >= 1 && petStage < 8 ? PET_THRESHOLDS[petStage] : PET_THRESHOLDS[PET_THRESHOLDS.length - 1];
-  const petLevelPct =
-    petStage >= 1 && petStage < 8 && petTo > petFrom
-      ? Math.min(1, Math.max(0, (totalPetFood - petFrom) / (petTo - petFrom)))
-      : 1;
+  const coreMissions = (todayData?.missions.core ?? []).map((m) => missionApiToCard(m, "Core"));
+  const interestMissions = (todayData?.missions.interest ?? []).map((m) => missionApiToCard(m, "Interest"));
+  const resistanceMissions = (todayData?.missions.resistance ?? []).map((m) => missionApiToCard(m, "Resistance"));
+  const personalMissions = (todayData?.missions.personal ?? []).map((m) => missionApiToCard(m, "Personal"));
 
-  const fetchHome = useCallback(async () => {
-    try {
-      setError(null);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setLoading(false);
-        return;
-      }
-      const home = await getHome(session.access_token);
-      const char = home.character_state;
-      const pet = home.pet_state;
-      setDisplayXP(char.total_xp);
-      setNextStageXP(char.next_stage_xp);
-      setNextStageName(char.next_stage_name);
-      setStageTitle(STAGE_NAMES[Math.max(0, char.stage - 1)] ?? "The Awakened");
-      setCharacterStage(char.stage);
-      setCharacterGender(char.gender ?? "male");
-      setPetStage(pet.stage);
-      setTotalPetFood(pet.total_pet_food);
-      setPetHealthState(pet.pet_health_state);
-      setTwinStripMessage(home.twin_strip_message ?? null);
-      setStreak(home.streak ?? 0);
-      setWeekDots(home.week_dots ?? [false, false, false, false, false, false, false]);
-      const core = home.missions.filter((m) => m.type === "core").map(missionToCard);
-      const interest = home.missions.filter((m) => m.type === "interest").map(missionToCard);
-      const personal = home.missions.filter((m) => m.type === "personal").map(missionToCard);
-      setCoreMissions(core);
-      setInterestMissions(interest);
-      setPersonalMissions(personal);
-      setUsername(home.username ?? "");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load home");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(useCallback(() => { fetchHome(); }, [fetchHome]));
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const today = new Date();
-        const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString().slice(0, 10);
-        let stored = await AsyncStorage.getItem(TRIAL_START_KEY);
-        if (!stored) {
-          await AsyncStorage.setItem(TRIAL_START_KEY, todayDate);
-          stored = todayDate;
-        }
-        const start = new Date(stored + "T00:00:00");
-        const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-        const nowDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const diffMs = nowDate.getTime() - startDate.getTime();
-        const dayNumber = Math.floor(diffMs / 86400000) + 1;
-        setIsDay1To14(dayNumber >= 1 && dayNumber <= 14);
-      } catch (_) {
-        setIsDay1To14(false);
-      }
-    })();
-  }, []);
-
-  const completedToday =
-    coreMissions.filter((m) => m.status === "complete").length +
-    interestMissions.filter((m) => m.status === "complete").length +
-    personalMissions.filter((m) => m.status === "complete").length;
+  const dayNumber = todayData?.day_number ?? 1;
+  const isDay1To14 = dayNumber >= 1 && dayNumber <= 14;
+  const completedToday = todayData?.summary.completed ?? 0;
   const showStartAnywhereHelper = completedToday === 0 && isDay1To14;
 
-  const triggerXpBarAnimation = () => {
+  const username = profile?.username ?? "";
+  const characterStage = profile?.character_stage ?? 1;
+  const stageTitle = profile?.character_stage_name ?? "The Awakened";
+  const displayXP = profile?.total_xp ?? 0;
+  const nextStageXP = profile?.xp_to_next_stage ?? 800;
+  const nextStageName = profile?.character_stage_name ?? "The Focused";
+  const petStage = profile?.pet_stage ?? 0;
+  const totalPetFood = profile?.total_pf ?? 0;
+  const streak = profile?.current_streak ?? 0;
+  const petHealthState = "idle";
+  const weekDots = [false, false, false, false, false, false, false];
+
+  const nextPetName = petStage >= 1 && petStage < 8 ? PET_NAMES[petStage - 1] : null;
+  const pfProgress = profile?.pf_progress_pct ?? 0;
+  const petLevelPct = pfProgress / 100;
+
+  const triggerXpBarAnimation = useCallback(() => {
     setTimeout(() => xpBarRef.current?.animateXpGain(), 0);
-  };
+  }, []);
 
-  const applyCompleteResponse = (res: MissionCompleteOut) => {
-    const char = res.character_state;
-    const pet = res.pet_state;
-    setDisplayXP(char.total_xp);
-    setNextStageXP(char.next_stage_xp);
-    setNextStageName(char.next_stage_name);
-    setStageTitle(STAGE_NAMES[Math.max(0, char.stage - 1)] ?? "The Awakened");
-    setCharacterStage(char.stage);
-    setCharacterGender(char.gender ?? "male");
-    setPetStage(pet.stage);
-    setTotalPetFood(pet.total_pet_food);
-    setPetHealthState(pet.pet_health_state);
-    if (res.twin_strip_message != null) setTwinStripMessage(res.twin_strip_message);
-    if (res.stage_up) {
-      setEvolutionStageName(STAGE_NAMES[Math.max(0, char.stage - 1)] ?? "The Focused");
-      setEvolutionOverlayVisible(true);
-    }
-    if (res.earned_milestone) {
-      setMilestoneCard({
-        interestName: res.earned_milestone.interest,
-        milestoneNumber: res.earned_milestone.milestone_number,
-        milestoneName: res.earned_milestone.milestone_name,
-        twinCongratulation: res.earned_milestone.twin_congratulation,
-      });
-    }
-  };
-
-  const completeMissionAndSync = async (id: string, mission: PlaceholderMission) => {
-    setDisplayXP((prev) => prev + mission.xpValue);
-    triggerXpBarAnimation();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      try {
-        const res = await completeMission(session.access_token, id);
-        applyCompleteResponse(res);
-      } catch (_) {
-        setDisplayXP((prev) => prev - mission.xpValue);
-      }
-    }
-  };
-
-  const handleCompleteCore = (id: string) => {
-    const mission = coreMissions.find((m) => m.id === id);
-    if (mission) {
-      setCoreMissions((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, status: "complete" as const } : m))
-      );
-      completeMissionAndSync(id, mission);
-    }
-  };
-  const handleCompleteInterest = (id: string) => {
-    const mission = interestMissions.find((m) => m.id === id);
-    if (mission) {
-      setInterestMissions((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, status: "complete" as const } : m))
-      );
-      completeMissionAndSync(id, mission);
-    }
-  };
-  const handleCompletePersonal = (id: string) => {
-    const mission = personalMissions.find((m) => m.id === id);
-    if (mission) {
-      setPersonalMissions((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, status: "complete" as const } : m))
-      );
-      completeMissionAndSync(id, mission);
-    }
-  };
-
-  const handleCompleteResistance = (id: string) => {
-    const mission = resistanceMissions.find((m) => m.id === id);
-    if (mission) {
-      setResistanceMissions((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, status: "complete" as const } : m))
-      );
-      setDisplayXP((prev) => prev + mission.xpValue);
+  const handleComplete = useCallback(
+    (missionId: string) => {
       triggerXpBarAnimation();
-      completeMissionAndSync(id, mission);
+      completeMission(missionId, {
+        onSuccess: (result) => {
+          if (result.streak_animation?.show) {
+            setStreakAnimationData({
+              show: true,
+              count: result.streak_animation.streak_count,
+              tier: result.streak_animation.animation_tier,
+            });
+          }
+          if (result.stage_evolved) {
+            setEvolutionStageName(result.stage_evolved.new_stage_name);
+            setEvolutionData(result.stage_evolved);
+            setEvolutionOverlayVisible(true);
+          }
+          if (result.pet_evolved) {
+            setPetEvolutionData(result.pet_evolved);
+          }
+          if (result.milestone_reached != null) {
+            setMilestoneCard({
+              interestName: "",
+              milestoneNumber: result.milestone_reached,
+              milestoneName: `Streak milestone: ${result.milestone_reached} days`,
+              twinCongratulation: "Your Twin noticed.",
+            });
+          }
+        },
+      });
+    },
+    [completeMission, triggerXpBarAnimation]
+  );
+
+  const showTwinStrip = twinStrip?.has_twin && twinStrip?.strip_message;
+  const twinStripMessage = twinStrip?.strip_message ?? null;
+
+  useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
+
+  useEffect(() => {
+    if (
+      todayData &&
+      todayData.summary.total === 0 &&
+      coreMissions.length === 0 &&
+      interestMissions.length === 0
+    ) {
+      const t = setTimeout(() => refetch(), 3000);
+      return () => clearTimeout(t);
     }
-  };
-
-  const handleAddMission = async (title: string, difficulty: "Easy" | "Medium" | "Hard") => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Not signed in");
-    const mission = await createMission(session.access_token, { title, difficulty, type: "personal" });
-    setPersonalMissions((prev) => [...prev, missionToCard(mission)]);
-  };
-
-  const handleSuggestTier = async (title: string) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) return null;
-    return estimatePersonalTier(session.access_token, title);
-  };
-
-  const openTwin = () => navigation.navigate("Twin");
+  }, [todayData?.summary.total, coreMissions.length, interestMissions.length, refetch]);
 
   useFocusEffect(
     useCallback(() => {
       if (route.params?.journalJustCompleted) {
         navigation.setParams({ journalJustCompleted: undefined });
-        fetchHome();
+        refetch();
       }
-    }, [route.params?.journalJustCompleted, fetchHome, navigation])
+    }, [route.params?.journalJustCompleted, refetch, navigation])
   );
 
-  if (loading) {
+  const handleAddMission = useCallback(
+    async (title: string, difficulty: "Easy" | "Medium" | "Hard") => {
+      const today = new Date().toISOString().slice(0, 10);
+      const estimate = await missionsService.estimatePersonalMission(title);
+      const tier = (estimate?.tier ?? "medium") as "easy" | "medium" | "hard" | "multiday";
+      const xp = estimate?.xp ?? 15;
+      const pf = estimate?.pf ?? 11;
+      const estimated_minutes = estimate?.estimated_minutes ?? 15;
+      await missionsService.createPersonalMission({
+        mission_text: title,
+        tier,
+        xp,
+        pf,
+        estimated_minutes,
+        date: today,
+      });
+      refetch();
+    },
+    [refetch]
+  );
+
+  const handleSuggestTier = useCallback(async (title: string) => {
+    const estimate = await missionsService.estimatePersonalMission(title);
+    if (!estimate) return null;
+    const suggested_difficulty = (estimate.tier.charAt(0).toUpperCase() +
+      estimate.tier.slice(1)) as "Easy" | "Medium" | "Hard";
+    return {
+      suggested_difficulty,
+      xp_value: estimate.xp,
+      pet_food_value: estimate.pf,
+    };
+  }, []);
+
+  const openTwin = () => navigation.navigate("Twin");
+
+  if (isLoading) {
     return (
       <LinearGradient colors={BG_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={VIOLET} />
@@ -431,8 +347,8 @@ export function HomeScreen() {
 
       {error ? (
         <View style={styles.errorWrap}>
-          <Text style={styles.errorText}>{error}</Text>
-          <Pressable onPress={() => { setLoading(true); fetchHome(); }} style={styles.retryButton}>
+          <Text style={styles.errorText}>{error.message}</Text>
+          <Pressable onPress={() => refetch()} style={styles.retryButton}>
             <Text style={styles.retryText}>Retry</Text>
           </Pressable>
         </View>
@@ -498,10 +414,10 @@ export function HomeScreen() {
               width={252}
               hideLabels
             />
-          {petStage > 0 && (
+          {(profile?.pet_unlocked ?? false) && (
             <View style={styles.petFoodBar}>
               <View style={styles.petFoodLabelRow}>
-                <Text style={styles.petFoodLabelLeft}>🌿 Pet Food</Text>
+                <Text style={styles.petFoodLabelLeft}>🌿 {totalPetFood} PF</Text>
                 {nextPetName ? (
                   <Text style={styles.petFoodLabelRight}>→ {nextPetName}</Text>
                 ) : (
@@ -526,6 +442,13 @@ export function HomeScreen() {
           </View>
         </View>
 
+        {/* Empty state: missions being prepared */}
+        {!isLoading && !error && todayData && todayData.summary.total === 0 ? (
+          <View style={styles.emptyMissionsWrap}>
+            <Text style={styles.emptyMissionsText}>Your missions are being prepared…</Text>
+          </View>
+        ) : null}
+
         {/* 4. Twin alert strip — full width */}
         <Pressable style={styles.twinStrip} onPress={openTwin}>
           <View style={styles.twinAvatar}>
@@ -538,12 +461,14 @@ export function HomeScreen() {
             <Text style={styles.twinAvatarLabel}>T</Text>
           </View>
           <Text style={styles.twinMessage} numberOfLines={1} ellipsizeMode="tail">
-            {twinStripMessage ?? "Your rival is you — one week ahead."}
+            {showTwinStrip ? twinStripMessage : "Your rival is you — one week ahead."}
           </Text>
           <Ionicons name="chevron-forward" size={14} color="#374151" />
         </Pressable>
 
-        {/* 5. Core section */}
+        {/* 5–8. Mission sections — only when we have missions */}
+        {todayData && todayData.summary.total > 0 ? (
+        <>
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderLeft}>
@@ -565,7 +490,7 @@ export function HomeScreen() {
                 xpValue={m.xpValue}
                 petFoodValue={m.petFoodValue}
                 status={m.status}
-                onComplete={() => handleCompleteCore(m.id)}
+                onComplete={() => handleComplete(m.id)}
                 missionType={m.missionType}
                 missionStreak={m.missionStreak ?? 0}
                 appearIndex={i}
@@ -596,7 +521,7 @@ export function HomeScreen() {
                 xpValue={m.xpValue}
                 petFoodValue={m.petFoodValue}
                 status={m.status}
-                onComplete={() => handleCompleteInterest(m.id)}
+                onComplete={() => handleComplete(m.id)}
                 missionType={m.missionType}
                 interestName={m.interestName}
                 missionStreak={m.missionStreak ?? 0}
@@ -628,7 +553,7 @@ export function HomeScreen() {
                 xpValue={m.xpValue}
                 petFoodValue={m.petFoodValue}
                 status={m.status}
-                onComplete={() => handleCompleteResistance(m.id)}
+                onComplete={() => handleComplete(m.id)}
                 missionType="resistance"
                 quitTargetName={m.quitTargetName}
                 dayCounter={m.dayCounter}
@@ -660,7 +585,7 @@ export function HomeScreen() {
                 xpValue={m.xpValue}
                 petFoodValue={m.petFoodValue}
                 status={m.status}
-                onComplete={() => handleCompletePersonal(m.id)}
+                onComplete={() => handleComplete(m.id)}
                 missionType={m.missionType}
                 missionStreak={m.missionStreak ?? 0}
                 appearIndex={i}
@@ -677,6 +602,8 @@ export function HomeScreen() {
             <Text style={styles.addPersonalLabel}>Add Personal Mission</Text>
           </Pressable>
         </View>
+        </>
+        ) : null}
       </ScrollView>
 
       {/* Pet roaming overlay */}
@@ -757,6 +684,16 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 14, color: TEXT_PRIMARY, flex: 1 },
   retryButton: { paddingVertical: 6, paddingHorizontal: 16, backgroundColor: VIOLET, borderRadius: 10 },
   retryText: { fontSize: 14, fontWeight: "600", color: TEXT_PRIMARY },
+  emptyMissionsWrap: {
+    paddingVertical: 24,
+    paddingHorizontal: SCROLL_PADDING_H,
+    alignItems: "center",
+  },
+  emptyMissionsText: {
+    fontSize: 14,
+    color: TEXT_MUTED,
+    fontStyle: "italic",
+  },
 
   topBar: {
     minHeight: TOP_BAR_HEIGHT,

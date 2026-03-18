@@ -3,7 +3,7 @@
  * Header + Arena (230) + Stats row + Gap description + Twin dialogue + Twin's Day timeline + Chat FAB.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   Text,
@@ -15,10 +15,10 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { getTwinComparison, type TwinComparisonOut, type TwinActivity } from "../utils/api";
-import { supabase } from "../utils/supabase";
+import { useTwinState, useTwinStrip } from "@/hooks/useTwin";
+import type { TwinActivity, TwinComparisonOut } from "../utils/api";
 import { TwinComparisonShareCard } from "../components/TwinComparisonShareCard";
 
 const ARENA_HEIGHT = 230;
@@ -29,24 +29,6 @@ const STATS_ROW_HEIGHT = 56;
 const CHAT_FAB_BOTTOM = 8;
 const CHAT_FAB_RIGHT = 16;
 const CHAT_FAB_SIZE = 56;
-
-const STAGE_THRESHOLDS = [0, 800, 5_000, 20_000, 60_000, 200_000];
-const STAGE_NAMES = [
-  "The Awakened",
-  "The Focused",
-  "The Burning",
-  "The Relentless",
-  "The Formidable",
-  "The Sovereign",
-];
-
-function stageFromXp(xp: number): number {
-  let stage = 1;
-  for (let i = 0; i < STAGE_THRESHOLDS.length; i++) {
-    if (xp >= STAGE_THRESHOLDS[i]) stage = i + 1;
-  }
-  return Math.min(stage, 6);
-}
 
 function formatTime(iso: string): string {
   try {
@@ -60,44 +42,66 @@ function formatTime(iso: string): string {
 export function TwinComparisonScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [comparison, setComparison] = useState<TwinComparisonOut | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [shareVisible, setShareVisible] = useState(false);
 
-  const fetchComparison = useCallback(async () => {
-    try {
-      setError(null);
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setLoading(false);
-        return;
-      }
-      const data = await getTwinComparison(session.access_token);
-      setComparison(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load comparison");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const {
+    data: twinData,
+    isLoading: loading,
+    error,
+    refetch,
+  } = useTwinState();
 
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      fetchComparison();
-    }, [fetchComparison])
-  );
+  const { data: stripData } = useTwinStrip();
+
+  const comparison: TwinComparisonOut | null = useMemo(() => {
+    if (!twinData) return null;
+
+    const user = twinData.user;
+    const twin = twinData.twin;
+    const gap = twinData.gap;
+
+    const inferredGapDays = gap.user_is_ahead ? -Math.abs(gap.days_user_ahead) : gap.days_user_ahead;
+
+    const activities: TwinActivity[] = (twin.missed_mission_titles ?? []).map((title) => ({
+      mission_title: title,
+      mission_type: "core",
+      difficulty: "Easy",
+      xp_earned: 0,
+      completed_at: null,
+    }));
+
+    return {
+      user_xp: user.total_xp,
+      user_pet_stage: user.pet_stage,
+      user_pet_stage_name: user.pet_name ?? "",
+      user_streak: user.current_streak,
+      user_power_score: user.power_score,
+
+      twin_xp: twin.twin_xp,
+      twin_pet_stage: twin.pet_stage,
+      twin_pet_stage_name: twin.pet_name ?? "",
+      twin_streak: twin.streak,
+      twin_power_score: twin.power_score,
+
+      current_gap_state: twin.gap_state,
+      gap_line: "",
+      strip_message: stripData?.message ?? null,
+      gap_days: inferredGapDays,
+      username: user.username,
+      twin_today_activities: activities,
+    };
+  }, [stripData?.message, twinData]);
 
   const openTwinChat = () => {
     (navigation as any).navigate("TwinChat");
   };
 
   const activities: TwinActivity[] = comparison?.twin_today_activities ?? [];
-  const completedCount = activities.filter((a) => a.completed_at != null).length;
-  const totalXp = activities.reduce((s, a) => s + a.xp_earned, 0);
+  const completedCount =
+    twinData?.twin.missions_completed_today ??
+    activities.filter((a) => a.completed_at != null).length;
+  const totalXp =
+    twinData?.twin.xp_earned_today ?? activities.reduce((s, a) => s + a.xp_earned, 0);
   const gapDays = comparison?.gap_days ?? null;
   const gapLabel = gapDays != null ? `${gapDays} Day${Math.abs(gapDays) !== 1 ? "s" : ""}` : "—";
 
@@ -166,11 +170,12 @@ export function TwinComparisonScreen() {
 
       {error && !comparison ? (
         <View style={styles.errorWrap}>
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>
+            {error instanceof Error ? error.message : "Could not load comparison"}
+          </Text>
           <Pressable
             onPress={() => {
-              setLoading(true);
-              fetchComparison();
+              refetch();
             }}
             style={styles.retryButton}
           >
@@ -214,7 +219,7 @@ export function TwinComparisonScreen() {
               {comparison?.username ?? "You"}
             </Text>
             <Text style={styles.charStageUser}>
-              {comparison ? STAGE_NAMES[stageFromXp(comparison.user_xp) - 1] : "—"}
+              {twinData?.user.character_stage_name ?? "—"}
             </Text>
           </View>
 
@@ -257,7 +262,7 @@ export function TwinComparisonScreen() {
             </View>
             <Text style={styles.charNameTwin}>Twin</Text>
             <Text style={styles.charStageTwin}>
-              {comparison ? STAGE_NAMES[stageFromXp(comparison.twin_xp) - 1] : "—"}
+              {twinData?.twin.character_stage_name ?? "—"}
             </Text>
           </View>
         </View>
@@ -291,14 +296,20 @@ export function TwinComparisonScreen() {
 
         {/* Gap description */}
         <Text style={styles.gapDesc}>
-          {comparison?.gap_line ?? "Twin has a Cat and 2,480 XP. You have a Cub and 1,240 XP."}
+          {twinData
+            ? `Twin has ${twinData.twin.pet_name ?? "no companion"} and ${Math.round(
+                twinData.twin.twin_xp
+              ).toLocaleString()} XP. You have ${
+                twinData.user.pet_name ?? "no companion"
+              } and ${Math.round(twinData.user.total_xp).toLocaleString()} XP.`
+            : "—"}
         </Text>
 
         {/* Twin dialogue card */}
         <View style={styles.dialogueCard}>
           <Text style={styles.dialogueLabel}>YOUR TWIN</Text>
           <Text style={styles.dialogueMessage}>
-            {comparison?.strip_message ?? "Your rival is you — one week ahead. Show up and close the gap."}
+            {stripData?.message ?? "—"}
           </Text>
         </View>
 

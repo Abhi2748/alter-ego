@@ -3,8 +3,8 @@
  * Phase A: Processing (while POST runs). Phase B: Reveal + 14-day framing. Enter → Twin Introduction.
  */
 
-import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, Alert, ScrollView, Dimensions } from "react-native";
+import React, { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from "react";
+import { View, Text, StyleSheet, ScrollView, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -102,13 +102,7 @@ function ParticleDot({ config }: { config: ParticleConfig }) {
 }
 import type { OnboardingStackParamList } from "../navigation/types";
 import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
-import type { OnboardingAnswers, OnboardingInterest, OnboardingQuitTarget } from "../context/OnboardingAnswersContext";
 import { COLORS, SPACING, RADIUS, GRADIENTS, SHADOWS } from "../constants/theme";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { supabase } from "../utils/supabase";
-import { postOnboarding } from "../utils/api";
-
-const ONBOARDING_DRAFT_KEY = "@alter_ego_onboarding_draft";
 
 const DOT_COUNT = 8;
 const DOT_SIZE = 6;
@@ -119,71 +113,46 @@ const PULSE_STAGGER_MS = 150;
 type Nav = StackNavigationProp<OnboardingStackParamList, "ArchetypeReveal">;
 type Route = RouteProp<OnboardingStackParamList, "ArchetypeReveal">;
 
-function buildOnboardingPayload(answers: OnboardingAnswers) {
-  const interestsList = (answers.interests ?? []) as OnboardingInterest[];
-  const interests = interestsList.map((i) => i.name);
-  const interest_levels =
-    interestsList.length > 0
-      ? interestsList.map((i) => ({
-          interest: i.name,
-          level: i.level,
-          learning_goal: i.goal || undefined,
-          schedule: i.schedule && i.schedule.length > 0 ? i.schedule : undefined,
-        }))
-      : undefined;
-  const quitTargetsList = (answers.quitTargets ?? []) as OnboardingQuitTarget[];
-  const quit_targets = quitTargetsList.map((q) => q.name);
-  return {
-    answers: {
-      username: answers.username,
-      gender: answers.gender,
-      ageRange: answers.ageRange,
-      situation: answers.situation,
-      reason: answers.reason,
-      taskApproach: answers.taskApproach,
-      offTrack: answers.offTrack,
-      motivation: answers.motivation,
-      autonomy: answers.autonomy,
-      comparison: answers.comparison,
-      interests: answers.interests,
-      quitTargets: answers.quitTargets,
-      dailyHours: answers.dailyHours,
-      commitmentTimeline: answers.commitmentTimeline,
-    },
-    interests,
-    quit_targets,
-    available_hours_per_day: typeof answers.dailyHours === "number" ? answers.dailyHours : 1,
-    gender: answers.gender ?? null,
-    username: (answers.username as string)?.trim() || null,
-    interest_levels,
-  };
-}
-
 export function ArchetypeRevealScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const answers = route.params?.answers;
+  const archetypeResult = route.params?.archetypeResult;
   const { archetypeContent, setArchetypeContent } = useOnboardingAnswers();
   const particleConfigs = useMemo(() => getParticleConfigs(), []);
 
-  const [phase, setPhase] = useState<"processing" | "reveal">("processing");
+  const [phase, setPhase] = useState<"processing" | "reveal">(() =>
+    route.params?.archetypeResult ? "reveal" : "processing"
+  );
   const [postError, setPostError] = useState<string | null>(null);
-  const postedRef = useRef(false);
 
-  // When we land with new answers (e.g. user went back and pressed Continue again), reset so we POST again
-  const prevAnswersRef = useRef<typeof answers>(undefined);
-  useEffect(() => {
-    if (!answers) return;
-    if (prevAnswersRef.current === answers) return;
-    prevAnswersRef.current = answers;
-    postedRef.current = false;
-    setArchetypeContent(null);
-    setPhase("processing");
+  const prevArchetypeResultRef = useRef<typeof archetypeResult>(undefined);
+  useLayoutEffect(() => {
+    if (!archetypeResult) return;
+    if (prevArchetypeResultRef.current === archetypeResult) return;
+    prevArchetypeResultRef.current = archetypeResult;
+    setArchetypeContent({
+      archetype: archetypeResult.archetype_name,
+      description: archetypeResult.archetype_reveal_message || archetypeResult.archetype_tagline,
+      twin_first_message: archetypeResult.twin_first_message ?? "",
+    });
     setPostError(null);
-  }, [answers]);
+    setPhase("reveal");
+  }, [archetypeResult, setArchetypeContent]);
 
-  const archetype = archetypeContent?.archetype ?? "";
-  const description = archetypeContent?.description ?? "";
+  useEffect(() => {
+    if (archetypeResult) return;
+    setPostError("Onboarding result missing. Please retry.");
+    setPhase("processing");
+  }, [archetypeResult]);
+
+  const archetype =
+    archetypeContent?.archetype ?? archetypeResult?.archetype_name ?? "";
+  const description =
+    archetypeContent?.description ??
+    (archetypeResult
+      ? archetypeResult.archetype_reveal_message || archetypeResult.archetype_tagline
+      : "") ??
+    "";
 
   const rotation = useSharedValue(0);
   const readingOpacity = useSharedValue(0);
@@ -232,42 +201,6 @@ export function ArchetypeRevealScreen() {
     );
   }, []);
 
-  const MIN_PROCESSING_MS = 2400;
-
-  useEffect(() => {
-    if (!answers || postedRef.current || archetypeContent) return;
-    (async () => {
-      postedRef.current = true;
-      const startedAt = Date.now();
-      const { data: session } = await supabase.auth.getSession();
-      const token = session?.session?.access_token;
-      if (!token) {
-        setPostError("Session expired. Please sign in again.");
-        return;
-      }
-      try {
-        const payload = buildOnboardingPayload(answers);
-        const response = await postOnboarding(payload, token);
-        const elapsed = Date.now() - startedAt;
-        const waitMs = Math.max(0, MIN_PROCESSING_MS - elapsed);
-        if (waitMs > 0) {
-          await new Promise((r) => setTimeout(r, waitMs));
-        }
-        setArchetypeContent(response.archetype_content);
-        setPhase("reveal");
-        try {
-          await AsyncStorage.removeItem(ONBOARDING_DRAFT_KEY);
-        } catch (_) {}
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "Something went wrong";
-        setPostError(msg);
-        if (msg.includes("Username already taken")) {
-          Alert.alert("Username taken", "That username is already in use. Go back and choose another.");
-        }
-      }
-    })();
-  }, [answers, archetypeContent, setArchetypeContent]);
-
   useEffect(() => {
     if (phase !== "reveal") return;
     const easeOut = Easing.out(Easing.ease);
@@ -288,10 +221,15 @@ export function ArchetypeRevealScreen() {
 
   const handleEnter = useCallback(() => {
     navigation.navigate("Onboarding14Day", {
-      twinFirstMessage: archetypeContent?.twin_first_message ?? "",
-      archetype: archetypeContent?.archetype ?? "",
+      twinFirstMessage:
+        archetypeResult?.twin_first_message ?? "",
+      archetype: archetypeResult?.archetype_name ?? "",
     });
-  }, [navigation, archetypeContent?.twin_first_message, archetypeContent?.archetype]);
+  }, [
+    navigation,
+    archetypeResult?.twin_first_message,
+    archetypeResult?.archetype_name,
+  ]);
 
   const dotRingStyle = useAnimatedStyle(() => {
     "worklet";
@@ -301,7 +239,7 @@ export function ArchetypeRevealScreen() {
     };
   });
 
-  if (postError && !archetypeContent) {
+  if (postError || !archetypeResult) {
     return (
       <LinearGradient
         colors={GRADIENTS.backgroundPremium.colors}
@@ -311,30 +249,20 @@ export function ArchetypeRevealScreen() {
       >
         <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
           <View style={styles.loadingWrap}>
-            <Text style={styles.errorText}>{postError}</Text>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
-    );
-  }
-
-  if (!archetypeContent) {
-    return (
-      <LinearGradient
-        colors={GRADIENTS.backgroundPremium.colors}
-        start={GRADIENTS.backgroundPremium.start}
-        end={GRADIENTS.backgroundPremium.end}
-        style={styles.gradientRoot}
-      >
-        <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
-          <View style={styles.processingWrap}>
-            <Text style={styles.readingLabel}>Reading your answers</Text>
-            <Animated.View style={[styles.dotRing, dotRingStyle]}>
-              {Array.from({ length: DOT_COUNT }).map((_, i) => (
-                <ProcessingDot key={i} index={i} />
-              ))}
-            </Animated.View>
-            <Text style={styles.buildingLabel}>Building your Discipline DNA...</Text>
+            <Text style={styles.errorText}>{postError ?? "Onboarding result missing."}</Text>
+            <Pressable
+              onPress={() => navigation.replace("OnboardingQuestion", { questionNumber: 14 })}
+              style={styles.retryButton}
+            >
+              <LinearGradient
+                colors={GRADIENTS.button.colors}
+                start={GRADIENTS.button.start}
+                end={GRADIENTS.button.end}
+                style={styles.retryButtonGradient}
+              >
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </LinearGradient>
+            </Pressable>
           </View>
         </SafeAreaView>
       </LinearGradient>
@@ -553,6 +481,23 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: COLORS.danger,
+    textAlign: "center",
+  },
+  retryButton: {
+    marginTop: SPACING.lg,
+    borderRadius: RADIUS.card,
+    overflow: "hidden",
+  },
+  retryButtonGradient: {
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    borderRadius: RADIUS.card,
+  },
+  retryButtonText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
+    fontWeight: "600",
+    color: COLORS.text,
     textAlign: "center",
   },
 });

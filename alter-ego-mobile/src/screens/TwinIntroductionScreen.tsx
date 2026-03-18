@@ -28,6 +28,7 @@ import Svg, { Path, Line } from "react-native-svg";
 import type { OnboardingStackParamList } from "../navigation/types";
 import { NOTIF_PERMISSION_ASKED_KEY } from "../constants/notificationPermission";
 import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
+import { useUserStore } from "@/store/userStore";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const ARENA_HEIGHT = SCREEN_HEIGHT * 0.52;
@@ -35,15 +36,14 @@ const CHAR_WIDTH = 130;
 const CHAR_HEIGHT = 180;
 
 const ARCHETYPE_MESSAGES: Record<string, string> = {
-  "The Restless Creator": "I'm already building. The question is whether you'll catch up.",
-  "The Reluctant Achiever": "You know what to do. I'm already doing it.",
-  "The Structured Climber": "Same start. I intend to stay ahead.",
-  "The Lone Wolf": "We work alone. I started yesterday.",
-  "The Social Performer": "They're watching both of us. I plan to be worth watching.",
+  "The Restless Creator": "Same start. Same missions. The gap starts now.",
+  "The Reluctant Achiever": "We begin equal. What happens next is on you.",
+  "The Structured Climber": "Same start. I intend to make the most of it.",
+  "The Lone Wolf": "We start here. Equally. Not for long.",
+  "The Social Performer": "Same position. Day one. Let's see what you do with it.",
 };
 
-const DEFAULT_TWIN_MESSAGE =
-  "You know what to do. I'm already doing it.";
+const DEFAULT_TWIN_MESSAGE = "Same start. Different story — depending on you.";
 
 type Route = RouteProp<OnboardingStackParamList, "TwinIntroduction">;
 
@@ -67,13 +67,18 @@ export function TwinIntroductionScreen() {
   const route = useRoute<Route>();
   const insets = useSafeAreaInsets();
   const { answers, archetypeContent } = useOnboardingAnswers();
+  const profile = useUserStore((s) => s.profile);
   const params = route.params;
-  const username = answers?.username ?? "You";
+  const username = profile?.username ?? answers?.username ?? "You";
+  const userStageName = profile?.character_stage_name ?? "The Awakened";
   const archetype = params?.archetype ?? archetypeContent?.archetype;
   const gender = params?.gender ?? answers?.gender ?? "male";
   const twinFirstMessage =
-    params?.twinFirstMessage ??
-    (archetype ? ARCHETYPE_MESSAGES[archetype] ?? DEFAULT_TWIN_MESSAGE : DEFAULT_TWIN_MESSAGE);
+    params?.twinFirstMessage && params.twinFirstMessage.trim() !== ""
+      ? params.twinFirstMessage
+      : archetype
+        ? ARCHETYPE_MESSAGES[archetype] ?? DEFAULT_TWIN_MESSAGE
+        : DEFAULT_TWIN_MESSAGE;
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false, title: "" });
@@ -203,7 +208,7 @@ export function TwinIntroductionScreen() {
               <Text style={styles.userName} numberOfLines={1}>
                 {username}
               </Text>
-              <Text style={styles.stageUser}>The Awakened</Text>
+              <Text style={styles.stageUser}>{userStageName}</Text>
             </Animated.View>
           </Animated.View>
 
@@ -238,7 +243,7 @@ export function TwinIntroductionScreen() {
             </View>
             <Animated.View style={[styles.labelsWrap, labelsStyle]}>
               <Text style={styles.twinName}>Shadow Twin</Text>
-              <Text style={styles.stageTwin}>The Focused</Text>
+            <Text style={styles.stageTwin}>{userStageName}</Text>
             </Animated.View>
           </Animated.View>
         </View>

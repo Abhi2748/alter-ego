@@ -20,6 +20,7 @@
     "@react-navigation/stack": "^7.8.4",
     "@shopify/react-native-skia": "2.2.12",
     "@supabase/supabase-js": "^2.99.2",
+    "@tanstack/react-query": "^5.90.21",
     "@types/react": "~19.1.10",
     "expo": "~54.0.0",
     "expo-auth-session": "~7.0.10",
@@ -42,11 +43,13 @@
     "react-native-svg": "15.12.1",
     "react-native-view-shot": "4.0.3",
     "typescript": "~5.9.2",
-    "victory-native": "^41.20.2"
+    "victory-native": "^41.20.2",
+    "zustand": "^5.0.12"
   },
   "private": true,
   "devDependencies": {
     "@types/react": "~19.1.10",
+    "babel-plugin-module-resolver": "^5.0.3",
     "babel-preset-expo": "~54.0.0",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.9.2"

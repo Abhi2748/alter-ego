@@ -20,7 +20,7 @@ import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Svg, { Path, Rect, Circle, Line } from "react-native-svg";
-import { supabase } from "../utils/supabase";
+import { supabase } from "@/utils/supabase";
 import { NOTIF_PERMISSION_ASKED_KEY } from "../constants/notificationPermission";
 
 const PRIVACY_POLICY_URL = "https://alterego.app/privacy";

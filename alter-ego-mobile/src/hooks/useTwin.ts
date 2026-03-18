@@ -1,0 +1,146 @@
+/**
+ * React Query hooks for the Twin tab.
+ */
+
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { twinService, type TwinMessage } from '@/services/twin';
+
+export const TWIN_KEYS = {
+  state: ['twin', 'state'] as const,
+  strip: ['twin', 'strip'] as const,
+  chat: ['twin', 'chat'] as const,
+};
+
+// ── Twin comparison state ──────────────────────────────────────────────────
+
+export function useTwinState() {
+  return useQuery({
+    queryKey: TWIN_KEYS.state,
+    queryFn: async () => twinService.getState(),
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: true,
+  });
+}
+
+export function useTwinStrip() {
+  return useQuery({
+    queryKey: TWIN_KEYS.strip,
+    queryFn: async () => twinService.getStrip(),
+    staleTime: 60 * 1000,
+    refetchOnMount: true,
+  });
+}
+
+// ── Chat history ───────────────────────────────────────────────────────────
+
+export function useTwinChatHistory(limit = 50) {
+  return useQuery({
+    queryKey: [...TWIN_KEYS.chat, limit] as const,
+    queryFn: async () => twinService.getChatHistory(limit),
+    staleTime: 30 * 1000,
+    refetchOnMount: true,
+  });
+}
+
+// ── Send message ───────────────────────────────────────────────────────────
+
+type TwinChatHistoryData = Awaited<ReturnType<typeof twinService.getChatHistory>>;
+
+export function useSendTwinMessage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (message: string) => twinService.sendMessage(message),
+
+    onMutate: async (message: string) => {
+      const limitKeySuffixes = queryClient
+        .getQueryCache()
+        .findAll({ queryKey: TWIN_KEYS.chat })
+        .map((query) => query.queryKey)
+        .filter((queryKey) => Array.isArray(queryKey) && queryKey.length >= 3);
+
+      await Promise.all(
+        limitKeySuffixes.map((queryKey) =>
+          queryClient.cancelQueries({ queryKey })
+        )
+      );
+
+      const previousDataByKey = new Map<
+        string,
+        { queryKey: readonly unknown[]; data: unknown }
+      >();
+
+      for (const queryKey of limitKeySuffixes) {
+        const existingData = queryClient.getQueryData(queryKey);
+        previousDataByKey.set(JSON.stringify(queryKey), {
+          queryKey,
+          data: existingData,
+        });
+
+        queryClient.setQueryData<TwinChatHistoryData | undefined>(
+          queryKey,
+          (old) => {
+            if (!old) return old;
+            const optimisticMessage: TwinMessage = {
+              id: `temp-${Date.now()}`,
+              role: 'user',
+              content: message,
+              created_at: new Date().toISOString(),
+            };
+            return { ...old, messages: [...old.messages, optimisticMessage] };
+          }
+        );
+      }
+
+      return { previousDataByKey };
+    },
+
+    onSuccess: (result, message) => {
+      const limitKeySuffixes = queryClient
+        .getQueryCache()
+        .findAll({ queryKey: TWIN_KEYS.chat })
+        .map((query) => query.queryKey)
+        .filter((queryKey) => Array.isArray(queryKey) && queryKey.length >= 3);
+
+      for (const queryKey of limitKeySuffixes) {
+        queryClient.setQueryData<TwinChatHistoryData | undefined>(
+          queryKey,
+          (old) => {
+            if (!old) return old;
+            const confirmedUserMessage: TwinMessage = {
+              id: `user-${Date.now()}`,
+              role: 'user',
+              content: message,
+              created_at: new Date().toISOString(),
+            };
+            const twinMessage: TwinMessage = {
+              id: `twin-${Date.now()}`,
+              role: 'twin',
+              content: result.response,
+              created_at: new Date().toISOString(),
+            };
+            return {
+              ...old,
+              messages: [
+                ...old.messages.filter(
+                  (existingMessage) =>
+                    !String(existingMessage.id).startsWith('temp-')
+                ),
+                confirmedUserMessage,
+                twinMessage,
+              ],
+            };
+          }
+        );
+      }
+    },
+
+    onError: (_error, _message, context) => {
+      if (!context?.previousDataByKey) return;
+      for (const entry of context.previousDataByKey.values()) {
+        queryClient.setQueryData(entry.queryKey, entry.data);
+      }
+    },
+  });
+}
+

@@ -3,24 +3,13 @@
  * Spec: Interests tab with premium dark cinematic UI.
  */
 
-import React, { useState, useCallback } from "react";
+import React from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ProfileInterestsTab } from "./ProfileInterestsTab";
-import { supabase } from "../utils/supabase";
-import {
-  getInterests,
-  postInterest,
-  putInterestGoal,
-  putInterestDifficulty,
-  putInterestSchedule,
-  deleteInterest,
-  type InterestOut,
-  type PostInterestPayload,
-} from "../utils/api";
+import { useProfileInterests } from "@/hooks/useProfile";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const TEXT = "#E5E7EB";
@@ -28,86 +17,15 @@ const TEXT = "#E5E7EB";
 export function ProfileInterestsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [interests, setInterests] = useState<InterestOut[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  const refetch = useCallback(async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setInterests([]);
-        return;
-      }
-      const res = await getInterests(session.access_token);
-      setInterests(res.interests ?? []);
-    } catch (_) {
-      setInterests([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { data, isLoading, error, refetch } = useProfileInterests() as {
+    data: { interests: Array<Record<string, any>> } | undefined;
+    isLoading: boolean;
+    error: unknown;
+    refetch: () => void;
+  };
 
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      refetch();
-    }, [refetch])
-  );
-
-  const handleAddInterest = useCallback(async (payload: PostInterestPayload) => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Not signed in");
-    await postInterest(session.access_token, payload);
-  }, []);
-
-  const handleEditGoal = useCallback(
-    async (
-      interestId: string,
-      payload: { new_goal: string; progress_level: string; progress_detail?: string }
-    ) => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not signed in");
-      await putInterestGoal(session.access_token, interestId, {
-        new_goal: payload.new_goal,
-        progress_level: payload.progress_level as "just_started" | "part_way" | "almost_there",
-        progress_detail: payload.progress_detail,
-      });
-    },
-    []
-  );
-
-  const handleEditDifficulty = useCallback(
-    async (interestId: string, tier: "easy" | "medium" | "hard") => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not signed in");
-      await putInterestDifficulty(session.access_token, interestId, { tier });
-    },
-    []
-  );
-
-  const handleEditSchedule = useCallback(async (interestId: string, days: string[]) => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Not signed in");
-    await putInterestSchedule(session.access_token, interestId, { days });
-  }, []);
-
-  const handleDeleteInterest = useCallback(async (interestId: string) => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error("Not signed in");
-    await deleteInterest(session.access_token, interestId);
-  }, []);
+  const interests = data?.interests ?? [];
 
   return (
     <LinearGradient
@@ -124,20 +42,39 @@ export function ProfileInterestsScreen() {
         <View style={styles.headerRight} />
       </View>
 
-      {loading && interests.length === 0 ? (
+      {isLoading && interests.length === 0 ? (
         <View style={styles.loadingWrap}>
           <Text style={styles.loadingText}>Loading…</Text>
         </View>
+      ) : error ? (
+        <View style={styles.loadingWrap}>
+          <Text style={styles.loadingText}>
+            {error instanceof Error ? error.message : "Could not load interests"}
+          </Text>
+          <Pressable onPress={() => refetch()} style={{ marginTop: 10 }}>
+            <Text style={[styles.loadingText, { color: "#8B5CF6" }]}>Retry</Text>
+          </Pressable>
+        </View>
       ) : (
-        <ProfileInterestsTab
-          interests={interests}
-          onRefetch={refetch}
-          onAddInterest={handleAddInterest}
-          onEditGoal={handleEditGoal}
-          onEditDifficulty={handleEditDifficulty}
-          onEditSchedule={handleEditSchedule}
-          onDeleteInterest={handleDeleteInterest}
-        />
+        <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 80 + insets.bottom }}>
+          <Text style={styles.sectionLabel}>YOUR INTERESTS</Text>
+          {interests.length === 0 ? (
+            <Text style={styles.loadingText}>No interests added yet.</Text>
+          ) : (
+            interests.map((it) => (
+              <View key={String(it.id)} style={styles.card}>
+                <Text style={styles.cardTitle}>{String(it.name ?? "")}</Text>
+                <Text style={styles.cardSub}>
+                  {String(it.category ?? "")}
+                  {it.level_text ? ` · ${String(it.level_text)}` : ""}
+                </Text>
+                <Text style={styles.cardMeta}>
+                  {typeof it.total_sessions === "number" ? `${it.total_sessions} sessions` : ""}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
       )}
     </LinearGradient>
   );
@@ -158,4 +95,24 @@ const styles = StyleSheet.create({
   headerRight: { width: 40 },
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingText: { fontSize: 14, color: "#6B7280" },
+  sectionLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "#374151",
+    marginBottom: 10,
+  },
+  card: {
+    backgroundColor: "rgba(14,13,28,0.90)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.50)",
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    marginBottom: 14,
+  },
+  cardTitle: { fontSize: 18, fontWeight: "800", color: TEXT, letterSpacing: -0.3 },
+  cardSub: { fontSize: 12, color: "#6B7280", marginTop: 4 },
+  cardMeta: { fontSize: 11, color: "#4B5563", marginTop: 10 },
 });

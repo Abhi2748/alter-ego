@@ -12,8 +12,6 @@ import type {
   EstimatePersonalTierOut,
   CreateMissionPayload,
   TwinComparisonOut,
-  UserMeOut,
-  PatchUserMePayload,
   LeaderboardOut,
   WeeklyReportOut,
   WeeklyReportRow,
@@ -353,28 +351,6 @@ export async function getTwinComparison(_accessToken: string): Promise<TwinCompa
       { mission_title: "Read for 20 minutes", mission_type: "personal", difficulty: "Easy", xp_earned: 0, completed_at: null },
     ],
   };
-}
-
-export async function getUserMe(_accessToken: string): Promise<UserMeOut> {
-  await delay(MOCK_DELAY);
-  return {
-    id: "mock-user-id",
-    email: "preview@example.com",
-    username: "preview_user",
-    created_at: new Date().toISOString(),
-    archetype: "The Structured Climber",
-    trial_start_date: new Date().toISOString(),
-    subscription_status: "trialing",
-    nudge_frequency: "medium",
-  };
-}
-
-export async function patchUserMe(
-  _accessToken: string,
-  _payload: PatchUserMePayload
-): Promise<{ success: boolean }> {
-  await delay(MOCK_DELAY);
-  return { success: true };
 }
 
 export async function getLeaderboard(_accessToken: string): Promise<LeaderboardOut> {

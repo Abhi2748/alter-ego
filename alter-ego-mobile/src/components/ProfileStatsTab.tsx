@@ -9,88 +9,84 @@ import React from "react";
 import { View, Text, StyleSheet, useWindowDimensions } from "react-native";
 import { CartesianChart, Line, Area, Bar } from "victory-native";
 import { COLORS, SPACING } from "../constants/theme";
+import { useProfileStats } from "@/hooks/useProfile";
 
 const XP_CHART_HEIGHT = 160;
 const COMPLETION_CHART_HEIGHT = 140;
 const GAP_CHART_HEIGHT = 120;
 const SECTION_GAP = 24;
 
-// Placeholder: 30 days, slowly increasing XP with a couple dips
-function getXpData() {
-  const data: { day: number; xp: number }[] = [];
-  let xp = 800;
-  for (let i = 0; i < 30; i++) {
-    if (i === 7 || i === 14) xp -= 120;
-    else if (i % 4 === 0) xp += 80;
-    else xp += 40;
-    data.push({ day: i + 1, xp: Math.max(400, xp) });
-  }
-  return data;
-}
-
-// Placeholder: 7 weeks completion %
-const COMPLETION_DATA = [
-  { week: 1, rate: 72 },
-  { week: 2, rate: 85 },
-  { week: 3, rate: 68 },
-  { week: 4, rate: 90 },
-  { week: 5, rate: 78 },
-  { week: 6, rate: 88 },
-  { week: 7, rate: 94 },
-];
-
-// Placeholder: 30 days Twin gap (6–10), ideally trending down
-function getGapData() {
-  const data: { day: number; gap: number }[] = [];
-  let gap = 7;
-  for (let i = 0; i < 30; i++) {
-    if (i > 15) gap = Math.max(6, gap - (i % 3 === 0 ? 1 : 0));
-    else gap = 6 + (i % 4);
-    data.push({ day: i + 1, gap });
-  }
-  return data;
-}
-
-// Per-interest placeholder
-const INTEREST_DATA = [
-  { name: "Fitness", percent: 85 },
-  { name: "Reading", percent: 60 },
-];
-
-const xpData = getXpData();
-const gapData = getGapData();
+type StatsResponse = {
+  period_days: number;
+  xp_chart: Array<{ date: string; xp: number }>;
+  completion_rate: number;
+  total_missions_completed: number;
+  total_missions_possible: number;
+  streak_chart: Array<{ date: string; streak: number; maintained: boolean }>;
+};
 
 export function ProfileStatsTab() {
   const { width } = useWindowDimensions();
   const chartWidth = width - 2 * SPACING.screenPadding;
+  const { data, isLoading, error, refetch } = useProfileStats(30) as {
+    data: StatsResponse | undefined;
+    isLoading: boolean;
+    error: unknown;
+    refetch: () => void;
+  };
+
+  const xpData =
+    data?.xp_chart?.map((p, idx) => ({ day: idx + 1, xp: p.xp })) ?? [];
+  const completionRate = data?.completion_rate ?? 0;
+  const completionData = [{ week: 1, rate: completionRate }];
+  const streakData =
+    data?.streak_chart?.map((p, idx) => ({ day: idx + 1, streak: p.streak })) ?? [];
 
   return (
     <View style={styles.content}>
+      {error ? (
+        <View style={{ paddingVertical: 16 }}>
+          <Text style={[styles.axisLabelText, { color: COLORS.text2 }]}>
+            {error instanceof Error ? error.message : "Could not load stats"}
+          </Text>
+          <Text
+            onPress={() => refetch()}
+            style={[styles.axisLabelText, { color: COLORS.violet, marginTop: 8 }]}
+          >
+            Retry
+          </Text>
+        </View>
+      ) : null}
+
       {/* XP Progress — line + area */}
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>XP Progress</Text>
         <View style={[styles.chartWrap, { width: chartWidth, height: XP_CHART_HEIGHT }]}>
-          <CartesianChart
-            data={xpData}
-            xKey="day"
-            yKeys={["xp"]}
-            axisOptions={{
-              tickCount: { x: 5, y: 4 },
-              lineColor: COLORS.surface2,
-              lineWidth: { grid: 1, frame: 0 },
-            }}
-          >
-            {({ points, chartBounds }) => (
-              <>
-                <Area
-                  points={points.xp}
-                  y0={chartBounds.bottom}
-                  color="rgba(139, 92, 246, 0.1)"
-                />
-                <Line points={points.xp} color={COLORS.violet} strokeWidth={2} />
-              </>
-            )}
-          </CartesianChart>
+          {isLoading || xpData.length === 0 ? (
+            <View />
+          ) : (
+            <CartesianChart
+              data={xpData}
+              xKey="day"
+              yKeys={["xp"]}
+              axisOptions={{
+                tickCount: { x: 5, y: 4 },
+                lineColor: COLORS.surface2,
+                lineWidth: { grid: 1, frame: 0 },
+              }}
+            >
+              {({ points, chartBounds }) => (
+                <>
+                  <Area
+                    points={points.xp}
+                    y0={chartBounds.bottom}
+                    color="rgba(139, 92, 246, 0.1)"
+                  />
+                  <Line points={points.xp} color={COLORS.violet} strokeWidth={2} />
+                </>
+              )}
+            </CartesianChart>
+          )}
         </View>
         <View style={styles.axisLabelRow}>
           <Text style={styles.axisLabelText}>X: Day (last 30)</Text>
@@ -102,28 +98,30 @@ export function ProfileStatsTab() {
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>Mission Completion Rate</Text>
         <View style={[styles.chartWrap, { width: chartWidth, height: COMPLETION_CHART_HEIGHT }]}>
-          <CartesianChart
-            data={COMPLETION_DATA}
-            xKey="week"
-            yKeys={["rate"]}
-            domain={{ y: [0, 100] }}
-            axisOptions={{
-              tickCount: { x: 7, y: 5 },
-              lineColor: COLORS.surface2,
-              lineWidth: { grid: 1, frame: 0 },
-            }}
-          >
-            {({ points, chartBounds }) => (
-              <>
+          {isLoading ? (
+            <View />
+          ) : (
+            <CartesianChart
+              data={completionData}
+              xKey="week"
+              yKeys={["rate"]}
+              domain={{ y: [0, 100] }}
+              axisOptions={{
+                tickCount: { x: 1, y: 5 },
+                lineColor: COLORS.surface2,
+                lineWidth: { grid: 1, frame: 0 },
+              }}
+            >
+              {({ points, chartBounds }) => (
                 <Bar
                   points={points.rate}
                   chartBounds={chartBounds}
                   color={COLORS.violetDeep}
                   roundedCorners={{ topLeft: 4, topRight: 4 }}
                 />
-              </>
-            )}
-          </CartesianChart>
+              )}
+            </CartesianChart>
+          )}
           <View
             style={[
               styles.targetLine,
@@ -138,49 +136,48 @@ export function ProfileStatsTab() {
           <Text style={styles.axisLabelText}>X: Week (last 7)</Text>
           <Text style={styles.axisLabelText}>Y: Completion %</Text>
         </View>
+        {!isLoading ? (
+          <View style={{ marginTop: 8 }}>
+            <Text style={styles.axisLabelText}>
+              {`${completionRate.toFixed(1)}% · ${data?.total_missions_completed ?? 0}/${data?.total_missions_possible ?? 0} missions`}
+            </Text>
+          </View>
+        ) : null}
       </View>
 
-      {/* Twin Gap — line */}
+      {/* Streak — line */}
       <View style={styles.section}>
-        <Text style={[styles.sectionLabel, styles.gapLabel]}>Twin Gap (days)</Text>
+        <Text style={[styles.sectionLabel, styles.gapLabel]}>Streak (days)</Text>
         <View style={[styles.chartWrap, { width: chartWidth, height: GAP_CHART_HEIGHT }]}>
-          <CartesianChart
-            data={gapData}
-            xKey="day"
-            yKeys={["gap"]}
-            axisOptions={{
-              tickCount: { x: 5, y: 4 },
-              lineColor: COLORS.surface2,
-              lineWidth: { grid: 1, frame: 0 },
-            }}
-          >
-            {({ points }) => (
-              <Line points={points.gap} color={COLORS.violetLine} strokeWidth={2} />
-            )}
-          </CartesianChart>
+          {isLoading || streakData.length === 0 ? (
+            <View />
+          ) : (
+            <CartesianChart
+              data={streakData}
+              xKey="day"
+              yKeys={["streak"]}
+              axisOptions={{
+                tickCount: { x: 5, y: 4 },
+                lineColor: COLORS.surface2,
+                lineWidth: { grid: 1, frame: 0 },
+              }}
+            >
+              {({ points }) => (
+                <Line points={points.streak} color={COLORS.violetLine} strokeWidth={2} />
+              )}
+            </CartesianChart>
+          )}
         </View>
         <View style={styles.axisLabelRow}>
           <Text style={styles.axisLabelText}>X: Day (last 30)</Text>
-          <Text style={styles.axisLabelText}>Y: Gap (days)</Text>
+          <Text style={styles.axisLabelText}>Y: Streak</Text>
         </View>
       </View>
 
       {/* Per-interest progress — horizontal bars */}
       <View style={styles.section}>
         <Text style={styles.interestSectionLabel}>INTEREST PROGRESS THIS WEEK</Text>
-        {INTEREST_DATA.map((item) => (
-          <View key={item.name} style={styles.interestBlock}>
-            <View style={styles.interestRow}>
-              <Text style={styles.interestName}>{item.name}</Text>
-              <Text style={styles.interestPercent}>{item.percent}%</Text>
-            </View>
-            <View style={styles.interestBarBg}>
-              <View
-                style={[styles.interestBarFill, { width: `${item.percent}%` }]}
-              />
-            </View>
-          </View>
-        ))}
+        <Text style={styles.axisLabelText}>Come back after your first week.</Text>
       </View>
     </View>
   );

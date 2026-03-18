@@ -11,10 +11,20 @@ export type RootStackParamList = {
 
 import type { OnboardingAnswers } from "../context/OnboardingAnswersContext";
 
+export type ArchetypeRevealResult = {
+  archetype: string;
+  archetype_name: string;
+  archetype_tagline: string;
+  archetype_reveal_message: string;
+  twin_first_message?: string;
+  interests_processed: number;
+  quit_targets_processed: number;
+};
+
 export type OnboardingStackParamList = {
   OnboardingFraming: undefined;
   OnboardingQuestion: { questionNumber: number; fromBack?: boolean } | undefined;
-  ArchetypeReveal: { answers?: OnboardingAnswers };
+  ArchetypeReveal: { answers?: OnboardingAnswers; archetypeResult?: ArchetypeRevealResult };
   Onboarding14Day: { twinFirstMessage?: string; archetype?: string } | undefined;
   TwinIntroduction: { archetype?: string; twinFirstMessage?: string; gender?: "male" | "female" | "other" } | undefined;
   NotificationPermission: undefined;

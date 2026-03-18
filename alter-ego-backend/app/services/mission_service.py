@@ -267,6 +267,17 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
 
     streak_result = await process_streak(user_id)
 
+    # Category C — milestone notifications (immediate, pre-written, no LLM)
+    from app.agents.nudge_agent import send_category_c_notification
+
+    milestone = streak_result.get("milestone_reached")
+    if milestone is not None:
+        await send_category_c_notification(user_id, f"streak_{milestone}")
+    if stage_evolved:
+        await send_category_c_notification(user_id, f"stage_{stage_evolved['new_stage']}")
+    if pet_evolved:
+        await send_category_c_notification(user_id, f"pet_stage_{pet_evolved['new_stage']}")
+
     return {
         "success": True,
         "xp_earned": xp_earned,

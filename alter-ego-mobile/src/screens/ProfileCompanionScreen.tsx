@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -14,141 +14,60 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { CompanionShareCard } from "../components/CompanionShareCard";
+import { useProfileCompanion } from "@/hooks/useProfile";
+import { useUserStore } from "@/store/userStore";
 
 interface PetStageHistoryItem {
   stage: number;
   name: string;
-  status: "current" | "completed" | "locked";
-  reached_day: number | null;
-  left_day: number | null;
-  days_spent: number | null;
   pf_required: number;
+  pf_next: number | null;
+  unlocked: boolean;
+  current: boolean;
+  earned_at: string | null;
 }
 
 interface CompanionData {
-  current_stage: number;
-  current_pet_name: string;
+  pet_unlocked: boolean;
+  current_pet_stage: number;
+  current_pet_name: string | null;
   total_pf: number;
-  today_pf: number;
-  daily_cap: number;
-  next_stage_pf_threshold: number;
-  unlocked_day: number;
-  days_to_next_estimate: number;
-  stage_history: PetStageHistoryItem[];
+  pf_to_next: number;
+  progress_pct: number;
+  companions: PetStageHistoryItem[];
 }
-
-const PLACEHOLDER_COMPANION: CompanionData = {
-  current_stage: 2,
-  current_pet_name: "Cat",
-  total_pf: 5200,
-  today_pf: 120,
-  daily_cap: 600,
-  next_stage_pf_threshold: 7000,
-  unlocked_day: 7,
-  days_to_next_estimate: 28,
-  stage_history: [
-    {
-      stage: 1,
-      name: "Cub",
-      status: "completed",
-      reached_day: 7,
-      left_day: 25,
-      days_spent: 19,
-      pf_required: 0,
-    },
-    {
-      stage: 2,
-      name: "Cat",
-      status: "current",
-      reached_day: 26,
-      left_day: null,
-      days_spent: 14,
-      pf_required: 400,
-    },
-    {
-      stage: 3,
-      name: "Fox",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      pf_required: 2000,
-    },
-    {
-      stage: 4,
-      name: "Wolf",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      pf_required: 7000,
-    },
-    {
-      stage: 5,
-      name: "Snow Leopard",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      pf_required: 18000,
-    },
-    {
-      stage: 6,
-      name: "Panther",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      pf_required: 40000,
-    },
-    {
-      stage: 7,
-      name: "Griffin",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      pf_required: 80000,
-    },
-    {
-      stage: 8,
-      name: "Dragon",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      pf_required: 150000,
-    },
-  ],
-};
 
 export function ProfileCompanionScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [data, setData] = useState<CompanionData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [cardVisible, setCardVisible] = useState(false);
   const [selectedStage, setSelectedStage] = useState<number>(1);
   const [selectedPetName, setSelectedPetName] = useState<string>("Cub");
   const cardRef = useRef<View>(null);
+  const username = useUserStore((state) => state.profile?.username) ?? "";
 
-  useEffect(() => {
-    setData(PLACEHOLDER_COMPANION);
-    setLoading(false);
-  }, []);
+  const {
+    data,
+    isLoading: loading,
+    error,
+    refetch,
+  } = useProfileCompanion() as {
+    data: CompanionData | undefined;
+    isLoading: boolean;
+    error: unknown;
+    refetch: () => void;
+  };
 
   const current = data;
-  const currentStage = current?.current_stage ?? 1;
-  const pfThreshold = current?.next_stage_pf_threshold ?? 400;
-  const pfPct =
-    current && pfThreshold > 0
-      ? Math.min(1, current.total_pf / pfThreshold)
-      : 0;
-
-  const username = "shadow_wolf";
+  const currentStage = current?.current_pet_stage ?? 0;
+  const pfThreshold =
+    current?.companions?.find((c) => c.stage === currentStage)?.pf_next ??
+    current?.companions?.find((c) => c.stage === Math.max(1, currentStage))?.pf_required ??
+    0;
+  const pfPct = current ? Math.max(0, Math.min(1, (current.progress_pct ?? 0) / 100)) : 0;
 
   const openShareCardFor = (st: PetStageHistoryItem) => {
-    if (st.status === "locked") return;
+    if (!st.unlocked) return;
     setSelectedStage(st.stage);
     setSelectedPetName(st.name);
     setCardVisible(true);
@@ -235,14 +154,16 @@ export function ProfileCompanionScreen() {
                   style={styles.petArt}
                 />
                 <View style={styles.petArtBorder} />
-                <Text style={styles.petArtLabel}>{current.current_pet_name}</Text>
+                <Text style={styles.petArtLabel}>{current.current_pet_name ?? "—"}</Text>
               </View>
 
               <View style={styles.metaCol}>
-                <Text style={styles.stageBadge}>{`STAGE ${currentStage} · CURRENT`}</Text>
-                <Text style={styles.petName}>{current.current_pet_name}</Text>
+                <Text style={styles.stageBadge}>{`STAGE ${Math.max(0, currentStage)} · CURRENT`}</Text>
+                <Text style={styles.petName}>{current.current_pet_name ?? "—"}</Text>
                 <Text style={styles.petSub}>
-                  {`Unlocked Day ${current.unlocked_day} · ${current.total_pf.toLocaleString()} PF reached`}
+                  {current.pet_unlocked
+                    ? `${current.total_pf.toLocaleString()} PF reached`
+                    : "Your companion unlocks on Day 6"}
                 </Text>
 
                 <View style={styles.pfRow}>
@@ -261,11 +182,13 @@ export function ProfileCompanionScreen() {
                   />
                 </View>
 
-                <Text style={styles.daysEstimate}>
-                  {`~${current.days_to_next_estimate} days to ${nextPetName(
-                    currentStage + 1
-                  )} at current pace`}
-                </Text>
+                {error ? (
+                  <Pressable onPress={() => refetch()} hitSlop={8} style={{ alignSelf: "flex-end", marginTop: 6 }}>
+                    <Text style={[styles.daysEstimate, { color: "#34D399" }]}>Retry</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.daysEstimate}>{`Progress: ${(current.progress_pct ?? 0).toFixed(1)}%`}</Text>
+                )}
 
                 <View style={styles.statsRow}>
                   <View style={styles.statsPill}>
@@ -276,15 +199,15 @@ export function ProfileCompanionScreen() {
                   </View>
                   <View style={styles.statsPill}>
                     <Text style={styles.statsValue}>
-                      {current.today_pf.toLocaleString()}
+                      {current.pf_to_next.toLocaleString()}
                     </Text>
-                    <Text style={styles.statsLabel}>TODAY'S PF</Text>
+                    <Text style={styles.statsLabel}>PF TO NEXT</Text>
                   </View>
                   <View style={styles.statsPill}>
                     <Text style={styles.statsValue}>
-                      {current.daily_cap.toLocaleString()}
+                      {Math.max(0, Math.min(8, current.current_pet_stage)).toString()}
                     </Text>
-                    <Text style={styles.statsLabel}>DAILY CAP</Text>
+                    <Text style={styles.statsLabel}>STAGE</Text>
                   </View>
                 </View>
               </View>
@@ -292,14 +215,14 @@ export function ProfileCompanionScreen() {
 
             <Text style={styles.historyLabel}>ALL COMPANIONS</Text>
 
-            {current.stage_history.map((st, idx) => {
-              const isLast = idx === current.stage_history.length - 1;
-              const isCurrent = st.status === "current";
-              const isLocked = st.status === "locked";
-              const isCompleted = st.status === "completed";
+            {current.companions.map((st, idx) => {
+              const isLast = idx === current.companions.length - 1;
+              const isCurrent = st.current;
+              const isLocked = !st.unlocked;
+              const isCompleted = st.unlocked && !st.current;
 
               const opacity =
-                isLocked && st.stage > currentStage
+                isLocked && st.stage > Math.max(1, currentStage)
                   ? 0.28 - 0.04 * Math.max(0, st.stage - currentStage - 1)
                   : 1;
 
@@ -353,12 +276,10 @@ export function ProfileCompanionScreen() {
                       ]}
                     >
                       {isCompleted
-                        ? `Day ${st.reached_day} → Day ${st.left_day} · ${st.days_spent} days`
+                        ? `Unlocked${st.earned_at ? ` · ${new Date(st.earned_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}`
                         : isCurrent
-                        ? `Day ${st.reached_day} → now · current`
-                        : `${st.pf_required.toLocaleString()} PF · ~${roughTimeForPf(
-                            st.pf_required
-                          )}`}
+                        ? `Current · ${current.pf_to_next.toLocaleString()} PF to next`
+                        : `${st.pf_required.toLocaleString()} PF · ~${roughTimeForPf(st.pf_required)}`}
                     </Text>
                   </View>
                   {isCurrent ? (
@@ -422,17 +343,16 @@ export function ProfileCompanionScreen() {
                 petName={selectedPetName}
                 username={username}
                 reachedDay={
-                  current.stage_history.find((s) => s.stage === selectedStage)?.reached_day ?? 0
+                  0
                 }
                 reachedDate={
                   reachedDateFor(
-                    current.stage_history.find((s) => s.stage === selectedStage) ??
-                      current.stage_history[0]
+                    current.companions.find((s) => s.stage === selectedStage) ??
+                      current.companions[0]
                   )
                 }
                 totalDays={
-                  current.stage_history.find((s) => s.stage === selectedStage)?.days_spent ??
-                  current.days_to_next_estimate
+                  0
                 }
                 totalPF={current.total_pf}
                 tierLabel={tierLabelForStage(selectedStage)}

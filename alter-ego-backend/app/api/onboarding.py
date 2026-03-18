@@ -25,7 +25,7 @@ class OnboardingStepRequest(BaseModel):
     answer_json: dict
 
 
-@router.post("/onboarding/step")
+@router.post("/onboarding/step", response_model=dict)
 async def post_onboarding_step(body: OnboardingStepRequest, authorization: str = Header(None)):
     """
     Saves a single question answer. Called after every question in onboarding.
@@ -39,7 +39,7 @@ async def post_onboarding_step(body: OnboardingStepRequest, authorization: str =
     return await save_onboarding_step(user_id=user_id, question_key=body.question_key, answer_json=body.answer_json)
 
 
-@router.get("/onboarding/progress")
+@router.get("/onboarding/progress", response_model=dict)
 async def get_progress(authorization: str = Header(None)):
     """
     Returns all saved answers for the current user.
@@ -49,7 +49,7 @@ async def get_progress(authorization: str = Header(None)):
     return await get_onboarding_progress(user_id)
 
 
-@router.get("/users/check-username")
+@router.get("/users/check-username", response_model=dict)
 async def check_username(username: str = Query(...)):
     """
     Checks if a username is available.
@@ -58,7 +58,7 @@ async def check_username(username: str = Query(...)):
     return await check_username_availability(username)
 
 
-@router.post("/users/create-profile")
+@router.post("/users/create-profile", response_model=dict)
 async def create_profile(authorization: str = Header(None)):
     """
     Called once at the start of onboarding (right after auth).
@@ -69,7 +69,7 @@ async def create_profile(authorization: str = Header(None)):
     return await create_profile_if_missing(user_id)
 
 
-@router.post("/onboarding/complete")
+@router.post("/onboarding/complete", response_model=dict)
 async def complete(authorization: str = Header(None)):
     """
     Called once after the final onboarding step.

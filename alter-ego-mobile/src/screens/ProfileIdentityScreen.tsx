@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -12,146 +12,67 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "../utils/supabase";
-import { getHome } from "../utils/api";
+import { useProfileIdentity } from "@/hooks/useProfile";
+import { useUserStore } from "@/store/userStore";
 import { AchievementCardModal, type TitleStage } from "./ProfileTitlesScreen";
 
-interface StageHistoryItem {
+type IdentityStage = {
   stage: number;
   name: string;
-  status: "current" | "completed" | "locked";
-  reached_day: number | null;
-  left_day: number | null;
-  days_spent: number | null;
   xp_required: number;
-}
+  xp_next: number | null;
+  unlocked: boolean;
+  current: boolean;
+  earned_at: string | null;
+};
 
-interface IdentityData {
+type IdentityResponse = {
   current_stage: number;
   current_stage_name: string;
-  current_xp: number;
-  next_stage_xp_threshold: number;
   total_xp: number;
-  days_active: number;
-  days_to_next_stage_estimate: number;
-  stage_history: StageHistoryItem[];
-}
-
-const PLACEHOLDER_IDENTITY: IdentityData = {
-  current_stage: 2,
-  current_stage_name: "The Focused",
-  current_xp: 3240,
-  next_stage_xp_threshold: 10000,
-  total_xp: 3240,
-  days_active: 45,
-  days_to_next_stage_estimate: 18,
-  stage_history: [
-    {
-      stage: 1,
-      name: "The Awakened",
-      status: "completed",
-      reached_day: 1,
-      left_day: 27,
-      days_spent: 27,
-      xp_required: 0,
-    },
-    {
-      stage: 2,
-      name: "The Focused",
-      status: "current",
-      reached_day: 28,
-      left_day: null,
-      days_spent: 18,
-      xp_required: 10000,
-    },
-    {
-      stage: 3,
-      name: "The Burning",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      xp_required: 50000,
-    },
-    {
-      stage: 4,
-      name: "The Relentless",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      xp_required: 200000,
-    },
-    {
-      stage: 5,
-      name: "The Formidable",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      xp_required: 600000,
-    },
-    {
-      stage: 6,
-      name: "The Sovereign",
-      status: "locked",
-      reached_day: null,
-      left_day: null,
-      days_spent: null,
-      xp_required: 1500000,
-    },
-  ],
+  xp_to_next: number;
+  progress_pct: number;
+  stages: IdentityStage[];
 };
 
 export function ProfileIdentityScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [data, setData] = useState<IdentityData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [username, setUsername] = useState<string>("preview_user");
   const [shareStage, setShareStage] = useState<TitleStage | null>(null);
 
-  useEffect(() => {
-    setData(PLACEHOLDER_IDENTITY);
-    setLoading(false);
-  }, []);
+  const username = useUserStore((state) => state.profile?.username) ?? "";
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) return;
-        const home = await getHome(session.access_token);
-        if (home.username) setUsername(home.username);
-      } catch (_) {}
-    })();
-  }, []);
+  const {
+    data,
+    isLoading: loading,
+    error,
+    refetch,
+  } = useProfileIdentity() as {
+    data: IdentityResponse | undefined;
+    isLoading: boolean;
+    error: unknown;
+    refetch: () => void;
+  };
 
-  const toTitleStage = (st: StageHistoryItem): TitleStage => {
-    const isCurrent = st.status === "current";
-    const isLocked = st.status === "locked";
-    return {
+  const toTitleStage = useMemo(
+    () => (st: IdentityStage): TitleStage => ({
       stage_number: st.stage,
       title: st.name,
-      reached_day: st.reached_day,
-      days_at_stage: st.days_spent,
-      is_current: isCurrent,
-      is_locked: isLocked,
+      reached_day: null,
+      days_at_stage: null,
+      is_current: st.current,
+      is_locked: !st.unlocked,
       xp_to_unlock: st.xp_required,
       peak_streak_at_stage: null,
-      xp_earned_at_stage: isCurrent ? (data?.total_xp ?? null) : null,
-    };
-  };
+      xp_earned_at_stage: st.current ? (data?.total_xp ?? null) : null,
+    }),
+    [data?.total_xp]
+  );
 
   const current = data;
   const currentStage = current?.current_stage ?? 1;
-  const xpThreshold = current?.next_stage_xp_threshold ?? 10000;
-  const xpPct =
-    current && xpThreshold > 0
-      ? Math.min(1, current.current_xp / xpThreshold)
-      : 0;
+  const xpToNext = current?.xp_to_next ?? 0;
+  const progressPct = current?.progress_pct ?? 0;
 
   return (
     <View style={styles.container}>
@@ -218,12 +139,12 @@ export function ProfileIdentityScreen() {
                 <Text style={styles.stageBadgeTextLabel}>{`STAGE ${currentStage} · CURRENT`}</Text>
                 <Text style={styles.stageName}>{current.current_stage_name}</Text>
                 <Text style={styles.stageSub}>
-                  {`Day ${current.days_active} · ${current.total_xp.toLocaleString()} XP total`}
+                  {`${current.total_xp.toLocaleString()} XP total`}
                 </Text>
 
                 <View style={styles.xpRow}>
                   <Text style={styles.xpLabelLeft}>
-                    {`★ ${current.current_xp.toLocaleString()} / ${xpThreshold.toLocaleString()} XP`}
+                    {`★ ${current.total_xp.toLocaleString()} · ${xpToNext.toLocaleString()} XP to next`}
                   </Text>
                   <Text style={styles.xpLabelRight}>{`→ S${currentStage + 1}`}</Text>
                 </View>
@@ -233,18 +154,22 @@ export function ProfileIdentityScreen() {
                     colors={["#5B21B6", "#8B5CF6", "#C084FC"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
-                    style={[styles.xpTrackFill, { width: `${xpPct * 100}%` }]}
+                    style={[styles.xpTrackFill, { width: `${Math.max(0, Math.min(100, progressPct))}%` }]}
                   />
                 </View>
 
-                <Text style={styles.daysEstimate}>
-                  {`~${current.days_to_next_stage_estimate} days to next stage at current pace`}
-                </Text>
+                {error ? (
+                  <Pressable onPress={() => refetch()} hitSlop={8} style={{ alignSelf: "flex-end", marginTop: 6 }}>
+                    <Text style={[styles.daysEstimate, { color: "#8B5CF6" }]}>Retry</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.daysEstimate}>{`Progress: ${progressPct.toFixed(1)}%`}</Text>
+                )}
 
                 <View style={styles.statsRow}>
                   <View style={styles.statsPill}>
-                    <Text style={styles.statsValue}>{current.days_active}</Text>
-                    <Text style={styles.statsLabel}>DAYS ACTIVE</Text>
+                    <Text style={styles.statsValue}>{currentStage}</Text>
+                    <Text style={styles.statsLabel}>STAGE</Text>
                   </View>
                   <View style={styles.statsPill}>
                     <Text style={styles.statsValue}>
@@ -254,7 +179,7 @@ export function ProfileIdentityScreen() {
                   </View>
                   <View style={styles.statsPill}>
                     <Text style={styles.statsValue}>
-                      {(xpThreshold - current.current_xp).toLocaleString()}
+                      {xpToNext.toLocaleString()}
                     </Text>
                     <Text style={styles.statsLabel}>XP TO NEXT</Text>
                   </View>
@@ -264,11 +189,11 @@ export function ProfileIdentityScreen() {
 
             <Text style={styles.historyLabel}>ALL STAGES</Text>
 
-            {current.stage_history.map((st, idx) => {
-              const isLast = idx === current.stage_history.length - 1;
-              const isCurrent = st.status === "current";
-              const isLocked = st.status === "locked";
-              const isCompleted = st.status === "completed";
+            {current.stages.map((st, idx) => {
+              const isLast = idx === current.stages.length - 1;
+              const isCurrent = st.current;
+              const isLocked = !st.unlocked;
+              const isCompleted = st.unlocked && !st.current;
 
               const opacity =
                 isLocked && st.stage > currentStage
@@ -328,9 +253,9 @@ export function ProfileIdentityScreen() {
                       ]}
                     >
                       {isCompleted
-                        ? `Day ${st.reached_day} → Day ${st.left_day} · ${st.days_spent} days`
+                        ? `Unlocked${st.earned_at ? ` · ${new Date(st.earned_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}`
                         : isCurrent
-                        ? `Day ${st.reached_day} → now · current`
+                        ? `Current · ${xpToNext.toLocaleString()} XP to next`
                         : `${st.xp_required.toLocaleString()} XP needed`}
                     </Text>
                   </View>
@@ -384,7 +309,7 @@ export function ProfileIdentityScreen() {
 
           <AchievementCardModal
             visible={shareStage != null}
-            stage={shareStage ?? toTitleStage(current.stage_history[0])}
+              stage={shareStage ?? toTitleStage(current.stages[0])}
             onClose={() => setShareStage(null)}
             username={username}
           />

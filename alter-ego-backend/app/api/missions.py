@@ -112,7 +112,7 @@ class PersonalMissionCreateRequest(BaseModel):
     multiday_days: int | None = None
 
 
-@router.get("/today")
+@router.get("/today", response_model=dict)
 async def get_missions_today(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
@@ -150,7 +150,7 @@ async def get_missions_today(authorization: str = Header(None)):
     }
 
 
-@router.get("/date/{date_str}")
+@router.get("/date/{date_str}", response_model=dict)
 async def get_missions_for_date(date_str: str, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
@@ -170,7 +170,7 @@ async def get_missions_for_date(date_str: str, authorization: str = Header(None)
     }
 
 
-@router.post("/generate-interest")
+@router.post("/generate-interest", response_model=dict)
 async def generate_interest_missions_today(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
     user_row = (
@@ -186,7 +186,7 @@ async def generate_interest_missions_today(authorization: str = Header(None)):
     return {"generated": len(missions), "missions": missions}
 
 
-@router.post("/generate-resistance")
+@router.post("/generate-resistance", response_model=dict)
 async def generate_resistance_missions_today(authorization: str = Header(None)):
     """Manually trigger quit target mission generation for today."""
     user_id = get_user_id_from_token(authorization)
@@ -210,7 +210,7 @@ async def complete_mission_endpoint(mission_id: str, authorization: str = Header
     return result
 
 
-@router.post("/{mission_id}/rate")
+@router.post("/{mission_id}/rate", response_model=dict)
 async def rate_mission(mission_id: str, body: RateMissionRequest, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
     if body.rating < 1 or body.rating > 5:
@@ -255,7 +255,7 @@ async def rate_mission(mission_id: str, body: RateMissionRequest, authorization:
     return {"saved": True}
 
 
-@router.post("/journal/save")
+@router.post("/journal/save", response_model=dict)
 async def save_journal(body: JournalSaveRequest, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
     content = body.content or ""
@@ -292,13 +292,13 @@ async def save_journal(body: JournalSaveRequest, authorization: str = Header(Non
     return {"saved": True, "mission_completed": False, "words_remaining": JOURNAL_MIN_WORDS - word_count}
 
 
-@router.post("/personal/estimate")
+@router.post("/personal/estimate", response_model=dict)
 async def personal_estimate(body: PersonalMissionEstimateRequest, authorization: str = Header(None)):
     get_user_id_from_token(authorization)
     return await estimate_personal_mission_tier(body.mission_text)
 
 
-@router.post("/personal/create")
+@router.post("/personal/create", response_model=dict)
 async def personal_create(body: PersonalMissionCreateRequest, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
@@ -348,7 +348,7 @@ async def personal_create(body: PersonalMissionCreateRequest, authorization: str
     return created.data[0] if created.data else row
 
 
-@router.delete("/personal/{mission_id}")
+@router.delete("/personal/{mission_id}", response_model=dict)
 async def personal_delete(mission_id: str, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 

@@ -332,70 +332,48 @@ export async function getTwinComparison(
   accessToken: string
 ): Promise<TwinComparisonOut> {
   if (apiMock) return apiMock.getTwinComparison(accessToken);
-  const res = await fetch(`${BASE}/api/v1/twin/comparison`, {
+  // Backend v2: Twin Comparison screen reads from /twin/state
+  const res = await fetch(`${BASE}/api/v1/twin/state`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Twin comparison failed: ${res.status}`);
   }
-  return res.json();
-}
+  const raw = (await res.json()) as any;
 
-// User profile and prefs
-export type UserMeOut = {
-  id: string;
-  email?: string | null;
-  username?: string | null;
-  display_name?: string | null;
-  profile_photo_url?: string | null;
-  created_at?: string | null;
-  archetype?: string | null;
-  trial_start_date?: string | null;
-  subscription_status?: string | null;
-  nudge_frequency?: string | null;
-};
+  // Map TwinStateResponse -> legacy TwinComparisonOut shape expected by screens.
+  const user = raw?.user ?? {};
+  const twin = raw?.twin ?? {};
+  const gap = raw?.gap ?? {};
 
-export type PatchUserMePayload = {
-  push_token?: string;
-  timezone?: string;
-  last_opened_at?: string;
-  nudge_frequency?: string;
-  username?: string;
-  display_name?: string;
-  profile_photo_url?: string;
-};
+  const missions = Array.isArray(user?.missions_today) ? user.missions_today : [];
+  const twinActs: TwinActivity[] = missions.map((m: any) => ({
+    mission_title: String(m?.title ?? ""),
+    mission_type: (m?.type as "core" | "focus" | "personal") ?? "core",
+    difficulty: (m?.difficulty as "Easy" | "Medium" | "Hard") ?? "Easy",
+    xp_earned: Number(m?.xp_value ?? m?.xp_earned_today ?? 0) || 0,
+    completed_at: m?.completed ? new Date().toISOString() : null,
+  }));
 
-export async function getUserMe(accessToken: string): Promise<UserMeOut> {
-  if (apiMock) return apiMock.getUserMe(accessToken);
-  const res = await fetch(`${BASE}/api/v1/user/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `GET user/me failed: ${res.status}`);
-  }
-  return res.json();
-}
-
-export async function patchUserMe(
-  accessToken: string,
-  payload: PatchUserMePayload
-): Promise<{ success: boolean }> {
-  if (apiMock) return apiMock.patchUserMe(accessToken, payload);
-  const res = await fetch(`${BASE}/api/v1/user/me`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `PATCH user/me failed: ${res.status}`);
-  }
-  return res.json();
+  return {
+    user_xp: Number(user?.total_xp ?? 0) || 0,
+    user_pet_stage: Number(user?.pet_stage ?? 0) || 0,
+    user_pet_stage_name: String(user?.pet_name ?? ""),
+    user_streak: Number(user?.current_streak ?? 0) || 0,
+    user_power_score: null,
+    twin_xp: Number(twin?.twin_xp ?? twin?.twin_xp ?? 0) || 0,
+    twin_pet_stage: Number(twin?.pet_stage ?? 0) || 0,
+    twin_pet_stage_name: String(twin?.pet_name ?? ""),
+    twin_streak: Number(twin?.streak ?? 0) || 0,
+    twin_power_score: null,
+    current_gap_state: String(gap?.gap_state ?? ""),
+    gap_line: "",
+    strip_message: null,
+    gap_days: Number(gap?.days_user_ahead ?? 0),
+    username: user?.username ?? null,
+    twin_today_activities: twinActs,
+  };
 }
 
 // Leaderboard
@@ -472,14 +450,48 @@ export async function getWeeklyReport(
   accessToken: string
 ): Promise<WeeklyReportOut> {
   if (apiMock) return apiMock.getWeeklyReport(accessToken);
-  const res = await fetch(`${BASE}/api/v1/agents/weekly-report`, {
+  // Backend v2: weekly report served from /reports/weekly (+ /reports/weekly/previous)
+  const res = await fetch(`${BASE}/api/v1/reports/weekly`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `Weekly report failed: ${res.status}`);
   }
-  return res.json();
+  const current = (await res.json()) as any;
+
+  let report: WeeklyReportRow | null = null;
+  if (current?.available) {
+    report = {
+      id: String(current.week_start ?? "current"),
+      user_id: "",
+      week_start: String(current.week_start ?? ""),
+      this_week_data: current.this_week_data ?? {},
+      wins: current.wins ?? [],
+      slipped: current.slipped ?? [],
+      keep_watching: current.keep_watching ?? null,
+      twin_paragraph: current.twin_paragraph ?? null,
+      twin_closing: current.twin_closing ?? null,
+      next_week: current.next_week ?? null,
+      created_at: current.generated_at ?? undefined,
+    };
+  }
+
+  // Best-effort last week
+  let last_week: WeeklyReportRow | null = null;
+  try {
+    const prevRes = await fetch(`${BASE}/api/v1/reports/weekly/previous`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (prevRes.ok) {
+      const prev = (await prevRes.json()) as any;
+      if (prev?.available) {
+        last_week = prev as WeeklyReportRow;
+      }
+    }
+  } catch (_) {}
+
+  return { report, last_week };
 }
 
 // Day-of-week completion (Report chart + Profile)

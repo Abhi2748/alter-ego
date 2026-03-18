@@ -3,7 +3,7 @@
  * No fixed header; hero bleeds edge to edge. Do NOT touch sub-screens or bottom nav.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -32,37 +32,20 @@ import Animated, {
 } from "react-native-reanimated";
 import { PetAnimation } from "../components/PetAnimation";
 import type { ProfileStackParamList } from "../navigation/types";
-import { supabase } from "../utils/supabase";
-import { getUserMe, getHome } from "../utils/api";
+import { useUserStore } from "@/store/userStore";
 
-const PLACEHOLDER_PROFILE = {
-  username: "preview_user",
-  archetype_title: "The Structured Climber",
-  stage: 2,
-  stage_title: "The Focused",
-  power_score: 1240,
-  current_xp: 3240,
-  streak: 12,
-  pet_stage: 2,
-  pet_name: "Cat",
-  global_rank: 47,
-  profile_photo_url: null as string | null,
+const ARCHETYPE_DISPLAY: Record<string, string> = {
+  restless_creator: "The Restless Creator",
+  reluctant_achiever: "The Reluctant Achiever",
+  structured_climber: "The Structured Climber",
+  lone_wolf: "The Lone Wolf",
+  social_performer: "The Social Performer",
 };
 
 type Nav = CompositeNavigationProp<
   StackNavigationProp<ProfileStackParamList, "ProfileMain">,
   StackNavigationProp<ProfileStackParamList>
 >;
-
-/** Character stage titles (by stage number 1–6), not archetype. */
-const CHARACTER_STAGE_NAMES = [
-  "The Awakened",
-  "The Focused",
-  "The Burning",
-  "The Relentless",
-  "The Formidable",
-  "The Sovereign",
-];
 
 function StatsIcon() {
   return (
@@ -162,69 +145,12 @@ const PET_STAGE_NAMES: Record<number, string> = {
 export function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
-  const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState(PLACEHOLDER_PROFILE);
+  const profile = useUserStore((state) => state.profile);
+  const profileLoading = useUserStore((state) => state.isLoading);
   const [journeyDropdownVisible, setJourneyDropdownVisible] = useState(false);
   const journeyDropdownTop = 260;
 
   const petFloat = useSharedValue(0);
-
-  const fetchProfile = useCallback(async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setLoading(false);
-        return;
-      }
-      const [user, home] = await Promise.all([
-        getUserMe(session.access_token),
-        getHome(session.access_token),
-      ]);
-      const username =
-        (user.username && String(user.username).trim()) ||
-        (user.email ? String(user.email).split("@")[0] : "") ||
-        PLACEHOLDER_PROFILE.username;
-      const archetype = user.archetype || PLACEHOLDER_PROFILE.archetype_title;
-      const stage = home.character_state?.stage ?? PLACEHOLDER_PROFILE.stage;
-      const stageTitle =
-        CHARACTER_STAGE_NAMES[Math.max(0, stage - 1)] ?? "The Awakened";
-      const rawPower = home.power_score ?? PLACEHOLDER_PROFILE.power_score;
-      const powerScore =
-        typeof rawPower === "number" && !Number.isNaN(rawPower)
-          ? rawPower
-          : typeof rawPower === "string"
-            ? (Number(rawPower) || PLACEHOLDER_PROFILE.power_score)
-            : PLACEHOLDER_PROFILE.power_score;
-      const currentXp = home.character_state?.total_xp ?? PLACEHOLDER_PROFILE.current_xp;
-      const petStage = home.pet_state?.stage ?? 1;
-      const petName = PET_STAGE_NAMES[petStage] ?? PLACEHOLDER_PROFILE.pet_name;
-      setProfile({
-        username,
-        archetype_title: archetype,
-        stage,
-        stage_title: stageTitle,
-        power_score: powerScore,
-        current_xp: currentXp,
-        streak: home.streak ?? PLACEHOLDER_PROFILE.streak,
-        pet_stage: petStage,
-        pet_name: petName,
-        global_rank: PLACEHOLDER_PROFILE.global_rank,
-        profile_photo_url: null,
-      });
-    } catch (_) {
-      setProfile(PLACEHOLDER_PROFILE);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchProfile();
-    }, [fetchProfile])
-  );
 
   React.useEffect(() => {
     petFloat.value = withRepeat(
@@ -253,7 +179,7 @@ export function ProfileScreen() {
     navigation.navigate(screen);
   };
 
-  const initial = profile.username ? profile.username[0].toUpperCase() : "?";
+  const initial = profile?.username ? profile.username[0].toUpperCase() : "?";
 
   return (
     <LinearGradient
@@ -316,12 +242,12 @@ export function ProfileScreen() {
             {/* Stage badge */}
             <View style={styles.stageBadge}>
               <Text style={styles.stageBadgeText}>
-                Stage {profile.stage} · {profile.stage_title}
+                {profile ? `Stage ${profile.character_stage} · ${profile.character_stage_name}` : "—"}
               </Text>
             </View>
 
             {/* Character + pet row */}
-            {loading ? (
+            {profileLoading || !profile ? (
               <ActivityIndicator size="large" color="#8B5CF6" style={{ marginVertical: 24 }} />
             ) : (
               <>
@@ -360,9 +286,7 @@ export function ProfileScreen() {
                   <View style={styles.powerBlock}>
                     <Text style={styles.powerLabel}>POWER SCORE</Text>
                     <Text style={styles.powerValue} numberOfLines={1}>
-                      {typeof profile.power_score === "number" && !Number.isNaN(profile.power_score)
-                        ? profile.power_score.toLocaleString()
-                        : "—"}
+                      {profile.power_score.toLocaleString()}
                     </Text>
                   </View>
                   <Pressable onPress={openRankCard} style={styles.shareRankRow} hitSlop={8}>
@@ -375,25 +299,25 @@ export function ProfileScreen() {
                 <View style={styles.pillsRow}>
                   <View style={styles.pill}>
                     <Text style={[styles.pillValue, { color: "#F97316" }]}>
-                      {profile.streak}🔥
+                      {profile.current_streak}🔥
                     </Text>
                     <Text style={styles.pillLabel}>STREAK</Text>
                   </View>
                   <View style={styles.pill}>
                     <Text style={[styles.pillValue, { color: "#E5E7EB" }]}>
-                      {profile.current_xp.toLocaleString()}
+                      {profile.total_xp.toLocaleString()}
                     </Text>
                     <Text style={styles.pillLabel}>XP</Text>
                   </View>
                   <View style={styles.pill}>
                     <Text style={[styles.pillValue, styles.pillValuePet]}>
-                      {profile.pet_name}
+                      {profile.pet_name ?? "—"}
                     </Text>
                     <Text style={styles.pillLabel}>PET</Text>
                   </View>
                   <View style={styles.pill}>
                     <Text style={[styles.pillValue, styles.pillValuePet]}>
-                      {profile.global_rank != null ? `#${profile.global_rank}` : "—"}
+                      {"—"}
                     </Text>
                     <Text style={styles.pillLabel}>RANK</Text>
                   </View>

@@ -243,6 +243,47 @@ ARCHETYPES = {
     },
 }
 
+# ── Q14 COMMITMENT HORIZON (onboarding) ─────────────────────────────────
+
+COMMITMENT_HORIZON_OPTIONS = {
+    "2_weeks": "2 weeks",
+    "1_month": "1 month",
+    "3_months": "3 months",
+    "however_long": "However long it takes",
+}
+
+COMMITMENT_HORIZON_CONTEXT = {
+    "2_weeks": {
+        "nudge_intensity": "high",
+        "report_framing": "sprint",
+        "twin_message": "You said 2 weeks. The clock is running.",
+    },
+    "1_month": {
+        "nudge_intensity": "medium",
+        "report_framing": "month",
+        "twin_message": "One month. That's enough time to know.",
+    },
+    "3_months": {
+        "nudge_intensity": "medium",
+        "report_framing": "quarter",
+        "twin_message": "Three months. Consistent effort compounds.",
+    },
+    "however_long": {
+        "nudge_intensity": "low",
+        "report_framing": "journey",
+        "twin_message": "No deadline. Just showing up.",
+    },
+}
+
+# Twin first line at archetype reveal (Twin intro) — CLAUDE §13
+ARCHETYPE_TWIN_INTRO_LINE = {
+    "restless_creator": "You finally showed up. I've been here. Let's see if you stay.",
+    "reluctant_achiever": "You know what to do. You just keep waiting for the right moment. I don't wait.",
+    "structured_climber": "Good. I'm ahead. You can close the gap — if you actually do the work.",
+    "lone_wolf": "You work alone. So do I.",
+    "social_performer": "You care what they think. I only care what the data says.",
+}
+
 # ── CORE MISSIONS ────────────────────────────────────────────────────────
 
 # All 6 core missions — shown every day to every user

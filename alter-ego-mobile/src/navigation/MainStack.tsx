@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { createStackNavigator } from "@react-navigation/stack";
+import { useUserStore } from "@/store/userStore";
 import type { MainStackParamList } from "./types";
 import { MainTabNavigator } from "./MainTabNavigator";
 import { SettingsScreen } from "../screens/SettingsScreen";
@@ -21,6 +22,13 @@ import { COLORS } from "../constants/theme";
 const Stack = createStackNavigator<MainStackParamList>();
 
 export function MainStack() {
+  useEffect(() => {
+    const { profile, fetchProfile } = useUserStore.getState();
+    if (profile === null) {
+      void fetchProfile();
+    }
+  }, []);
+
   return (
     <Stack.Navigator
       screenOptions={{

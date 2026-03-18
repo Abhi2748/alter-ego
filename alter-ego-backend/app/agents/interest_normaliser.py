@@ -87,13 +87,15 @@ Return this exact structure:
   "evidence_base": "What behaviour science and neuroscience research actually says about this habit pattern: why it forms, what maintains it, what replacement strategies have the strongest evidence, and what the typical recovery timeline looks like. Reference specific mechanisms (dopamine loops, habit cue-routine-reward, etc.) 3-5 sentences.",
   "common_triggers": ["Boredom", "Anxiety", "Procrastination avoidance", "Social comparison"],
   "warning_signs": ["Stress increases", "Switching to a different platform", "Using at unusual times"],
-  "confidence": 0.95
+  "confidence": 0.95,
+  "intervention_hour": 15
 }
 
 Need categories: boredom_dopamine / stress_anxiety / social_ritual / 
 impulsivity_gratification / avoidance_procrastination / comfort_oral
 
 Rules:
+- intervention_hour: Extract the most likely local hour (0-23) when the urge hits based on urge_timing and trigger/description. Examples: "around 3pm" → 15, "after lunch" → 13, "late at night" → 22, "morning" → 8. Return null if no specific time can be inferred.
 - primary_need_category: Choose the PRIMARY one if multiple apply
 - evidence_base: Must reference actual mechanisms, not generic advice
 - Never return "avoid X" or "don't do X" in replacement_directions — always positive actions
@@ -138,6 +140,7 @@ def _fallback_quit_target(raw_text: str) -> dict:
         "warning_signs": [],
         "confidence": 0.5,
         "fallback": True,
+        "intervention_hour": None,
     }
 
 

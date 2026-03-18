@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 import { View, Text, StyleSheet, Dimensions, StatusBar } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { supabase } from "@/utils/supabase";
+import { apiClient, isAuthError } from "@/services/api";
+import { onboardingService } from "@/services/onboarding";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import type { RootStackParamList } from "../navigation/types";
 import { LinearGradient } from "expo-linear-gradient";
@@ -273,9 +276,35 @@ export function SplashScreen() {
     runSpark(s3Y, s3Opacity, 4100, 2700);
     runSpark(s4Y, s4Opacity, 2300, 3500);
 
-    const t = setTimeout(() => {
-      navigation.replace("SignUp");
-    }, 5000);
+    const t = setTimeout(async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) {
+        navigation.replace("SignUp");
+        return;
+      }
+      if (token === "guest") {
+        navigation.replace("Onboarding");
+        return;
+      }
+      try {
+        await onboardingService.createProfile();
+        const me = await apiClient.get<{
+          exists: boolean;
+          onboarding_complete?: boolean;
+        }>("/api/v1/auth/me");
+        if (me.exists && me.onboarding_complete) {
+          navigation.replace("Main");
+        } else {
+          navigation.replace("Onboarding");
+        }
+      } catch (e) {
+        if (token !== "guest" && isAuthError(e)) {
+          await supabase.auth.signOut();
+        }
+        navigation.replace("SignUp");
+      }
+    }, 2500);
 
     return () => {
       clearTimeout(t);

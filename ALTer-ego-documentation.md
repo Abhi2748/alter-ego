@@ -64,9 +64,9 @@ Support:
 - **Created** `alter-ego-backend/app/core/supabase_client.py`
 - **Created** `alter-ego-backend/app/api/auth.py`
 - **Changed** `alter-ego-backend/main.py`
-- **Created** `alter-ego-mobile/src/lib/supabase.ts`
 - **Created** `alter-ego-mobile/src/services/auth.ts`
 - **Changed** `alter-ego-mobile/app.json` (scheme)
+- **Note:** Supabase client was later consolidated into `src/utils/supabase.ts` (see entry below).
 
 ### Notes / Decisions
 - The service role key is **backend-only** (never goes into the app).
@@ -345,4 +345,334 @@ Generate daily **resistance missions** for quit targets that always prescribe a 
     - Unlocks pet on `PET_UNLOCK_DAY`
     - Calls `handle_streak_break()` when needed
 
+---
+
+## 2026-03-17 — B21: Twin daily simulation cron (archetype rhythm)
+
+### Goal
+Simulate the twin’s daily behaviour as a personality-driven rival (not a fixed pacemaker) using archetype-specific rhythms and gaussian variance, and run it nightly via cron.
+
+### What we did
+- **Created** `alter-ego-backend/app/services/twin_service.py`:
+  - `ARCHETYPE_RHYTHMS` + `DEFAULT_RHYTHM`
+  - `get_twin_daily_rate(...)` (blends stored base rate with archetype base + day-of-week + gaussian variance)
+  - `recalibrate_twin_base_rate(...)` (for later B25 use)
+  - `simulate_twin_day(user_id)`:
+    - Reads user/twin state + today’s missions
+    - Samples daily completion rate, completes a subset (core slightly boosted)
+    - Caps XP/PF by twin’s own daily caps and updates `twin_state` + `twin_daily_record`
+    - Updates gap state (`user_ahead` / `neck_and_neck` / `slightly_behind` / `significantly_behind`)
+  - `get_home_strip_context(user_id)` for later Twin strip UI
+- **Updated** `alter-ego-backend/app/core/scheduler.py`:
+  - Replaced `twin_simulation` stub with `twin_simulation_job()` scheduled at **01:00 UTC** to call `simulate_twin_day` for all onboarded users.
+
+---
+
+## 2026-03-17 — B22: Twin Chat Agent + Twin API
+
+### Goal
+Give the user a **Shadow Twin** that speaks like a real rival — grounded in their exact data (gap, missions, streak, interests, quit targets), not generic motivation.
+
+### What we did
+- **Created** `alter-ego-backend/app/agents/twin_chat_agent.py`:
+  - `TWIN_CHAT_SYSTEM_PROMPT` — full persona + absolute rules (exact spec)
+  - `get_twin_response(user_id, user_message)`:
+    - Loads user/twin/dna, today’s missions, interests, quit targets, and last 20 chat messages
+    - Builds the filled system prompt and sends it to `gpt-4o-mini`
+    - Stores both user + twin messages in `twin_messages`
+- **Created** `alter-ego-backend/app/api/twin.py`:
+  - `POST /api/v1/twin/chat` — sends a message and returns the twin’s reply
+  - `GET /api/v1/twin/chat/history` — returns last N messages
+  - `GET /api/v1/twin/strip` — uses `get_home_strip_context` for the home Twin strip
+  - `GET /api/v1/twin/state` — returns full twin vs user comparison data
+- **Updated** `alter-ego-backend/main.py`:
+  - Mounted the new `twin` router.
+
+---
+
+## 2026-03-17 — B25: Power Score calculation + nightly cron
+
+### Goal
+Compute a single **Power Score** (0–1000) per user that drives leaderboard ranking, combining:
+- 35% XP stage progress
+- 20% pet stage
+- 25% current streak (capped)
+- 20% 30-day completion rate.
+
+### What we did
+- **Created** `alter-ego-backend/app/services/power_score_service.py`:
+  - `calculate_power_score(user_id)`:
+    - Reads `users.total_xp`, `character_stage`, `pet_stage`, `pet_unlocked`, `current_streak`
+    - Computes XP-stage progress, pet-stage normalised value, streak (capped at `POWER_SCORE_STREAK_CAP`), and 30-day completion rate from `streak_log`
+    - Combines components using `POWER_SCORE_WEIGHTS` and clamps to `POWER_SCORE_MAX`
+    - Updates `users.power_score` and inserts a row into `power_score_log`
+  - `calculate_all_power_scores()` iterates over all onboarded users and recalculates their scores.
+- **Updated** `alter-ego-backend/app/core/scheduler.py`:
+  - Added `power_score_job()` scheduled at **01:30 UTC**, after the twin simulation job, which calls `calculate_all_power_scores()` nightly.
+
+---
+
+## 2026-03-17 — B26: Leaderboard API (Power Score–driven)
+
+### Goal
+Expose a Power Score–based leaderboard that unlocks after the first 3-day streak (or always for `beta_free` users) and returns both the global top 100 and the current user’s rank.
+
+### What we did
+- **Created** `alter-ego-backend/app/api/leaderboard.py`:
+  - `GET /api/v1/leaderboard`:
+    - Requires `leaderboard_unlocked = true` or `subscription_tier = 'beta_free'`
+    - Returns top 100 users by `power_score` (with stage names and pet names) plus the current user’s rank even if outside the top 100
+  - `GET /api/v1/leaderboard/rank`:
+    - Lightweight endpoint returning only the current user’s rank, Power Score, and unlock flag for home-screen display.
+- **Updated** `alter-ego-backend/main.py`:
+  - Registered the new `leaderboard` router alongside existing routers.
+
+---
+
+## 2026-03-17 — B27: Subscription gate (beta bypass)
+
+### Goal
+Introduce a central subscription/feature gate that can be used post‑beta to restrict premium features while keeping **all features unlocked for beta users**.
+
+### What we did
+- **Created** `alter-ego-backend/app/core/subscription.py`:
+  - `check_feature_access(user_id, feature)`:
+    - Reads `users.subscription_tier`, `trial_start_date`, and `registration_date`
+    - Returns `{allowed, reason: "beta"|"trial"|"subscriber"|"trial_expired", days_remaining}`
+    - Beta users (`subscription_tier = "beta_free"`) always allowed
+    - Premium/pro users always allowed
+    - Free users allowed during `FREE_TRIAL_DAYS` window based on `trial_start_date` (fallback to `registration_date`)
+  - `is_beta_user(subscription_tier)` helper for quick checks.
+- No gates are yet enforced on routes (per spec); this is pure infrastructure for post‑beta.
+
+---
+
+## 2026-03-17 — B28: Twin home strip message system (rule‑based)
+
+### Goal
+Replace ad‑hoc or LLM‑generated home strip lines with a **rule‑based, zero‑LLM message system** driven by `gap_state × tone_type` and optional event tags, updated on a cadence controlled by `twin_message_frequency`.
+
+### What we did
+- **Created** `alter-ego-backend/app/services/strip_message_service.py`:
+  - Defined `STRIP_MESSAGES[gap_state][tone_type]` banks and `EVENT_MESSAGES[event][tone_type]` overrides (all pre‑written copy).
+  - `get_strip_message(gap_state, tone_type, event, username)`:
+    - Picks the correct bank, falls back to `"neck_and_neck"` / `"rival"` if missing.
+    - Injects `{username}` placeholder when present.
+  - `update_strip_message(user_id, event=None)`:
+    - Loads `twin_state.current_gap_state`, `strip_message`, `last_strip_updated`
+    - Loads `discipline_dna.twin_tone_type` + `twin_message_frequency`
+    - Respects cadence:
+      - `high`: at most once per day
+      - `medium`: every 2–3 days
+      - `low`: weekly (unless an explicit `event` is passed, which always updates)
+    - Avoids repeating the same message twice in a row where possible
+    - Persists `strip_message` and `last_strip_updated` on `twin_state`.
+- **Updated** `alter-ego-backend/app/core/scheduler.py`:
+  - `twin_simulation_job()` now calls `update_strip_message(user["id"])` after each `simulate_twin_day(...)` to rotate the strip line nightly.
+- **Updated** `alter-ego-backend/app/api/twin.py`:
+  - `GET /api/v1/twin/strip`:
+    - Still returns the home strip context from `get_home_strip_context(user_id)`
+    - If `strip_message` is missing, calls `update_strip_message(user_id)` once and injects the generated line into the response.
+
+---
+
+## 2026-03-17 — B29: Weekly report agent
+
+### Goal
+Generate a **personal weekly discipline report** every Sunday at 03:00 UTC using GPT-4o-mini. The report is the only moment in the app that steps back and looks at the whole week — factual, no guilt, with anti-repetition across weeks.
+
+### What we did
+- **Created** `alter-ego-backend/app/agents/report_agent.py`:
+  - `WEEKLY_REPORT_SYSTEM_PROMPT`: full prompt with this week’s data, anti-repetition hints (prev wins/twin openings, theme), and strict rules for Sections 2–5 (Wins, Slipped/Keep Watching, Twin paragraph + closing, Next week). Output is JSON only.
+  - `generate_weekly_report(user_id)`:
+    - Computes last week (Mon–Sun) and loads user, discipline_dna, twin_state, streak_log, missions, xp_log, pf_log, mission_ratings, milestone_log, quit_targets, previous weekly_reports.
+    - Derives metrics (days_active, missions_completed, core_complete_days, most_skipped, best/hardest day, interests_worked, streak_events, stage/pet evolved, gap direction, etc.).
+    - Builds prompt, calls GPT-4o-mini, parses JSON (with fence stripping). On failure, stores a minimal fallback report.
+    - Builds `this_week_data` (Section 1, no LLM) and upserts into `weekly_reports` (on_conflict=user_id,week_start) with wins, slipped, keep_watching, twin_paragraph, twin_closing, next_week, wins_opening, twin_opening, theme_used.
+- **Created** `alter-ego-backend/app/api/reports.py`:
+  - `GET /api/v1/reports/weekly`: returns the current week’s report (week_start = last Monday) or `available: false` with message.
+  - `GET /api/v1/reports/weekly/previous`: returns the previous week’s report.
+- **Updated** `alter-ego-backend/app/core/scheduler.py`:
+  - Replaced the weekly_report stub with `weekly_report_job()` at **Sunday 03:00 UTC**, calling `generate_weekly_report(user_id)` for each onboarded user.
+- **Updated** `alter-ego-backend/main.py`:
+  - Registered `reports_router`.
+
+---
+
+## 2026-03-17 — B30: Day summary generation
+
+### Goal
+Generate a **1–2 sentence archive entry** per day for the Day Detail screen (streak heatmap tap). Runs nightly at 01:30 UTC for yesterday; also generated on demand when the user requests a day that has no summary yet.
+
+### What we did
+- **Created** (in same file) `alter-ego-backend/app/agents/report_agent.py`:
+  - `DAY_SUMMARY_SYSTEM_PROMPT`: factual, second-person past tense, no motivational language; references missions completed, core done, streak, XP, notable events.
+  - `generate_day_summary(user_id, target_date)`:
+    - If a row exists in `daily_summaries` for user_id + target_date, returns stored `summary_text`.
+    - Otherwise loads missions, streak_log, xp_log, milestone_log for that day; computes completed/total, core_done, streak_count, day_number (since registration); builds prompt and calls GPT-4o-mini; on failure uses a one-line fallback.
+    - Upserts into `daily_summaries` (on_conflict=user_id,summary_date) and returns the summary text.
+- **Updated** `alter-ego-backend/app/api/reports.py`:
+  - `GET /api/v1/reports/day/{date_str}`: returns `{ date, summary }`; calls `generate_day_summary(user_id, date_str)` so missing summaries are generated on demand.
+- **Updated** `alter-ego-backend/app/core/scheduler.py`:
+  - Replaced the day_summary stub with `day_summary_job()` at **01:30 UTC** daily; computes yesterday’s date and calls `generate_day_summary(user_id, yesterday)` for each onboarded user.
+  - **Power Score job** moved from 01:30 to **01:45 UTC** to avoid overlap with day_summary.
+
+---
+
+## 2026-03-17 — B31: Nudge agent (three-category notifications)
+
+### Goal
+Implement a **three-category notification architecture**: Category A (re-engagement), Category B (quit target intervention at urge time), Category C (milestone — immediate, event-driven). Category C is pre-written; A and B use GPT-4o-mini with strict tone and anti-repetition rules.
+
+### What we did
+- **Created** `alter-ego-backend/migrations/002_add_intervention_hour.sql`:
+  - Added `quit_targets.intervention_hour` (INTEGER 0–23, nullable) for Category B timing.
+  - Added `nudge_log.nudge_category` (TEXT, 'A'|'B'|'C', nullable) for analytics.
+- **Created** `alter-ego-backend/app/agents/nudge_agent.py`:
+  - **Category C**: `MILESTONE_MESSAGES` dict (stage_2–6, pet_stage_2–8, pet_unlock, streak_3–365). `send_category_c_notification(user_id, milestone_type)` sends push and logs to nudge_log with category C. No LLM.
+  - **Category A**: Gates (7am–10pm local, missions not all complete today, daily cap by frequency, ±2h of activity/archetype hour). Triggers: streak_warning, re_engagement, pet_nudge, milestone_approaching, momentum. `NUDGE_CATEGORY_A_PROMPT` + `_generate_category_a_nudge()`; last 3 nudges injected for anti-repetition.
+  - **Category B**: Fires when `local_hour == quit_target.intervention_hour`. Gates: not after 11:30pm, today’s quit mission not done, no B already sent for that target today. `NUDGE_CATEGORY_B_PROMPT` + `_generate_category_b_nudge()` with phase rules (days_1_10 … days_90_plus).
+  - `check_and_send_nudges()`: loads users with `onboarding_complete` and `notifications_enabled`, runs `check_category_a` and `check_category_b`; returns counts. Push via Expo push API (`exp.host/--/api/v2/push/send`).
+- **Updated** `alter-ego-backend/app/services/mission_service.py`:
+  - After `process_streak()` in `complete_mission()`, calls `send_category_c_notification` for `milestone_reached`, `stage_evolved`, and `pet_evolved` when applicable.
+- **Updated** `alter-ego-backend/app/core/scheduler.py`:
+  - Added `nudge_check_job()` every 60 minutes, calling `check_and_send_nudges()`.
+- **Updated** `alter-ego-backend/app/agents/interest_normaliser.py` and **onboarding_service**:
+  - Quit normalisation prompt and fallback now include `intervention_hour` (0–23 or null). Onboarding inserts `intervention_hour` into `quit_targets` from normalised output.
+
+---
+
+## 2026-03-17 — B32: In-app mail system
+
+### Goal
+Pre-written in-app mails triggered by events; stored in `app_mails` and displayed as inbox in Profile.
+
+### What we did
+- **Created** `alter-ego-backend/app/services/mail_service.py`:
+  - `MAIL_CONTENT`: welcome, twin_guide, first_streak_tip, leaderboard_unlock, pet_unlock, day_7_checkin, streak_requirement_update, first_difficulty_upgrade, twin_recalibration_note, week_4_encouragement (subject + body markdown).
+  - `send_app_mail(user_id, mail_type, template_data)` inserts into `app_mails`.
+  - `send_welcome_mail_sequence(user_id)` sends welcome mail.
+  - `check_and_send_scheduled_mails(user_id)` runs day-based logic: twin_guide (day 2+), day_7_checkin (day 7+), twin_recalibration_note (day 10+), week_4_encouragement (day 28+), each at most once.
+- **Created** `alter-ego-backend/app/api/mail.py`:
+  - `GET /api/v1/mail`: list mails for user, `unread_count`, `total`.
+  - `POST /api/v1/mail/{mail_id}/read`: mark one read.
+  - `POST /api/v1/mail/read-all`: mark all read.
+- **Updated** `alter-ego-backend/app/services/onboarding_service.py`:
+  - At end of `complete_onboarding()`, calls `send_welcome_mail_sequence(user_id)`.
+- **Updated** `alter-ego-backend/app/core/scheduler.py`:
+  - Added `mail_check_job()` daily at **00:30 UTC**, calling `check_and_send_scheduled_mails(user_id)` for each onboarded user.
+- **Updated** `alter-ego-backend/main.py`:
+  - Registered `mail_router`.
+
+---
+
+## 2026-03-17 — B33: Profile API (all tabs)
+
+### Goal
+Expose all profile tab data from a single module so the Profile screen can load overview, stats, streak, identity, companion, interests, and quits from the backend.
+
+### What we did
+- **Created** `alter-ego-backend/app/api/profile.py`:
+  - `GET /api/v1/profile/overview` — main profile (username, archetype, character/pet stage, XP/PF progress, streak, power_score, registration_date, leaderboard_unlocked, email_connected, subscription_tier, unread_mail_count).
+  - `GET /api/v1/profile/stats?days=30` — XP chart, completion rate, streak chart from `xp_log` and `streak_log`.
+  - `GET /api/v1/profile/streak` — 52-week heatmap data, current/longest streak, streak_requirement_tier.
+  - `GET /api/v1/profile/identity` — character stage list with milestones from `milestone_log` (stage_%).
+  - `GET /api/v1/profile/companion` — pet stage list with milestones (pet_stage_%).
+  - `GET /api/v1/profile/interests` — active interests with progress and milestone status (`INTEREST_MILESTONE_SESSIONS`).
+  - `GET /api/v1/profile/quits` — quit targets with clean_days, phases (awareness/replacement/reflex/rewired/free), current_phase.
+- All endpoints use `app.core.constants` (STAGE_NAMES, PET_NAMES, XP_THRESHOLDS, PF_THRESHOLDS, etc.) and `app.core.supabase_client`.
+- **Updated** `alter-ego-backend/main.py`: registered `profile_router`.
+
+### Files created/changed
+- **Created** `alter-ego-backend/app/api/profile.py`
+- **Changed** `alter-ego-backend/main.py`
+
+---
+
+## 2026-03-17 — B34: Settings + FAQ + contact form
+
+### Goal
+Serve FAQ, update username/notifications, accept feedback (with optional Zapier webhook), and allow account deletion.
+
+### What we did
+- **Created** `alter-ego-backend/app/api/settings.py`:
+  - `GET /api/v1/settings/faq` — returns static FAQ list (no auth).
+  - `POST /api/v1/settings/username` — validate + check availability via onboarding_service; update `users.username` (lowercased).
+  - `POST /api/v1/settings/notifications` — update `push_token` and/or `notifications_enabled`.
+  - `POST /api/v1/settings/feedback` — insert into `feedback_submissions` (type: bug|concern|suggestion|other); optional fire-and-forget POST to `ZAPIER_WEBHOOK_URL`.
+  - `DELETE /api/v1/settings/account` — delete user row (cascades) then `supabase.auth.admin.delete_user`.
+- **Updated** `alter-ego-backend/main.py`: registered `settings_router`.
+
+### Files created/changed
+- **Created** `alter-ego-backend/app/api/settings.py`
+- **Changed** `alter-ego-backend/main.py`
+
+---
+
+## 2026-03-17 — B35: XP/PF level audit script
+
+### Goal
+Validate that stored user data and product constants stay in sync (no drift before beta).
+
+### What we did
+- **Created** `alter-ego-backend/app/services/audit_service.py`:
+  - `run_audit()`: checks XP_THRESHOLDS/PF_THRESHOLDS ascending; STAGE_NAMES/PET_NAMES length; DAILY_XP_CAPS/DAILY_PF_CAPS for all stages; MISSION_XP positive; fetches onboarded users and validates total_xp vs character_stage, total_pf vs pet_stage, stage bounds.
+  - Returns `{ passed, issues[], warnings[], constants_validated }` and prints ✅/❌/⚠️.
+- **Run:** from `alter-ego-backend/`: `python -m app.services.audit_service`.
+
+### Files created/changed
+- **Created** `alter-ego-backend/app/services/audit_service.py`
+
+---
+
+## 2026-03-17 — W1: Frontend wiring layer (API client + Zustand + React Query)
+
+### Goal
+Single base API client with auth headers and error handling, Zustand auth and user stores, and a root providers wrapper so all services and screens use the same foundation.
+
+### What we did
+- **Created** `alter-ego-mobile/src/services/api.ts`:
+  - Base URL from `EXPO_PUBLIC_API_URL`; auth header from Supabase session.
+  - `apiClient.get/post/put/patch/delete(path)` with retry (3×, exponential backoff), 401 → refresh session and retry once.
+  - Error types: `ApiError`, `NetworkError`, `AuthError`; helpers: `isApiError`, `isAuthError`, `isNetworkError`, `getErrorMessage`.
+- **Created** `alter-ego-mobile/src/store/authStore.ts` (Zustand):
+  - State: session, user, isLoading, isAuthenticated, isAnonymous.
+  - Actions: initialize(), setSession, signInAnonymously, signInWithGoogle (delegates to auth service), signOut, refreshSession.
+- **Created** `alter-ego-mobile/src/store/userStore.ts` (Zustand):
+  - UserProfile type matching `/api/v1/profile/overview`; fetchProfile(); optimistic updates: updateXP, updatePF, updateStreak, updateStage, updatePetStage, incrementUnreadMail, clearProfile.
+- **Created** `alter-ego-mobile/src/providers/AppProviders.tsx`:
+  - QueryClientProvider (staleTime 5m, gcTime 10m, retry 2); on mount runs auth initialize; when authenticated runs fetchProfile.
+- **Updated** `alter-ego-mobile/App.tsx`: wrapped root with `<AppProviders>`.
+- **Updated** `alter-ego-mobile/babel.config.js`: added `module-resolver` with `alias: { "@": "./src" }` (reanimated plugin remains last). Path alias `@/` → `src/` already present in `tsconfig.json`.
+
+### Files created/changed
+- **Created** `alter-ego-mobile/src/services/api.ts`
+- **Created** `alter-ego-mobile/src/store/authStore.ts`
+- **Created** `alter-ego-mobile/src/store/userStore.ts`
+- **Created** `alter-ego-mobile/src/providers/AppProviders.tsx`
+- **Changed** `alter-ego-mobile/App.tsx`
+- **Changed** `alter-ego-mobile/babel.config.js`
+
+---
+
+## 2026-03-17 — Supabase client consolidation (single client, single import path)
+
+### Goal
+One Supabase client for the whole app; one import path (`@/utils/supabase`) everywhere.
+
+### What we did
+- **Replaced** `alter-ego-mobile/src/utils/supabase.ts` with a single consolidated client that combines:
+  - **SecureStore** session persistence (from former `src/lib/supabase.ts`): Expo SecureStore on iOS/Android, AsyncStorage on web.
+  - **Guest mode** (from former utils): `setGuestMode`, `clearGuestMode`, `isGuestMode`, and patched `getSession()` returning a guest session when enabled.
+  - **fetchWithRetry** (from former utils): global fetch wrapper for Supabase (3 retries) for transient network failures.
+- **Updated all imports** across the project to `@/utils/supabase` (replacing either `@/lib/supabase` or `../utils/supabase` / `./src/utils/supabase`).
+- **Deleted** `alter-ego-mobile/src/lib/supabase.ts`.
+
+### Files created/changed
+- **Replaced** `alter-ego-mobile/src/utils/supabase.ts` (single client: SecureStore + guest mode + fetchWithRetry)
+- **Changed** `alter-ego-mobile/src/services/auth.ts`, `src/services/api.ts`, `src/store/authStore.ts`, `App.tsx`, and all screens that imported supabase (SignUpScreen, HomeScreen, ProfileScreen, SettingsScreen, etc.) to use `@/utils/supabase`
+- **Deleted** `alter-ego-mobile/src/lib/supabase.ts`
+
+### Notes
+- Screens and services must import from `@/utils/supabase` only. No other Supabase client file exists.
 

@@ -19,7 +19,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Rect, Path, Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { PetAnimation } from "../components/PetAnimation";
-import { supabase } from "../utils/supabase";
+import { supabase } from "@/utils/supabase";
 import { getWeeklyReport, type WeeklyReportRow } from "../utils/api";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

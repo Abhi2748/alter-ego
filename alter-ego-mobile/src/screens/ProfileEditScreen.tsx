@@ -21,8 +21,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import { supabase } from "../utils/supabase";
-import { getUserMe, patchUserMe, checkUsername } from "../utils/api";
+import { supabase } from "@/utils/supabase";
+import { apiClient } from "@/services/api";
+import { onboardingService } from "@/services/onboarding";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const SURFACE = "#111623";
@@ -35,7 +36,8 @@ const MUTED = "#6B7280";
 const DIM = "#374151";
 const VERY_DIM = "#2D3146";
 
-const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
+/** Matches backend validate_username: 3–20, lowercase letters, digits, underscore */
+const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
 
 export function ProfileEditScreen() {
   const insets = useSafeAreaInsets();
@@ -48,13 +50,12 @@ export function ProfileEditScreen() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const hasChanges =
-    username !== initialUsername ||
-    photoUri !== initialPhotoUri;
+  const uNorm = username.trim().toLowerCase();
+  const hasChanges = uNorm !== initialUsername.trim().toLowerCase();
   const canSave =
     hasChanges &&
-    username.length >= 3 &&
-    USERNAME_REGEX.test(username) &&
+    uNorm.length >= 3 &&
+    USERNAME_REGEX.test(uNorm) &&
     !usernameError;
 
   const loadProfile = useCallback(async () => {
@@ -64,13 +65,14 @@ export function ProfileEditScreen() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) return;
-      const me = await getUserMe(session.access_token);
-      const u = (me.username ?? "").replace(/^@/, "");
+      const me = await apiClient.get<{ username?: string }>(
+        "/api/v1/profile/overview"
+      );
+      const u = (me.username ?? "").replace(/^@/, "").toLowerCase();
       setUsername(u);
       setInitialUsername(u);
-      const photo = me.profile_photo_url ?? null;
-      setPhotoUri(photo);
-      setInitialPhotoUri(photo);
+      setPhotoUri(null);
+      setInitialPhotoUri(null);
     } catch (_) {
       setUsername("");
     } finally {
@@ -123,26 +125,32 @@ export function ProfileEditScreen() {
   }, []);
 
   const validateUsername = useCallback(async (value: string) => {
-    const v = value.trim();
+    const v = value.trim().toLowerCase();
     if (v.length < 3) {
       setUsernameError(null);
       return;
     }
-    if (!USERNAME_REGEX.test(v) || /\s/.test(v)) {
-      setUsernameError("Use 3–20 characters, letters, numbers, and underscores only.");
+    if (v === initialUsername.trim().toLowerCase()) {
+      setUsernameError(null);
+      return;
+    }
+    if (!USERNAME_REGEX.test(v)) {
+      setUsernameError("Use 3–20 characters: lowercase letters, numbers, underscores only.");
       return;
     }
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
-      await checkUsername(v, session.access_token);
-      setUsernameError(null);
+      const r = await onboardingService.checkUsername(v);
+      if (!r.available) {
+        setUsernameError(
+          r.suggestion ? `That name is taken — try ${r.suggestion}` : "Username taken — try another"
+        );
+      } else {
+        setUsernameError(null);
+      }
     } catch {
-      setUsernameError("Username taken — try another");
+      setUsernameError("Could not check username");
     }
-  }, []);
+  }, [initialUsername]);
 
   const handleSave = useCallback(async () => {
     if (!canSave || saving) return;
@@ -159,9 +167,8 @@ export function ProfileEditScreen() {
         setSaving(false);
         return;
       }
-      await patchUserMe(session.access_token, {
-        username: username.trim(),
-        profile_photo_url: photoUri || undefined,
+      await apiClient.post("/api/v1/settings/username", {
+        username: username.trim().toLowerCase(),
       });
       setInitialUsername(username.trim());
       setInitialPhotoUri(photoUri);
@@ -234,7 +241,7 @@ export function ProfileEditScreen() {
             style={styles.input}
             value={username}
             onChangeText={(t) => {
-              setUsername(t);
+              setUsername(t.toLowerCase().replace(/[^a-z0-9_]/g, ""));
               setUsernameError(null);
             }}
             onBlur={() => validateUsername(username)}
@@ -251,7 +258,9 @@ export function ProfileEditScreen() {
             </Pressable>
           )}
         </View>
-        <Text style={styles.fieldHint}>Visible on the leaderboard. Max 20 characters.</Text>
+        <Text style={styles.fieldHint}>
+          Lowercase letters, numbers, underscores · 3–20 characters. Photo is not synced to the server yet.
+        </Text>
         {usernameError ? <Text style={styles.errorText}>{usernameError}</Text> : null}
 
         <Pressable

@@ -10,13 +10,14 @@ import {
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { View, ActivityIndicator, AppState } from "react-native";
+import { View, ActivityIndicator } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { RootStack } from "./src/navigation/RootStack";
 import { COLORS } from "./src/constants/theme";
-import { supabase } from "./src/utils/supabase";
-import { patchUserMe } from "./src/utils/api";
+import { AppProviders } from "./src/providers/AppProviders";
+import { supabase } from "@/utils/supabase";
+import { apiClient } from "./src/services/api";
 
 // Suppress React 19 ref warning from dependencies (e.g. React Navigation) until they support ref-as-prop
 const originalError = console.error;
@@ -41,7 +42,7 @@ const navTheme = {
  * use a development build for real push. The warning appears when this code runs
  * (e.g. after sign-in or on app open with existing session).
  */
-async function registerPushTokenAndTimezone(accessToken: string) {
+async function registerPushTokenAndTimezone() {
   try {
     const { status: existing } = await Notifications.getPermissionsAsync();
     let final = existing;
@@ -54,7 +55,11 @@ async function registerPushTokenAndTimezone(accessToken: string) {
     const pushToken = tokenData?.data ?? "";
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
     if (pushToken || timezone) {
-      await patchUserMe(accessToken, { push_token: pushToken || undefined, timezone });
+      await apiClient.post("/api/v1/settings/notifications", {
+        push_token: pushToken || undefined,
+        timezone,
+        notifications_enabled: true,
+      });
     }
   } catch (_) {
     // Non-blocking; nudge/report still work without token
@@ -83,20 +88,6 @@ export default function App() {
     return () => data?.subscription?.unsubscribe?.();
   }, []);
 
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (nextAppState) => {
-      if (nextAppState !== "active") return;
-      supabase.auth.getSession().then(({ data }) => {
-        if (data?.session?.access_token) {
-          patchUserMe(data.session.access_token, {
-            last_opened_at: new Date().toISOString(),
-          }).catch(() => {});
-        }
-      });
-    });
-    return () => sub.remove();
-  }, []);
-
   if (!fontsLoaded && !fontError) {
     return (
       <View style={{ flex: 1, backgroundColor: COLORS.bg1, alignItems: "center", justifyContent: "center" }}>
@@ -106,11 +97,13 @@ export default function App() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <NavigationContainer theme={navTheme}>
-        <StatusBar style="light" />
-        <RootStack />
-      </NavigationContainer>
-    </GestureHandlerRootView>
+    <AppProviders>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <NavigationContainer theme={navTheme}>
+          <StatusBar style="light" />
+          <RootStack />
+        </NavigationContainer>
+      </GestureHandlerRootView>
+    </AppProviders>
   );
 }

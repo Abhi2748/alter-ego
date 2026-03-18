@@ -25,7 +25,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { LeaderboardSkeleton } from "../components/LeaderboardSkeleton";
 import { COLORS, SPACING, GRADIENTS } from "../constants/theme";
-import { supabase } from "../utils/supabase";
+import { supabase } from "@/utils/supabase";
 import { getLeaderboard, type LeaderboardEntryOut } from "../utils/api";
 
 // Screen background (premium dark)

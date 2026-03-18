@@ -87,7 +87,7 @@ MISSION MUST NOT:
 - Repeat the last 5 missions even in different wording
 
 OUTPUT — return ONLY valid JSON, no preamble, no markdown:
-{
+{{
   "title": "Specific actionable mission title (max 60 chars, starts with action verb)",
   "difficulty": "easy|medium|hard|elite",
   "estimated_minutes": 20,
@@ -95,7 +95,7 @@ OUTPUT — return ONLY valid JSON, no preamble, no markdown:
   "phase_principle": "Which phase principle this follows and why",
   "domain_knowledge_applied": "The specific knowledge about this domain used to design this mission",
   "adjusted_tier": "easy|medium|hard|elite"
-}
+}}
 """
 
 
@@ -177,7 +177,7 @@ MISSION MUST NOT:
 - Require willpower alone — replacement behaviour is the mechanism
 
 OUTPUT — return ONLY valid JSON, no preamble, no markdown:
-{
+{{
   "title": "Positive action mission (max 60 chars, starts with action verb)",
   "difficulty": "easy|medium|hard|elite",
   "estimated_minutes": 15,
@@ -185,7 +185,7 @@ OUTPUT — return ONLY valid JSON, no preamble, no markdown:
   "rationale": "Why this replacement works for this need category. Reference the behaviour change mechanism. 2-3 sentences.",
   "phase_principle": "Which phase principle this follows",
   "need_addressed": "How this mission addresses the underlying need"
-}
+}}
 """
 
 

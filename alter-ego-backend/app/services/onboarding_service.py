@@ -1,12 +1,17 @@
 import random
 import re
 from datetime import datetime, timezone
+import asyncio
 
 from fastapi import HTTPException
 
 from app.core.supabase_client import supabase_admin
 from app.core.archetype import classify_archetype, get_archetype_data, get_initial_dna
-from app.core.constants import INTEREST_LEVEL_MAP, TWIN_INITIAL_CONSISTENCY
+from app.core.constants import (
+    COMMITMENT_HORIZON_CONTEXT,
+    INTEREST_LEVEL_MAP,
+    TWIN_INITIAL_CONSISTENCY,
+)
 from app.agents.interest_normaliser import normalise_interest, normalise_quit_target
 
 
@@ -121,6 +126,10 @@ async def generate_unique_username() -> str:
 async def save_onboarding_step(user_id: str, question_key: str, answer_json: dict) -> dict:
     """
     Upserts the answer and updates any derived fields on the users table.
+
+    Q1=username, Q2=gender, Q3=age, Q4–Q10=archetype questions,
+    Q11=interests, Q12=quit_targets, Q13=daily_hours,
+    Q14=commitment_horizon, Q15=timezone (auto-detected).
     """
     # Upsert onboarding answer
     supabase_admin.table("onboarding_answers").upsert(
@@ -188,12 +197,21 @@ async def save_onboarding_step(user_id: str, question_key: str, answer_json: dic
             raise HTTPException(status_code=400, detail="Invalid age value")
         supabase_admin.table("users").update({"age": age}).eq("id", user_id).execute()
 
-    elif question_key == "q11_timezone":
+    elif question_key in ("q15_timezone", "q11_timezone"):
+        # q11_timezone kept for backward compatibility with older clients
         ensure_user_row_exists()
         tz = (answer_json or {}).get("value")
         if not isinstance(tz, str) or not tz.strip():
             raise HTTPException(status_code=400, detail="Invalid timezone value")
         supabase_admin.table("users").update({"timezone": tz.strip()}).eq("id", user_id).execute()
+
+    elif question_key == "q14_commitment":
+        ensure_user_row_exists()
+        commitment_value = (answer_json or {}).get("value")
+        if commitment_value in ("2_weeks", "1_month", "3_months", "however_long"):
+            supabase_admin.table("users").update({"commitment_horizon": commitment_value}).eq(
+                "id", user_id
+            ).execute()
 
     return {"saved": True, "question_key": question_key}
 
@@ -326,107 +344,162 @@ async def complete_onboarding(user_id: str) -> dict:
 
     # Step 3 — Normalise interests and insert into interests table
     interests_created: list[str] = []
-    interest_items = []
+    interest_items: list[dict] = []
     q11 = answers.get("q11_interests")
     if isinstance(q11, dict):
         interest_items = q11.get("interests") or []
     if not isinstance(interest_items, list):
         interest_items = []
 
+    # Run all interest normalisations in parallel to cut latency
+    interest_inputs: list[tuple[str, str, str | None, list | None]] = []
     for item in interest_items:
-        try:
-            raw_text = str((item or {}).get("raw_text") or "").strip()
-            level_text = str((item or {}).get("level_text") or "").strip()
-            goal = (item or {}).get("goal")
-            user_goal = str(goal).strip() if isinstance(goal, str) else None
-            active_days = (item or {}).get("active_days")
-            active_days = active_days if isinstance(active_days, list) else None
+        raw_text = str((item or {}).get("raw_text") or "").strip()
+        level_text = str((item or {}).get("level_text") or "").strip()
+        goal = (item or {}).get("goal")
+        user_goal = str(goal).strip() if isinstance(goal, str) else None
+        active_days = (item or {}).get("active_days")
+        active_days = active_days if isinstance(active_days, list) else None
+        interest_inputs.append((raw_text, level_text, user_goal, active_days))
 
-            normalised = await normalise_interest(raw_text, level_text, user_goal)
-            level_context = normalised.get("level_context") or {}
+    if interest_inputs:
+        coros = [
+            normalise_interest(raw, level, user_goal)
+            for (raw, level, user_goal, _days) in interest_inputs
+        ]
+        interest_normalised = await asyncio.gather(*coros, return_exceptions=True)
 
-            level_meta = INTEREST_LEVEL_MAP.get(level_text, INTEREST_LEVEL_MAP["still_figuring_it_out"])
-            row = {
-                "user_id": user_id,
-                "raw_text": raw_text,
-                "normalised_name": normalised.get("normalised_name") or raw_text.title(),
-                "category": normalised.get("category") or "Other",
-                "mission_domain": normalised.get("mission_domain") or raw_text.lower(),
-                "level_context_beginner": (level_context.get("beginner") if isinstance(level_context, dict) else None),
-                "level_context_intermediate": (level_context.get("intermediate") if isinstance(level_context, dict) else None),
-                "level_context_advanced": (level_context.get("advanced") if isinstance(level_context, dict) else None),
-                "evidence_base": normalised.get("evidence_base"),
-                "common_obstacles": normalised.get("common_obstacles") or [],
-                "level_text": level_text or "still_figuring_it_out",
-                "user_goal": user_goal,
-                "active_days": active_days or [1, 2, 3, 4, 5, 6, 7],
-                "interest_level": 1,
-                "interest_xp": 0,
-                "current_difficulty_tier": level_meta["starting_tier"],
-                "current_phase": level_meta["phase"],
-                "total_sessions": 0,
-                "is_active": True,
-            }
-            ins = supabase_admin.table("interests").insert(row).execute()
-            if ins.data and isinstance(ins.data, list) and ins.data[0].get("id"):
-                interests_created.append(str(ins.data[0]["id"]))
-        except Exception as e:
-            notes.append(f"interest_failed: {str(e)}")
-            continue
+        for (raw_text, level_text, user_goal, active_days), normalised in zip(
+            interest_inputs, interest_normalised, strict=False
+        ):
+            try:
+                if isinstance(normalised, Exception):
+                    raise normalised
+                normalised = normalised or {}
+                level_context = normalised.get("level_context") or {}
+
+                level_meta = INTEREST_LEVEL_MAP.get(
+                    level_text, INTEREST_LEVEL_MAP["still_figuring_it_out"]
+                )
+                row = {
+                    "user_id": user_id,
+                    "raw_text": raw_text,
+                    "normalised_name": normalised.get("normalised_name") or raw_text.title(),
+                    "category": normalised.get("category") or "Other",
+                    "mission_domain": normalised.get("mission_domain") or raw_text.lower(),
+                    "level_context_beginner": (
+                        level_context.get("beginner") if isinstance(level_context, dict) else None
+                    ),
+                    "level_context_intermediate": (
+                        level_context.get("intermediate") if isinstance(level_context, dict) else None
+                    ),
+                    "level_context_advanced": (
+                        level_context.get("advanced") if isinstance(level_context, dict) else None
+                    ),
+                    "evidence_base": normalised.get("evidence_base"),
+                    "common_obstacles": normalised.get("common_obstacles") or [],
+                    "level_text": level_text or "still_figuring_it_out",
+                    "user_goal": user_goal,
+                    "active_days": active_days or [1, 2, 3, 4, 5, 6, 7],
+                    "interest_level": 1,
+                    "interest_xp": 0,
+                    "current_difficulty_tier": level_meta["starting_tier"],
+                    "current_phase": level_meta["phase"],
+                    "total_sessions": 0,
+                    "is_active": True,
+                }
+                ins = supabase_admin.table("interests").insert(row).execute()
+                if ins.data and isinstance(ins.data, list) and ins.data[0].get("id"):
+                    interests_created.append(str(ins.data[0]["id"]))
+            except Exception as e:
+                notes.append(f"interest_failed: {str(e)}")
+                continue
 
     # Step 4 — Normalise quit targets and insert into quit_targets table
     quit_targets_created: list[str] = []
-    quit_items = []
+    quit_items: list[dict] = []
     q12 = answers.get("q12_quits")
     if isinstance(q12, dict):
         quit_items = q12.get("quit_targets") or []
     if not isinstance(quit_items, list):
         quit_items = []
 
+    quit_inputs: list[tuple[str, str | None, str | None]] = []
     for item in quit_items:
-        try:
-            raw_text = str((item or {}).get("raw_text") or "").strip()
-            description = (item or {}).get("description")
-            trigger = (item or {}).get("trigger")
-            description = str(description).strip() if isinstance(description, str) else None
-            trigger = str(trigger).strip() if isinstance(trigger, str) else None
+        raw_text = str((item or {}).get("raw_text") or "").strip()
+        description = (item or {}).get("description")
+        trigger = (item or {}).get("trigger")
+        description = str(description).strip() if isinstance(description, str) else None
+        trigger = str(trigger).strip() if isinstance(trigger, str) else None
+        quit_inputs.append((raw_text, description, trigger))
 
-            normalised = await normalise_quit_target(raw_text, description, trigger)
+    if quit_inputs:
+        coros_quit = [
+            normalise_quit_target(raw, description, trigger)
+            for (raw, description, trigger) in quit_inputs
+        ]
+        quit_normalised = await asyncio.gather(*coros_quit, return_exceptions=True)
 
-            row = {
-                "user_id": user_id,
-                "raw_text": raw_text,
-                "user_description": description,
-                "trigger_text": trigger,
-                "normalised_name": normalised.get("normalised_name") or raw_text.title(),
-                "need_category": normalised.get("primary_need_category"),
-                "current_phase": "days_1_10",
-                "current_difficulty_tier": "easy",
-                "is_active": True,
-                "conquered": False,
-            }
-            ins = supabase_admin.table("quit_targets").insert(row).execute()
-            if ins.data and isinstance(ins.data, list) and ins.data[0].get("id"):
-                quit_targets_created.append(str(ins.data[0]["id"]))
-        except Exception as e:
-            notes.append(f"quit_target_failed: {str(e)}")
-            continue
+        for (raw_text, description, trigger), normalised in zip(
+            quit_inputs, quit_normalised, strict=False
+        ):
+            try:
+                if isinstance(normalised, Exception):
+                    raise normalised
+                normalised = normalised or {}
+                row = {
+                    "user_id": user_id,
+                    "raw_text": raw_text,
+                    "user_description": description,
+                    "trigger_text": trigger,
+                    "normalised_name": normalised.get("normalised_name") or raw_text.title(),
+                    "need_category": normalised.get("primary_need_category"),
+                    "current_phase": "days_1_10",
+                    "current_difficulty_tier": "easy",
+                    "is_active": True,
+                    "conquered": False,
+                    "intervention_hour": normalised.get("intervention_hour"),
+                }
+                ins = supabase_admin.table("quit_targets").insert(row).execute()
+                if ins.data and isinstance(ins.data, list) and ins.data[0].get("id"):
+                    quit_targets_created.append(str(ins.data[0]["id"]))
+            except Exception as e:
+                notes.append(f"quit_target_failed: {str(e)}")
+                continue
 
     # Step 5 — Update users table
     try:
-        supabase_admin.table("users").update(
-            {
-                "archetype": archetype_key,
-                "onboarding_complete": True,
-                "onboarding_completed_at": now_iso,
-            }
-        ).eq("id", user_id).execute()
+        q14 = answers.get("q14_commitment", {})
+        ch = q14.get("value") if isinstance(q14, dict) else None
+        user_update: dict = {
+            "archetype": archetype_key,
+            "onboarding_complete": True,
+            "onboarding_completed_at": now_iso,
+        }
+        if ch in ("2_weeks", "1_month", "3_months", "however_long"):
+            user_update["commitment_horizon"] = ch
+        supabase_admin.table("users").update(user_update).eq("id", user_id).execute()
     except Exception as e:
         notes.append(f"users_update_failed: {str(e)}")
 
-    # Step 6 — Update discipline_dna
+    # Step 6 — Update discipline_dna (blend commitment horizon with archetype defaults)
     try:
         initial_dna = get_initial_dna(archetype_key)
+        commitment_answer = answers.get("q14_commitment", {})
+        commitment_value = (
+            commitment_answer.get("value", "however_long")
+            if isinstance(commitment_answer, dict)
+            else "however_long"
+        )
+        if commitment_value not in COMMITMENT_HORIZON_CONTEXT:
+            commitment_value = "however_long"
+        horizon_context = COMMITMENT_HORIZON_CONTEXT[commitment_value]
+        nudge_intensity = horizon_context["nudge_intensity"]
+        if nudge_intensity == "high" and initial_dna.get("twin_message_frequency") == "low":
+            initial_dna["twin_message_frequency"] = "medium"
+        elif nudge_intensity == "low" and initial_dna.get("twin_message_frequency") == "high":
+            initial_dna["twin_message_frequency"] = "medium"
+
         supabase_admin.table("discipline_dna").upsert(
             {**initial_dna, "user_id": user_id, "last_calibration_at": now_iso},
             on_conflict="user_id",
@@ -455,13 +528,33 @@ async def complete_onboarding(user_id: str) -> dict:
     except Exception as e:
         notes.append(f"twin_state_failed: {str(e)}")
 
+    # Step 7b — Send welcome in-app mail
+    try:
+        from app.services.mail_service import send_welcome_mail_sequence
+        await send_welcome_mail_sequence(user_id)
+    except Exception as e:
+        notes.append(f"welcome_mail_failed: {str(e)}")
+
     # Step 8 — Return archetype reveal data
+    from app.core.constants import COMMITMENT_HORIZON_CONTEXT
+
+    commitment_answer = answers.get("q14_commitment", {})
+    commitment_value = (
+        commitment_answer.get("value", "however_long")
+        if isinstance(commitment_answer, dict)
+        else "however_long"
+    )
+    twin_first_message = COMMITMENT_HORIZON_CONTEXT.get(
+        commitment_value, COMMITMENT_HORIZON_CONTEXT["however_long"]
+    )["twin_message"]
+
     resp = {
         "success": True,
         "archetype": archetype_key,
         "archetype_name": archetype_data["name"],
         "archetype_tagline": archetype_data["tagline"],
         "archetype_reveal_message": archetype_data["reveal_message"],
+        "twin_first_message": twin_first_message,
         "interests_processed": len(interests_created),
         "quit_targets_processed": len(quit_targets_created),
     }

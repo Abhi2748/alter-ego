@@ -45,6 +45,8 @@
 |---|---|
 | Mobile frontend | React Native + Expo (iOS + Android) |
 | Styling | NativeWind v4 (Tailwind CSS for React Native) |
+| State (mobile) | Zustand (auth store, user store) |
+| Data fetching (mobile) | TanStack React Query + base API client (src/services/api.ts) |
 | Backend | FastAPI (Python 3.11.9) — Render free tier |
 | Database | Supabase (PostgreSQL) — Auth, Storage, Realtime |
 | Authentication | Supabase Auth — Google OAuth + Apple + Email |
@@ -77,6 +79,10 @@ alter-ego/
 │   ├── babel.config.js
 │   ├── global.d.ts
 │   ├── src/
+│   │   ├── services/         # api.ts (base client), auth.ts
+│   │   ├── store/            # authStore.ts, userStore.ts (Zustand)
+│   │   ├── providers/        # AppProviders.tsx (React Query + auth init)
+│   │   ├── utils/            # supabase.ts (single Supabase client: SecureStore + guest mode + fetchWithRetry)
 │   │   ├── screens/
 │   │   ├── components/
 │   │   ├── hooks/
@@ -84,8 +90,7 @@ alter-ego/
 │   │   ├── navigation/
 │   │   ├── constants/
 │   │   │   └── theme.ts
-│   │   ├── agents/
-│   │   └── store/
+│   │   └── agents/
 │   └── assets/
 │       ├── images/
 │       │   ├── characters/   # character_1_male.png … character_6_female.png
@@ -98,10 +103,12 @@ alter-ego/
 │   ├── main.py
 │   ├── requirements.txt
 │   ├── .env
-│   ├── routes/
-│   ├── models/
-│   ├── agents/
-│   └── utils/
+│   ├── migrations/           # 001_initial_schema.sql, 002_add_intervention_hour.sql
+│   └── app/
+│       ├── api/              # auth, mail, missions, onboarding, profile, reports, settings, twin, leaderboard
+│       ├── core/             # constants, supabase_client, scheduler, archetype
+│       ├── services/         # mission_service, mail_service, onboarding_service, audit_service, etc.
+│       └── agents/           # planner_agent, nudge_agent, twin_chat_agent, report_agent, etc.
 ├── CLAUDE.md                 ← this file
 └── progress.md               ← one sentence: what to build tomorrow
 ```
@@ -121,6 +128,30 @@ alter-ego/
 - Always run `npx expo start --clear` after any config changes
 - Gradients cannot use className — use `expo-linear-gradient` component with inline style
 - `className` works correctly for all solid colour and spacing utilities
+
+### 4.1 Frontend wiring layer (W1)
+
+All services and screens should use the shared API client and stores. Do not call Supabase auth or raw fetch from screens.
+
+- **Base API client** — `src/services/api.ts`
+  - `apiClient.get/post/put/patch/delete(path)` — auth header from `@/utils/supabase` session, retry (3×, exponential backoff), 401 → refresh session and retry once.
+  - Errors: `ApiError`, `NetworkError`, `AuthError`; helpers: `isApiError`, `isAuthError`, `isNetworkError`, `getErrorMessage`.
+  - Base URL: `EXPO_PUBLIC_API_URL` (default `http://localhost:8000`).
+- **Auth store** — `src/store/authStore.ts` (Zustand)
+  - State: `session`, `user`, `isLoading`, `isAuthenticated`, `isAnonymous`.
+  - Actions: `initialize()` (on app startup), `setSession`, `signInAnonymously`, `signInWithGoogle` (delegates to `@/services/auth`), `signOut`, `refreshSession`.
+  - Screens read auth from this store; do not call `supabase.auth` directly from screens.
+- **User store** — `src/store/userStore.ts` (Zustand)
+  - `UserProfile` type matches `/api/v1/profile/overview`. State: `profile`, `isLoading`, `error`.
+  - `fetchProfile()` — called when user becomes authenticated (from AppProviders).
+  - Optimistic updates: `updateXP`, `updatePF`, `updateStreak`, `updateStage`, `updatePetStage`, `incrementUnreadMail`, `clearProfile`.
+- **AppProviders** — `src/providers/AppProviders.tsx`
+  - Wraps app with `QueryClientProvider` (staleTime 5m, gcTime 10m, retry 2, no refetchOnWindowFocus).
+  - On mount: `useAuthStore.initialize()`. When `isAuthenticated`: `useUserStore.fetchProfile()`.
+  - App.tsx root must wrap content with `<AppProviders>`.
+- **Path alias** — `@/` → `src/`
+  - `tsconfig.json`: `"baseUrl": "."`, `"paths": { "@/*": ["src/*"] }`.
+  - `babel.config.js`: `module-resolver` with `root: ["./src"]`, `alias: { "@": "./src" }`. Reanimated plugin must remain last.
 
 ---
 
@@ -679,8 +710,22 @@ last_session_at timestamptz
 
 -- milestone_log
 id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-interest text, milestone_name text,
-earned_at timestamptz, badge_icon text
+milestone_type text, earned_at timestamptz,
+interest_id uuid REFERENCES interests(id), quit_target_id uuid REFERENCES quit_targets(id)
+
+-- app_mails (in-app inbox; welcome mail, Category C nudges)
+id uuid PRIMARY KEY, user_id uuid REFERENCES users,
+subject text, body_text text, mail_type text,
+sent_at timestamptz, read_at timestamptz
+
+-- feedback_submissions (Settings → Contact; optional Zapier webhook)
+id uuid PRIMARY KEY, user_id uuid REFERENCES users,
+type text CHECK (type IN ('bug','concern','suggestion','other')),
+content text, app_version text, created_at timestamptz
+
+-- quit_targets: intervention_hour (0-23) added in 002 — when urge typically hits (Category B nudges)
+-- nudge_log: nudge_category ('A'|'B'|'C') added in 002 — for analytics
+-- xp_log, streak_log, twin_daily_record: used by profile/stats/streak endpoints
 ```
 
 ---
@@ -690,23 +735,36 @@ earned_at timestamptz, badge_icon text
 ```python
 # main.py — entry point
 # All routes prefixed with /api/v1
+# Import from app.core.constants, app.core.supabase_client where applicable.
 
-# Route files:
-# routes/auth.py           — /auth/callback (Supabase webhook)
-# routes/onboarding.py     — POST /onboarding
-# routes/missions.py       — GET /missions, POST /missions, PATCH /missions/{id}
-# routes/twin.py           — POST /twin/chat, GET /twin/state
-# routes/agents.py         — POST /agents/profile, /agents/plan, /agents/nudge,
-#                             /agents/weekly-report, /agents/oracle-line
-# routes/leaderboard.py    — GET /leaderboard
-# routes/user.py           — GET /user/me, PATCH /user/me
-# routes/analytics.py      — GET /analytics/day-of-week
+# Route modules (app.api.*):
+# auth.py        — /auth/callback (Supabase webhook), link-google
+# onboarding.py — POST /onboarding, check-username
+# missions.py   — GET /missions, POST /missions, PATCH /missions/{id}
+# twin.py       — POST /twin/chat, GET /twin/state
+# leaderboard.py — GET /leaderboard
+# reports.py    — GET /reports (weekly report)
+# mail.py       — GET /mail (inbox), PATCH /mail/read
+# profile.py    — GET /profile/overview, /profile/stats, /profile/streak,
+#                  /profile/identity, /profile/companion, /profile/interests, /profile/quits
+# settings.py   — GET /settings/faq, POST /settings/username, /settings/notifications,
+#                  POST /settings/feedback, DELETE /settings/account
+# user/me       — GET /user/me, PATCH /user/me (push_token, timezone, last_opened_at)
+
+# Core (app.core.*): constants, supabase_client, scheduler, archetype
+# Services (app.services.*): mission_service, mail_service, onboarding_service,
+#   progression_service, streak_service, twin_service, power_score_service,
+#   strip_message_service, audit_service
+
+# XP/PF audit script (B35) — run manually before beta:
+#   cd alter-ego-backend && python -m app.services.audit_service
 
 # Environment variables (.env):
 SUPABASE_URL=
 SUPABASE_SERVICE_KEY=        # service role key — never expose to client
 OPENAI_API_KEY=
 POSTHOG_API_KEY=
+ZAPIER_WEBHOOK_URL=          # optional; feedback form POSTs here (fire-and-forget)
 ```
 
 ---
@@ -786,8 +844,10 @@ Conversation history: {history}
 
 ```
 I am building ALTER EGO.
-Stack: React Native + Expo + NativeWind v4 + FastAPI (Python 3.11.9) + Supabase.
+Stack: React Native + Expo + NativeWind v4 + TypeScript + Zustand + React Query + FastAPI (Python 3.11.9) + Supabase.
 Animation: No Rive. Characters and pets use Pika-generated MP4 clips via expo-av. UI animations use Reanimated 3.
+Frontend: API client (src/services/api.ts), auth store and user store (src/store), AppProviders. Screens use these; do not call Supabase auth or raw fetch from screens.
+Backend: Import from app.core.constants, app.core.supabase_client. Routes in app.api.*; profile + settings + mail routers registered in main.py.
 CLAUDE.md in project root contains all design tokens, colours, spacing, and decisions.
 Today I am building: [ITEM NAME FROM PART 4 v2.0].
 Refer to CLAUDE.md for all exact values. Do not approximate any colour, size, or spacing.
@@ -818,6 +878,16 @@ Refer to CLAUDE.md for all exact values. Do not approximate any colour, size, or
 | Showing per-mission streak on Personal missions | Mission streak (🔥N) shows on Core + Interest only, never Personal |
 | Twin level badge same as user level | Twin level badge always = user_level + 1 (capped at L10) |
 | Guilt-based nudge copy | Nudges are factual + in-character. No pleading. No "you're letting yourself down." |
+| Calling supabase.auth or fetch directly from screens | Use useAuthStore / useUserStore and apiClient from @/services/api |
+| Missing babel module-resolver for @/ | Add module-resolver with alias "@": "./src"; keep react-native-reanimated/plugin last |
+
+---
+
+## 17. NUDGE & MAIL SYSTEM (BACKEND)
+
+- **Nudge categories:** A (streak warning), B (intervention-hour–based for quit targets), C (general; can send as in-app mail).
+- **Intervention hour:** On quit_targets, `intervention_hour` (0–23) from onboarding urge_timing; used for Category B nudge timing. Migration: `002_add_intervention_hour.sql` (also adds `nudge_category` to nudge_log).
+- **In-app mail:** Table `app_mails`; welcome mail and Category C content. Mail API: GET inbox, PATCH read. Mail service + scheduler jobs in backend; profile overview returns `unread_mail_count`.
 
 ---
 

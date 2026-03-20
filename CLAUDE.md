@@ -543,7 +543,7 @@ All components live in `src/components/`. Props interfaces must stay stable.
 - **4 gap states:** AHEAD / CLOSING / MATCHED / PASSED (user overtook Twin = most memorable moment)
 - **3 tone types:** RIVAL (competitive, direct) / PHILOSOPHER (reflective, wistful) / SILENT FORCE (minimal, factual)
 - **4 adaptation parameters in discipline_dna:** tone_type / intensity (1–5) / gap_behavior / challenge_level
-- Recalibration: initial at onboarding, Day 10, then every 14 days. Never jumps >1 intensity point per cycle.
+- Recalibration: initial at onboarding, first behaviour calibration on **day 7**, then every **7** days. Never jumps >1 intensity point per cycle.
 - Twin strip messages are rule-based (no LLM cost). LLM only invoked when user opens Twin Chat.
 - Twin Chat scope: discipline, motivation, growth, reflection ONLY. "That won't make you stronger." for off-topic.
 - **Twin Chat unlocks at Stage 2 (The Focused).** Not available Day 1.
@@ -601,7 +601,7 @@ All components live in `src/components/`. Props interfaces must stay stable.
 - **Frequency caps:** Low=1/day (streak warning only) / Medium=2/day / High=3/day
 - Hard rules: never if app opened today. Never after 10pm local. Never guilt. One topic per nudge.
 - Copy generation: GPT-4o-mini per nudge. Anti-repetition: last 3 nudge texts injected into every call.
-- Adaptation: every 14 days, low open rate on type → deprioritise. Consistent opens → upgrade frequency.
+- Adaptation: every 7 days, low open rate on type → deprioritise. Consistent opens → upgrade frequency.
 - User controls frequency in Settings (Low / Medium / High).
 
 ### Weekly Report
@@ -777,7 +777,7 @@ ZAPIER_WEBHOOK_URL=          # optional; feedback form POSTs here (fire-and-forg
 
 | Agent | Trigger | Input | Output |
 |---|---|---|---|
-| Profiler (J1) | Onboarding + every 14 days | Onboarding answers + behavioural signals | discipline_dna JSON → users table |
+| Profiler (J1) | Onboarding + every 7 days | Onboarding answers + behavioural signals | discipline_dna JSON → users table |
 | Planner (J2) | Midnight per user timezone | discipline_dna + interests + quit_targets + daily_hours + interest_levels | Full day's missions (Core + Interest + Escaper) |
 | Nudge (J3) | Celery 2× daily per user | streak_log + pet_state + nudge_log (last 3) + discipline_dna | Push notification copy in Twin's tone |
 | Shadow Twin (J4) | Each chat message | Conversation history (last 20) + discipline_dna + gap_state | Twin response in character, max 2 sentences |

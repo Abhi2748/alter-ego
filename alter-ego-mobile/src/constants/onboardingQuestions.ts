@@ -26,13 +26,15 @@ const Q4_OPTIONS = [
   "Starting completely fresh",
   "Trying to quit something that's holding me back",
   "Looking to become a better version of myself",
+  "I've always been competitive and want to win this",
 ];
 
 const Q5_OPTIONS = [
   "I keep failing at habits and I'm tired of it",
   "I want to become someone genuinely different",
-  "I need to quit something for good",
-  "Someone showed me this",
+  "I want to prove to others that I can do this",
+  "I want to build something meaningful for my future",
+  "I want to level up and perform better",
 ];
 
 const Q6_OPTIONS = [
@@ -40,6 +42,7 @@ const Q6_OPTIONS = [
   "Dive straight in and figure it out",
   "Put it off until I can't anymore",
   "Break it into the smallest possible steps",
+  "I need accountability to stay consistent",
 ];
 
 const Q7_OPTIONS = [
@@ -47,6 +50,7 @@ const Q7_OPTIONS = [
   "Shake it off and start again",
   "Use it as fuel to come back harder",
   "Pretend it didn't happen and move on",
+  "I lock in harder so I don't miss again",
 ];
 
 const Q8_OPTIONS = [
@@ -54,20 +58,23 @@ const Q8_OPTIONS = [
   "I didn't want to let myself down",
   "It was genuinely enjoyable",
   "Someone was counting on me",
+  "Competing with others kept me sharp",
 ];
 
 const Q9_OPTIONS = [
   "Appreciate the structure — it helps",
   "Feel a little annoyed by it",
   "Depends entirely on who's telling me",
-  "Tune it out almost automatically",
+  "I work best with a clear structure and plan",
+  "I need someone to check in and keep me accountable",
 ];
 
 const Q10_OPTIONS = [
   "I love it — competition drives me",
   "Indifferent — I don't think about it",
   "Mildly motivating when I'm ahead",
-  "I'd rather just run my own race",
+  "Comparisons usually make me uncomfortable",
+  "I use comparison as a benchmark to improve",
 ];
 
 /** Q11: interests — no fixed options; "Add interest" flow with 3 sub-questions per interest. */

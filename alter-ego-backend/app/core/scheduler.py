@@ -276,8 +276,13 @@ async def twin_recalibration_job():
     from zoneinfo import ZoneInfo
 
     from app.core.supabase_client import supabase_admin
-    from app.services.twin_service import recalibrate_twin
+    from app.core.constants import (
+        TWIN_FIRST_CALIBRATION_DAY,
+        TWIN_RECALIBRATION_INTERVAL_DAYS,
+    )
+    from app.services.mail_service import send_app_mail
     from app.services.mission_service import get_days_since_registration
+    from app.services.twin_service import recalibrate_twin
 
     logger.info("twin_recalibration_job: starting")
 
@@ -315,18 +320,19 @@ async def twin_recalibration_job():
 
             should_recalibrate = False
 
-            if calibration_count == 0 and days >= 10:
+            if calibration_count == 0 and days >= TWIN_FIRST_CALIBRATION_DAY:
                 should_recalibrate = True
             elif last_cal:
                 from datetime import datetime as dt, timedelta
 
                 last_cal_date = dt.fromisoformat(str(last_cal))
                 days_since_cal = (dt.utcnow() - last_cal_date).days
-                if days_since_cal >= 14:
+                if days_since_cal >= TWIN_RECALIBRATION_INTERVAL_DAYS:
                     should_recalibrate = True
 
             if should_recalibrate:
                 await recalibrate_twin(user["id"])
+                await send_app_mail(user["id"], "twin_recalibration_note")
                 recal_count += 1
                 logger.info("twin_recalibration_job: recalibrated user %s", user["id"])
 

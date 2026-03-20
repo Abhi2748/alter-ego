@@ -26,7 +26,7 @@ This document describes how the current ALTER EGO codebase actually works today 
     1. `OnboardingFramingScreen` – philosophy framing and CTA.
     2. `OnboardingQuestionScreen` – reused for all 13 questions, driven by a questions constant.
     3. `ArchetypeRevealScreen` – reveals archetype and Twin’s first line.
-    4. `Onboarding14DayScreen` – “Your first 7 days we learn how you work best.” plus privacy line; CTA continues to Twin intro.
+    4. `Onboarding7DayScreen` – “Your first 7 days we learn how you work best.” plus privacy line; CTA continues to Twin intro.
     5. `TwinIntroductionScreen` – sets up the rivalry; on Begin it resets the stack to the main tabs.
   - On the final onboarding question:
     - The screen collects all answers from `OnboardingAnswersContext`.
@@ -159,7 +159,7 @@ This document describes how the current ALTER EGO codebase actually works today 
   - Uses `archetypeContent` from context, which is only available after a successful onboarding POST.
   - CTA “Enter →” transitions to `TwinIntroductionScreen`.
 
-- **`Onboarding14DayScreen`**
+- **`Onboarding7DayScreen`**
   - Shown after Archetype Reveal, before Twin Introduction.
   - **Premium background gradient**, particle dots.
   - Heading: “Your first 7 days we learn how you work best.” Subheading and privacy line; **Continue →** goes to `TwinIntroductionScreen`.
@@ -588,7 +588,7 @@ This document describes how the current ALTER EGO codebase actually works today 
 
 - **Profiler (`/agents/profile`)**
   - Given onboarding answers and optional behaviour stats:
-    - Runs GPT‑based Profiler agent via LangGraph.
+    - Runs GPT‑based Profiler agent via LangGraph (onboarding + **every 7 days** thereafter — same cadence as Twin `discipline_dna` refresh; see `PROFILER_RECUR_INTERVAL_DAYS` in `app/core/constants.py`).
     - Produces `discipline_dna` JSON describing tone, intensity, gap behaviour, challenge level, and nudge preferences.
     - Updates `users.discipline_dna`.
 
@@ -836,7 +836,7 @@ Backend routes: `alter-ego-backend/main.py` includes `user` router (line 4, 24).
 
 | Area | Change | Files |
 |------|--------|-------|
-| Onboarding flow | Inserted `Onboarding14DayScreen` between Archetype reveal and Twin intro. It shows animated 14‑day copy (“Your first 14 days we learn how you work best. Work at your own pace and in your own style.”) plus a short privacy line before continuing to Twin. | `alter-ego-mobile/src/screens/Onboarding14DayScreen.tsx`, `src/navigation/OnboardingStack.tsx`, `src/navigation/types.ts`, `src/screens/ArchetypeRevealScreen.tsx` (navigation + particle background + minimum processing duration). |
+| Onboarding flow | Inserted `Onboarding7DayScreen` between Archetype reveal and Twin intro. It shows 7‑day copy (“Your first 7 days we learn how you work best. Work at your own pace and in your own style.”) plus a short privacy line before continuing to Twin. | `alter-ego-mobile/src/screens/Onboarding7DayScreen.tsx`, `src/navigation/OnboardingStack.tsx`, `src/navigation/types.ts`, `src/screens/ArchetypeRevealScreen.tsx` (navigation + particle background + minimum processing duration). |
 | Archetype processing screen | The “Reading your answers / Building your Discipline DNA…” screen now uses a rotating dot ring (same visual as later phase) and enforces a **minimum display time** before reveal, even if `/onboarding` returns instantly. | `alter-ego-mobile/src/screens/ArchetypeRevealScreen.tsx`. |
 | Daily journal mission | Journaling is now a **permanent daily Interest mission**: Planner always inserts an `interest="Journal"` mission titled “Write today's journal entry.” (Easy difficulty) on both Day 1 and in nightly plans, skipping duplicates if one already exists. | `alter-ego-backend/agents/planner.py`, `alter-ego-backend/agents/planner_agent.py`. |
 | Home – Today’s Focus | Home no longer exposes an inline **Schedule** chip or `InterestSchedulePickerModal`. Today’s Focus is just the interest list (which now always includes the daily Journal mission), and schedule editing has moved to Profile → Interests. | `alter-ego-mobile/src/screens/HomeScreen.tsx`. |
@@ -854,7 +854,7 @@ Backend routes: `alter-ego-backend/main.py` includes `user` router (line 4, 24).
 | **Splash – crack sparks** | `alter-ego-mobile/src/screens/SplashScreen.tsx` | Sparks made **brighter and larger**: size 2px→4px (small 1.5→3), color/opacity and shadow (`#D7AAFF`, shadowRadius 8) increased. Spark positions adjusted for new sizes. |
 | **Splash – auto-navigate delay** | `alter-ego-mobile/src/screens/SplashScreen.tsx` | Navigate to SignUp after **5000ms** (was 2800ms). |
 | **Premium background (pre‑Main)** | `alter-ego-mobile/src/constants/theme.ts` | Added **`GRADIENTS.backgroundPremium`**: `#05060C` → `#0A0C18` → `#06070E` (same as splash). |
-| **Premium background usage** | `alter-ego-mobile/src/screens/SignUpScreen.tsx`, `OnboardingFramingScreen.tsx`, `OnboardingQuestionScreen.tsx`, `ArchetypeRevealScreen.tsx`, `Onboarding14DayScreen.tsx`, `TwinIntroductionScreen.tsx`, `src/navigation/OnboardingStack.tsx` | SignUp + all Onboarding screens use `GRADIENTS.backgroundPremium`; OnboardingStack `contentStyle` uses `#05060C`. |
+| **Premium background usage** | `alter-ego-mobile/src/screens/SignUpScreen.tsx`, `OnboardingFramingScreen.tsx`, `OnboardingQuestionScreen.tsx`, `ArchetypeRevealScreen.tsx`, `Onboarding7DayScreen.tsx`, `TwinIntroductionScreen.tsx`, `src/navigation/OnboardingStack.tsx` | SignUp + all Onboarding screens use `GRADIENTS.backgroundPremium`; OnboardingStack `contentStyle` uses `#05060C`. |
 | **M2 milestone – streak in middle** | `alter-ego-mobile/src/components/MilestoneCardScreen.tsx` | Stats row for M2 reordered to **Sessions \| Day Streak \| XP Total** (streak in centre). |
 | **Milestone card – Share visible** | `alter-ego-mobile/src/components/MilestoneCardScreen.tsx` | Scroll content `paddingBottom: 48`, `flexGrow: 1`; card `paddingBottom: 24`; Share button wrapped in `shareBtnWrap` so it remains visible when scrolling to bottom. |
 | **Interests – three‑dots, delete flow** | `alter-ego-mobile/src/screens/ProfileInterestsScreen.tsx` | **Trash icon removed** from each interest row. **Three‑dots menu** (top right) with “Delete an interest” → **delete mode**: selection circles on rows, violet border when selected, bottom bar “Cancel” / “Delete (N)” with confirm Alert before remove. Milestones hidden in delete mode. |
@@ -885,5 +885,5 @@ Backend routes: `alter-ego-backend/main.py` includes `user` router (line 4, 24).
 | **Shareable cards preview – full variant list** | `alter-ego-mobile/src/screens/ShareableCardsPreviewScreen.tsx` | **Removed**: Single “Milestone achievement card” preview (MilestoneAchievementCard). **Added**: (1) **Title cards (6)** – buttons 1–4 open Rank Card (Gold, Silver, Bronze, Default); 5–6 open Twin Comparison (Twin ahead, You ahead). (2) **Interest milestone cards (8)** – buttons 1–8 open `MilestoneDetailModal` with mock `MilestoneOut` (milestone_number 1–8) so all 8 interest card themes can be reviewed. (3) **Quit target milestone cards (8)** – Day 1, Day 3, Day 7, Day 14, Day 30, Day 60, Comeback, Conquered open `QuitMilestoneModal` with mock `QuitMilestoneOut` so all 8 quit card themes can be reviewed. Helpers: `getInterestMilestoneMock(n)`, `getQuitMilestoneMock(type)`; state: `interestPreviewNumber`, `quitPreviewType`. |
 | **Q13 – hero value and slider alignment** | `alter-ego-mobile/src/screens/OnboardingQuestionScreen.tsx` | **Hero card**: Value (“3h”) and label centred in the box via `alignItems: "center"`, `justifyContent: "center"` on the card and `textAlign: "center"` on value/label. **Slider**: Track (5px) and thumb (26px) vertically centred in the 24px track wrap so the pointer sits on the line: `q13TrackBg` / `q13TrackFill` use `top: (24 - 5) / 2`; `q13Thumb` uses `top: (24 - 26) / 2`. |
 | **Twin Chat – useEffect import** | `alter-ego-mobile/src/screens/TwinChatScreen.tsx` | **Fix**: Added `useEffect` to the React import to resolve `ReferenceError: Property 'useEffect' doesn't exist` when opening Twin Chat. |
-| **Onboarding 14-day screen – 7-day copy** | `alter-ego-mobile/src/screens/Onboarding14DayScreen.tsx` | Heading copy changed from “Your first 14 days we learn how you work best.” to **“Your first 7 days we learn how you work best.”** (screen still named Onboarding14Day in nav/types). |
+| **Onboarding 7-day screen** | `alter-ego-mobile/src/screens/Onboarding7DayScreen.tsx` | Route `Onboarding7Day`; heading **“Your first 7 days we learn how you work best.”** |
 

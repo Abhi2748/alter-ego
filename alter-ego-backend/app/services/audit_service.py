@@ -15,7 +15,7 @@ import logging
 from app.core.constants import (
     DAILY_PF_CAPS,
     DAILY_XP_CAPS,
-    MISSION_XP,
+    MISSION_XP_BY_TYPE,
     PET_NAMES,
     PF_THRESHOLDS,
     STAGE_NAMES,
@@ -71,10 +71,17 @@ def run_audit() -> dict:
         if stage not in DAILY_PF_CAPS:
             issues.append(f"DAILY_PF_CAPS missing stage {stage}")
 
-    # ── Check 5: Mission XP values are positive ───────────────────────────
-    for tier, xp in MISSION_XP.items():
-        if xp <= 0:
-            issues.append(f"MISSION_XP[{tier}] = {xp} is not positive")
+    # ── Check 5: Mission XP by type — all tiers positive; interest = resistance
+    for mtype, tiers in MISSION_XP_BY_TYPE.items():
+        for tier, xp in tiers.items():
+            if xp <= 0:
+                issues.append(
+                    f"MISSION_XP_BY_TYPE[{mtype}][{tier}] = {xp} is not positive"
+                )
+    if MISSION_XP_BY_TYPE["interest"] != MISSION_XP_BY_TYPE["resistance"]:
+        issues.append(
+            "MISSION_XP_BY_TYPE: interest and resistance XP must match (quit-target rate)"
+        )
 
     # ── Check 6: Validate users in DB against thresholds ─────────────────
     try:

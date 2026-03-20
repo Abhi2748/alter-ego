@@ -38,6 +38,7 @@ import {
   STREAK_MILESTONE_SUB,
 } from "@/constants/streakAnimationTiers";
 import { StreakOrnament } from "@/components/streak/StreakOrnament";
+import { BloomRadialGlow } from "@/components/streak/BloomRadialGlow";
 
 const STAGE_W = 360;
 const STAGE_H = 460;
@@ -101,7 +102,8 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
   const { width: winW, height: winH } = useWindowDimensions();
   const tier = useMemo(() => getStreakVisualTier(streakCount), [streakCount]);
   const gradId = useMemo(() => `sealGrad_${streakCount}`, [streakCount]);
-  const layoutScale = Math.min((winW * 0.92) / STAGE_W, (winH * 0.78) / STAGE_H, 1.15);
+  const layoutScale = Math.min((winW * 0.92) / STAGE_W, (winH * 0.72) / STAGE_H, 1.12);
+  const bloomGradId = useMemo(() => `bloom_${streakCount}_${tier.bloomSize}`, [streakCount, tier.bloomSize]);
 
   const overlayOpacity = useSharedValue(0);
   const bloomScale = useSharedValue(0.3);
@@ -301,34 +303,36 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
           ) : (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(3,3,11,0.93)" }]} />
           )}
-          <View style={[styles.fill, { backgroundColor: "rgba(3,3,11,0.88)" }]} pointerEvents="box-none">
+          <View style={styles.overlayCenter} pointerEvents="box-none">
             <View
               style={[
                 styles.stage,
                 {
                   transform: [{ scale: layoutScale }],
                   width: STAGE_W,
-                  minHeight: STAGE_H,
+                  height: STAGE_H,
                 },
               ]}
             >
               <Animated.View
                 style={[
-                  styles.bloom,
+                  styles.bloomWrap,
                   {
                     width: tier.bloomSize,
                     height: tier.bloomSize,
-                    borderRadius: halfBloom,
-                    top: "50%",
-                    left: "50%",
                     marginLeft: -halfBloom,
                     marginTop: -halfBloom,
-                    backgroundColor: tier.bloomColor,
                   },
                   bloomStyle,
                 ]}
                 pointerEvents="none"
-              />
+              >
+                <BloomRadialGlow
+                  size={tier.bloomSize}
+                  bloomColor={tier.bloomColor}
+                  gradientId={bloomGradId}
+                />
+              </Animated.View>
 
               <Animated.View
                 style={[
@@ -407,56 +411,65 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
                 <SealRing size={ringSize} tier={tier} gradId={gradId} />
               </Animated.View>
 
-              <Animated.View style={[styles.heroCol, heroStyle]}>
-                {tier.badge ? (
-                  <Animated.View
-                    style={[
-                      styles.badge,
-                      {
-                        backgroundColor: tier.badge.bg,
-                        borderColor: tier.badge.border,
-                      },
-                      badgeStyle,
-                    ]}
-                  >
-                    <Text style={[styles.badgeText, { color: tier.badge.color }]}>{tier.badge.text}</Text>
-                  </Animated.View>
-                ) : null}
-                <Animated.Text style={[styles.flame, { fontSize: tier.flameSize }, flameStyle]}>
-                  🔥
-                </Animated.Text>
-                <MaskedView
-                  style={{ height: tier.numSize + 8, alignSelf: "center", minWidth: 120 }}
-                  maskElement={
-                    <Text
-                      style={[
-                        styles.numMask,
-                        {
-                          fontSize: tier.numSize,
-                          lineHeight: tier.numSize + 4,
-                        },
-                      ]}
+              <View style={styles.centerStack} pointerEvents="none">
+                <View style={styles.centerStackInner}>
+                  <Animated.View style={[styles.heroCol, heroStyle]}>
+                    {tier.badge ? (
+                      <Animated.View
+                        style={[
+                          styles.badge,
+                          {
+                            backgroundColor: tier.badge.bg,
+                            borderColor: tier.badge.border,
+                          },
+                          badgeStyle,
+                        ]}
+                      >
+                        <Text style={[styles.badgeText, { color: tier.badge.color }]}>{tier.badge.text}</Text>
+                      </Animated.View>
+                    ) : null}
+                    <Animated.Text style={[styles.flame, { fontSize: tier.flameSize }, flameStyle]}>
+                      🔥
+                    </Animated.Text>
+                    <MaskedView
+                      style={{
+                        height: tier.numSize + 8,
+                        alignSelf: "center",
+                        minWidth: 120,
+                        maxWidth: 280,
+                      }}
+                      maskElement={
+                        <Text
+                          style={[
+                            styles.numMask,
+                            {
+                              fontSize: tier.numSize,
+                              lineHeight: tier.numSize + 4,
+                            },
+                          ]}
+                        >
+                          {String(streakCount)}
+                        </Text>
+                      }
                     >
-                      {String(streakCount)}
-                    </Text>
-                  }
-                >
-                  <LinearGradient
-                    colors={tier.numGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={{ height: tier.numSize + 8, width: winW }}
-                  />
-                </MaskedView>
-              </Animated.View>
+                      <LinearGradient
+                        colors={tier.numGradient}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={{ height: tier.numSize + 8, width: 280 }}
+                      />
+                    </MaskedView>
+                  </Animated.View>
 
-              <Animated.View style={[styles.labelBlock, labelsStyle]}>
-                <Text style={[styles.labelStreak, { color: tier.streakLabelColor }]}>DAY STREAK</Text>
-                <Text style={styles.labelDay}>{getOrdinalDayLabel(streakCount)}</Text>
-                {milestoneSub ? (
-                  <Text style={[styles.labelSub, { color: tier.streakLabelColor }]}>{milestoneSub}</Text>
-                ) : null}
-              </Animated.View>
+                  <Animated.View style={[styles.labelBlock, labelsStyle]}>
+                    <Text style={[styles.labelStreak, { color: tier.streakLabelColor }]}>DAY STREAK</Text>
+                    <Text style={styles.labelDay}>{getOrdinalDayLabel(streakCount)}</Text>
+                    {milestoneSub ? (
+                      <Text style={[styles.labelSub, { color: tier.streakLabelColor }]}>{milestoneSub}</Text>
+                    ) : null}
+                  </Animated.View>
+                </View>
+              </View>
 
               <Animated.Text style={[styles.dismiss, dismissStyle]}>tap to continue</Animated.Text>
             </View>
@@ -506,24 +519,48 @@ function CornerMarks({ color }: { color: string }) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  stage: {
-    alignSelf: "center",
-    marginTop: 0,
-    alignItems: "center",
+  overlayCenter: {
+    flex: 1,
+    width: "100%",
     justifyContent: "center",
-    position: "relative",
+    alignItems: "center",
   },
-  bloom: {
+  stage: {
+    position: "relative",
+    overflow: "visible",
+  },
+  bloomWrap: {
     position: "absolute",
+    top: "50%",
+    left: "50%",
+    overflow: "visible",
+    zIndex: 0,
+  },
+  centerStack: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 12,
+  },
+  centerStackInner: {
+    alignItems: "center",
+    maxWidth: 320,
+    paddingHorizontal: 8,
   },
   shock: {
     position: "absolute",
     backgroundColor: "transparent",
+    zIndex: 1,
   },
   spinWrap: {
     position: "absolute",
     top: "50%",
     left: "50%",
+    zIndex: 3,
   },
   ornamentWrap: {
     position: "absolute",
@@ -535,16 +572,17 @@ const styles = StyleSheet.create({
     marginTop: -160,
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 4,
   },
   ringCenter: {
     position: "absolute",
     top: "50%",
     left: "50%",
+    zIndex: 8,
   },
   heroCol: {
     alignItems: "center",
     zIndex: 10,
-    marginTop: -20,
   },
   numMask: {
     fontWeight: "900",
@@ -579,6 +617,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 10,
     paddingHorizontal: 16,
+    width: "100%",
   },
   labelStreak: {
     fontSize: 12,
@@ -607,10 +646,14 @@ const styles = StyleSheet.create({
   },
   dismiss: {
     position: "absolute",
-    bottom: 24,
+    bottom: 20,
+    left: 0,
+    right: 0,
+    textAlign: "center",
     fontSize: 10,
     letterSpacing: 1.5,
     textTransform: "uppercase",
-    color: "#2D3146",
+    color: "#4B5563",
+    zIndex: 20,
   },
 });

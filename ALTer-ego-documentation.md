@@ -317,7 +317,7 @@ Generate daily **resistance missions** for quit targets that always prescribe a 
   - `estimate_personal_mission_tier(mission_text)` using `gpt-4o-mini` with JSON parsing + safe fallback
 - **Updated** `alter-ego-backend/app/api/missions.py`:
   - `POST /api/v1/missions/personal/estimate`
-  - `POST /api/v1/missions/personal/create` (max 2/day; inserts `type='personal'`)
+  - `POST /api/v1/missions/personal/create` (inserts `type='personal'`; no per-day cap)
   - `DELETE /api/v1/missions/personal/{mission_id}` (only if not completed)
 - **Updated** `alter-ego-backend/main.py`:
   - Starts scheduler on startup and shuts it down on app shutdown
@@ -552,7 +552,7 @@ Pre-written in-app mails triggered by events; stored in `app_mails` and displaye
   - `MAIL_CONTENT`: welcome, twin_guide, first_streak_tip, leaderboard_unlock, pet_unlock, day_7_checkin, streak_requirement_update, first_difficulty_upgrade, twin_recalibration_note, week_4_encouragement (subject + body markdown).
   - `send_app_mail(user_id, mail_type, template_data)` inserts into `app_mails`.
   - `send_welcome_mail_sequence(user_id)` sends welcome mail.
-  - `check_and_send_scheduled_mails(user_id)` runs day-based logic: twin_guide (day 2+), day_7_checkin (day 7+), twin_recalibration_note (day 10+), week_4_encouragement (day 28+), each at most once.
+  - `check_and_send_scheduled_mails(user_id)` runs day-based logic: twin_guide (day 2+), week_4_encouragement (day 28+), each at most once. `twin_recalibration_note` is sent from `twin_recalibration_job` after each recalibration (day 7, 14, …). `day_7_checkin` template exists for optional use; not auto-sent (avoids duplicate with first recalibration mail).
 - **Created** `alter-ego-backend/app/api/mail.py`:
   - `GET /api/v1/mail`: list mails for user, `unread_count`, `total`.
   - `POST /api/v1/mail/{mail_id}/read`: mark one read.
@@ -616,7 +616,7 @@ Validate that stored user data and product constants stay in sync (no drift befo
 
 ### What we did
 - **Created** `alter-ego-backend/app/services/audit_service.py`:
-  - `run_audit()`: checks XP_THRESHOLDS/PF_THRESHOLDS ascending; STAGE_NAMES/PET_NAMES length; DAILY_XP_CAPS/DAILY_PF_CAPS for all stages; MISSION_XP positive; fetches onboarded users and validates total_xp vs character_stage, total_pf vs pet_stage, stage bounds.
+  - `run_audit()`: checks XP_THRESHOLDS/PF_THRESHOLDS ascending; STAGE_NAMES/PET_NAMES length; DAILY_XP_CAPS/DAILY_PF_CAPS for all stages; `MISSION_XP_BY_TYPE` (all tiers positive; interest matches resistance); fetches onboarded users and validates total_xp vs character_stage, total_pf vs pet_stage, stage bounds.
   - Returns `{ passed, issues[], warnings[], constants_validated }` and prints ✅/❌/⚠️.
 - **Run:** from `alter-ego-backend/`: `python -m app.services.audit_service`.
 

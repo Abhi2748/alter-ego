@@ -97,15 +97,15 @@ def get_twin_daily_rate(archetype: str, day_of_week: int, base_completion_rate: 
     return round(max(0.45, min(0.95, rate)), 3)
 
 
-def recalibrate_twin_base_rate(current_base_rate: float, user_completion_rate_14d: float) -> float:
+def recalibrate_twin_base_rate(current_base_rate: float, user_completion_rate_recent: float) -> float:
     """
-    Called by the recalibration cron (B25) every 14 days.
+    Called by the twin recalibration job (first on day 7, then every 7 days).
     Shifts the twin's base_completion_rate slightly based on recent user performance.
     """
     shift = 0.0
-    if user_completion_rate_14d > 85:
+    if user_completion_rate_recent > 85:
         shift = 0.03
-    elif user_completion_rate_14d < 50:
+    elif user_completion_rate_recent < 50:
         shift = -0.03
 
     new_rate = current_base_rate + shift
@@ -415,12 +415,12 @@ async def get_home_strip_context(user_id: str) -> dict:
 
 async def recalibrate_twin(user_id: str) -> dict:
     """
-    Runs every 14 days (day 10 first time, then every 14 days after).
+    First run on day 7 (after archetype-led period), then every 7 days.
     Updates discipline_dna parameters and twin base rate based on behaviour.
     """
     from datetime import date as date_type, timedelta
 
-    from app.core.constants import TWIN_FIRST_CALIBRATION_DAY, TWIN_RECALIBRATION_INTERVAL_DAYS
+    from app.core.constants import TWIN_RECALIBRATION_INTERVAL_DAYS
 
     user_result = (
         supabase_admin.table("users")
@@ -446,13 +446,15 @@ async def recalibrate_twin(user_id: str) -> dict:
     twin = twin_result.data or {}
 
     today = date_type.today()
-    fourteen_days_ago = str(today - timedelta(days=14))
+    lookback = TWIN_RECALIBRATION_INTERVAL_DAYS
+    window_start = str(today - timedelta(days=lookback))
+    thirty_days_ago = str(today - timedelta(days=30))
 
     streak_rows = (
         supabase_admin.table("streak_log")
         .select("total_missions_done, total_missions")
         .eq("user_id", user_id)
-        .gte("log_date", fourteen_days_ago)
+        .gte("log_date", window_start)
         .execute()
         .data
         or []
@@ -460,14 +462,27 @@ async def recalibrate_twin(user_id: str) -> dict:
 
     total_done = sum(int(r.get("total_missions_done") or 0) for r in streak_rows)
     total_possible = sum(int(r.get("total_missions") or 0) for r in streak_rows)
-    completion_rate_14d = (total_done / total_possible * 100) if total_possible > 0 else 0.0
+    completion_rate_recent = (total_done / total_possible * 100) if total_possible > 0 else 0.0
+
+    streak_rows_30 = (
+        supabase_admin.table("streak_log")
+        .select("total_missions_done, total_missions")
+        .eq("user_id", user_id)
+        .gte("log_date", thirty_days_ago)
+        .execute()
+        .data
+        or []
+    )
+    done_30 = sum(int(r.get("total_missions_done") or 0) for r in streak_rows_30)
+    poss_30 = sum(int(r.get("total_missions") or 0) for r in streak_rows_30)
+    completion_rate_30d = (done_30 / poss_30 * 100) if poss_30 > 0 else 0.0
 
     chat_count = (
         supabase_admin.table("twin_messages")
         .select("id", count="exact")
         .eq("user_id", user_id)
         .eq("role", "user")
-        .gte("created_at", datetime.utcnow() - timedelta(days=14))
+        .gte("created_at", datetime.utcnow() - timedelta(days=lookback))
         .execute()
         .count
         or 0
@@ -485,7 +500,7 @@ async def recalibrate_twin(user_id: str) -> dict:
         .select("properties")
         .eq("user_id", user_id)
         .eq("event_name", "app_opened")
-        .gte("logged_at", datetime.utcnow() - timedelta(days=14))
+        .gte("logged_at", datetime.utcnow() - timedelta(days=lookback))
         .execute()
         .data
         or []
@@ -507,9 +522,9 @@ async def recalibrate_twin(user_id: str) -> dict:
     user_is_ahead = int(user.get("total_xp") or 0) > int(twin.get("twin_xp") or 0)
 
     if user_is_ahead:
-        gap_response = "motivated_by_gap" if completion_rate_14d > 75 else "indifferent_to_gap"
+        gap_response = "motivated_by_gap" if completion_rate_recent > 75 else "indifferent_to_gap"
     elif gap_state == "significantly_behind":
-        gap_response = "motivated_by_gap" if completion_rate_14d > 70 else "discouraged_by_gap"
+        gap_response = "motivated_by_gap" if completion_rate_recent > 70 else "discouraged_by_gap"
     else:
         gap_response = "indifferent_to_gap"
 
@@ -520,9 +535,9 @@ async def recalibrate_twin(user_id: str) -> dict:
 
     updates: dict = {}
 
-    if completion_rate_14d > 85 and current_intensity < 5:
+    if completion_rate_recent > 85 and current_intensity < 5:
         updates["twin_intensity"] = min(5, current_intensity + 1)
-    elif completion_rate_14d < 45 and current_intensity > 1:
+    elif completion_rate_recent < 45 and current_intensity > 1:
         updates["twin_intensity"] = max(1, current_intensity - 1)
 
     if gap_response == "motivated_by_gap":
@@ -540,8 +555,8 @@ async def recalibrate_twin(user_id: str) -> dict:
     if activity_hour is not None:
         updates["activity_time_of_day"] = activity_hour
 
-    updates["completion_rate_7d"] = round(completion_rate_14d, 2)
-    updates["completion_rate_30d"] = round(completion_rate_14d, 2)
+    updates["completion_rate_7d"] = round(completion_rate_recent, 2)
+    updates["completion_rate_30d"] = round(completion_rate_30d, 2)
     updates["twin_chat_engagement"] = chat_engagement
     updates["gap_response_pattern"] = gap_response
     updates["last_calibration_at"] = datetime.utcnow().isoformat()
@@ -550,14 +565,15 @@ async def recalibrate_twin(user_id: str) -> dict:
     supabase_admin.table("discipline_dna").update(updates).eq("user_id", user_id).execute()
 
     current_base = float(twin.get("consistency_ceiling", 0.75))
-    new_base = recalibrate_twin_base_rate(current_base, completion_rate_14d)
+    new_base = recalibrate_twin_base_rate(current_base, completion_rate_recent)
     if new_base != current_base:
         supabase_admin.table("twin_state").update({"consistency_ceiling": new_base}).eq("user_id", user_id).execute()
 
     return {
         "recalibrated": True,
         "calibration_count": updates["calibration_count"],
-        "completion_rate_14d": round(completion_rate_14d, 1),
+        "completion_rate_7d": round(completion_rate_recent, 1),
+        "completion_rate_30d": round(completion_rate_30d, 1),
         "gap_response": gap_response,
         "chat_engagement": chat_engagement,
         "changes": {

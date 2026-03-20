@@ -252,14 +252,27 @@ export function SignUpScreen() {
         /* non-blocking */
       }
       try {
-        await onboardingService.createProfile();
-        const me = await apiClient.get<{
+        const createProfilePromise = onboardingService.createProfile();
+        const mePromise = apiClient.get<{
           exists: boolean;
           onboarding_complete?: boolean;
         }>("/api/v1/auth/me");
-        navigation.replace(
-          me.exists && me.onboarding_complete ? "Main" : "Onboarding"
-        );
+
+        // Parallelize so the navigation decision returns quicker.
+        const [, meResult] = await Promise.allSettled([
+          createProfilePromise,
+          mePromise,
+        ]);
+
+        if (
+          meResult.status === "fulfilled" &&
+          meResult.value?.exists &&
+          meResult.value?.onboarding_complete
+        ) {
+          navigation.replace("Main");
+        } else {
+          navigation.replace("Onboarding");
+        }
       } catch {
         navigation.replace("Onboarding");
       }

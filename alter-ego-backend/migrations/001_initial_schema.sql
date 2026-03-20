@@ -342,18 +342,20 @@ CREATE INDEX IF NOT EXISTS idx_missions_multiday_parent ON missions(multiday_par
 
 -- Mission ratings
 CREATE TABLE IF NOT EXISTS mission_ratings (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  mission_id    UUID NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
-  interest_id   UUID REFERENCES interests(id) ON DELETE SET NULL,
-  rating        INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
-  feedback_text TEXT,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  mission_id      UUID NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  interest_id     UUID REFERENCES interests(id) ON DELETE SET NULL,
+  quit_target_id  UUID REFERENCES quit_targets(id) ON DELETE SET NULL,
+  rating          INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  feedback_text   TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_mission_ratings_user ON mission_ratings(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mission_ratings_mission ON mission_ratings(mission_id);
 CREATE INDEX IF NOT EXISTS idx_mission_ratings_interest ON mission_ratings(interest_id, created_at) WHERE interest_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_mission_ratings_quit_target ON mission_ratings(quit_target_id, created_at DESC) WHERE quit_target_id IS NOT NULL;
 
 -- =====================================================================================
 -- SECTION 4 — JOURNAL

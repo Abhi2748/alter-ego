@@ -7,6 +7,7 @@ import {
   useQuery,
   useMutation,
   useQueryClient,
+  type QueryClient,
 } from "@tanstack/react-query";
 import {
   missionsService,
@@ -24,12 +25,25 @@ export const MISSION_KEYS = {
 
 // ── Fetch today's missions ─────────────────────────────────────────────────
 
+const TODAY_MISSIONS_STALE_MS = 2 * 60 * 1000;
+
 export function useTodayMissions() {
   return useQuery({
     queryKey: MISSION_KEYS.today,
     queryFn: missionsService.getTodayMissions,
-    staleTime: 2 * 60 * 1000,
+    staleTime: TODAY_MISSIONS_STALE_MS,
     refetchOnMount: true,
+  });
+}
+
+/**
+ * Prefetch today's missions (e.g. during Archetype Reveal / 7-day screen) so Home loads from cache.
+ */
+export function prefetchTodayMissions(queryClient: QueryClient) {
+  return queryClient.prefetchQuery({
+    queryKey: MISSION_KEYS.today,
+    queryFn: missionsService.getTodayMissions,
+    staleTime: TODAY_MISSIONS_STALE_MS,
   });
 }
 
@@ -40,7 +54,6 @@ export function useCompleteMission() {
   const updateXP = useUserStore((state) => state.updateXP);
   const updatePF = useUserStore((state) => state.updatePF);
   const updateStreak = useUserStore((state) => state.updateStreak);
-  const updateStage = useUserStore((state) => state.updateStage);
   const updatePetStage = useUserStore((state) => state.updatePetStage);
 
   return useMutation({
@@ -89,18 +102,20 @@ export function useCompleteMission() {
     onSuccess: (result: CompleteMissionResponse) => {
       if (result.already_completed) return;
 
-      updateXP(result.xp_earned, result.new_total_xp);
+      updateXP(
+        result.xp_earned,
+        result.new_total_xp,
+        result.stage_evolved
+          ? {
+              stage: result.stage_evolved.new_stage,
+              name: result.stage_evolved.new_stage_name,
+            }
+          : undefined
+      );
       updatePF(result.pf_earned, result.new_total_pf);
 
       if (result.streak_updated && result.current_streak != null) {
         updateStreak(result.current_streak);
-      }
-
-      if (result.stage_evolved) {
-        updateStage(
-          result.stage_evolved.new_stage,
-          result.stage_evolved.new_stage_name
-        );
       }
 
       if (result.pet_evolved) {

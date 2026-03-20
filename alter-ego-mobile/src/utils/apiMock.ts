@@ -33,7 +33,24 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const MOCK_DELAY = 300;
 
-// Reusable mock mission
+/** Spec §9 — aligns mock payloads with backend MISSION_XP_BY_TYPE / PERSONAL_MISSION_XP_BY_TIER */
+const MOCK_CORE_XP_PF = {
+  Easy: { xp: 15, pf: 12 },
+  Medium: { xp: 25, pf: 20 },
+  Hard: { xp: 40, pf: 32 },
+} as const;
+const MOCK_INTEREST_XP_PF = {
+  Easy: { xp: 10, pf: 8 },
+  Medium: { xp: 20, pf: 16 },
+  Hard: { xp: 30, pf: 24 },
+} as const;
+const MOCK_PERSONAL_XP_PF = {
+  Easy: { xp: 8, pf: 6 },
+  Medium: { xp: 15, pf: 11 },
+  Hard: { xp: 22, pf: 17 },
+} as const;
+
+// Reusable mock mission (defaults: core, medium difficulty)
 const mockMission = (overrides: Partial<MissionOut> = {}): MissionOut => ({
   id: "mock-mission-1",
   user_id: "mock-user",
@@ -42,8 +59,8 @@ const mockMission = (overrides: Partial<MissionOut> = {}): MissionOut => ({
   interest: null,
   title: "Get 7+ hours of sleep",
   difficulty: "Medium",
-  xp_value: 25,
-  pet_food_value: 20,
+  xp_value: MOCK_CORE_XP_PF.Medium.xp,
+  pet_food_value: MOCK_CORE_XP_PF.Medium.pf,
   mission_streak: 2,
   completed_at: null,
   expires_at: new Date(Date.now() + 86400000).toISOString(),
@@ -94,10 +111,40 @@ export async function getHome(_accessToken: string): Promise<HomeOut> {
       total_pet_food: 450,
     },
     missions: [
-      mockMission({ id: "m1", title: "Get 7+ hours of sleep", pillar: "sleep", completed_at: new Date().toISOString() }),
-      mockMission({ id: "m2", title: "Move for 30 minutes", pillar: "movement" }),
-      mockMission({ id: "m3", title: "Drink 8 glasses of water", pillar: "hydration" }),
-      mockMission({ id: "m4", type: "interest", interest: "Running", title: "Run 2 miles" }),
+      mockMission({
+        id: "m1",
+        title: "Get 7+ hours of sleep",
+        pillar: "sleep",
+        difficulty: "Easy",
+        xp_value: MOCK_CORE_XP_PF.Easy.xp,
+        pet_food_value: MOCK_CORE_XP_PF.Easy.pf,
+        completed_at: new Date().toISOString(),
+      }),
+      mockMission({
+        id: "m2",
+        title: "Move for 30 minutes",
+        pillar: "movement",
+        difficulty: "Medium",
+        xp_value: MOCK_CORE_XP_PF.Medium.xp,
+        pet_food_value: MOCK_CORE_XP_PF.Medium.pf,
+      }),
+      mockMission({
+        id: "m3",
+        title: "Drink 8 glasses of water",
+        pillar: "hydration",
+        difficulty: "Easy",
+        xp_value: MOCK_CORE_XP_PF.Easy.xp,
+        pet_food_value: MOCK_CORE_XP_PF.Easy.pf,
+      }),
+      mockMission({
+        id: "m4",
+        type: "interest",
+        interest: "Running",
+        title: "Run 2 miles",
+        difficulty: "Medium",
+        xp_value: MOCK_INTEREST_XP_PF.Medium.xp,
+        pet_food_value: MOCK_INTEREST_XP_PF.Medium.pf,
+      }),
     ],
     twin_strip_message: "Your rival is you — one week ahead. Show up and close the gap.",
     power_score: 1240,
@@ -304,8 +351,8 @@ export async function estimatePersonalTier(
   await delay(MOCK_DELAY);
   return {
     suggested_difficulty: "Medium",
-    xp_value: 20,
-    pet_food_value: 16,
+    xp_value: 15,
+    pet_food_value: 11,
   };
 }
 
@@ -314,6 +361,7 @@ export async function createMission(
   payload: CreateMissionPayload
 ): Promise<MissionOut> {
   await delay(MOCK_DELAY);
+  const tier = MOCK_PERSONAL_XP_PF[payload.difficulty];
   return mockMission({
     id: `mock-personal-${Date.now()}`,
     type: "personal",
@@ -321,6 +369,8 @@ export async function createMission(
     interest: null,
     title: payload.title,
     difficulty: payload.difficulty,
+    xp_value: tier.xp,
+    pet_food_value: tier.pf,
   });
 }
 
@@ -344,11 +394,11 @@ export async function getTwinComparison(_accessToken: string): Promise<TwinCompa
     gap_days: 7,
     username: "shadow_wolf",
     twin_today_activities: [
-      { mission_title: "Get 7+ hours of sleep", mission_type: "core", difficulty: "Easy", xp_earned: 25, completed_at: `${today}T06:30:00Z` },
-      { mission_title: "Move for 30 minutes", mission_type: "core", difficulty: "Medium", xp_earned: 25, completed_at: `${today}T07:15:00Z` },
-      { mission_title: "Drink 8 glasses of water", mission_type: "core", difficulty: "Medium", xp_earned: 25, completed_at: `${today}T08:00:00Z` },
-      { mission_title: "Run 2 miles", mission_type: "focus", difficulty: "Medium", xp_earned: 25, completed_at: `${today}T09:10:00Z` },
-      { mission_title: "Read for 20 minutes", mission_type: "personal", difficulty: "Easy", xp_earned: 0, completed_at: null },
+      { mission_title: "Get 7+ hours of sleep", mission_type: "core", difficulty: "Easy", xp_earned: MOCK_CORE_XP_PF.Easy.xp, completed_at: `${today}T06:30:00Z` },
+      { mission_title: "Move for 30 minutes", mission_type: "core", difficulty: "Medium", xp_earned: MOCK_CORE_XP_PF.Medium.xp, completed_at: `${today}T07:15:00Z` },
+      { mission_title: "Drink 8 glasses of water", mission_type: "core", difficulty: "Easy", xp_earned: MOCK_CORE_XP_PF.Easy.xp, completed_at: `${today}T08:00:00Z` },
+      { mission_title: "Run 2 miles", mission_type: "focus", difficulty: "Medium", xp_earned: MOCK_INTEREST_XP_PF.Medium.xp, completed_at: `${today}T09:10:00Z` },
+      { mission_title: "Read for 20 minutes", mission_type: "personal", difficulty: "Easy", xp_earned: MOCK_PERSONAL_XP_PF.Easy.xp, completed_at: null },
     ],
   };
 }

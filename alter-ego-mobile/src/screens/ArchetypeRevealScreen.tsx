@@ -1,6 +1,6 @@
 /**
  * Archetype Reveal. After questions: show "Building your Discipline DNA", POST /onboarding, then reveal.
- * Phase A: Processing (while POST runs). Phase B: Reveal + 14-day framing. Enter → Twin Introduction.
+ * Phase A: Processing (while POST runs). Phase B: Reveal + 7-day screen. Enter → Twin Introduction.
  */
 
 import React, { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from "react";
@@ -100,9 +100,11 @@ function ParticleDot({ config }: { config: ParticleConfig }) {
     />
   );
 }
+import { useQueryClient } from "@tanstack/react-query";
 import type { OnboardingStackParamList } from "../navigation/types";
 import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
 import { COLORS, SPACING, RADIUS, GRADIENTS, SHADOWS } from "../constants/theme";
+import { prefetchTodayMissions } from "@/hooks/useMissions";
 
 const DOT_COUNT = 8;
 const DOT_SIZE = 6;
@@ -116,9 +118,16 @@ type Route = RouteProp<OnboardingStackParamList, "ArchetypeReveal">;
 export function ArchetypeRevealScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
+  const queryClient = useQueryClient();
   const archetypeResult = route.params?.archetypeResult;
   const { archetypeContent, setArchetypeContent } = useOnboardingAnswers();
   const particleConfigs = useMemo(() => getParticleConfigs(), []);
+
+  /** Warm Home missions cache while user reads reveal + 7-day + Twin intro. */
+  useEffect(() => {
+    if (!archetypeResult) return;
+    void prefetchTodayMissions(queryClient);
+  }, [archetypeResult, queryClient]);
 
   const [phase, setPhase] = useState<"processing" | "reveal">(() =>
     route.params?.archetypeResult ? "reveal" : "processing"
@@ -220,16 +229,10 @@ export function ArchetypeRevealScreen() {
   }, [phase]);
 
   const handleEnter = useCallback(() => {
-    navigation.navigate("Onboarding14Day", {
-      twinFirstMessage:
-        archetypeResult?.twin_first_message ?? "",
+    navigation.navigate("Onboarding7Day", {
       archetype: archetypeResult?.archetype_name ?? "",
     });
-  }, [
-    navigation,
-    archetypeResult?.twin_first_message,
-    archetypeResult?.archetype_name,
-  ]);
+  }, [navigation, archetypeResult?.archetype_name]);
 
   const dotRingStyle = useAnimatedStyle(() => {
     "worklet";

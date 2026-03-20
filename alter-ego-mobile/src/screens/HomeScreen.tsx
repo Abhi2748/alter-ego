@@ -11,7 +11,6 @@ import {
   ScrollView,
   Pressable,
   Dimensions,
-  ActivityIndicator,
   Platform,
   Image,
 } from "react-native";
@@ -24,13 +23,14 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { XPProgressBar, XPProgressBarRef } from "../components/XPProgressBar";
+import { getNextStageNameForBar } from "@/constants/characterProgression";
 import { PetRoaming } from "../components/PetRoaming";
 import { HomeMissionCard } from "../components/HomeMissionCard";
 import type { MissionType, MissionStatus } from "../components/MissionCard";
 import { AddMissionModal } from "../components/AddMissionModal";
 import { CharacterEvolutionOverlay } from "../components/CharacterEvolutionOverlay";
 import { MilestoneAchievementCard } from "../components/MilestoneAchievementCard";
-import { SkeletonCard } from "@/components/SkeletonCard";
+import { HomeMissionSectionsSkeleton } from "@/components/HomeMissionSectionsSkeleton";
 import { useUserStore } from "@/store/userStore";
 import { useTodayMissions, useCompleteMission, useDeletePersonalMission } from "@/hooks/useMissions";
 import { DeleteMissionSheet } from "@/components/DeleteMissionSheet";
@@ -162,7 +162,9 @@ export function HomeScreen() {
   const heroY = 20 + 4 + CHARACTER_HEIGHT / 2 - ROAMING_PET_SIZE / 2;
 
   const profile = useUserStore((state) => state.profile);
-  const { data: todayData, isLoading, error, refetch } = useTodayMissions();
+  const { data: todayData, isPending, isFetching, error, refetch } = useTodayMissions();
+  /** No cached missions yet — show full mission-area skeleton (top may already render from profile). */
+  const showMissionSkeletons = !error && !todayData && (isPending || isFetching);
   const { mutate: completeMission, isPending: isCompleting } = useCompleteMission();
   const { mutate: deletePersonalMission } = useDeletePersonalMission();
   const { data: twinStrip } = useTwinStrip();
@@ -210,8 +212,10 @@ export function HomeScreen() {
   const characterStage = profile?.character_stage ?? 1;
   const stageTitle = profile?.character_stage_name ?? "The Awakened";
   const displayXP = profile?.total_xp ?? 0;
-  const nextStageXP = profile?.xp_to_next_stage ?? 800;
-  const nextStageName = profile?.character_stage_name ?? "The Focused";
+  /** 0–100 within current stage — same as profile/overview (fill bar to next threshold). */
+  const stageProgressPct = profile?.stage_progress_pct ?? 0;
+  /** Stage name you’re progressing toward (e.g. The Focused while still Awakened). */
+  const nextStageLabel = getNextStageNameForBar(characterStage);
   const petStage = profile?.pet_stage ?? 0;
   const totalPetFood = profile?.total_pf ?? 0;
   const streak = profile?.current_streak ?? 0;
@@ -245,15 +249,15 @@ export function HomeScreen() {
   const pfProgress = profile?.pf_progress_pct ?? 0;
   const petLevelPct = pfProgress / 100;
 
-  const triggerXpBarAnimation = useCallback(() => {
-    setTimeout(() => xpBarRef.current?.animateXpGain(), 0);
-  }, []);
-
   const handleComplete = useCallback(
     (missionId: string) => {
-      triggerXpBarAnimation();
       completeMission(missionId, {
         onSuccess: (result) => {
+          if (!result.already_completed && !result.stage_evolved) {
+            requestAnimationFrame(() => {
+              xpBarRef.current?.animateXpGain();
+            });
+          }
           if (result.streak_animation?.show) {
             setStreakAnimationData({
               show: true,
@@ -280,7 +284,7 @@ export function HomeScreen() {
         },
       });
     },
-    [completeMission, triggerXpBarAnimation]
+    [completeMission]
   );
 
   const showTwinStrip = twinStrip?.has_twin && twinStrip?.strip_message;
@@ -312,16 +316,15 @@ export function HomeScreen() {
   const handleAddMission = useCallback(
     async (title: string, difficulty: "Easy" | "Medium" | "Hard") => {
       const today = new Date().toISOString().slice(0, 10);
-      const estimate = await missionsService.estimatePersonalMission(title);
-      const tier = (estimate?.tier ?? "medium") as "easy" | "medium" | "hard" | "multiday";
-      const xp = estimate?.xp ?? 15;
-      const pf = estimate?.pf ?? 11;
-      const estimated_minutes = estimate?.estimated_minutes ?? 15;
+      const tierMap = { Easy: "easy", Medium: "medium", Hard: "hard" } as const;
+      const tier = tierMap[difficulty];
+      const estimated_minutes =
+        difficulty === "Easy" ? 10 : difficulty === "Medium" ? 25 : 45;
       await missionsService.createPersonalMission({
         mission_text: title,
         tier,
-        xp,
-        pf,
+        xp: 0,
+        pf: 0,
         estimated_minutes,
         date: today,
       });
@@ -333,8 +336,12 @@ export function HomeScreen() {
   const handleSuggestTier = useCallback(async (title: string) => {
     const estimate = await missionsService.estimatePersonalMission(title);
     if (!estimate) return null;
-    const suggested_difficulty = (estimate.tier.charAt(0).toUpperCase() +
-      estimate.tier.slice(1)) as "Easy" | "Medium" | "Hard";
+    const t = estimate.tier.toLowerCase();
+    let suggested_difficulty: "Easy" | "Medium" | "Hard";
+    if (t === "easy") suggested_difficulty = "Easy";
+    else if (t === "hard") suggested_difficulty = "Hard";
+    else if (t === "multiday") suggested_difficulty = "Medium";
+    else suggested_difficulty = "Medium";
     return {
       suggested_difficulty,
       xp_value: estimate.xp,
@@ -482,13 +489,13 @@ export function HomeScreen() {
           <View style={styles.xpWrap}>
             <View style={styles.xpLabelRow}>
               <Text style={styles.xpLabelLeft}>✦ {displayXP} XP</Text>
-              <Text style={styles.xpLabelRight}>→ {nextStageName}</Text>
+              <Text style={styles.xpLabelRight}>→ {nextStageLabel}</Text>
             </View>
             <XPProgressBar
               ref={xpBarRef}
-              currentXP={displayXP}
-              nextStageXP={nextStageXP}
-              nextStageName={nextStageName}
+              stageProgressPct={stageProgressPct}
+              characterStage={characterStage}
+              nextStageName={nextStageLabel}
               width={252}
               hideLabels
             />
@@ -521,7 +528,7 @@ export function HomeScreen() {
         </View>
 
         {/* Empty state: missions being prepared */}
-        {!isLoading && !error && todayData && todayData.summary.total === 0 ? (
+        {!isPending && !error && todayData && todayData.summary.total === 0 ? (
           <View style={styles.emptyMissionsWrap}>
             <Text style={styles.emptyMissionsText}>Your missions are being prepared…</Text>
           </View>
@@ -544,6 +551,9 @@ export function HomeScreen() {
           <Ionicons name="chevron-forward" size={14} color="#374151" />
         </Pressable>
 
+        {/* 5–8. Mission sections — skeleton while first fetch (e.g. slow network after onboarding). */}
+        {showMissionSkeletons ? <HomeMissionSectionsSkeleton /> : null}
+
         {/* 5–8. Mission sections — only when we have missions */}
         {todayData && todayData.summary.total > 0 ? (
         <>
@@ -559,14 +569,7 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {isLoading ? (
-              <>
-                <SkeletonCard leftEdgeColor="#7F1D1D" delay={0} />
-                <SkeletonCard leftEdgeColor="#7F1D1D" delay={100} />
-                <SkeletonCard leftEdgeColor="#7F1D1D" delay={200} />
-              </>
-            ) : (
-              (todayData?.missions?.core ?? []).map((apiMission, i) => {
+            {(todayData?.missions?.core ?? []).map((apiMission, i) => {
                 const m = missionApiToCard(apiMission, "Core");
                 return (
                   <HomeMissionCard
@@ -584,8 +587,7 @@ export function HomeScreen() {
                     appearIndex={i}
                   />
                 );
-              })
-            )}
+              })}
           </View>
         </View>
 
@@ -602,13 +604,7 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {isLoading ? (
-              <>
-                <SkeletonCard leftEdgeColor="#8B5CF6" delay={300} />
-                <SkeletonCard leftEdgeColor="#8B5CF6" delay={400} />
-              </>
-            ) : (
-              (todayData?.missions.interest ?? []).map((apiMission, i) => {
+            {(todayData?.missions.interest ?? []).map((apiMission, i) => {
                 const m = missionApiToCard(apiMission, "Interest");
                 return (
                   <HomeMissionCard
@@ -627,8 +623,7 @@ export function HomeScreen() {
                     appearIndex={i}
                   />
                 );
-              })
-            )}
+              })}
           </View>
         </View>
 
@@ -645,32 +640,26 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {isLoading ? (
-              <>
-                <SkeletonCard leftEdgeColor="#7F1D1D" delay={450} />
-              </>
-            ) : (
-              (todayData?.missions?.resistance ?? []).map((apiMission, i) => {
-                const m = missionApiToCard(apiMission, "Resistance");
-                return (
-                  <HomeMissionCard
-                    key={m.id}
-                    title={m.title}
-                    category={m.category}
-                    difficulty={m.difficulty}
-                    xpValue={m.xpValue}
-                    petFoodValue={m.petFoodValue}
-                    status={m.status}
-                    onComplete={() => handleComplete(m.id)}
-                    onPress={() => openMissionDetail(apiMission, "resistance")}
-                    missionType="resistance"
-                    quitTargetName={m.quitTargetName}
-                    dayCounter={m.dayCounter}
-                    appearIndex={i}
-                  />
-                );
-              })
-            )}
+            {(todayData?.missions?.resistance ?? []).map((apiMission, i) => {
+              const m = missionApiToCard(apiMission, "Resistance");
+              return (
+                <HomeMissionCard
+                  key={m.id}
+                  title={m.title}
+                  category={m.category}
+                  difficulty={m.difficulty}
+                  xpValue={m.xpValue}
+                  petFoodValue={m.petFoodValue}
+                  status={m.status}
+                  onComplete={() => handleComplete(m.id)}
+                  onPress={() => openMissionDetail(apiMission, "resistance")}
+                  missionType="resistance"
+                  quitTargetName={m.quitTargetName}
+                  dayCounter={m.dayCounter}
+                  appearIndex={i}
+                />
+              );
+            })}
           </View>
         </View>
 
@@ -687,38 +676,34 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {isLoading ? (
-              <SkeletonCard delay={500} />
-            ) : (
-              (todayData?.missions?.personal ?? []).map((apiMission, i) => {
-                const m = missionApiToCard(apiMission, "Personal");
-                return (
-                  <HomeMissionCard
-                    key={m.id}
-                    title={m.title}
-                    category={m.category}
-                    difficulty={m.difficulty}
-                    xpValue={m.xpValue}
-                    petFoodValue={m.petFoodValue}
-                    status={m.status}
-                    onComplete={() => handleComplete(m.id)}
-                    onPress={() => openMissionDetail(apiMission, "personal")}
-                    missionType={m.missionType}
-                    missionStreak={m.missionStreak ?? 0}
-                    appearIndex={i}
-                    onLongPress={
-                      m.status === "pending"
-                        ? () => {
-                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                            setMissionToDelete(apiMission);
-                            setDeleteSheetVisible(true);
-                          }
-                        : undefined
-                    }
-                  />
-                );
-              })
-            )}
+            {(todayData?.missions?.personal ?? []).map((apiMission, i) => {
+              const m = missionApiToCard(apiMission, "Personal");
+              return (
+                <HomeMissionCard
+                  key={m.id}
+                  title={m.title}
+                  category={m.category}
+                  difficulty={m.difficulty}
+                  xpValue={m.xpValue}
+                  petFoodValue={m.petFoodValue}
+                  status={m.status}
+                  onComplete={() => handleComplete(m.id)}
+                  onPress={() => openMissionDetail(apiMission, "personal")}
+                  missionType={m.missionType}
+                  missionStreak={m.missionStreak ?? 0}
+                  appearIndex={i}
+                  onLongPress={
+                    m.status === "pending"
+                      ? () => {
+                          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          setMissionToDelete(apiMission);
+                          setDeleteSheetVisible(true);
+                        }
+                      : undefined
+                  }
+                />
+              );
+            })}
           </View>
           {showStartAnywhereHelper && (
             <Text style={styles.startAnywhereHelper}>Start anywhere. Every mission counts.</Text>

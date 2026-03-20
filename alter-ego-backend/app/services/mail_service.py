@@ -101,7 +101,7 @@ Take care of it by showing up.
 
 Your Twin's personality has been set based on how you've shown up. The system learned your archetype from your onboarding answers — now it's being confirmed by your behaviour.
 
-**Your Twin recalibrates every 14 days.** Completion rate, how you respond to the gap, how often you engage with chat — all of it informs how the Twin is tuned.
+**Your Twin recalibrates every 7 days.** Completion rate, how you respond to the gap, how often you engage with chat — all of it informs how the Twin is tuned.
 
 **One thing to watch:** your most-skipped mission this week appears in your weekly report every Sunday. It's the one place where the data doesn't lie.
 
@@ -135,11 +135,11 @@ If the new difficulty feels wrong, tap any mission and rate it. The Planner read
     },
     "twin_recalibration_note": {
         "subject": "Your Twin just adapted.",
-        "body": """10 days in. Your Twin has been watching.
+        "body": """Your Shadow Twin recalibrated.
 
-Based on how you've shown up, your Shadow Twin recalibrated its personality — intensity, approach to the gap, how often it speaks.
+After the first week, your Twin is tuned from real behaviour — not only your onboarding archetype. Every 7 days it updates again: completion rate, how you respond to the gap, how often you engage with chat — intensity, approach to the gap, and how often it speaks all shift.
 
-This happens every 14 days. The Twin becomes more precisely tuned over time.
+The Twin becomes more precisely tuned over time.
 
 If it feels different — that's intentional.
 
@@ -229,9 +229,7 @@ async def check_and_send_scheduled_mails(user_id: str) -> None:
 
     if days >= 2 and "twin_guide" not in sent_types:
         await send_app_mail(user_id, "twin_guide")
-    if days >= 7 and "day_7_checkin" not in sent_types:
-        await send_app_mail(user_id, "day_7_checkin")
-    if days >= 10 and "twin_recalibration_note" not in sent_types:
-        await send_app_mail(user_id, "twin_recalibration_note")
+    # twin_recalibration_note is sent from twin_recalibration_job after each recalibration (day 7, 14, …).
+    # day_7_checkin template kept for optional manual sends; not auto-sent (would duplicate day-7 recalibration mail).
     if days >= 28 and "week_4_encouragement" not in sent_types:
         await send_app_mail(user_id, "week_4_encouragement")

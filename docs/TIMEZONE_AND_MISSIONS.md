@@ -21,7 +21,7 @@ All of these iterate users hourly and filter by **that user’s** local time (in
 | `daily_mission_reset_job` | Hour **1** | If today has no core missions yet, create core + sync interest/resistance. |
 | `pet_unlock_check_job` | Hour **1** | Pet unlock (day 6+), streak-break handling. |
 | `twin_simulation_job` | Hour **1** | Twin daily simulation (bootstraps missions if still empty). |
-| `twin_recalibration_job` | Hour **1** | 10-day / 14-day twin DNA recalibration. |
+| `twin_recalibration_job` | Hour **1** | Twin DNA recalibration: first on **day 7**, then every **7** days. |
 | `user_local_maintenance_job` | Hour **1** | Yesterday’s **day summary**, **Power Score** recalc, **scheduled in-app mail**. |
 | `weekly_report_local_job` | **Sunday** hour **3** | Weekly report generation. |
 | `nudge_check_job` | Every hour | Nudge agent (internal rules). |

@@ -204,17 +204,8 @@ export function OnboardingFramingScreen() {
   }));
 
   if (!resumeChecked) {
-    return (
-      <View style={[styles.root, styles.resumeLoading]}>
-        <LinearGradient
-          colors={GRADIENTS.backgroundPremium.colors}
-          style={StyleSheet.absoluteFill}
-          start={GRADIENTS.backgroundPremium.start}
-          end={GRADIENTS.backgroundPremium.end}
-        />
-        <ActivityIndicator size="large" color={COLORS.violet} />
-      </View>
-    );
+    // We still render the screen content immediately to reduce perceived latency.
+    // A small overlay spinner shows while we fetch progress/resume state.
   }
 
   return (
@@ -254,6 +245,7 @@ export function OnboardingFramingScreen() {
               onPress={() =>
                 navigation.navigate("OnboardingQuestion", { questionNumber: 1 })
               }
+              disabled={!resumeChecked}
               onPressIn={() => {
                 buttonScale.value = withTiming(ANIMATIONS.pressScale, {
                   duration: ANIMATIONS.pressIn,
@@ -280,6 +272,12 @@ export function OnboardingFramingScreen() {
           </View>
         </View>
       </SafeAreaView>
+
+      {!resumeChecked ? (
+        <View pointerEvents="none" style={styles.resumeOverlay}>
+          <ActivityIndicator size="large" color={COLORS.violet} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -291,6 +289,16 @@ const styles = StyleSheet.create({
   resumeLoading: {
     alignItems: "center",
     justifyContent: "center",
+  },
+  resumeOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(7,8,15,0.2)",
   },
   safeArea: {
     flex: 1,

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from app.api.auth import get_user_id_from_token
 from app.core.supabase_client import supabase_admin
-from app.core.constants import JOURNAL_MIN_WORDS
+from app.core.constants import JOURNAL_MIN_WORDS, MISSION_PF, PERSONAL_MISSION_XP_BY_TIER
 from app.agents.personal_mission_agent import estimate_personal_mission_tier
 from app.services.mission_service import (
     complete_mission,
@@ -298,31 +298,25 @@ async def personal_estimate(body: PersonalMissionEstimateRequest, authorization:
 async def personal_create(body: PersonalMissionCreateRequest, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
-    # max 2 personal missions per day (hardcoded for now per spec)
-    existing = (
-        supabase_admin.table("missions")
-        .select("id")
-        .eq("user_id", user_id)
-        .eq("mission_date", body.date)
-        .eq("type", "personal")
-        .execute()
-    )
-    if existing.data and len(existing.data) >= 2:
-        raise HTTPException(status_code=400, detail="personal_mission_limit_reached")
-
     # Accept tier exactly as sent by client; do not re-estimate or validate it here.
     tier = (body.tier or "medium").lower()
 
     # XP/PF are derived from tier (not from client-provided xp/pf).
+    pf_personal = MISSION_PF["personal"]
     if tier == "easy":
-        xp_value, pf_value, difficulty = 8, 6, "easy"
+        xp_value = PERSONAL_MISSION_XP_BY_TIER["easy"]
+        pf_value = pf_personal["easy"]
+        difficulty = "easy"
     elif tier == "hard":
-        xp_value, pf_value, difficulty = 32, 17, "hard"
+        xp_value = PERSONAL_MISSION_XP_BY_TIER["hard"]
+        pf_value = pf_personal["hard"]
+        difficulty = "hard"
     elif tier == "multiday":
         xp_value, pf_value, difficulty = 8, 5, "medium"  # multiday is represented via flags; difficulty stays enum-safe
     else:
-        # default to medium (covers "medium" and any unexpected string without validation)
-        xp_value, pf_value, difficulty = 16, 11, "medium"
+        xp_value = PERSONAL_MISSION_XP_BY_TIER["medium"]
+        pf_value = pf_personal["medium"]
+        difficulty = "medium"
 
     row = {
         "user_id": user_id,

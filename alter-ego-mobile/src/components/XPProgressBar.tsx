@@ -1,8 +1,9 @@
 /**
- * XP Progress Bar §2.5 — Animated fill, labels above. animateXpGain() via ref.
+ * XP Progress Bar §2.5 — Fill = progress within current stage (stage_progress_pct).
+ * animateXpGain() runs after profile updates; uses ratio ref so target is never stale.
  */
 
-import React, { useEffect, useRef, useImperativeHandle } from "react";
+import React, { useEffect, useImperativeHandle, useRef } from "react";
 import { View, Text, StyleSheet, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
@@ -20,8 +21,10 @@ const BAR_RADIUS = 5;
 const HOLD_BEFORE_STAGE_COMPLETE_MS = 300;
 
 export interface XPProgressBarProps {
-  currentXP: number;
-  nextStageXP: number;
+  /** 0–100: XP progress within the current character stage (matches profile/overview). */
+  stageProgressPct: number;
+  /** Used to snap the bar when the stage changes (evolution). */
+  characterStage: number;
   nextStageName: string;
   /** Bar width in px. Default 280; e.g. 240 for Titles. */
   width?: number;
@@ -29,7 +32,6 @@ export interface XPProgressBarProps {
   hideLabels?: boolean;
   /** Called when bar reaches 100% and after 300ms hold. Parent shows evolution then updates stage. */
   onStageComplete?: () => void;
-  /** Ref for imperative animateXpGain(). React 19: ref is a regular prop. */
   ref?: React.Ref<XPProgressBarRef>;
 }
 
@@ -38,8 +40,8 @@ export interface XPProgressBarRef {
 }
 
 export function XPProgressBar({
-  currentXP,
-  nextStageXP,
+  stageProgressPct,
+  characterStage,
   nextStageName,
   width = DEFAULT_BAR_WIDTH,
   hideLabels = false,
@@ -47,22 +49,34 @@ export function XPProgressBar({
   ref,
 }: XPProgressBarProps) {
   const barWidth = width;
-  const ratio =
-    nextStageXP > 0 ? Math.min(1, currentXP / nextStageXP) : 0;
-  const progress = useSharedValue(ratio);
-  const prevNextStageXP = useRef(nextStageXP);
+  const ratio = Math.min(1, Math.max(0, stageProgressPct / 100));
+  const ratioRef = useRef(ratio);
+  ratioRef.current = ratio;
 
+  const progress = useSharedValue(ratio);
+  const prevStageRef = useRef(characterStage);
+  const bootstrappedRef = useRef(false);
+
+  /** Snap when stage changes (evolution / remount). */
   useEffect(() => {
-    if (prevNextStageXP.current !== nextStageXP) {
-      prevNextStageXP.current = nextStageXP;
-      progress.value = 0;
+    if (prevStageRef.current !== characterStage) {
+      prevStageRef.current = characterStage;
+      progress.value = Math.min(1, Math.max(0, stageProgressPct / 100));
     }
-  }, [nextStageXP]);
+  }, [characterStage, stageProgressPct]);
+
+  /** One-time sync when profile first loads with real progress (same stage). */
+  useEffect(() => {
+    if (bootstrappedRef.current) return;
+    if (stageProgressPct > 0 || ratio > 0) {
+      bootstrappedRef.current = true;
+      progress.value = ratio;
+    }
+  }, [stageProgressPct, ratio]);
 
   const holdThenComplete = () => {
     setTimeout(() => {
       onStageComplete?.();
-      progress.value = 0;
     }, HOLD_BEFORE_STAGE_COMPLETE_MS);
   };
 
@@ -70,7 +84,7 @@ export function XPProgressBar({
     ref,
     () => ({
       animateXpGain: () => {
-        const target = ratio;
+        const target = Math.min(1, Math.max(0, ratioRef.current));
         if (target >= 1) {
           progress.value = withTiming(
             1,
@@ -92,12 +106,15 @@ export function XPProgressBar({
         }
       },
     }),
-    [currentXP, nextStageXP, ratio, onStageComplete]
+    [onStageComplete, progress]
   );
 
-  const fillAnimatedStyle = useAnimatedStyle(() => ({
-    width: progress.value * barWidth,
-  }), [barWidth]);
+  const fillAnimatedStyle = useAnimatedStyle(
+    () => ({
+      width: progress.value * barWidth,
+    }),
+    [barWidth]
+  );
 
   const showGlowDot = ratio > 0.02;
 
@@ -106,7 +123,7 @@ export function XPProgressBar({
       {!hideLabels && (
         <View style={styles.labels}>
           <Text style={styles.xpLabel} numberOfLines={1}>
-            ✦ {currentXP.toLocaleString()} XP
+            ✦ XP
           </Text>
           <Text style={styles.stageLabel} numberOfLines={1}>
             → {nextStageName}
@@ -167,7 +184,11 @@ const styles = StyleSheet.create({
     borderRadius: BAR_RADIUS,
     minWidth: 0,
     ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(139,92,246,0.5)", shadowRadius: 10, shadowOffset: { width: 0, height: 0 } }
+      ? {
+          shadowColor: "rgba(139,92,246,0.5)",
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 0 },
+        }
       : { elevation: 6 }),
   },
   glowDot: {
@@ -181,7 +202,11 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#09091A",
     ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(192,132,252,0.52)", shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }
+      ? {
+          shadowColor: "rgba(192,132,252,0.52)",
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 0 },
+        }
       : { elevation: 6 }),
   },
 });

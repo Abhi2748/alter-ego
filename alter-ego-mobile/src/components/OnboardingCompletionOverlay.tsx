@@ -13,7 +13,13 @@ import {
   Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Polygon } from "react-native-svg";
+import Svg, {
+  Polygon,
+  Circle,
+  Defs,
+  LinearGradient as SvgLinearGradient,
+  Stop,
+} from "react-native-svg";
 import AnimatedRe, {
   useSharedValue,
   useAnimatedStyle,
@@ -24,6 +30,23 @@ import AnimatedRe, {
 } from "react-native-reanimated";
 
 const { width: SCREEN_W } = Dimensions.get("window");
+
+/** Time each pipeline step stays active before advancing (read facts + headline). */
+const STEP_DURATION_MS = 3200;
+
+/** Shared centre for hero graphic (viewBox 0–200). */
+const CX = 100;
+const CY = 100;
+
+/** Pointy-top hexagon vertices around (cx, cy). */
+function hexPoints(cx: number, cy: number, r: number): string {
+  const pts: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 180) * (60 * i - 90);
+    pts.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`);
+  }
+  return pts.join(" ");
+}
 
 const MAIN_MESSAGES = [
   "Reading your patterns",
@@ -302,18 +325,26 @@ export function OnboardingCompletionOverlay({ active }: { active: boolean }) {
   const innerStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${innerRot.value}deg` }],
   }));
+  const ORBIT_R = 76;
+  const ORBIT_DOT = 6;
   const orbitStyle = useAnimatedStyle(() => ({
     position: "absolute",
-    left: 60 + 57 * Math.cos(orbitAngle.value) - 3,
-    top: 60 + 57 * Math.sin(orbitAngle.value) - 3,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#8B5CF6",
+    left: CX + ORBIT_R * Math.cos(orbitAngle.value) - ORBIT_DOT / 2,
+    top: CY + ORBIT_R * Math.sin(orbitAngle.value) - ORBIT_DOT / 2,
+    width: ORBIT_DOT,
+    height: ORBIT_DOT,
+    borderRadius: ORBIT_DOT / 2,
+    backgroundColor: "#A78BFA",
+    shadowColor: "#8B5CF6",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
+    elevation: 6,
   }));
   const orbStyle = useAnimatedStyle(() => ({
     transform: [{ scale: orbScale.value }],
-    shadowOpacity: orbShadow.value,
+    shadowOpacity: 0.35 + orbShadow.value * 0.45,
+    shadowRadius: 14 + orbShadow.value * 10,
   }));
 
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -336,15 +367,15 @@ export function OnboardingCompletionOverlay({ active }: { active: boolean }) {
       setTimeout(() => {
         setDoneSteps([true, false, false, false]);
         setActiveStep(1);
-      }, 2000),
+      }, STEP_DURATION_MS),
       setTimeout(() => {
         setDoneSteps([true, true, false, false]);
         setActiveStep(2);
-      }, 4000),
+      }, STEP_DURATION_MS * 2),
       setTimeout(() => {
         setDoneSteps([true, true, true, false]);
         setActiveStep(3);
-      }, 6000),
+      }, STEP_DURATION_MS * 3),
     ];
 
     return () => {
@@ -392,46 +423,65 @@ export function OnboardingCompletionOverlay({ active }: { active: boolean }) {
       ))}
 
       <View style={styles.centerBlock}>
-        <View style={styles.radialGlow} pointerEvents="none">
-          <LinearGradient
-            colors={["rgba(139,92,246,0.12)", "transparent"]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0.5, y: 0.5 }}
-            end={{ x: 1, y: 1 }}
-          />
-        </View>
-
-        <View style={styles.hexHost}>
-          <AnimatedRe.View style={[styles.hexOuterSvg, outerStyle]}>
-            <Svg width={120} height={120} viewBox="0 0 120 120">
-              <Polygon
-                points="60,4 110,32 110,88 60,116 10,88 10,32"
-                fill="none"
-                stroke="rgba(139,92,246,0.35)"
-                strokeWidth={1.5}
-                strokeDasharray="6 4"
-              />
-            </Svg>
-          </AnimatedRe.View>
-          <AnimatedRe.View style={[styles.hexInnerWrap, innerStyle]} pointerEvents="none">
-            <Svg width={80} height={80} viewBox="0 0 80 80">
-              <Polygon
-                points="40,4 72,22 72,58 40,76 8,58 8,22"
-                fill="none"
-                stroke="rgba(167,139,250,0.55)"
-                strokeWidth={1}
-              />
-            </Svg>
-          </AnimatedRe.View>
-          <AnimatedRe.View style={orbitStyle} />
-          <AnimatedRe.View style={[styles.centralOrb, orbStyle]}>
+        {/* Single hero stack: backdrop + geometry share the same centre (100,100) in 200×200 SVG space */}
+        <View style={styles.heroVisual}>
+          <View style={styles.heroBackdrop} pointerEvents="none">
             <LinearGradient
-              colors={["#A78BFA", "#6D28D9"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
+              colors={["rgba(139,92,246,0.14)", "rgba(139,92,246,0.04)", "transparent"]}
               style={StyleSheet.absoluteFill}
+              start={{ x: 0.5, y: 0.5 }}
+              end={{ x: 1, y: 1 }}
             />
-          </AnimatedRe.View>
+          </View>
+
+          <View style={styles.heroCanvas}>
+            <AnimatedRe.View style={[styles.heroSvgLayer, outerStyle]}>
+              <Svg width={200} height={200} viewBox="0 0 200 200">
+                <Polygon
+                  points={hexPoints(CX, CY, 88)}
+                  fill="none"
+                  stroke="rgba(139,92,246,0.4)"
+                  strokeWidth={1.5}
+                  strokeDasharray="8 6"
+                  strokeLinejoin="round"
+                />
+              </Svg>
+            </AnimatedRe.View>
+            <AnimatedRe.View style={[styles.heroSvgLayer, innerStyle]} pointerEvents="none">
+              <Svg width={200} height={200} viewBox="0 0 200 200">
+                <Polygon
+                  points={hexPoints(CX, CY, 58)}
+                  fill="none"
+                  stroke="rgba(167,139,250,0.65)"
+                  strokeWidth={1.25}
+                  strokeLinejoin="round"
+                />
+              </Svg>
+            </AnimatedRe.View>
+            <AnimatedRe.View style={orbitStyle} />
+            <AnimatedRe.View
+              style={[styles.heroSvgLayer, styles.orbGlowWrap, orbStyle]}
+              pointerEvents="none"
+            >
+              <Svg width={200} height={200} viewBox="0 0 200 200">
+                <Defs>
+                  <SvgLinearGradient id="calibrationOrbGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <Stop offset="0%" stopColor="#C4B5FD" stopOpacity={1} />
+                    <Stop offset="45%" stopColor="#A78BFA" stopOpacity={1} />
+                    <Stop offset="100%" stopColor="#6D28D9" stopOpacity={1} />
+                  </SvgLinearGradient>
+                </Defs>
+                <Circle
+                  cx={CX}
+                  cy={CY}
+                  r={22}
+                  fill="url(#calibrationOrbGrad)"
+                  stroke="rgba(229,231,235,0.14)"
+                  strokeWidth={1}
+                />
+              </Svg>
+            </AnimatedRe.View>
+          </View>
         </View>
 
         <Text style={styles.phaseTitle}>BUILDING YOUR WORLD</Text>
@@ -478,48 +528,40 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingBottom: 200,
   },
-  radialGlow: {
-    position: "absolute",
+  heroVisual: {
     width: 280,
     height: 280,
-    borderRadius: 140,
-    overflow: "hidden",
-    alignSelf: "center",
-    top: "50%",
-    transform: [{ translateY: -140 }],
-  },
-  hexHost: {
-    width: 120,
-    height: 120,
+    marginBottom: 24,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 28,
+    position: "relative",
   },
-  hexOuterSvg: {
+  heroBackdrop: {
     position: "absolute",
+    width: 256,
+    height: 256,
+    borderRadius: 128,
+    overflow: "hidden",
+    backgroundColor: "rgba(139,92,246,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.14)",
   },
-  hexInnerWrap: {
-    position: "absolute",
-    width: 80,
-    height: 80,
-    left: 20,
-    top: 20,
+  heroCanvas: {
+    width: 200,
+    height: 200,
+    position: "relative",
     alignItems: "center",
     justifyContent: "center",
   },
-  centralOrb: {
-    position: "absolute",
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    overflow: "hidden",
-    alignSelf: "center",
-    top: "50%",
-    zIndex: 10,
+  heroSvgLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  orbGlowWrap: {
     shadowColor: "#8B5CF6",
     shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 20,
-    elevation: 20,
+    elevation: 16,
   },
   phaseTitle: {
     fontFamily: "Inter_700Bold",

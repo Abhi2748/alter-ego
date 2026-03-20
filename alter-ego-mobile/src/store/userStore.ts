@@ -9,6 +9,7 @@
 
 import { create } from 'zustand';
 import { apiClient, isApiError } from '@/services/api';
+import { computeCharacterXpDerived } from '@/constants/characterProgression';
 
 // Matches the /api/v1/profile/overview response shape
 export interface UserProfile {
@@ -47,7 +48,11 @@ interface UserState {
 
   // Actions
   fetchProfile: () => Promise<void>;
-  updateXP: (xpEarned: number, newTotal: number) => void;
+  updateXP: (
+    xpEarned: number,
+    newTotal: number,
+    evolvedStage?: { stage: number; name: string }
+  ) => void;
   updatePF: (pfEarned: number, newTotal: number) => void;
   updateStreak: (newStreak: number) => void;
   updateStage: (newStage: number, newStageName: string) => void;
@@ -93,24 +98,22 @@ export const useUserStore = create<UserState>((set, get) => ({
 
   // Optimistic updates — called immediately after mission completion
   // so the UI updates instantly without waiting for a re-fetch
-  updateXP: (xpEarned, newTotal) => {
+  updateXP: (_xpEarned, newTotal, evolvedStage) => {
     const profile = get().profile;
     if (!profile) return;
+    const stage = evolvedStage?.stage ?? profile.character_stage;
+    const character_stage_name =
+      evolvedStage?.name ?? profile.character_stage_name;
+    const { xp_to_next_stage, stage_progress_pct } =
+      computeCharacterXpDerived(newTotal, stage);
     set({
       profile: {
         ...profile,
         total_xp: newTotal,
-        xp_to_next_stage: Math.max(
-          0,
-          profile.xp_to_next_stage - xpEarned
-        ),
-        stage_progress_pct: Math.min(
-          100,
-          profile.stage_progress_pct +
-            (xpEarned /
-              Math.max(profile.xp_to_next_stage + xpEarned, 1)) *
-              100
-        ),
+        character_stage: stage,
+        character_stage_name,
+        xp_to_next_stage,
+        stage_progress_pct,
       },
     });
   },

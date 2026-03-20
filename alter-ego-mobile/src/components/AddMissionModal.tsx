@@ -38,10 +38,11 @@ const HANDLE_HEIGHT = 3;
 const HANDLE_MARGIN_BOTTOM = 18;
 const TITLE_MAX_LENGTH = 80;
 
+/** Matches backend PERSONAL_MISSION_XP_BY_TIER + MISSION_PF.personal (spec §9). */
 const XP_PET_FOOD: Record<"Easy" | "Medium" | "Hard", { xp: number; pf: number }> = {
-  Easy: { xp: 10, pf: 8 },
-  Medium: { xp: 20, pf: 16 },
-  Hard: { xp: 40, pf: 32 },
+  Easy: { xp: 8, pf: 6 },
+  Medium: { xp: 15, pf: 11 },
+  Hard: { xp: 22, pf: 17 },
 };
 
 const DIFFICULTY_CHIP_UNSELECTED = {

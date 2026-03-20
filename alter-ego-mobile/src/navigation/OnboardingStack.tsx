@@ -5,7 +5,7 @@ import { OnboardingAnswersProvider } from "../context/OnboardingAnswersContext";
 import { OnboardingFramingScreen } from "../screens/OnboardingFramingScreen";
 import { OnboardingQuestionScreen } from "../screens/OnboardingQuestionScreen";
 import { ArchetypeRevealScreen } from "../screens/ArchetypeRevealScreen";
-import { Onboarding14DayScreen } from "../screens/Onboarding14DayScreen";
+import { Onboarding7DayScreen } from "../screens/Onboarding7DayScreen";
 import { TwinIntroductionScreen } from "../screens/TwinIntroductionScreen";
 import { NotificationPermissionScreen } from "../screens/NotificationPermissionScreen";
 import { COLORS } from "../constants/theme";
@@ -24,7 +24,7 @@ export function OnboardingStack() {
         <Stack.Screen name="OnboardingFraming" component={OnboardingFramingScreen} />
         <Stack.Screen name="OnboardingQuestion" component={OnboardingQuestionScreen} />
         <Stack.Screen name="ArchetypeReveal" component={ArchetypeRevealScreen} />
-        <Stack.Screen name="Onboarding14Day" component={Onboarding14DayScreen} />
+        <Stack.Screen name="Onboarding7Day" component={Onboarding7DayScreen} />
         <Stack.Screen
           name="TwinIntroduction"
           component={TwinIntroductionScreen}

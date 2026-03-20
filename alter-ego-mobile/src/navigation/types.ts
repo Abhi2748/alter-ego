@@ -25,8 +25,9 @@ export type OnboardingStackParamList = {
   OnboardingFraming: undefined;
   OnboardingQuestion: { questionNumber: number; fromBack?: boolean } | undefined;
   ArchetypeReveal: { answers?: OnboardingAnswers; archetypeResult?: ArchetypeRevealResult };
-  Onboarding14Day: { twinFirstMessage?: string; archetype?: string } | undefined;
-  TwinIntroduction: { archetype?: string; twinFirstMessage?: string; gender?: "male" | "female" | "other" } | undefined;
+  Onboarding7Day: { archetype?: string } | undefined;
+  /** Twin card copy is resolved on-screen from archetype (not commitment-question API line). */
+  TwinIntroduction: { archetype?: string; gender?: "male" | "female" | "other" } | undefined;
   NotificationPermission: undefined;
 };
 

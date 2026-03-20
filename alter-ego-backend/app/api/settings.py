@@ -61,7 +61,7 @@ FAQ_ITEMS = [
     },
     {
         "q": "Can the Twin ever be wrong about my archetype?",
-        "a": "The Twin recalibrates every 14 days based on your actual behaviour — completion rate, how you respond to the gap, how often you chat. Over time it becomes more accurately tuned to you regardless of your initial archetype.",
+        "a": "The Twin recalibrates every 7 days based on your actual behaviour — completion rate, how you respond to the gap, how often you chat. The first full behaviour calibration runs after your first week. Over time it becomes more accurately tuned to you regardless of your initial archetype.",
     },
     {
         "q": "Why does my Twin sometimes pull ahead after I cross it?",

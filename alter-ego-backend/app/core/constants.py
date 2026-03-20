@@ -64,15 +64,40 @@ DAILY_PF_CAPS = {
     6: 800,
 }
 
-# ── XP VALUES PER MISSION ────────────────────────────────────────────────
+# ── XP VALUES PER MISSION (CLAUDE §9) ─────────────────────────────────────
 
-# Raw XP values before multipliers
-MISSION_XP = {
-    "easy":   10,
-    "medium": 20,
-    "hard":   40,
-    "elite":  60,
+# System-generated missions only — by type + difficulty. Single source of truth.
+# Core: 15 / 25 / 40 (+ elite). Interest & quit-target (resistance): 10 / 20 / 30 (+ elite).
+# Personal missions use PERSONAL_MISSION_XP_BY_TIER below (not this table).
+MISSION_XP_BY_TYPE = {
+    "core": {
+        "easy": 15,
+        "medium": 25,
+        "hard": 40,
+        "elite": 60,
+    },
+    "interest": {
+        "easy": 10,
+        "medium": 20,
+        "hard": 30,
+        "elite": 40,
+    },
+    # Quit-target / Escaper missions — same XP curve as interest (spec §9)
+    "resistance": {
+        "easy": 10,
+        "medium": 20,
+        "hard": 30,
+        "elite": 40,
+    },
 }
+
+
+def mission_xp_for_type(mission_type: str, difficulty: str) -> int:
+    """XP for planner-generated and synced missions. Unknown type → interest curve."""
+    mt = mission_type if mission_type in MISSION_XP_BY_TYPE else "interest"
+    table = MISSION_XP_BY_TYPE[mt]
+    d = str(difficulty or "easy").lower()
+    return table.get(d, table["easy"])
 
 # Power Score multipliers by mission type
 POWER_SCORE_MULTIPLIERS = {
@@ -119,6 +144,13 @@ MISSION_PF = {
 
 # Personal mission XP multiplier (0.8x to prevent gaming)
 PERSONAL_XP_MULTIPLIER = 0.8
+
+# Personal missions — exact XP per tier (spec §9; PF from MISSION_PF["personal"])
+PERSONAL_MISSION_XP_BY_TIER = {
+    "easy": 8,
+    "medium": 15,
+    "hard": 22,
+}
 
 # Multi-day mission XP
 MULTIDAY_XP_PER_DAY = 10        # Per sub-task day (Interest type rate)
@@ -296,7 +328,7 @@ CORE_MISSIONS = [
         "title": "Get 7+ hours of sleep",
         "difficulty": "easy",
         "pillar": "sleep",
-        "xp": MISSION_XP["easy"],
+        "xp": MISSION_XP_BY_TYPE["core"]["easy"],
         "pf": MISSION_PF["core"]["easy"],
         "estimated_minutes": 0,  # Passive — happens overnight
         "rationale": (
@@ -311,7 +343,7 @@ CORE_MISSIONS = [
         "title": "Move for 30 minutes",
         "difficulty": "medium",
         "pillar": "movement",
-        "xp": MISSION_XP["medium"],
+        "xp": MISSION_XP_BY_TYPE["core"]["medium"],
         "pf": MISSION_PF["core"]["medium"],
         "estimated_minutes": 30,
         "rationale": (
@@ -326,7 +358,7 @@ CORE_MISSIONS = [
         "title": "Drink 2 litres of water",
         "difficulty": "easy",
         "pillar": "hydration",
-        "xp": MISSION_XP["easy"],
+        "xp": MISSION_XP_BY_TYPE["core"]["easy"],
         "pf": MISSION_PF["core"]["easy"],
         "estimated_minutes": 0,  # Distributed throughout day
         "rationale": (
@@ -340,7 +372,7 @@ CORE_MISSIONS = [
         "title": "10 minutes of stillness — no phone, no screen",
         "difficulty": "easy",
         "pillar": "mindfulness",
-        "xp": MISSION_XP["easy"],
+        "xp": MISSION_XP_BY_TYPE["core"]["easy"],
         "pf": MISSION_PF["core"]["easy"],
         "estimated_minutes": 10,
         "rationale": (
@@ -355,7 +387,7 @@ CORE_MISSIONS = [
         "title": "No phone for the first 30 minutes after waking",
         "difficulty": "medium",
         "pillar": "no_phone",
-        "xp": MISSION_XP["medium"],
+        "xp": MISSION_XP_BY_TYPE["core"]["medium"],
         "pf": MISSION_PF["core"]["medium"],
         "estimated_minutes": 30,
         "rationale": (
@@ -372,7 +404,7 @@ CORE_MISSIONS = [
         "title": "Write in your journal today",
         "difficulty": "easy",
         "pillar": "journal",
-        "xp": MISSION_XP["easy"],
+        "xp": MISSION_XP_BY_TYPE["core"]["easy"],
         "pf": MISSION_PF["core"]["easy"],
         "estimated_minutes": 10,
         "is_journal_mission": True,
@@ -474,9 +506,12 @@ GAP_ADJUSTMENTS = {
 TWIN_CEILING_RECOVERY_TARGET = 0.88
 TWIN_CEILING_RECOVERY_DAYS = 3
 
-# Twin recalibration schedule
-TWIN_FIRST_CALIBRATION_DAY = 10
-TWIN_RECALIBRATION_INTERVAL_DAYS = 14
+# Twin recalibration schedule (first full behaviour calibration, then recurring)
+TWIN_FIRST_CALIBRATION_DAY = 7
+TWIN_RECALIBRATION_INTERVAL_DAYS = 7
+
+# Profiler agent (J1) — recurring discipline_dna refresh when implemented; same cadence as Twin
+PROFILER_RECUR_INTERVAL_DAYS = 7
 
 # ── POWER SCORE FORMULA ──────────────────────────────────────────────────
 

@@ -35,15 +35,37 @@ const ARENA_HEIGHT = SCREEN_HEIGHT * 0.52;
 const CHAR_WIDTH = 130;
 const CHAR_HEIGHT = 180;
 
-const ARCHETYPE_MESSAGES: Record<string, string> = {
-  "The Restless Creator": "Same start. Same missions. The gap starts now.",
-  "The Reluctant Achiever": "We begin equal. What happens next is on you.",
-  "The Structured Climber": "Same start. I intend to make the most of it.",
-  "The Lone Wolf": "We start here. Equally. Not for long.",
-  "The Social Performer": "Same position. Day one. Let's see what you do with it.",
+/**
+ * First Shadow Twin line on Twin Introduction — voice-led by archetype (not Q13 commitment).
+ * Short, cinematic, a little sharp; invites rivalry without guilt.
+ */
+const ARCHETYPE_TWIN_INTRO_MESSAGES: Record<string, string> = {
+  "The Restless Creator":
+    "You finally showed up. I've been here. When the new wears off — I'll still be repeating. The question is whether you will.",
+  "The Reluctant Achiever":
+    "You already know what to do. You keep waiting for a cleaner moment that won't come. I don't wait. I show up anyway.",
+  "The Structured Climber":
+    "Good. I'm ahead. You love a plan — so do I. The gap isn't theory; it's whether you execute when the plan gets uncomfortable.",
+  "The Lone Wolf":
+    "You work alone. So do I. No crowd, no applause — just two people at the same line. We'll see who keeps the pace.",
+  "The Social Performer":
+    "You care what they think. I only care what the data says. Same scoreboard — different mirrors. Make it count.",
 };
 
-const DEFAULT_TWIN_MESSAGE = "Same start. Different story — depending on you.";
+const DEFAULT_TWIN_MESSAGE =
+  "Same start. Different story — depending on whether you keep showing up when it's quiet.";
+
+/** Resolve intro copy from archetype label (case-insensitive if backend casing differs). */
+function getTwinIntroductionMessage(archetype: string | undefined | null): string {
+  if (!archetype?.trim()) return DEFAULT_TWIN_MESSAGE;
+  const key = archetype.trim();
+  if (ARCHETYPE_TWIN_INTRO_MESSAGES[key]) return ARCHETYPE_TWIN_INTRO_MESSAGES[key];
+  const lower = key.toLowerCase();
+  const hit = Object.entries(ARCHETYPE_TWIN_INTRO_MESSAGES).find(
+    ([k]) => k.toLowerCase() === lower
+  );
+  return hit ? hit[1] : DEFAULT_TWIN_MESSAGE;
+}
 
 type Route = RouteProp<OnboardingStackParamList, "TwinIntroduction">;
 
@@ -72,13 +94,8 @@ export function TwinIntroductionScreen() {
   const username = profile?.username ?? answers?.username ?? "You";
   const userStageName = profile?.character_stage_name ?? "The Awakened";
   const archetype = params?.archetype ?? archetypeContent?.archetype;
-  const gender = params?.gender ?? answers?.gender ?? "male";
-  const twinFirstMessage =
-    params?.twinFirstMessage && params.twinFirstMessage.trim() !== ""
-      ? params.twinFirstMessage
-      : archetype
-        ? ARCHETYPE_MESSAGES[archetype] ?? DEFAULT_TWIN_MESSAGE
-        : DEFAULT_TWIN_MESSAGE;
+  /** Always archetype-led — not the API / Q13 commitment line. */
+  const twinFirstMessage = getTwinIntroductionMessage(archetype);
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false, title: "" });

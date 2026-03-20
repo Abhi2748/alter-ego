@@ -89,10 +89,15 @@ const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
     "Starting completely fresh": "rebuilding",
     "Trying to quit something that's holding me back": "stuck",
     "Looking to become a better version of myself": "ambitious",
+    "I've always been competitive and want to win this": "competitive",
   },
   q5_reason: {
     "I keep failing at habits and I'm tired of it": "escape_habit",
     "I want to become someone genuinely different": "prove_to_self",
+    "I want to prove to others that I can do this": "prove_to_others",
+    "I want to build something meaningful for my future": "build_something",
+    "I want to level up and perform better": "level_up",
+    // Backward compatibility for previously released copy variants.
     "I need to quit something for good": "escape_habit",
     "Someone showed me this": "level_up",
   },
@@ -101,29 +106,38 @@ const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
     "Dive straight in and figure it out": "jump_in",
     "Put it off until I can't anymore": "depends_on_mood",
     "Break it into the smallest possible steps": "research_first",
+    "I need accountability to stay consistent": "need_accountability",
   },
   q7_recovery: {
     "Feel guilty and spiral further": "guilt_spiral",
     "Shake it off and start again": "restart_immediately",
     "Use it as fuel to come back harder": "restart_immediately",
     "Pretend it didn't happen and move on": "need_time",
+    "I lock in harder so I don't miss again": "dont_miss",
   },
   q8_motivation: {
     "I could see the progress happening": "internal_standards",
     "I didn't want to let myself down": "fear_of_regret",
     "It was genuinely enjoyable": "curiosity",
     "Someone was counting on me": "external_validation",
+    "Competing with others kept me sharp": "competition",
   },
   q9_autonomy: {
     "Appreciate the structure — it helps": "guidance_welcome",
     "Feel a little annoyed by it": "full_control",
     "Depends entirely on who's telling me": "flexible",
+    "I work best with a clear structure and plan": "structured_plan",
+    "I need someone to check in and keep me accountable": "accountability_partner",
+    // Backward compatibility for previously released copy.
     "Tune it out almost automatically": "full_control",
   },
   q10_comparison: {
     "I love it — competition drives me": "drives_me",
     "Indifferent — I don't think about it": "dont_care",
     "Mildly motivating when I'm ahead": "motivates_briefly",
+    "Comparisons usually make me uncomfortable": "uncomfortable",
+    "I use comparison as a benchmark to improve": "use_as_benchmark",
+    // Backward compatibility for previously released copy.
     "I'd rather just run my own race": "dont_care",
   },
 };
@@ -548,14 +562,28 @@ export function OnboardingQuestionScreen() {
       const items = (getAnswer("interests") as OnboardingInterest[] | undefined) ?? [];
       return items.length >= 1;
     }
-    if (isQuitWithOther) return true;
+    if (isQuitWithOther) {
+      // Q12 is optional, but we prevent accidental "Next" while the user is typing
+      // quit targets that haven't been added yet.
+      return quitInputText.trim().length === 0;
+    }
     if (isSlider) return typeof currentAnswer === "number";
     if (isMulti) {
       if (!Array.isArray(currentAnswer) || currentAnswer.length === 0) return false;
       return true;
     }
     return currentAnswer !== undefined && currentAnswer !== null && currentAnswer !== "";
-  }, [config, isSlider, isMulti, isUsername, isInterestsAdd, isQuitWithOther, currentAnswer, getAnswer]);
+  }, [
+    config,
+    isSlider,
+    isMulti,
+    isUsername,
+    isInterestsAdd,
+    isQuitWithOther,
+    currentAnswer,
+    getAnswer,
+    quitInputText,
+  ]);
 
   const checkUsernameAndProceed = useCallback(async () => {
     if (currentQuestionIndex !== 1 || !hasAnswer() || !config || transitionToIndex !== null) return;

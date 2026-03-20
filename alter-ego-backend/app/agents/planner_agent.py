@@ -9,7 +9,12 @@ from zoneinfo import ZoneInfo
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from app.core.constants import INTEREST_LEVEL_MAP, MISSION_PF, MISSION_XP, STAGE_NAMES
+from app.core.constants import (
+    INTEREST_LEVEL_MAP,
+    MISSION_PF,
+    mission_xp_for_type,
+    STAGE_NAMES,
+)
 from app.core.supabase_client import supabase_admin
 from app.services.mission_service import (
     get_user_date,
@@ -341,7 +346,7 @@ async def generate_interest_mission(
             "type": "interest",
             "title": f"Spend 20 minutes on {interest.get('normalised_name', 'this interest')}",
             "difficulty": difficulty,
-            "xp_value": MISSION_XP.get(difficulty, 10),
+            "xp_value": mission_xp_for_type("interest", difficulty),
             "pf_value": MISSION_PF["interest"].get(difficulty, 8),
             "interest_id": interest["id"],
             "mission_date": mission_date,
@@ -353,7 +358,7 @@ async def generate_interest_mission(
         return ins.data[0] if ins.data else fallback
 
     difficulty = mission_data.get("difficulty", "easy")
-    xp_value = MISSION_XP.get(difficulty, 10)
+    xp_value = mission_xp_for_type("interest", difficulty)
     pf_value = MISSION_PF["interest"].get(difficulty, 8)
 
     mission_row = {
@@ -534,7 +539,7 @@ async def generate_quit_target_mission(
             "type": "resistance",
             "title": fallback_title,
             "difficulty": "easy",
-            "xp_value": MISSION_XP["easy"],
+            "xp_value": mission_xp_for_type("resistance", "easy"),
             "pf_value": MISSION_PF["resistance"]["easy"],
             "quit_target_id": quit_target["id"],
             "mission_date": mission_date,
@@ -551,7 +556,7 @@ async def generate_quit_target_mission(
         "type": "resistance",
         "title": mission_data["title"],
         "difficulty": difficulty,
-        "xp_value": MISSION_XP.get(difficulty, 10),
+        "xp_value": mission_xp_for_type("resistance", difficulty),
         "pf_value": MISSION_PF["resistance"].get(difficulty, 8),
         "quit_target_id": quit_target["id"],
         "mission_date": mission_date,

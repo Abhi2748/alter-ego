@@ -1,5 +1,5 @@
 /**
- * Onboarding 14-Day screen — between Archetype Reveal and Twin Introduction.
+ * Onboarding 7-day screen — between Archetype Reveal and Twin Introduction.
  * Floating dots, animated copy, then Continue → Twin Introduction.
  */
 
@@ -9,6 +9,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
+import { useQueryClient } from "@tanstack/react-query";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -19,6 +20,7 @@ import Animated, {
 } from "react-native-reanimated";
 import type { OnboardingStackParamList } from "../navigation/types";
 import { COLORS, SPACING, RADIUS, GRADIENTS, SHADOWS } from "../constants/theme";
+import { prefetchTodayMissions } from "@/hooks/useMissions";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const PARTICLE_COLORS = ["#8B5CF6", "#6D28D9", "#A78BFA"] as const;
@@ -102,15 +104,19 @@ function ParticleDot({ config }: { config: ParticleConfig }) {
   );
 }
 
-type Nav = StackNavigationProp<OnboardingStackParamList, "Onboarding14Day">;
-type Route = RouteProp<OnboardingStackParamList, "Onboarding14Day">;
+type Nav = StackNavigationProp<OnboardingStackParamList, "Onboarding7Day">;
+type Route = RouteProp<OnboardingStackParamList, "Onboarding7Day">;
 
-export function Onboarding14DayScreen() {
+export function Onboarding7DayScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
-  const twinFirstMessage = route.params?.twinFirstMessage ?? "";
+  const queryClient = useQueryClient();
   const archetype = route.params?.archetype;
   const particleConfigs = useMemo(() => getParticleConfigs(), []);
+
+  useEffect(() => {
+    void prefetchTodayMissions(queryClient);
+  }, [queryClient]);
 
   const headingOpacity = useSharedValue(0);
   const subheadingOpacity = useSharedValue(0);
@@ -129,7 +135,6 @@ export function Onboarding14DayScreen() {
 
   const handleContinue = () => {
     navigation.navigate("TwinIntroduction", {
-      twinFirstMessage,
       archetype,
     });
   };

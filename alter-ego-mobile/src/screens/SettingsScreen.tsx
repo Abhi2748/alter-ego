@@ -21,12 +21,13 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Svg, { Path, Rect, Circle, Line } from "react-native-svg";
 import { supabase } from "@/utils/supabase";
+import { apiClient } from "@/services/api";
+import { IS_CLOSED_BETA } from "@/constants/closedBeta";
 import { NOTIF_PERMISSION_ASKED_KEY } from "../constants/notificationPermission";
+import { useUserStore } from "@/store/userStore";
 
 const PRIVACY_POLICY_URL = "https://alterego.app/privacy";
 const SERVICE_TERMS_URL = "https://alterego.app/terms";
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
-
 // -----------------------------------------------------------------------------
 // SVG ICONS (18×18 unless noted)
 // -----------------------------------------------------------------------------
@@ -81,6 +82,27 @@ function IconNotifications() {
         strokeLinecap="round"
       />
       <Circle cx={13} cy={4} r={2.5} fill="#F97316" />
+    </Svg>
+  );
+}
+
+function IconInbox() {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+      <Path
+        d="M3 4.5h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z"
+        stroke="#8B5CF6"
+        strokeWidth={1.5}
+        fill="none"
+      />
+      <Path
+        d="M2.5 5.5 9 9.5l6.5-4"
+        stroke="#A78BFA"
+        strokeWidth={1.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
     </Svg>
   );
 }
@@ -272,9 +294,10 @@ type RowItemProps = {
   onPress: () => void;
   danger?: boolean;
   showDivider?: boolean;
+  rightAccessory?: React.ReactNode;
 };
 
-function RowItem({ icon, label, onPress, danger, showDivider }: RowItemProps) {
+function RowItem({ icon, label, onPress, danger, showDivider, rightAccessory }: RowItemProps) {
   return (
     <>
       {showDivider && <View style={styles.rowDivider} />}
@@ -290,6 +313,7 @@ function RowItem({ icon, label, onPress, danger, showDivider }: RowItemProps) {
         <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]} numberOfLines={1}>
           {label}
         </Text>
+        {rightAccessory}
         <Ionicons
           name="chevron-forward"
           size={14}
@@ -307,6 +331,7 @@ function RowItem({ icon, label, onPress, danger, showDivider }: RowItemProps) {
 export function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const unreadMail = useUserStore((s) => s.profile?.unread_mail_count ?? 0);
 
   const nav = navigation as any;
 
@@ -354,14 +379,7 @@ export function SettingsScreen() {
                 nav.reset?.({ index: 0, routes: [{ name: "SignUp" }] });
                 return;
               }
-              const res = await fetch(`${API_BASE}/api/v1/user/account`, {
-                method: "DELETE",
-                headers: { Authorization: `Bearer ${session.access_token}` },
-              });
-              if (!res.ok) {
-                const text = await res.text();
-                throw new Error(text || "Delete failed");
-              }
+              await apiClient.delete("/api/v1/settings/account");
             } catch (e) {
               Alert.alert("Error", e instanceof Error ? e.message : "Could not delete account");
               return;
@@ -454,6 +472,19 @@ export function SettingsScreen() {
             showDivider
           />
           <RowItem
+            icon={<IconInbox />}
+            label="Inbox"
+            onPress={() => nav.navigate?.("MailInbox")}
+            showDivider
+            rightAccessory={
+              unreadMail > 0 ? (
+                <View style={styles.inboxBadge}>
+                  <Text style={styles.inboxBadgeText}>{unreadMail > 9 ? "9+" : unreadMail}</Text>
+                </View>
+              ) : undefined
+            }
+          />
+          <RowItem
             icon={<IconNotifications />}
             label="Show notification prompt again"
             onPress={resetNotificationPrompt}
@@ -465,12 +496,14 @@ export function SettingsScreen() {
             onPress={() => nav.navigate?.("ContactUs")}
             showDivider
           />
-          <RowItem
-            icon={<IconSubscription />}
-            label="Subscription"
-            onPress={() => nav.navigate?.("Paywall", { dismissable: true })}
-            showDivider
-          />
+          {!IS_CLOSED_BETA ? (
+            <RowItem
+              icon={<IconSubscription />}
+              label="Subscription"
+              onPress={() => nav.navigate?.("Paywall", { dismissable: true })}
+              showDivider
+            />
+          ) : null}
           <RowItem
             icon={<IconToneHistory />}
             label="Tone History"
@@ -591,6 +624,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_500Medium",
     color: "#E5E7EB",
+  },
+  inboxBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    backgroundColor: "rgba(139,92,246,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 6,
+  },
+  inboxBadgeText: {
+    fontSize: 11,
+    fontFamily: "Inter_700Bold",
+    color: "#A78BFA",
   },
   rowLabelDanger: {
     color: "#F87171",

@@ -164,6 +164,20 @@ async def simulate_twin_day(user_id: str) -> dict:
     )
     today_missions = missions_result.data or []
     if not today_missions:
+        # Local batch jobs may run in any order at 1:00; ensure today's rows exist before simulating.
+        from app.services.mission_service import generate_core_missions_for_user, sync_today_planner_missions
+
+        await generate_core_missions_for_user(user_id, today)
+        await sync_today_planner_missions(user_id, today)
+        missions_result = (
+            supabase_admin.table("missions")
+            .select("id, type, difficulty, xp_value, pf_value, title, is_journal_mission")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .execute()
+        )
+        today_missions = missions_result.data or []
+    if not today_missions:
         return {"simulated": False, "reason": "no_missions_today"}
 
     archetype = user.get("archetype", "structured_climber")

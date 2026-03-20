@@ -11,6 +11,11 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.constants import INTEREST_LEVEL_MAP, MISSION_PF, MISSION_XP, STAGE_NAMES
 from app.core.supabase_client import supabase_admin
+from app.services.mission_service import (
+    get_user_date,
+    isoweekday_for_mission_date,
+    parse_interest_active_days,
+)
 
 
 INTEREST_PLANNER_SYSTEM_PROMPT = """
@@ -222,21 +227,21 @@ async def generate_interest_mission(
     user: dict,
     discipline_dna: dict,
 ) -> dict | None:
-    # Step 1 — active day check
+    # Step 1 — active day check (mission_date calendar day + normalised active_days, not "now")
     try:
         tz = ZoneInfo(user.get("timezone", "UTC"))
     except Exception:
         tz = timezone.utc
 
-    today_weekday = datetime.now(tz).isoweekday()  # 1=Mon..7=Sun
-    active_days = interest.get("active_days") or []
-    if isinstance(active_days, str):
-        try:
-            active_days = json.loads(active_days)
-        except Exception:
-            active_days = []
-    if isinstance(active_days, list) and active_days and today_weekday not in active_days:
+    weekday = isoweekday_for_mission_date(mission_date)
+    active_norm = parse_interest_active_days(interest.get("active_days"))
+    if weekday not in active_norm:
         return None
+
+    try:
+        mission_day = date.fromisoformat(mission_date)
+    except Exception:
+        mission_day = datetime.now(tz).date()
 
     # Step 2 — idempotent existing check
     existing = (
@@ -310,7 +315,7 @@ async def generate_interest_mission(
         last_5_ratings=last_5_ratings,
         user_feedback=user_feedback,
         skip_pattern=discipline_dna.get("mission_skip_pattern") or "None detected",
-        day_of_week=datetime.now(tz).strftime("%A"),
+        day_of_week=mission_day.strftime("%A"),
         peak_day=peak_day or "None detected",
     )
 
@@ -463,7 +468,13 @@ async def generate_quit_target_mission(
     if quit_target.get("last_slip_date"):
         try:
             slip_date = date.fromisoformat(str(quit_target["last_slip_date"]))
-            days_since_slip = (date.today() - slip_date).days
+            try:
+                user_today = date.fromisoformat(
+                    get_user_date(str(user.get("timezone") or "UTC"))
+                )
+            except Exception:
+                user_today = date.today()
+            days_since_slip = (user_today - slip_date).days
         except Exception:
             days_since_slip = None
 

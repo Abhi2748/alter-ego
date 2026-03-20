@@ -5,16 +5,15 @@ from pydantic import BaseModel
 
 from app.api.auth import get_user_id_from_token
 from app.core.supabase_client import supabase_admin
-from app.agents.planner_agent import generate_all_interest_missions, generate_all_quit_target_missions
 from app.core.constants import JOURNAL_MIN_WORDS
 from app.agents.personal_mission_agent import estimate_personal_mission_tier
 from app.services.mission_service import (
     complete_mission,
     generate_core_missions_for_user,
     get_days_since_registration,
-    get_today_missions_by_type,
     get_today_missions,
     get_user_date,
+    sync_today_planner_missions,
 )
 
 router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
@@ -131,15 +130,8 @@ async def get_missions_today(authorization: str = Header(None)):
     # Ensure core missions exist (idempotent)
     await generate_core_missions_for_user(user_id, mission_date)
 
-    # Ensure interest missions exist (cron fallback)
-    interest_missions = await get_today_missions_by_type(user_id, mission_date, "interest")
-    if not interest_missions:
-        await generate_all_interest_missions(user_id, mission_date)
-
-    # Ensure resistance missions exist (cron fallback)
-    resistance_missions = await get_today_missions_by_type(user_id, mission_date, "resistance")
-    if not resistance_missions:
-        await generate_all_quit_target_missions(user_id, mission_date)
+    # Interest + resistance: sync to current profile (adds missing, removes stale incomplete)
+    await sync_today_planner_missions(user_id, mission_date)
 
     rows = await get_today_missions(user_id, mission_date)
     return {
@@ -182,13 +174,15 @@ async def generate_interest_missions_today(authorization: str = Header(None)):
     )
     timezone_str = (user_row.data or {}).get("timezone") or "UTC"
     mission_date = get_user_date(timezone_str)
-    missions = await generate_all_interest_missions(user_id, mission_date)
-    return {"generated": len(missions), "missions": missions}
+    sync = await sync_today_planner_missions(user_id, mission_date)
+    rows = await get_today_missions(user_id, mission_date)
+    interest_only = [r for r in rows if r.get("type") == "interest"]
+    return {"sync": sync, "generated": len(interest_only), "missions": interest_only}
 
 
 @router.post("/generate-resistance", response_model=dict)
 async def generate_resistance_missions_today(authorization: str = Header(None)):
-    """Manually trigger quit target mission generation for today."""
+    """Manually trigger quit target mission sync for today."""
     user_id = get_user_id_from_token(authorization)
     user_row = (
         supabase_admin.table("users")
@@ -199,8 +193,10 @@ async def generate_resistance_missions_today(authorization: str = Header(None)):
     )
     timezone_str = (user_row.data or {}).get("timezone") or "UTC"
     mission_date = get_user_date(timezone_str)
-    missions = await generate_all_quit_target_missions(user_id, mission_date)
-    return {"generated": len(missions), "missions": missions}
+    sync = await sync_today_planner_missions(user_id, mission_date)
+    rows = await get_today_missions(user_id, mission_date)
+    res_only = [r for r in rows if r.get("type") == "resistance"]
+    return {"sync": sync, "generated": len(res_only), "missions": res_only}
 
 
 @router.post("/{mission_id}/complete", response_model=CompleteMissionResponse)

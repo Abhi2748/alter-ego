@@ -52,7 +52,7 @@ export async function checkUsername(
 ): Promise<{ available: boolean }> {
   if (apiMock) return apiMock.checkUsername(username, accessToken);
   const res = await fetch(
-    `${BASE}/api/v1/onboarding/check-username?username=${encodeURIComponent(username.trim())}`,
+    `${BASE}/api/v1/users/check-username?username=${encodeURIComponent(username.trim())}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
   if (res.status === 409) throw new Error("Username already taken");

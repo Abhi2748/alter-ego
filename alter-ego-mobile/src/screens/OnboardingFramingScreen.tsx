@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo } from "react";
-import { View, Text, StyleSheet, Pressable, Dimensions } from "react-native";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { View, Text, StyleSheet, Pressable, Dimensions, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, CommonActions } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import Animated, {
   useSharedValue,
@@ -13,6 +13,13 @@ import Animated, {
 } from "react-native-reanimated";
 import type { OnboardingStackParamList } from "../navigation/types";
 import { COLORS, SPACING, RADIUS, ANIMATIONS, SHADOWS, GRADIENTS } from "../constants/theme";
+import { supabase, isGuestMode } from "@/utils/supabase";
+import { onboardingService } from "@/services/onboarding";
+import {
+  getResumeQuestionNumber,
+  serverProgressToClientAnswers,
+} from "@/utils/onboardingProgressHydrate";
+import { useOnboardingAnswers } from "@/context/OnboardingAnswersContext";
 
 // Match particle system used on SignUpScreen for consistency
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -97,8 +104,63 @@ type Nav = StackNavigationProp<OnboardingStackParamList, "OnboardingFraming">;
 
 export function OnboardingFramingScreen() {
   const navigation = useNavigation<Nav>();
+  const { hydrateAnswers } = useOnboardingAnswers();
+  const [resumeChecked, setResumeChecked] = useState(false);
 
   const particleConfigs = useMemo(() => getParticleConfigs(), []);
+
+  const resetToMain = useCallback(() => {
+    const rootNav = navigation.getParent()?.getParent();
+    if (rootNav) {
+      rootNav.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: "Main" as never }],
+        })
+      );
+    }
+  }, [navigation]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const guest = await isGuestMode();
+        if (guest) return;
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token || token === "guest") return;
+
+        const progress = await onboardingService.getProgress();
+        if (cancelled) return;
+
+        if (progress.onboarding_complete) {
+          resetToMain();
+          return;
+        }
+
+        const serverAnswers = (progress.answers ?? {}) as Record<string, Record<string, unknown>>;
+        const resumeAt = getResumeQuestionNumber(serverAnswers, false);
+        const partial = serverProgressToClientAnswers(serverAnswers);
+        if (Object.keys(partial).length > 0) {
+          hydrateAnswers(partial);
+        }
+        if (resumeAt !== null && resumeAt > 1) {
+          navigation.replace("OnboardingQuestion", { questionNumber: resumeAt });
+        }
+      } catch {
+        // Offline / 401 — stay on framing; user continues manually
+      } finally {
+        if (!cancelled) setResumeChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrateAnswers, navigation, resetToMain]);
 
   const primaryOpacity = useSharedValue(0);
   const secondaryOpacity = useSharedValue(0);
@@ -140,6 +202,20 @@ export function OnboardingFramingScreen() {
   const buttonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: buttonScale.value }],
   }));
+
+  if (!resumeChecked) {
+    return (
+      <View style={[styles.root, styles.resumeLoading]}>
+        <LinearGradient
+          colors={GRADIENTS.backgroundPremium.colors}
+          style={StyleSheet.absoluteFill}
+          start={GRADIENTS.backgroundPremium.start}
+          end={GRADIENTS.backgroundPremium.end}
+        />
+        <ActivityIndicator size="large" color={COLORS.violet} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -211,6 +287,10 @@ export function OnboardingFramingScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  resumeLoading: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   safeArea: {
     flex: 1,

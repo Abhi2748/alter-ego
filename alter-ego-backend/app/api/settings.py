@@ -37,7 +37,7 @@ FAQ_ITEMS = [
     },
     {
         "q": "How do I change my interests?",
-        "a": "Go to Profile → Interests → tap any interest to edit it. Changes take effect from the next day's mission generation.",
+        "a": "Go to Profile → Interests → tap any interest to edit it. Schedule and active-interest changes update today's missions when you open Home (incomplete missions that no longer apply are removed; missing ones are added). Completed missions stay in your history.",
     },
     {
         "q": "What happens if I miss a day?",
@@ -49,7 +49,7 @@ FAQ_ITEMS = [
     },
     {
         "q": "What is my Power Score?",
-        "a": "Power Score is your leaderboard ranking metric. It combines: XP stage progress (35%), pet stage (20%), current streak (25%), and 30-day completion rate (20%). It updates every night.",
+        "a": "Power Score is your leaderboard ranking metric. It combines: XP stage progress (35%), pet stage (20%), current streak (25%), and 30-day completion rate (20%). It recalculates around 1:00 in your timezone (with other nightly jobs).",
     },
     {
         "q": "How do I connect my Google account?",

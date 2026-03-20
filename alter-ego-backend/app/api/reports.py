@@ -1,16 +1,15 @@
 """
 Reports API — weekly report and day summary.
-B29: Weekly report available after Sunday 03:00 UTC.
-B30: Day summary generated nightly or on demand.
+B29: Weekly report generated Sunday 03:00 in the user's timezone.
+B30: Day summary generated ~01:00 local or on demand.
 """
-
-from datetime import date, timedelta
 
 from fastapi import APIRouter, Header
 
 from app.api.auth import get_user_id_from_token
 from app.agents.report_agent import generate_day_summary
 from app.core.supabase_client import supabase_admin
+from app.services.mission_service import local_completed_week_bounds
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
@@ -24,9 +23,17 @@ async def get_weekly_report(authorization: str = Header(None)):
     """
     user_id = get_user_id_from_token(authorization)
 
-    today = date.today()
-    week_end = today - timedelta(days=(today.weekday() + 1))
-    week_start = week_end - timedelta(days=6)
+    user_row = (
+        supabase_admin.table("users")
+        .select("timezone")
+        .eq("id", user_id)
+        .single()
+        .execute()
+        .data
+        or {}
+    )
+    tz_str = str(user_row.get("timezone") or "UTC")
+    week_start, week_end = local_completed_week_bounds(tz_str)
 
     result = (
         supabase_admin.table("weekly_reports")
@@ -46,6 +53,41 @@ async def get_weekly_report(authorization: str = Header(None)):
     report = result[0]
     return {
         "available": True,
+        "week_start": report["week_start"],
+        "week_end": report["week_end"],
+        "this_week_data": report["this_week_data"],
+        "wins": report["wins"],
+        "slipped": report.get("slipped", []),
+        "keep_watching": report.get("keep_watching", []),
+        "twin_paragraph": report["twin_paragraph"],
+        "twin_closing": report["twin_closing"],
+        "next_week": report["next_week"],
+        "generated_at": report.get("generated_at"),
+    }
+
+
+@router.get("/weekly/detail/{report_id}", response_model=dict)
+async def get_weekly_report_by_id(
+    report_id: str,
+    authorization: str = Header(None),
+):
+    """Returns one weekly report row by primary key (for Past Report detail)."""
+    user_id = get_user_id_from_token(authorization)
+    result = (
+        supabase_admin.table("weekly_reports")
+        .select("*")
+        .eq("id", report_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not result:
+        return {"available": False, "message": "Report not found."}
+    report = result[0]
+    return {
+        "available": True,
+        "id": report.get("id"),
         "week_start": report["week_start"],
         "week_end": report["week_end"],
         "this_week_data": report["this_week_data"],

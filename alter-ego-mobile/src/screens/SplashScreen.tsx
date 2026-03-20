@@ -276,6 +276,19 @@ export function SplashScreen() {
     runSpark(s3Y, s3Opacity, 4100, 2700);
     runSpark(s4Y, s4Opacity, 2300, 3500);
 
+    const bootstrapSession = async () => {
+      await onboardingService.createProfile();
+      const me = await apiClient.get<{
+        exists: boolean;
+        onboarding_complete?: boolean;
+      }>("/api/v1/auth/me");
+      if (me.exists && me.onboarding_complete) {
+        navigation.replace("Main");
+      } else {
+        navigation.replace("Onboarding");
+      }
+    };
+
     const t = setTimeout(async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
@@ -288,21 +301,23 @@ export function SplashScreen() {
         return;
       }
       try {
-        await onboardingService.createProfile();
-        const me = await apiClient.get<{
-          exists: boolean;
-          onboarding_complete?: boolean;
-        }>("/api/v1/auth/me");
-        if (me.exists && me.onboarding_complete) {
-          navigation.replace("Main");
-        } else {
-          navigation.replace("Onboarding");
-        }
+        await bootstrapSession();
       } catch (e) {
-        if (token !== "guest" && isAuthError(e)) {
+        if (isAuthError(e)) {
           await supabase.auth.signOut();
+          navigation.replace("SignUp");
+          return;
         }
-        navigation.replace("SignUp");
+        // One retry for flaky networks (closed beta / travel)
+        try {
+          await new Promise((r) => setTimeout(r, 1000));
+          await bootstrapSession();
+        } catch (e2) {
+          if (isAuthError(e2)) {
+            await supabase.auth.signOut();
+          }
+          navigation.replace("SignUp");
+        }
       }
     }, 2500);
 

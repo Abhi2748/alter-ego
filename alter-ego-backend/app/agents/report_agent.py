@@ -1,7 +1,7 @@
 """
 Weekly report and day summary agents.
-B29: Weekly report — runs Sunday 03:00 UTC, GPT-4o-mini, stores in weekly_reports.
-B30: Day summary — runs nightly 01:30 UTC, 1–2 sentence archive, stores in daily_summaries.
+B29: Weekly report — Sunday 03:00 in the user's timezone (scheduler), GPT-4o-mini, weekly_reports.
+B30: Day summary — ~01:00 local with other nightly maintenance, daily_summaries.
 """
 
 from __future__ import annotations
@@ -11,12 +11,13 @@ import logging
 import os
 import re
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.core.constants import PET_NAMES, STAGE_NAMES
 from app.core.supabase_client import supabase_admin
+from app.services.mission_service import local_completed_week_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -179,23 +180,22 @@ async def generate_weekly_report(user_id: str) -> dict:
     Stores result in weekly_reports table.
     Returns the full report dict.
     """
-    today = date.today()
-    week_end = today - timedelta(days=(today.weekday() + 1))  # Last Sunday
-    week_start = week_end - timedelta(days=6)  # Last Monday
-    week_start_str = str(week_start)
-    week_end_str = str(week_end)
-
     user_result = (
         supabase_admin.table("users")
         .select(
             "username, archetype, character_stage, pet_stage, "
-            "pet_unlocked, current_streak, total_xp"
+            "pet_unlocked, current_streak, total_xp, timezone"
         )
         .eq("id", user_id)
         .single()
         .execute()
     )
     user = user_result.data or {}
+
+    tz_str = str(user.get("timezone") or "UTC")
+    week_start_d, week_end_d = local_completed_week_bounds(tz_str)
+    week_start_str = str(week_start_d)
+    week_end_str = str(week_end_d)
 
     dna_result = (
         supabase_admin.table("discipline_dna")
@@ -542,14 +542,16 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
         or []
     )
 
-    streak_row = (
+    streak_rows = (
         supabase_admin.table("streak_log")
         .select("streak_count, streak_maintained, xp_earned")
         .eq("user_id", user_id)
         .eq("log_date", target_date)
         .execute()
         .data
+        or []
     )
+    streak_row0 = streak_rows[0] if streak_rows else None
 
     xp_rows = (
         supabase_admin.table("xp_log")
@@ -582,7 +584,7 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
         and m.get("completed")
     )
     xp_earned = sum(r.get("amount", 0) for r in xp_rows)
-    streak_count = streak_row[0].get("streak_count", 0) if streak_row else 0
+    streak_count = int((streak_row0 or {}).get("streak_count", 0) or 0)
 
     notable = [m.get("milestone_type", "") for m in milestones if m.get("milestone_type")]
     notable_str = ", ".join(notable) if notable else "None"

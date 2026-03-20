@@ -125,7 +125,10 @@ export function MilestoneCardScreen({
   };
 
   const handleShare = () => {
-    console.log("Share milestone", definition.id, interestName);
+    if (__DEV__) {
+      // eslint-disable-next-line no-console
+      console.log("Share milestone", definition.id, interestName);
+    }
     if (Platform.OS === "android" && typeof (global as any).ToastAndroid !== "undefined") {
       (global as any).ToastAndroid.show("Sharing coming soon", (global as any).ToastAndroid.SHORT);
     } else {

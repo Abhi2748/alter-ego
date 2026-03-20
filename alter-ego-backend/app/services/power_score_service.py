@@ -9,6 +9,7 @@ from app.core.constants import (
     TOTAL_PET_STAGES,
 )
 from app.core.supabase_client import supabase_admin
+from app.services.mission_service import get_user_date
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ async def calculate_power_score(user_id: str) -> int:
         supabase_admin.table("users")
         .select(
             "total_xp, character_stage, pet_stage, pet_unlocked, "
-            "current_streak, power_score"
+            "current_streak, power_score, timezone"
         )
         .eq("id", user_id)
         .single()
@@ -32,11 +33,18 @@ async def calculate_power_score(user_id: str) -> int:
     )
     user = user_result.data or {}
 
-    character_stage = user.get("character_stage", 1)
-    total_xp = user.get("total_xp", 0)
-    pet_stage = user.get("pet_stage", 0)
-    pet_unlocked = user.get("pet_unlocked", False)
-    current_streak = user.get("current_streak", 0)
+    tz_str = str(user.get("timezone") or "UTC")
+    try:
+        anchor = date_type.fromisoformat(get_user_date(tz_str))
+    except Exception:
+        anchor = date_type.today()
+    thirty_days_ago = str(anchor - timedelta(days=30))
+
+    character_stage = int(user.get("character_stage") or 1)
+    total_xp = int(user.get("total_xp") or 0)
+    pet_stage = int(user.get("pet_stage") or 0)
+    pet_unlocked = bool(user.get("pet_unlocked"))
+    current_streak = int(user.get("current_streak") or 0)
 
     # ── Component 1: XP stage progress (35%) ────────────────────────────
     # How far through the current stage threshold
@@ -74,20 +82,20 @@ async def calculate_power_score(user_id: str) -> int:
     ) * POWER_SCORE_WEIGHTS["streak"] * POWER_SCORE_MAX
 
     # ── Component 4: 30-day completion rate (20%) ────────────────────────
-    thirty_days_ago = str(date_type.today() - timedelta(days=30))
+    # Window anchored to user's local calendar day (matches missions / streak_log.log_date).
     streak_rows = (
         supabase_admin.table("streak_log")
-        .select("completed_missions, total_missions")
+        .select("total_missions_done, total_missions")
         .eq("user_id", user_id)
-        .gte("date", thirty_days_ago)
+        .gte("log_date", thirty_days_ago)
         .execute()
         .data
         or []
     )
 
     if streak_rows:
-        total_done = sum(r.get("completed_missions", 0) for r in streak_rows)
-        total_possible = sum(r.get("total_missions", 0) for r in streak_rows)
+        total_done = sum(int(r.get("total_missions_done", 0) or 0) for r in streak_rows)
+        total_possible = sum(int(r.get("total_missions", 0) or 0) for r in streak_rows)
         completion_rate = (total_done / total_possible) if total_possible > 0 else 0.0
     else:
         completion_rate = 0.0

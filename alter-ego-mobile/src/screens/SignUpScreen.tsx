@@ -38,6 +38,7 @@ import { COLORS, RADIUS, SPACING, ANIMATIONS, GRADIENTS } from "../constants/the
 import { supabase, setGuestMode } from "@/utils/supabase";
 import { apiClient, isAuthError } from "@/services/api";
 import { onboardingService } from "@/services/onboarding";
+import { IS_CLOSED_BETA } from "@/constants/closedBeta";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -463,13 +464,15 @@ export function SignUpScreen() {
 
           <View style={styles.buttonsSection}>
             <View style={styles.buttonsInner}>
-              <AuthButton
-                onPress={() => performOAuth("apple")}
-                icon={<Ionicons name="logo-apple" size={20} color="#000000" />}
-                label="Continue with Apple"
-                variant="apple"
-                loading={loadingProvider === "apple"}
-              />
+              {!IS_CLOSED_BETA ? (
+                <AuthButton
+                  onPress={() => performOAuth("apple")}
+                  icon={<Ionicons name="logo-apple" size={20} color="#000000" />}
+                  label="Continue with Apple"
+                  variant="apple"
+                  loading={loadingProvider === "apple"}
+                />
+              ) : null}
               <AuthButton
                 onPress={() => performOAuth("google")}
                 icon={<Ionicons name="logo-google" size={20} color={COLORS.text} />}
@@ -477,13 +480,15 @@ export function SignUpScreen() {
                 variant="google"
                 loading={loadingProvider === "google"}
               />
-              <AuthButton
-                onPress={() => setEmailModalVisible(true)}
-                icon={<Ionicons name="mail-outline" size={20} color={COLORS.text2} />}
-                label="Continue with Email"
-                variant="email"
-                loading={loadingProvider === "email"}
-              />
+              {!IS_CLOSED_BETA ? (
+                <AuthButton
+                  onPress={() => setEmailModalVisible(true)}
+                  icon={<Ionicons name="mail-outline" size={20} color={COLORS.text2} />}
+                  label="Continue with Email"
+                  variant="email"
+                  loading={loadingProvider === "email"}
+                />
+              ) : null}
 
               <Pressable
                 onPress={signInLater}
@@ -507,7 +512,7 @@ export function SignUpScreen() {
         </SafeAreaView>
       </View>
 
-      <Modal visible={emailModalVisible} transparent animationType="fade">
+      <Modal visible={!IS_CLOSED_BETA && emailModalVisible} transparent animationType="fade">
         <Pressable style={styles.modalBackdrop} onPress={() => setEmailModalVisible(false)}>
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.modalTitle}>Continue with Email</Text>

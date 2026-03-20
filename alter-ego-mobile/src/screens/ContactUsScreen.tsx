@@ -23,6 +23,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import Svg, { Path, Circle } from "react-native-svg";
 import { supabase } from "@/utils/supabase";
+import { apiClient } from "@/services/api";
 import Constants from "expo-constants";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
@@ -36,7 +37,6 @@ const DIM = "#374151";
 const VERY_DIM = "#2D3146";
 
 const FAQ_URL = "https://alterego.app/faq";
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? "";
 
 function IconInfo() {
   return (
@@ -137,20 +137,21 @@ export function ContactUsScreen() {
       } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Not signed in");
       const appVersion = Constants.expoConfig?.version ?? "1.0.0";
-      const res = await fetch(`${API_BASE}/api/v1/feedback`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          subject,
-          message: trimmed,
-          platform: Platform.OS,
-          app_version: appVersion,
-        }),
+      const typeMap: Record<FeedbackSubject, "suggestion" | "concern" | "bug"> = {
+        Suggestion: "suggestion",
+        Concern: "concern",
+        "Bug Report": "bug",
+      };
+      const type = typeMap[subject];
+      const content =
+        subject === "Bug Report"
+          ? `[${Platform.OS}] ${trimmed}`
+          : trimmed;
+      await apiClient.post("/api/v1/settings/feedback", {
+        type,
+        content,
+        app_version: appVersion,
       });
-      if (!res.ok) throw new Error("Send failed");
       setSheetVisible(false);
       Alert.alert("Sent — thank you", "We typically respond within 24 hours.");
     } catch (e) {

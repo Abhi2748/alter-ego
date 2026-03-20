@@ -101,6 +101,15 @@ async def get_leaderboard(authorization: str = Header(None)):
             }
         )
 
+    pool_count_res = (
+        supabase_admin.table("users")
+        .select("id", count="exact")
+        .eq("onboarding_complete", True)
+        .eq("leaderboard_unlocked", True)
+        .execute()
+    )
+    total_on_leaderboard = getattr(pool_count_res, "count", None) or len(top_100)
+
     return {
         "entries": entries,
         "current_user": {
@@ -110,7 +119,7 @@ async def get_leaderboard(authorization: str = Header(None)):
             "character_stage": user.get("character_stage", 1) or 1,
             "in_top_100": user_rank <= 100,
         },
-        "total_users": higher_count or 0,
+        "total_users": total_on_leaderboard,
         "last_updated": "nightly",
     }
 

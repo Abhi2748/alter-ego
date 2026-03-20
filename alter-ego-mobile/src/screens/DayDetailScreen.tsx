@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,12 @@ import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import type { MainStackParamList } from "../navigation/types";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 import { HomeMissionCard } from "../components/HomeMissionCard";
+import { missionsService, type Mission } from "@/services/missions";
+import { reportsService } from "@/services/reports";
+import { profileService } from "@/services/profile";
+import { getErrorMessage } from "@/services/api";
+import { useUserStore } from "@/store/userStore";
+import type { UserProfile } from "@/store/userStore";
 
 type DayDetailRouteProp = RouteProp<MainStackParamList, "DayDetail">;
 
@@ -23,6 +29,7 @@ interface DayMission {
   type: "core" | "interest" | "personal" | "resistance";
   difficulty: "easy" | "medium" | "hard";
   xp_value: number;
+  pf_value: number;
   completed: boolean;
   interest_name?: string;
   mission_streak?: number;
@@ -64,110 +71,201 @@ function formatFullDate(d: DayHistory): string {
   })}`;
 }
 
+const DAILY_XP_CAPS: Record<number, number> = {
+  1: 200,
+  2: 300,
+  3: 450,
+  4: 600,
+  5: 800,
+  6: 1000,
+};
+const DAILY_PF_CAPS: Record<number, number> = {
+  1: 160,
+  2: 240,
+  3: 360,
+  4: 480,
+  5: 640,
+  6: 800,
+};
+
+function dayNumberForDate(registrationDate: string | undefined, day: string): number {
+  if (!registrationDate) return 1;
+  try {
+    const regStr = registrationDate.slice(0, 10);
+    const reg = new Date(regStr + "T12:00:00");
+    const d = new Date(day + "T12:00:00");
+    const diff = Math.round((d.getTime() - reg.getTime()) / 86400000);
+    return Math.max(1, diff + 1);
+  } catch {
+    return 1;
+  }
+}
+
+function mapMissionToDay(m: Mission, section: DayMission["type"]): DayMission {
+  const diffRaw = String(m.difficulty ?? "easy").toLowerCase();
+  const difficulty: DayMission["difficulty"] =
+    diffRaw === "medium" ? "medium" : diffRaw === "hard" ? "hard" : "easy";
+  return {
+    id: m.id,
+    title: m.title,
+    type: section,
+    difficulty,
+    xp_value: m.xp_value,
+    pf_value: m.pf_value ?? 0,
+    completed: !!m.completed,
+    interest_name: undefined,
+    mission_streak: 0,
+  };
+}
+
+function buildHistory(
+  date: string,
+  profile: UserProfile | null,
+  missionsRes: Awaited<ReturnType<typeof missionsService.getMissionsByDate>>,
+  summaryText: string | null,
+  heatmapRow: {
+    maintained: boolean;
+    streak_count: number;
+    xp_earned: number;
+    pf_earned: number;
+    missions_done: number;
+    missions_total: number;
+  } | null,
+  evolvedToday: boolean,
+  evolvedFrom: string | null,
+  evolvedTo: string | null
+): DayHistory {
+  const weekday = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" });
+  const day_number = dayNumberForDate(profile?.registration_date, date);
+  const stage = Math.min(6, Math.max(1, profile?.character_stage ?? 1));
+  const xpCap = DAILY_XP_CAPS[stage] ?? 200;
+  const pfCap = DAILY_PF_CAPS[stage] ?? 160;
+
+  const core = (missionsRes.missions.core ?? []).map((m) => mapMissionToDay(m, "core"));
+  const interest = (missionsRes.missions.interest ?? []).map((m) => mapMissionToDay(m, "interest"));
+  const resistance = (missionsRes.missions.resistance ?? []).map((m) => mapMissionToDay(m, "resistance"));
+  const personal = (missionsRes.missions.personal ?? []).map((m) => mapMissionToDay(m, "personal"));
+  const missions = [...core, ...interest, ...resistance, ...personal];
+
+  const total = missions.length;
+  const completed = missions.filter((m) => m.completed).length;
+  const completion_pct = total > 0 ? Math.round((100 * completed) / total) : 0;
+
+  const xp_earned = heatmapRow?.xp_earned ?? 0;
+  const pf_earned = heatmapRow?.pf_earned ?? 0;
+
+  const is_streak_day = heatmapRow ? !!heatmapRow.maintained : false;
+  const streak_at_day = heatmapRow?.streak_count ?? 0;
+  const streak_broke_here = heatmapRow ? !heatmapRow.maintained && streak_at_day === 0 : false;
+
+  const pet_stage = profile?.pet_stage ?? 0;
+  const pet_name = profile?.pet_name ?? (pet_stage > 0 ? "Pet" : "—");
+  const pet_state: "happy" | "sad" =
+    pet_stage > 0 && heatmapRow && !heatmapRow.maintained ? "sad" : "happy";
+
+  return {
+    date,
+    day_number,
+    weekday,
+    is_streak_day,
+    streak_at_day,
+    streak_broke_here,
+    character_stage: profile?.character_stage ?? 1,
+    character_stage_name: profile?.character_stage_name ?? "—",
+    evolved_today: evolvedToday,
+    evolved_from: evolvedFrom,
+    evolved_to: evolvedTo,
+    pet_stage,
+    pet_name,
+    pet_state,
+    xp_earned,
+    xp_daily_cap: xpCap,
+    xp_total_start_of_day: profile?.total_xp ?? 0,
+    pf_earned,
+    pf_daily_cap: pfCap,
+    pf_total_start_of_day: profile?.total_pf ?? 0,
+    missions_total: total,
+    missions_completed: completed,
+    completion_pct,
+    missions,
+    summary: summaryText,
+  };
+}
+
 export function DayDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<DayDetailRouteProp>();
   const { date } = route.params;
+  const fetchProfile = useUserStore((s) => s.fetchProfile);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<DayHistory | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        // TODO: replace with real GET /api/v1/history/day?date=...
-        // For now, use a placeholder so UI can be reviewed.
-        const today = new Date(date + "T12:00:00");
-        const weekday = today.toLocaleDateString("en-US", { weekday: "long" });
-        const placeholder: DayHistory = {
-          date,
-          day_number: 42,
-          weekday,
-          is_streak_day: true,
-          streak_at_day: 12,
-          streak_broke_here: false,
-          character_stage: 2,
-          character_stage_name: "The Focused",
-          evolved_today: false,
-          evolved_from: null,
-          evolved_to: null,
-          pet_stage: 2,
-          pet_name: "Cat",
-          pet_state: "happy",
-          xp_earned: 120,
-          xp_daily_cap: 300,
-          xp_total_start_of_day: 1800,
-          pf_earned: 80,
-          pf_daily_cap: 200,
-          pf_total_start_of_day: 600,
-          missions_total: 7,
-          missions_completed: 5,
-          completion_pct: 71,
-          missions: [
-            {
-              id: "m1",
-              title: "Sleep 7 hours",
-              type: "core",
-              difficulty: "medium",
-              xp_value: 25,
-              completed: true,
-            },
-            {
-              id: "m2",
-              title: "No-phone focus block",
-              type: "core",
-              difficulty: "hard",
-              xp_value: 40,
-              completed: true,
-            },
-            {
-              id: "m3",
-              title: "Movement: 30-minute walk",
-              type: "core",
-              difficulty: "easy",
-              xp_value: 15,
-              completed: true,
-            },
-            {
-              id: "m4",
-              title: "Guitar practice",
-              type: "interest",
-              difficulty: "medium",
-              xp_value: 20,
-              completed: true,
-              interest_name: "Guitar",
-            },
-            {
-              id: "m5",
-              title: "Evening scroll replacement",
-              type: "resistance",
-              difficulty: "easy",
-              xp_value: 10,
-              completed: false,
-              interest_name: "Social media",
-            },
-          ],
-          summary: "You showed up on all three Core missions and made real progress on your Focus mission.",
-        };
-        if (!cancelled) {
-          setHistory(placeholder);
-          setError(null);
-          setLoading(false);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError("Could not load this day's history.");
-          setLoading(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (!useUserStore.getState().profile) {
+        await fetchProfile();
+      }
+      const p = useUserStore.getState().profile;
+
+      const [missionsRes, daySummary, streakRes, identityRes] = await Promise.all([
+        missionsService.getMissionsByDate(date),
+        reportsService.getDaySummary(date).catch(() => ({ date, summary: "" })),
+        profileService.getStreak(),
+        profileService.getIdentity().catch(() => null),
+      ]);
+
+      const heatmap = (streakRes as { heatmap?: Array<Record<string, unknown>> })?.heatmap ?? [];
+      const row = heatmap.find((h) => String(h.date) === date);
+      const heatmapRow = row
+        ? {
+            maintained: !!row.maintained,
+            streak_count: Number(row.streak_count ?? 0),
+            xp_earned: Number(row.xp_earned ?? 0),
+            pf_earned: Number(row.pf_earned ?? 0),
+            missions_done: Number(row.missions_done ?? 0),
+            missions_total: Number(row.missions_total ?? 0),
+          }
+        : null;
+
+      let evolvedToday = false;
+      let evolvedFrom: string | null = null;
+      let evolvedTo: string | null = null;
+      if (identityRes && typeof identityRes === "object" && "stages" in identityRes) {
+        const stages = (identityRes as { stages: Array<{ name: string; earned_at?: string | null }> }).stages;
+        for (let i = 0; i < stages.length; i++) {
+          const ea = stages[i]?.earned_at;
+          if (ea && String(ea).slice(0, 10) === date) {
+            evolvedToday = true;
+            evolvedTo = stages[i].name;
+            evolvedFrom = i > 0 ? stages[i - 1]?.name ?? null : null;
+            break;
+          }
         }
       }
+
+      const summaryText =
+        typeof daySummary?.summary === "string" && daySummary.summary.trim()
+          ? daySummary.summary.trim()
+          : null;
+
+      const built = buildHistory(date, p, missionsRes, summaryText, heatmapRow, evolvedToday, evolvedFrom, evolvedTo);
+      setHistory(built);
+      setError(null);
+    } catch (e) {
+      setError(getErrorMessage(e));
+      setHistory(null);
+    } finally {
+      setLoading(false);
     }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [date]);
+  }, [date, fetchProfile]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const formattedDate = useMemo(
     () => (history ? formatFullDate(history) : date),
@@ -348,7 +446,7 @@ export function DayDetailScreen() {
                   <Text style={styles.snapshotMetaLabel}>XP EARNED THIS DAY</Text>
                 </View>
                 <View style={styles.snapshotMetaItem}>
-                  <Text style={[styles.snapshotMetaValue, { color: "#34D399" }]}>
+                  <Text style={[styles.snapshotMetaValue, { color: "#A78BFA" }]}>
                     {history.pf_earned}
                   </Text>
                   <Text style={styles.snapshotMetaLabel}>PET FOOD EARNED</Text>
@@ -394,12 +492,12 @@ export function DayDetailScreen() {
               ]}
             >
               <LinearGradient
-                colors={["transparent", "rgba(16,185,129,0.35)", "transparent"]}
+                colors={["transparent", "rgba(139,92,246,0.35)", "transparent"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.rewardAccent}
               />
-              <Text style={styles.rewardIcon}>🌿</Text>
+              <Text style={styles.rewardIcon}>✦</Text>
               <Text
                 style={[
                   styles.rewardValue,
@@ -550,8 +648,8 @@ export function DayDetailScreen() {
                       }
                       difficulty={difficultyLabel as "Easy" | "Medium" | "Hard"}
                       xpValue={m.xp_value}
-                      petFoodValue={0}
-                      status={m.completed ? "pending" : "expired"}
+                      petFoodValue={m.pf_value}
+                      status={m.completed ? "complete" : "expired"}
                       onComplete={() => {}}
                       missionType={
                         section === "core"
@@ -785,8 +883,8 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.18)",
-    backgroundColor: "rgba(5,150,105,0.10)",
+    borderColor: "rgba(139,92,246,0.22)",
+    backgroundColor: "rgba(109,40,217,0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -794,9 +892,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(42,48,80,0.25)",
     backgroundColor: "rgba(42,48,80,0.15)",
   },
-  snapshotPetText: { fontSize: 10, color: "#34D399" },
+  snapshotPetText: { fontSize: 10, color: "#A78BFA" },
   snapshotPetTextSad: { color: "#2D3146" },
-  snapshotPetName: { fontSize: 9, color: "#34D399" },
+  snapshotPetName: { fontSize: 9, color: "#A78BFA" },
   snapshotPetNameSad: { color: "#374151" },
   snapshotMetaColumn: {
     flex: 1,
@@ -833,8 +931,8 @@ const styles = StyleSheet.create({
     borderColor: "rgba(139,92,246,0.22)",
   },
   rewardCardPf: {
-    backgroundColor: "rgba(5,150,105,0.10)",
-    borderColor: "rgba(16,185,129,0.22)",
+    backgroundColor: "rgba(109,40,217,0.10)",
+    borderColor: "rgba(139,92,246,0.22)",
   },
   rewardCardMissed: {
     backgroundColor: "rgba(42,48,80,0.10)",
@@ -854,7 +952,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   rewardValueXp: { color: "#A78BFA" },
-  rewardValuePf: { color: "#34D399" },
+  rewardValuePf: { color: "#A78BFA" },
   rewardValueMissed: { color: "#374151" },
   rewardLabel: {
     fontSize: 9,
@@ -965,7 +1063,7 @@ const styles = StyleSheet.create({
   sectionBarCore: { backgroundColor: "#7F1D1D" },
   sectionBarFocus: { backgroundColor: "#6D28D9" },
   sectionBarPersonal: { backgroundColor: "rgba(107,114,128,0.4)" },
-  sectionBarResistance: { backgroundColor: "#F97316" },
+  sectionBarResistance: { backgroundColor: "#6B7280" },
   sectionLabel: {
     fontSize: 11,
     fontWeight: "700",
@@ -975,7 +1073,7 @@ const styles = StyleSheet.create({
   sectionLabelCore: { color: "#7F1D1D" },
   sectionLabelFocus: { color: "#8B5CF6" },
   sectionLabelPersonal: { color: "#6B7280" },
-  sectionLabelResistance: { color: "#F97316" },
+  sectionLabelResistance: { color: "#9CA3AF" },
   sectionCount: {
     marginLeft: "auto",
     fontSize: 10,
@@ -987,7 +1085,7 @@ const styles = StyleSheet.create({
   sectionCountDoneCore: { color: "#7F1D1D" },
   sectionCountDoneFocus: { color: "#8B5CF6" },
   sectionCountDonePersonal: { color: "#6B7280" },
-  sectionCountDoneResistance: { color: "#F97316" },
+  sectionCountDoneResistance: { color: "#9CA3AF" },
   missionRow: {
     backgroundColor: "#141824",
     borderWidth: 1,

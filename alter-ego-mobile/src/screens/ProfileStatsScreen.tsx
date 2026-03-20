@@ -3,7 +3,7 @@
  * per-interest completion bars. Premium dark card layout, victory-native.
  */
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -12,15 +12,18 @@ import {
   Pressable,
   useWindowDimensions,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { CartesianChart, Line, Area } from "victory-native";
+import { useProfileStats, useProfileInterests } from "@/hooks/useProfile";
+import { getErrorMessage } from "@/services/api";
 
 // -----------------------------------------------------------------------------
-// TYPES & PLACEHOLDER DATA
+// TYPES
 // -----------------------------------------------------------------------------
 
 export interface StatsScreenData {
@@ -30,42 +33,79 @@ export interface StatsScreenData {
   interest_completion: { interest_name: string; completion_pct: number }[];
 }
 
-const PLACEHOLDER_STATS: StatsScreenData = {
-  xp_progress: [
-    { day: 1, xp: 880 },
-    { day: 5, xp: 1050 },
-    { day: 10, xp: 1200 },
-    { day: 15, xp: 1380 },
-    { day: 20, xp: 1520 },
-    { day: 25, xp: 1720 },
-    { day: 30, xp: 2050 },
-  ],
-  mission_rate: [
-    { week: "W1", pct: 72 },
-    { week: "W2", pct: 88 },
-    { week: "W3", pct: 62 },
-    { week: "W4", pct: 95 },
-    { week: "W5", pct: 75 },
-    { week: "W6", pct: 90 },
-    { week: "W7", pct: 98 },
-  ],
-  twin_gap: [
-    { day: 1, gap: 8 },
-    { day: 5, gap: 10 },
-    { day: 8, gap: 6 },
-    { day: 12, gap: 10 },
-    { day: 16, gap: 7 },
-    { day: 18, gap: 10 },
-    { day: 22, gap: 9 },
-    { day: 25, gap: 7 },
-    { day: 27, gap: 6 },
-    { day: 30, gap: 5 },
-  ],
-  interest_completion: [
-    { interest_name: "Fitness", completion_pct: 85 },
-    { interest_name: "Reading", completion_pct: 60 },
-  ],
-};
+function mondayKey(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const dt = new Date(y!, (m ?? 1) - 1, d ?? 1);
+  const day = dt.getDay();
+  const diff = dt.getDate() - day + (day === 0 ? -6 : 1);
+  const mon = new Date(dt.getFullYear(), dt.getMonth(), diff);
+  const yy = mon.getFullYear();
+  const mm = String(mon.getMonth() + 1).padStart(2, "0");
+  const dd = String(mon.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function buildMissionWeekly(
+  streakChart: { date: string; missions_done?: number; missions_total?: number }[],
+  maxWeeks = 7
+): { week: string; pct: number }[] {
+  const map = new Map<string, { d: number; t: number }>();
+  for (const r of streakChart) {
+    const k = mondayKey(r.date);
+    const cur = map.get(k) ?? { d: 0, t: 0 };
+    cur.d += r.missions_done ?? 0;
+    cur.t += r.missions_total ?? 0;
+    map.set(k, cur);
+  }
+  const keys = [...map.keys()].sort();
+  const slice = keys.slice(-maxWeeks);
+  return slice.map((k, i) => {
+    const v = map.get(k)!;
+    const pct = v.t > 0 ? Math.round((v.d / v.t) * 100) : 0;
+    return { week: `W${i + 1}`, pct };
+  });
+}
+
+function buildStatsFromApi(
+  stats: Record<string, unknown> | undefined,
+  interestsPayload: { interests?: Array<{ name?: string; milestones?: Array<{ earned?: boolean }> }> } | undefined
+): StatsScreenData {
+  const xpChart = (stats?.xp_chart as { date: string; xp: number }[]) ?? [];
+  const xp_progress =
+    xpChart.length > 0
+      ? xpChart.map((row, i) => ({ day: i + 1, xp: row.xp }))
+      : [{ day: 1, xp: 0 }];
+
+  const streakChart =
+    (stats?.streak_chart as {
+      date: string;
+      missions_done?: number;
+      missions_total?: number;
+    }[]) ?? [];
+  let mission_rate = buildMissionWeekly(streakChart, 7);
+  if (mission_rate.length === 0) {
+    mission_rate = Array.from({ length: 7 }, (_, i) => ({ week: `W${i + 1}`, pct: 0 }));
+  }
+
+  const twinRaw = (stats?.twin_gap_chart as { date: string; gap: number }[]) ?? [];
+  const twin_gap =
+    twinRaw.length > 0
+      ? twinRaw.map((row, i) => ({ day: i + 1, gap: row.gap }))
+      : [{ day: 1, gap: 0 }];
+
+  const list = interestsPayload?.interests ?? [];
+  const interest_completion =
+    list.length > 0
+      ? list.map((it) => {
+          const m = it.milestones ?? [];
+          const earned = m.filter((x) => x.earned).length;
+          const pct = m.length ? Math.round((earned / m.length) * 100) : 0;
+          return { interest_name: it.name ?? "Interest", completion_pct: pct };
+        })
+      : [{ interest_name: "Add interests in onboarding", completion_pct: 0 }];
+
+  return { xp_progress, mission_rate, twin_gap, interest_completion };
+}
 
 // -----------------------------------------------------------------------------
 // SECTION HEADER + CHART CARD
@@ -117,8 +157,8 @@ function ChartCard({ children }: { children: React.ReactNode }) {
 // -----------------------------------------------------------------------------
 
 const XP_ACCENT: [string, string] = ["#8B5CF6", "#5B21B6"];
-const MISSION_ACCENT: [string, string] = ["#A78BFA", "#7C3AED"];
-const GAP_ACCENT: [string, string] = ["#C084FC", "#7C3AED"];
+const MISSION_ACCENT: [string, string] = ["#A78BFA", "#6D28D9"];
+const GAP_ACCENT: [string, string] = ["#C084FC", "#6D28D9"];
 const INTEREST_ACCENT: [string, string] = ["#A78BFA", "#6D28D9"];
 
 const CHART_HEIGHT_XP = 140;
@@ -148,19 +188,96 @@ export function ProfileStatsScreen() {
   const { width } = useWindowDimensions();
   const cardWidth = width - 32;
   const chartAreaWidth = cardWidth - 14 * 2 - Y_LABEL_WIDTH - 8;
-  const [data] = useState<StatsScreenData>(PLACEHOLDER_STATS);
   const [xpLastPoint, setXpLastPoint] = useState<{ x: number; y: number } | null>(null);
+
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    error: statsError,
+    refetch,
+  } = useProfileStats(30);
+  const { data: interestsPayload } = useProfileInterests();
+
+  const data = useMemo(
+    () => buildStatsFromApi(stats as Record<string, unknown> | undefined, interestsPayload as { interests?: Array<{ name?: string; milestones?: Array<{ earned?: boolean }> }> } | undefined),
+    [stats, interestsPayload]
+  );
 
   const xpYMin = Math.min(...data.xp_progress.map((d) => d.xp));
   const xpYMax = Math.max(...data.xp_progress.map((d) => d.xp));
   const xpYTicks = getYTicks(xpYMin, xpYMax, 4);
-  const xpXTicks = [1, 8, 16, 23, 30];
-  const lastXp = data.xp_progress[data.xp_progress.length - 1];
+  const xpLen = data.xp_progress.length;
+  const xpXTicks =
+    xpLen <= 1
+      ? [1]
+      : [1, Math.max(1, Math.ceil(xpLen / 3)), Math.max(1, Math.ceil((2 * xpLen) / 3)), xpLen];
 
   const gapYMin = Math.min(...data.twin_gap.map((d) => d.gap));
   const gapYMax = Math.max(...data.twin_gap.map((d) => d.gap));
   const gapYTicks = getYTicks(gapYMin, gapYMax, 4);
-  const gapXTicks = [1, 8, 16, 23, 30];
+  const gapLen = data.twin_gap.length;
+  const gapXTicks =
+    gapLen <= 1
+      ? [1]
+      : [1, Math.max(1, Math.ceil(gapLen / 3)), Math.max(1, Math.ceil((2 * gapLen) / 3)), gapLen];
+
+  if (statsLoading && !stats) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient
+          colors={["#09091A", "#07080F"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={[styles.header, { paddingTop: insets.top + 10, paddingBottom: 14 }]}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color="#6B7280" />
+          </Pressable>
+          <Text style={styles.headerTitle}>Stats</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <ActivityIndicator color="#8B5CF6" size="large" />
+        </View>
+      </View>
+    );
+  }
+
+  if (statsError) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient
+          colors={["#09091A", "#07080F"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={[styles.header, { paddingTop: insets.top + 10, paddingBottom: 14 }]}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color="#6B7280" />
+          </Pressable>
+          <Text style={styles.headerTitle}>Stats</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: "center", padding: 24 }}>
+          <Text style={{ color: "#9CA3AF", textAlign: "center", marginBottom: 16 }}>
+            {getErrorMessage(statsError)}
+          </Text>
+          <Pressable
+            onPress={() => refetch()}
+            style={{
+              alignSelf: "center",
+              paddingVertical: 12,
+              paddingHorizontal: 24,
+              backgroundColor: "rgba(139,92,246,0.2)",
+              borderRadius: 12,
+            }}
+          >
+            <Text style={{ color: "#A78BFA", fontFamily: "Inter_600SemiBold" }}>Retry</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -317,12 +434,18 @@ export function ProfileStatsScreen() {
         </ChartCard>
 
         {/* Twin Gap */}
-        <SectionHeader title="Twin Gap" subLabel="Lower is better" accentColors={GAP_ACCENT} />
+        <SectionHeader
+          title="Twin Gap"
+          subLabel="Twin vs your mission completion (pts)"
+          accentColors={GAP_ACCENT}
+        />
         <ChartCard>
           <View style={styles.chartWithAxes}>
             <View style={styles.yStrip}>
               {[...gapYTicks].reverse().map((v, i) => (
-                <Text key={i} style={styles.tickLabel}>{v}d</Text>
+                <Text key={i} style={styles.tickLabel}>
+                  {v}
+                </Text>
               ))}
             </View>
             <View style={[styles.chartCol, { marginBottom: 0 }]}>

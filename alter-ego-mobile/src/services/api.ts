@@ -57,10 +57,8 @@ async function getAuthHeader(): Promise<string | null> {
     data: { session },
   } = await supabase.auth.getSession();
   if (session?.access_token) {
-    console.log('[api] getAuthHeader: session found');
     return `Bearer ${session.access_token}`;
   }
-  console.log('[api] getAuthHeader: no session (null)');
   return null;
 }
 

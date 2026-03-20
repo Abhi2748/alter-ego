@@ -20,6 +20,7 @@ from app.core.constants import (
     XP_THRESHOLDS,
 )
 from app.core.supabase_client import supabase_admin
+from app.services.mission_service import get_user_date
 
 router = APIRouter(prefix="/api/v1/profile", tags=["profile"])
 
@@ -41,6 +42,15 @@ async def get_profile_overview(authorization: str = Header(None)):
         .execute()
     )
     user = user_result.data or {}
+
+    dna_results = (
+        supabase_admin.table("discipline_dna")
+        .select("twin_tone_type, twin_intensity")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    dna_row = (dna_results.data or [None])[0] or {}
 
     unread_result = (
         supabase_admin.table("app_mails")
@@ -113,6 +123,8 @@ async def get_profile_overview(authorization: str = Header(None)):
         "email_connected": user.get("email_connected", False),
         "subscription_tier": user.get("subscription_tier"),
         "unread_mail_count": unread,
+        "twin_tone_type": str(dna_row.get("twin_tone_type") or "rival"),
+        "twin_intensity": int(dna_row.get("twin_intensity") or 3),
     }
 
 
@@ -153,6 +165,32 @@ async def get_profile_stats(
         or []
     )
 
+    twin_rows = (
+        supabase_admin.table("twin_daily_record")
+        .select("record_date, missions_completed, missions_assigned")
+        .eq("user_id", user_id)
+        .gte("record_date", since)
+        .execute()
+        .data
+        or []
+    )
+    twin_by_date = {r["record_date"]: r for r in twin_rows}
+
+    twin_gap_chart = []
+    for r in streak_rows:
+        d = r["log_date"]
+        u_done = int(r.get("total_missions_done", 0) or 0)
+        u_tot = int(r.get("total_missions", 0) or 0)
+        u_pct = round((u_done / u_tot * 100), 1) if u_tot > 0 else 0.0
+        tr = twin_by_date.get(d)
+        if tr:
+            t_done = int(tr.get("missions_completed", 0) or 0)
+            t_tot = int(tr.get("missions_assigned", 0) or 0)
+            t_pct = round((t_done / max(t_tot, 1) * 100), 1)
+        else:
+            t_pct = 95.0
+        twin_gap_chart.append({"date": d, "gap": round(t_pct - u_pct, 1)})
+
     total_done = sum(r.get("total_missions_done", 0) for r in streak_rows)
     total_possible = sum(r.get("total_missions", 0) for r in streak_rows)
     completion_rate = (
@@ -174,9 +212,12 @@ async def get_profile_stats(
                 "date": r["log_date"],
                 "streak": r.get("streak_count", 0),
                 "maintained": r.get("streak_maintained", False),
+                "missions_done": r.get("total_missions_done", 0),
+                "missions_total": r.get("total_missions", 0),
             }
             for r in streak_rows
         ],
+        "twin_gap_chart": twin_gap_chart,
     }
 
 
@@ -184,13 +225,29 @@ async def get_profile_stats(
 async def get_profile_streak(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
-    since = str(date.today() - timedelta(weeks=52))
+    user_result = (
+        supabase_admin.table("users")
+        .select(
+            "current_streak, longest_streak, streak_requirement_tier, timezone"
+        )
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    user = user_result.data or {}
+
+    tz_str = str(user.get("timezone") or "UTC")
+    try:
+        anchor = date.fromisoformat(get_user_date(tz_str))
+    except Exception:
+        anchor = date.today()
+    since = str(anchor - timedelta(weeks=52))
 
     rows = (
         supabase_admin.table("streak_log")
         .select(
             "log_date, streak_maintained, streak_count, "
-            "total_missions_done, total_missions, xp_earned"
+            "total_missions_done, total_missions, xp_earned, pf_earned"
         )
         .eq("user_id", user_id)
         .gte("log_date", since)
@@ -199,15 +256,6 @@ async def get_profile_streak(authorization: str = Header(None)):
         .data
         or []
     )
-
-    user_result = (
-        supabase_admin.table("users")
-        .select("current_streak, longest_streak, streak_requirement_tier")
-        .eq("id", user_id)
-        .single()
-        .execute()
-    )
-    user = user_result.data or {}
 
     return {
         "current_streak": user.get("current_streak", 0),
@@ -221,6 +269,7 @@ async def get_profile_streak(authorization: str = Header(None)):
                 "missions_done": r.get("total_missions_done", 0),
                 "missions_total": r.get("total_missions", 0),
                 "xp_earned": r.get("xp_earned", 0),
+                "pf_earned": r.get("pf_earned", 0),
             }
             for r in rows
         ],

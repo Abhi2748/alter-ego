@@ -23,6 +23,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/utils/supabase";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
+import MaskedView from "@react-native-masked-view/masked-view";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -34,7 +36,6 @@ import Animated, {
   Easing,
   runOnJS,
 } from "react-native-reanimated";
-import Svg, { Polygon } from "react-native-svg";
 import type { OnboardingStackParamList } from "../navigation/types";
 import {
   ONBOARDING_QUESTIONS,
@@ -50,6 +51,7 @@ import { InterestWizardSheet } from "../components/InterestWizardSheet";
 import { QuitWizardSheet } from "../components/QuitWizardSheet";
 import { onboardingService } from "@/services/onboarding";
 import { useOnboarding } from "@/hooks/useOnboarding";
+import { OnboardingCompletionOverlay } from "@/components/OnboardingCompletionOverlay";
 import { COLORS, SPACING, RADIUS, ANIMATIONS, SHADOWS, GRADIENTS } from "../constants/theme";
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -59,12 +61,6 @@ const DRAFT_SAVE_DEBOUNCE_MS = 600;
 const PARTICLE_COLORS = ["#8B5CF6", "#6D28D9", "#A78BFA"] as const;
 const PARTICLE_SEED = 43;
 const PARTICLE_COUNT = 24;
-
-const ONBOARDING_COMPLETION_MESSAGES = [
-  "Reading your answers...",
-  "Building your discipline DNA...",
-  "Preparing your first missions...",
-];
 
 /** Backend question_key per step (Q15 timezone saved silently after Q14). */
 const QUESTION_KEYS: Record<number, string> = {
@@ -234,6 +230,72 @@ function createSeededRandom(seed: number) {
   };
 }
 
+const Q11_FLOAT_SEED = 901;
+
+function Q11FloatDot({
+  left,
+  top,
+  size,
+  delay,
+}: {
+  left: number;
+  top: number;
+  size: number;
+  delay: number;
+}) {
+  const y = useSharedValue(0);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      y.value = withRepeat(
+        withTiming(-48, { duration: 7000, easing: Easing.inOut(Easing.ease) }),
+        -1,
+        true
+      );
+    }, delay);
+    return () => clearTimeout(t);
+  }, [delay, y]);
+  const anim = useAnimatedStyle(() => ({
+    transform: [{ translateY: y.value }],
+  }));
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        {
+          position: "absolute",
+          left,
+          top,
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: "#A78BFA",
+          opacity: 0.18,
+        },
+        anim,
+      ]}
+    />
+  );
+}
+
+function Q11AmbientParticles() {
+  const configs = useMemo(() => {
+    const random = createSeededRandom(Q11_FLOAT_SEED);
+    return Array.from({ length: 6 }, () => ({
+      left: random() * (SCREEN_WIDTH - 32) + 8,
+      top: 40 + random() * 100,
+      size: 2 + Math.floor(random() * 3),
+      delay: Math.floor(random() * 1500),
+    }));
+  }, []);
+  return (
+    <>
+      {configs.map((cfg, i) => (
+        <Q11FloatDot key={i} {...cfg} />
+      ))}
+    </>
+  );
+}
+
 function getParticleConfigs(): ParticleConfig[] {
   const random = createSeededRandom(PARTICLE_SEED);
   const configs: ParticleConfig[] = [];
@@ -321,6 +383,7 @@ export function OnboardingQuestionScreen() {
   const [addInterestModalVisible, setAddInterestModalVisible] = useState(false);
   const [wizardInterestName, setWizardInterestName] = useState("");
   const [interestInputText, setInterestInputText] = useState("");
+  const [interestInputFocused, setInterestInputFocused] = useState(false);
   const [quitSheetVisible, setQuitSheetVisible] = useState(false);
   const [wizardQuitName, setWizardQuitName] = useState("");
   const [quitInputText, setQuitInputText] = useState("");
@@ -328,10 +391,6 @@ export function OnboardingQuestionScreen() {
   const [usernameChecking, setUsernameChecking] = useState(false);
   const [usernameFocused, setUsernameFocused] = useState(false);
   const [completingOnboarding, setCompletingOnboarding] = useState(false);
-  const [completionMsgIdx, setCompletionMsgIdx] = useState(0);
-  const completionPulse = useSharedValue(0);
-  const completionTextOpacity = useSharedValue(1);
-  const completionHexRotation = useSharedValue(0);
 
   const {
     initializeProfile,
@@ -348,38 +407,6 @@ export function OnboardingQuestionScreen() {
   useEffect(() => {
     void initializeProfile();
   }, [initializeProfile]);
-
-  useEffect(() => {
-    if (!completingOnboarding && !isCompleting) return;
-    setCompletionMsgIdx(0);
-    const id = setInterval(() => {
-      setCompletionMsgIdx((i) => (i + 1) % ONBOARDING_COMPLETION_MESSAGES.length);
-    }, 2000);
-    completionHexRotation.value = 0;
-    completionHexRotation.value = withRepeat(
-      withTiming(1, { duration: 9000, easing: Easing.linear }),
-      -1,
-      false
-    );
-    return () => {
-      clearInterval(id);
-      completionHexRotation.value = 0;
-    };
-  }, [completingOnboarding, isCompleting, completionHexRotation]);
-
-  useEffect(() => {
-    if (!completingOnboarding && !isCompleting) return;
-    completionTextOpacity.value = 0;
-    completionTextOpacity.value = withTiming(1, { duration: 520, easing: Easing.out(Easing.ease) });
-  }, [completionMsgIdx, completingOnboarding, isCompleting, completionTextOpacity]);
-
-  const completionHexStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${completionHexRotation.value * 2 * Math.PI}rad` }],
-  }));
-
-  const completionTextStyle = useAnimatedStyle(() => ({
-    opacity: completionTextOpacity.value,
-  }));
 
   const q13TrackWidthRef = useRef(0);
   const randomUsernameRef = useRef<string | null>(null);
@@ -563,7 +590,6 @@ export function OnboardingQuestionScreen() {
     const label = getAnswer("commitmentTimeline") as string | undefined;
     const apiVal = commitmentLabelToApi(label);
     setCompletingOnboarding(true);
-    setCompletionMsgIdx(0);
     try {
       await onboardingService.saveStep({
         question_key: "q14_commitment",
@@ -746,10 +772,69 @@ export function OnboardingQuestionScreen() {
 
       const q13Value = c.questionNumber === 13 ? (typeof answer === "number" ? answer : 1.0) : sliderVal;
       const q13Percent = c.questionNumber === 13 ? (q13Value - 0.5) / 2.5 : 0;
+      const words = c.questionText.trim().split(/\s+/);
+      const splitAt =
+        words.length <= 4
+          ? Math.max(1, Math.floor(words.length / 2))
+          : Math.max(2, Math.min(words.length - 2, Math.round(words.length * 0.52)));
+      const headingTop = words.slice(0, splitAt).join(" ");
+      const headingBottom = words.slice(splitAt).join(" ");
 
       return (
         <>
-          <Text style={[styles.questionText, c.questionNumber === 12 && styles.questionTextQ12]}>{c.questionText}</Text>
+          {c.inputType === "interests_add" ? (
+            <View style={styles.q11HeadlineBlock}>
+              <Text style={styles.q11HeadlineLine1}>What are you</Text>
+              <MaskedView
+                style={styles.q11HeadlineMask}
+                maskElement={<Text style={styles.q11HeadlineMaskText}>actually into?</Text>}
+              >
+                <LinearGradient
+                  colors={["#A78BFA", "#C084FC"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.q11HeadlineGrad}
+                >
+                  <Text style={[styles.q11HeadlineMaskText, { opacity: 0 }]}>actually into?</Text>
+                </LinearGradient>
+              </MaskedView>
+              <Text style={styles.q11Subtitle}>
+                Write it in your own words — be specific, be you. Your missions will be built around what you actually
+                care about.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.questionHeadingWrap}>
+              <Text style={[styles.questionHeadingTop, c.questionNumber === 12 && styles.questionHeadingCompact]}>
+                {headingTop}
+              </Text>
+              <MaskedView
+                style={styles.questionHeadingMask}
+                maskElement={
+                  <Text style={[styles.questionHeadingBottomMaskText, c.questionNumber === 12 && styles.questionHeadingCompact]}>
+                    {headingBottom}
+                  </Text>
+                }
+              >
+                <LinearGradient
+                  colors={["#A78BFA", "#C084FC"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.questionHeadingGradient}
+                >
+                  <Text
+                    style={[
+                      styles.questionHeadingBottomMaskText,
+                      c.questionNumber === 12 && styles.questionHeadingCompact,
+                      { opacity: 0 },
+                    ]}
+                  >
+                    {headingBottom}
+                  </Text>
+                </LinearGradient>
+              </MaskedView>
+            </View>
+          )}
 
           {c.questionNumber === 13 && (
             <Text style={styles.q13Hint}>
@@ -828,96 +913,152 @@ export function OnboardingQuestionScreen() {
 
           {c.inputType === "interests_add" && (
             <View style={styles.q11Section}>
-              <Text style={styles.q11Hint}>
-                Add at least one. Type freely — &apos;trail running&apos; or &apos;learning guitar&apos; works perfectly.
-              </Text>
-              {((): React.ReactNode => {
-                const interests = (getAnswer("interests") as OnboardingInterest[] | undefined) ?? [];
-                return (
-                  <>
-                    {interests.length === 0 ? (
-                      <View style={styles.q11EmptyTags}>
-                        <Text style={styles.q11EmptyMain}>No interests added yet</Text>
-                        <Text style={styles.q11EmptySub}>Add at least one to continue</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.q11Tags}>
-                        {interests.map((item, i) => (
-                          <View key={`${item.name}-${i}`} style={styles.q11Tag}>
-                            <Text style={styles.q11TagText}>{item.name}</Text>
-                            {interactive && (
-                              <Pressable onPress={() => handleRemoveInterest(i)} hitSlop={6} style={styles.q11TagRemove}>
-                                <Text style={styles.q11TagRemoveText}>×</Text>
-                              </Pressable>
-                            )}
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                    {interactive && (
-                      <>
-                        <View style={styles.q11InputRow}>
-                          <TextInput
-                            style={styles.q11Input}
-                            placeholder="e.g. fitness, guitar, coding..."
-                            placeholderTextColor="#2D3146"
-                            value={interestInputText}
-                            onChangeText={setInterestInputText}
-                            returnKeyType="done"
-                            onSubmitEditing={() => {
-                              if (interestInputText.trim().length >= 2) openInterestWizard(interestInputText.trim());
-                            }}
-                          />
-                          <Pressable
-                            onPress={() => {
-                              if (interestInputText.trim().length >= 2) openInterestWizard(interestInputText.trim());
-                            }}
-                            disabled={interestInputText.trim().length < 2}
-                            style={[styles.q11AddBtn, interestInputText.trim().length < 2 && styles.q11AddBtnDisabled]}
-                          >
-                            <LinearGradient
-                              colors={interestInputText.trim().length >= 2 ? ["#5B21B6", "#8B5CF6"] : ["rgba(42,48,80,0.35)", "rgba(42,48,80,0.35)"]}
-                              style={styles.q11AddBtnGrad}
-                              start={{ x: 0, y: 0 }}
-                              end={{ x: 1, y: 1 }}
-                            >
-                              <Text style={styles.q11AddBtnLabel}>+</Text>
-                            </LinearGradient>
-                          </Pressable>
+              <View style={styles.q11ParticleHost}>
+                <Q11AmbientParticles />
+                {((): React.ReactNode => {
+                  const interests = (getAnswer("interests") as OnboardingInterest[] | undefined) ?? [];
+                  const len = interestInputText.length;
+                  const counterColor =
+                    len >= 100 ? "#EF4444" : len >= 80 ? "#F59E0B" : "#6B7280";
+                  return (
+                    <>
+                      {interests.length === 0 ? (
+                        <View style={styles.q11AddedZone}>
+                          <Text style={styles.q11EmptyMain}>No interests added yet</Text>
+                          <Text style={styles.q11EmptySub}>Add at least one to continue</Text>
                         </View>
-                        <Text style={styles.q11QuickLabel}>QUICK PICKS · TAP TO ADD</Text>
-                        <View style={styles.q11QuickRow}>
-                          {["Fitness", "Reading", "Coding", "Writing", "Music", "Art", "Language", "Photography"]
-                            .filter((label) => !interests.some((i) => i.name.toLowerCase() === label.toLowerCase()))
-                            .map((label) => (
+                      ) : (
+                        <View style={styles.q11Tags}>
+                          {interests.map((item, i) => (
+                            <View key={`${item.name}-${i}`} style={styles.q11Tag}>
+                              <Text style={styles.q11TagText} numberOfLines={3}>
+                                {item.name}
+                              </Text>
+                              {interactive && (
+                                <Pressable
+                                  onPress={() => handleRemoveInterest(i)}
+                                  hitSlop={6}
+                                  style={styles.q11TagRemove}
+                                >
+                                  <Text style={styles.q11TagRemoveText}>×</Text>
+                                </Pressable>
+                              )}
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                      {interactive && (
+                        <>
+                          <View style={styles.q11InputArea}>
+                            <View style={styles.q11InputRow}>
+                              <View style={styles.q11TextareaWrap}>
+                                <Text style={styles.q11FloatingLabel}>DESCRIBE IT</Text>
+                                <TextInput
+                                  style={[
+                                    styles.q11Textarea,
+                                    interestInputFocused && styles.q11TextareaFocused,
+                                  ]}
+                                  placeholder="e.g. I like fitness, especially strength training"
+                                  placeholderTextColor="#6B7280"
+                                  value={interestInputText}
+                                  onChangeText={setInterestInputText}
+                                  multiline
+                                  numberOfLines={3}
+                                  textAlignVertical="top"
+                                  maxLength={100}
+                                  onFocus={() => setInterestInputFocused(true)}
+                                  onBlur={() => setInterestInputFocused(false)}
+                                  returnKeyType="default"
+                                  onSubmitEditing={() => {
+                                    if (interestInputText.trim().length >= 2) {
+                                      openInterestWizard(interestInputText.trim());
+                                    }
+                                  }}
+                                />
+                              </View>
                               <Pressable
-                                key={label}
-                                onPress={() => openInterestWizard(label)}
-                                style={styles.q11QuickChip}
+                                onPress={() => {
+                                  if (interestInputText.trim().length >= 2) {
+                                    openInterestWizard(interestInputText.trim());
+                                  }
+                                }}
+                                disabled={interestInputText.trim().length < 2}
+                                style={[styles.q11AddBtn, interestInputText.trim().length < 2 && styles.q11AddBtnDisabled]}
                               >
-                                <Text style={styles.q11QuickChipText}>{label}</Text>
+                                <LinearGradient
+                                  colors={
+                                    interestInputText.trim().length >= 2
+                                      ? ["#6D28D9", "#8B5CF6"]
+                                      : ["rgba(42,48,80,0.35)", "rgba(42,48,80,0.35)"]
+                                  }
+                                  style={styles.q11AddBtnGrad}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 1 }}
+                                >
+                                  <Text style={styles.q11AddBtnLabel}>+</Text>
+                                </LinearGradient>
                               </Pressable>
+                            </View>
+                            <View style={styles.q11CharRow}>
+                              <Text style={styles.q11CharHint}>Be specific — it shapes your missions</Text>
+                              <Text style={[styles.q11CharCount, { color: counterColor }]}>
+                                {len} / 100
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.q11ExamplesBox}>
+                            <Text style={styles.q11ExamplesHeader}>✦  EXAMPLES — DESCRIBE WHAT YOU LOVE</Text>
+                            {[
+                              "I like fitness, especially strength training and weightlifting.",
+                              "I like reading, especially self-improvement and psychology books.",
+                              "I like art, especially pencil sketching and charcoal portraits.",
+                            ].map((ex) => (
+                              <View key={ex} style={styles.q11ExampleRow}>
+                                <Text style={styles.q11ExampleArrow}>→</Text>
+                                <Text style={styles.q11ExampleText}>{ex}</Text>
+                              </View>
                             ))}
-                        </View>
-                        <View style={styles.q11NoteRow}>
-                          <View style={styles.q11NoteDot} />
-                          <Text style={[styles.q11NoteText, interests.length > 0 && styles.q11NoteTextWith]}>
-                            {interests.length === 0
-                              ? "Minimum 1 interest required · editable from profile later"
-                              : `${interests.length} interests added · tap × to remove or edit`}
-                          </Text>
-                        </View>
-                      </>
-                    )}
-                    <InterestWizardSheet
-                      visible={addInterestModalVisible}
-                      onClose={() => { setAddInterestModalVisible(false); setWizardInterestName(""); }}
-                      onAdd={handleAddInterest}
-                      interestName={wizardInterestName || interestInputText.trim() || "Interest"}
-                    />
-                  </>
-                );
-              })()}
+                          </View>
+
+                          <View style={styles.q11QuickHeaderRow}>
+                            <Text style={styles.q11QuickIdeasLabel}>QUICK IDEAS · TAP TO ADD</Text>
+                            <View style={styles.q11QuickLine} />
+                          </View>
+                          <View style={styles.q11QuickRow}>
+                            {["Fitness", "Reading", "Coding", "Writing", "Music", "Art", "Language", "Photography"]
+                              .filter((label) => !interests.some((i) => i.name.toLowerCase() === label.toLowerCase()))
+                              .map((label) => (
+                                <Pressable
+                                  key={label}
+                                  onPress={() => setInterestInputText(`I like ${label}, especially `)}
+                                  style={styles.q11QuickChipNew}
+                                >
+                                  <Text style={styles.q11QuickChipNewText}>{label}</Text>
+                                </Pressable>
+                              ))}
+                          </View>
+                          <View style={styles.q11NoteRow}>
+                            <View style={styles.q11NoteDotNew} />
+                            <Text style={styles.q11NoteTextNew}>
+                              Min 1 interest · max 3 · editable from profile any time
+                            </Text>
+                          </View>
+                        </>
+                      )}
+                      <InterestWizardSheet
+                        visible={addInterestModalVisible}
+                        onClose={() => {
+                          setAddInterestModalVisible(false);
+                          setWizardInterestName("");
+                        }}
+                        onAdd={handleAddInterest}
+                        interestName={wizardInterestName || interestInputText.trim() || "Interest"}
+                      />
+                    </>
+                  );
+                })()}
+              </View>
             </View>
           )}
 
@@ -990,7 +1131,7 @@ export function OnboardingQuestionScreen() {
                             </LinearGradient>
                           </Pressable>
                         </View>
-                        <Text style={styles.q11QuickLabel}>COMMON PICKS</Text>
+                        <Text style={styles.q11QuickIdeasLabel}>COMMON PICKS</Text>
                         <View style={styles.q12QuickRow}>
                           {["Social media", "Gaming", "Junk food", "Alcohol", "Smoking", "Procrastinating"]
                             .filter((label) => !quits.some((q) => q.name.toLowerCase() === label.toLowerCase()))
@@ -1209,6 +1350,7 @@ export function OnboardingQuestionScreen() {
       addInterestModalVisible,
       quitSheetVisible,
       interestInputText,
+      interestInputFocused,
       quitInputText,
       wizardInterestName,
       wizardQuitName,
@@ -1230,15 +1372,23 @@ export function OnboardingQuestionScreen() {
   }
 
   const isTransitioning = transitionToIndex !== null;
+  const isQ11NextDisabledUi =
+    currentQuestionIndex === 11 &&
+    !hasAnswer() &&
+    !usernameChecking &&
+    !completingOnboarding &&
+    !isCompleting;
 
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={["#07080F", "#09091A", "#07080F"]}
-        locations={[0, 0.5, 1]}
+        colors={
+          currentQuestionIndex === 11 ? ["#0D0F1A", "#07080F"] : ["#07080F", "#09091A", "#07080F"]
+        }
+        locations={currentQuestionIndex === 11 ? [0, 1] : [0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
+        start={currentQuestionIndex === 11 ? { x: 0.08, y: 0 } : { x: 0, y: 0 }}
+        end={currentQuestionIndex === 11 ? { x: 0.92, y: 1 } : { x: 0, y: 1 }}
       />
       <View style={[StyleSheet.absoluteFill, styles.particleContainer]} pointerEvents="none">
         {particleConfigs.map((c, i) => (
@@ -1331,20 +1481,27 @@ export function OnboardingQuestionScreen() {
                   styles.buttonInner,
                   buttonAnimatedStyle,
                   (!hasAnswer() || usernameChecking || completingOnboarding || isCompleting) &&
+                    !isQ11NextDisabledUi &&
                     styles.buttonInnerDisabled,
+                  isQ11NextDisabledUi && styles.buttonInnerQ11Disabled,
                 ]}
               >
                 <LinearGradient
                   colors={
-                    !hasAnswer() || usernameChecking || completingOnboarding || isCompleting
-                      ? ["rgba(42,48,80,0.40)", "rgba(42,48,80,0.40)"]
-                      : ["#5B21B6", "#8B5CF6"]
+                    usernameChecking || completingOnboarding || isCompleting
+                      ? ["#5B21B6", "#8B5CF6"]
+                      : isQ11NextDisabledUi
+                        ? ["rgba(109,40,217,0.4)", "rgba(139,92,246,0.4)"]
+                        : !hasAnswer()
+                          ? ["rgba(42,48,80,0.40)", "rgba(42,48,80,0.40)"]
+                          : ["#6D28D9", "#8B5CF6"]
                   }
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={[
                     styles.buttonGradient,
                     (!hasAnswer() || usernameChecking || completingOnboarding || isCompleting) &&
+                      !isQ11NextDisabledUi &&
                       styles.buttonDisabled,
                   ]}
                 >
@@ -1362,27 +1519,9 @@ export function OnboardingQuestionScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
+      <StatusBar hidden={completingOnboarding || isCompleting} />
       <Modal visible={completingOnboarding || isCompleting} animationType="fade" transparent>
-        <View style={styles.completionOverlay}>
-          <View style={styles.completionContent}>
-            <Animated.View style={[styles.completionHexWrap, completionHexStyle]}>
-              <Svg width={168} height={168} viewBox="0 0 100 100">
-                <Polygon
-                  points="50,6 86,28 86,72 50,94 14,72 14,28"
-                  fill="transparent"
-                  stroke="#8B5CF6"
-                  strokeWidth={2.6}
-                  strokeLinejoin="round"
-                  opacity={0.9}
-                />
-              </Svg>
-            </Animated.View>
-            <Text style={styles.completionLogo}>ALTER EGO</Text>
-            <Animated.Text style={[styles.completionOverlayText, completionTextStyle]}>
-              {ONBOARDING_COMPLETION_MESSAGES[completionMsgIdx]}
-            </Animated.Text>
-          </View>
-        </View>
+        <OnboardingCompletionOverlay active={completingOnboarding || isCompleting} />
       </Modal>
     </View>
   );
@@ -1475,45 +1614,6 @@ const styles = StyleSheet.create({
   usernameInputError: {
     borderColor: COLORS.danger,
   },
-  completionOverlay: {
-    flex: 1,
-    backgroundColor: "#09091A",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  completionContent: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: SPACING.xl,
-  },
-  completionHexWrap: {
-    width: 168,
-    height: 168,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#8B5CF6",
-    shadowRadius: 40,
-    shadowOpacity: 0.6,
-    shadowOffset: { width: 0, height: 0 },
-    ...(Platform.OS === "android" ? { elevation: 16 } : null),
-  },
-  completionLogo: {
-    marginTop: SPACING.lg,
-    fontSize: 13,
-    letterSpacing: 6,
-    fontWeight: "700",
-    color: "#8B5CF6",
-    textTransform: "uppercase",
-  },
-  completionOverlayText: {
-    marginTop: SPACING.md,
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#6B7280",
-    letterSpacing: 3,
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
   usernameAvailOk: {
     marginTop: SPACING.xs,
     fontSize: 13,
@@ -1536,120 +1636,291 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     marginTop: SPACING.xs,
   },
-  q11Section: { marginTop: SPACING.xs },
-  q11Hint: {
-    fontSize: 13,
-    color: "#4B5563",
-    lineHeight: 1.5,
-    marginBottom: 20,
+  q11HeadlineBlock: {
+    marginBottom: SPACING.xs,
   },
-  q11EmptyTags: {
-    paddingVertical: 18,
-    paddingHorizontal: 14,
+  q11HeadlineLine1: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#E5E7EB",
+    letterSpacing: -0.8,
+  },
+  q11HeadlineMask: {
+    alignSelf: "flex-start",
+    height: 34,
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  q11HeadlineGrad: {
+    height: 34,
+    justifyContent: "center",
+  },
+  q11HeadlineMaskText: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: -0.8,
+    color: "#FFFFFF",
+  },
+  q11Subtitle: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    fontWeight: "400",
+    color: "#9CA3AF",
+    lineHeight: 19.5,
+    marginTop: SPACING.sm,
+    marginBottom: 18,
+  },
+  q11Section: { marginTop: 0 },
+  q11ParticleHost: {
+    position: "relative",
+    overflow: "visible",
+  },
+  q11AddedZone: {
+    minHeight: 52,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1.5,
     borderStyle: "dashed",
-    borderColor: "rgba(42,48,80,0.40)",
+    borderColor: "rgba(139,92,246,0.3)",
     borderRadius: 14,
+    backgroundColor: "rgba(139,92,246,0.04)",
     marginBottom: 12,
   },
-  q11EmptyMain: { fontSize: 13, color: "#2D3146" },
-  q11EmptySub: { fontSize: 11, color: "#1F2937", marginTop: 2 },
+  q11EmptyMain: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#6B7280",
+  },
+  q11EmptySub: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 11,
+    fontWeight: "500",
+    color: "rgba(107,114,128,0.7)",
+    marginTop: 4,
+  },
   q11Tags: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 10,
+    gap: 8,
+    marginBottom: 12,
   },
   q11Tag: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(109,40,217,0.15)",
+    maxWidth: "100%",
+    backgroundColor: "rgba(139,92,246,0.15)",
     borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.40)",
-    borderRadius: 24,
-    paddingVertical: 7,
+    borderColor: "rgba(139,92,246,0.4)",
+    borderRadius: 20,
+    paddingVertical: 5,
     paddingLeft: 12,
-    paddingRight: 7,
+    paddingRight: 10,
+    gap: 6,
   },
-  q11TagText: { fontSize: 13, fontWeight: "600", color: "#C4B5FD" },
+  q11TagText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#A78BFA",
+    flexShrink: 1,
+  },
   q11TagRemove: {
-    width: 15,
-    height: 15,
+    width: 16,
+    height: 16,
     borderRadius: 8,
     backgroundColor: "rgba(139,92,246,0.25)",
     alignItems: "center",
     justifyContent: "center",
   },
-  q11TagRemoveText: { fontSize: 9, color: "#A78BFA", fontWeight: "700" },
+  q11TagRemoveText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#A78BFA",
+    marginTop: -1,
+  },
+  q11InputArea: {
+    paddingHorizontal: 4,
+    marginBottom: 14,
+  },
   q11InputRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
+    alignItems: "stretch",
+    gap: 10,
   },
-  q11Input: {
+  q11TextareaWrap: {
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.04)",
+    position: "relative",
+    paddingTop: 6,
+  },
+  q11FloatingLabel: {
+    position: "absolute",
+    top: -2,
+    left: 12,
+    zIndex: 1,
+    fontFamily: "Inter_700Bold",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    color: "#A78BFA",
+    backgroundColor: "#141824",
+    paddingHorizontal: 4,
+  },
+  q11Textarea: {
+    minHeight: 58,
+    backgroundColor: "#141824",
     borderWidth: 1.5,
-    borderColor: "rgba(42,48,80,0.50)",
+    borderColor: "#2A3050",
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+    paddingHorizontal: 16,
+    fontFamily: "Inter_400Regular",
     fontSize: 14,
     color: "#E5E7EB",
   },
+  q11TextareaFocused: {
+    borderColor: "rgba(139,92,246,0.6)",
+  },
   q11AddBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
+    width: 52,
+    minHeight: 58,
+    borderRadius: 14,
     overflow: "hidden",
     flexShrink: 0,
+    alignSelf: "stretch",
   },
   q11AddBtnDisabled: { opacity: 0.5 },
   q11AddBtnGrad: {
     flex: 1,
+    minHeight: 58,
     alignItems: "center",
     justifyContent: "center",
   },
-  q11AddBtnLabel: { fontSize: 20, color: "#FFFFFF", fontWeight: "600" },
-  q11QuickLabel: {
-    fontSize: 9,
+  q11AddBtnLabel: {
+    fontSize: 22,
+    color: "#FFFFFF",
+    fontWeight: "300",
+  },
+  q11CharRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  q11CharHint: {
+    fontFamily: "Inter_400Regular_Italic",
+    fontSize: 11,
+    fontStyle: "italic",
+    color: "#6B7280",
+  },
+  q11CharCount: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: "#6B7280",
+  },
+  q11ExamplesBox: {
+    backgroundColor: "rgba(139,92,246,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.15)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+  },
+  q11ExamplesHeader: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    color: "#2D3146",
+    letterSpacing: 1.5,
+    color: "#8B5CF6",
+    marginBottom: 8,
+  },
+  q11ExampleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
     marginBottom: 6,
+  },
+  q11ExampleArrow: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 11,
+    color: "#A78BFA",
+    marginTop: 1,
+    width: 14,
+  },
+  q11ExampleText: {
+    flex: 1,
+    fontFamily: "Inter_400Regular_Italic",
+    fontSize: 12,
+    fontStyle: "italic",
+    color: "#9CA3AF",
+    lineHeight: 16.8,
+  },
+  q11QuickHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  q11QuickIdeasLabel: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 2,
+    color: "#6B7280",
+    flexShrink: 0,
+  },
+  q11QuickLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#1E2333",
   },
   q11QuickRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 10,
+    gap: 8,
+    marginBottom: 12,
   },
-  q11QuickChip: {
-    backgroundColor: "rgba(255,255,255,0.04)",
+  q11QuickChipNew: {
+    backgroundColor: "#141824",
     borderWidth: 1,
-    borderColor: "rgba(42,48,80,0.40)",
+    borderColor: "#2A3050",
     borderRadius: 20,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
   },
-  q11QuickChipText: { fontSize: 12, color: "#4B5563" },
+  q11QuickChipNewText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#9CA3AF",
+  },
   q11NoteRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
+    alignItems: "flex-start",
+    gap: 8,
+    paddingRight: 8,
   },
-  q11NoteDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+  q11NoteDotNew: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
     backgroundColor: "#8B5CF6",
+    marginTop: 6,
   },
-  q11NoteText: { fontSize: 11, color: "#374151" },
-  q11NoteTextWith: { color: "#4B5563" },
+  q11NoteTextNew: {
+    flex: 1,
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: "#6B7280",
+    lineHeight: 18,
+  },
   q12Section: { marginTop: SPACING.xs },
   q12InfoNote: {
     flexDirection: "row",
@@ -1853,17 +2124,43 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.cardPadding,
     paddingHorizontal: SPACING.cardPadding,
   },
-  questionText: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 26,
-    fontWeight: "700",
-    color: "#E5E7EB",
-    letterSpacing: -0.4,
-    lineHeight: 32.5,
+  questionHeadingWrap: {
     marginBottom: 8,
+    alignItems: "center",
+  },
+  questionHeadingTop: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#E5E7EB",
+    letterSpacing: -0.8,
+    lineHeight: 32.5,
     textAlign: "center",
   },
-  questionTextQ12: { fontSize: 22 },
+  questionHeadingMask: {
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 34,
+  },
+  questionHeadingGradient: {
+    minHeight: 34,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  questionHeadingBottomMaskText: {
+    fontFamily: "Inter_800ExtraBold",
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: -0.8,
+    lineHeight: 32.5,
+    color: "#FFFFFF",
+    textAlign: "center",
+  },
+  questionHeadingCompact: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
   q13Hint: {
     fontSize: 14,
     color: "#6B7280",
@@ -2013,13 +2310,16 @@ const styles = StyleSheet.create({
     color: "#8B5CF6",
   },
   bottomSection: {
-    paddingVertical: SPACING.md,
-    paddingBottom: 48,
+    paddingTop: SPACING.md,
+    paddingBottom: 20,
+    paddingHorizontal: 0,
+    marginHorizontal: 16,
+    marginBottom: 20,
     alignItems: "center",
   },
   buttonWrapper: { width: "100%", maxWidth: 358, alignSelf: "center" },
   buttonInner: {
-    borderRadius: 18,
+    borderRadius: 16,
     overflow: "hidden",
     ...(Platform.OS !== "web" && {
       shadowColor: "rgba(139,92,246,0.35)",
@@ -2032,9 +2332,12 @@ const styles = StyleSheet.create({
   buttonInnerDisabled: {
     ...(Platform.OS !== "web" && { shadowOpacity: 0, elevation: 0 }),
   },
+  buttonInnerQ11Disabled: {
+    opacity: 0.45,
+  },
   buttonGradient: {
     height: 56,
-    borderRadius: 18,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
   },

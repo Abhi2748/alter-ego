@@ -6,9 +6,11 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { useAuthStore } from '@/store/authStore';
 import { useUserStore } from '@/store/userStore';
+import { apiClient } from '@/services/api';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,6 +38,7 @@ export function AppProviders({ children }: AppProvidersProps) {
   const initialize = useAuthStore((state) => state.initialize);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const fetchProfile = useUserStore((state) => state.fetchProfile);
+  const appState = useRef<AppStateStatus>(AppState.currentState);
 
   // Initialize auth on app startup
   useEffect(() => {
@@ -50,6 +53,33 @@ export function AppProviders({ children }: AppProvidersProps) {
     }, 1000);
     return () => clearTimeout(t);
   }, [isAuthenticated, fetchProfile]);
+
+  // Keep backend users.timezone aligned with device (travel, DST, manual OS change).
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const pushTz = () => {
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (tz) {
+          void apiClient.post('/api/v1/settings/notifications', { timezone: tz }).catch(() => {});
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    pushTz();
+
+    const sub = AppState.addEventListener('change', (next) => {
+      if (appState.current.match(/inactive|background/) && next === 'active') {
+        pushTz();
+      }
+      appState.current = next;
+    });
+
+    return () => sub.remove();
+  }, [isAuthenticated]);
 
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

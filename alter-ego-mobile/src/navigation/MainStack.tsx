@@ -7,6 +7,7 @@ import { SettingsScreen } from "../screens/SettingsScreen";
 import { ProfileEditScreen } from "../screens/ProfileEditScreen";
 import { AccountScreen } from "../screens/AccountScreen";
 import { ContactUsScreen } from "../screens/ContactUsScreen";
+import { MailInboxScreen } from "../screens/MailInboxScreen";
 import { ToneHistoryScreen } from "../screens/ToneHistoryScreen";
 import { TwinChatScreen } from "../screens/TwinChatScreen";
 import { RankCardScreen } from "../screens/RankCardScreen";
@@ -47,6 +48,7 @@ export function MainStack() {
       <Stack.Screen name="SettingsProfile" component={ProfileEditScreen} />
       <Stack.Screen name="AccountSettings" component={AccountScreen} />
       <Stack.Screen name="ContactUs" component={ContactUsScreen} />
+      <Stack.Screen name="MailInbox" component={MailInboxScreen} />
       <Stack.Screen name="ToneHistory" component={ToneHistoryScreen} />
       <Stack.Screen name="TwinChat" component={TwinChatScreen} />
       <Stack.Screen name="RankCard" component={RankCardScreen} />

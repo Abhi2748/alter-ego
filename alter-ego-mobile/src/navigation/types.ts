@@ -44,6 +44,7 @@ export type MainStackParamList = {
   SettingsProfile: undefined;
   AccountSettings: undefined;
   ContactUs: undefined;
+  MailInbox: undefined;
   ToneHistory: undefined;
   TwinChat: { initialMessage?: string } | undefined;
   RankCard: { rankPosition?: 1 | 2 | 3 } | undefined;

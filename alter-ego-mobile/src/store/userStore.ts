@@ -33,6 +33,11 @@ export interface UserProfile {
   email_connected: boolean;
   subscription_tier: string;
   unread_mail_count: number;
+  /** Optional; shown on Profile when set */
+  profile_photo_url?: string | null;
+  /** From discipline_dna — Twin voice */
+  twin_tone_type?: string;
+  twin_intensity?: number;
 }
 
 interface UserState {

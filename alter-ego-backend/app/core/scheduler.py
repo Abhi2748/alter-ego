@@ -2,20 +2,17 @@
 APScheduler setup for ALTER EGO background jobs.
 All jobs that run on a schedule are registered here.
 
-Jobs registered in this file:
-- daily_mission_reset: runs every hour, processes users whose midnight just passed
-- pet_unlock_check: runs daily at 00:01 UTC (B18)
-- twin_simulation: runs daily at 01:00 UTC (B22)
-- weekly_report: runs every Sunday at 03:00 UTC (B30)
-- day_summary: runs daily at 01:30 UTC (B31)
-- twin_recalibration: runs daily at 02:00 UTC, checks who needs recalibration (B25)
+Per-user local time (users.timezone / IANA name):
+- daily_mission_reset, pet_unlock_check, twin_simulation, twin_recalibration: local hour 1
+- day_summary + power_score + scheduled mail: local hour 1 (batched in user_local_maintenance_job)
+- weekly_report: local Sunday 03:00
 
-Only daily_mission_reset is implemented now.
-The rest are registered as placeholder stubs that log "not yet implemented".
+Nudge checks remain hourly (Category A/B timing is handled inside the agent).
 """
 
+from datetime import timedelta
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 import logging
 
@@ -27,8 +24,7 @@ def setup_scheduler():
     """Register all jobs and return the scheduler. Called on app startup."""
 
     # ── DAILY MISSION RESET ──────────────────────────────────────────────
-    # Runs every hour. Finds users whose local midnight just passed
-    # (within the last 60 minutes) and generates their next day's missions.
+    # Hourly scan; users processed when local hour is 1 (see daily_mission_reset_job).
     scheduler.add_job(
         daily_mission_reset_job,
         trigger=IntervalTrigger(minutes=60),
@@ -52,21 +48,15 @@ def setup_scheduler():
         replace_existing=True,
     )
     scheduler.add_job(
-        power_score_job,
-        trigger=CronTrigger(hour=1, minute=45),
-        id="power_score",
+        user_local_maintenance_job,
+        trigger=IntervalTrigger(minutes=60),
+        id="user_local_maintenance",
         replace_existing=True,
     )
     scheduler.add_job(
-        weekly_report_job,
-        trigger=CronTrigger(day_of_week="sun", hour=3, minute=0),
-        id="weekly_report",
-        replace_existing=True,
-    )
-    scheduler.add_job(
-        day_summary_job,
-        trigger=CronTrigger(hour=1, minute=30),
-        id="day_summary",
+        weekly_report_local_job,
+        trigger=IntervalTrigger(minutes=60),
+        id="weekly_report_local",
         replace_existing=True,
     )
     scheduler.add_job(
@@ -81,19 +71,13 @@ def setup_scheduler():
         id="nudge_check",
         replace_existing=True,
     )
-    scheduler.add_job(
-        mail_check_job,
-        trigger=CronTrigger(hour=0, minute=30),
-        id="mail_check",
-        replace_existing=True,
-    )
 
     return scheduler
 
 
 async def pet_unlock_check_job():
     """
-    Runs every hour. Only processes users whose local hour is 0 (midnight to 1am).
+    Runs every hour. Only processes users whose local hour is 1 (1:00–1:59).
     Finds users who reached day 6 since registration and unlocks their pet.
     Also handles streak breaks for users who missed yesterday.
     """
@@ -124,8 +108,8 @@ async def pet_unlock_check_job():
             local_now = datetime.now(tz)
             local_hour = local_now.hour
 
-            # Only process users whose local hour is 0 (midnight to 1am)
-            if local_hour != 0:
+            # Align with other deferred jobs: 1:00–1:59 local.
+            if local_hour != 1:
                 continue
 
             days = get_days_since_registration(user.get("registration_date", ""), timezone)
@@ -168,18 +152,18 @@ async def pet_unlock_check_job():
 
 async def daily_mission_reset_job():
     """
-    Runs every hour. Finds all users whose local midnight just passed
-    (their local time is now between 00:00 and 00:59) and generates
-    their missions for the new day.
+    Runs every hour. For each user whose local time is 01:00–01:59, pre-generates
+    today's missions if core rows are still missing.
+
+    Why 1:00 local (not midnight): matches product choice to batch non-urgent work
+    shortly after the calendar day starts; GET /missions/today still creates rows
+    on demand between midnight and 1:00 if the user opens the app.
 
     Why hourly and not at fixed UTC time:
-    Users are in different timezones. We can't reset everyone at midnight UTC
-    because that's the middle of the day for some users.
-    Instead, every hour we find users whose local time just crossed midnight.
+    Users are in different timezones — we scan each hour and filter by local hour.
     """
     from app.core.supabase_client import supabase_admin
-    from app.services.mission_service import generate_core_missions_for_user, get_user_date
-    from app.agents.planner_agent import generate_all_interest_missions, generate_all_quit_target_missions
+    from app.services.mission_service import generate_core_missions_for_user, get_user_date, sync_today_planner_missions
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -205,8 +189,8 @@ async def daily_mission_reset_job():
             local_now = datetime.now(tz)
             local_hour = local_now.hour
 
-            # Only process users whose local hour is 0 (midnight to 1am)
-            if local_hour != 0:
+            # Deferred daily generation: 1:00–1:59 local (not UTC midnight).
+            if local_hour != 1:
                 continue
 
             today = get_user_date(timezone)
@@ -224,8 +208,7 @@ async def daily_mission_reset_job():
                 continue
 
             await generate_core_missions_for_user(user["id"], today)
-            await generate_all_interest_missions(user["id"], today)
-            await generate_all_quit_target_missions(user["id"], today)
+            await sync_today_planner_missions(user["id"], today)
 
             reset_count += 1
             logger.info("daily_mission_reset_job: generated missions for user %s", user["id"])
@@ -239,7 +222,7 @@ async def daily_mission_reset_job():
 
 async def twin_simulation_job():
     """
-    Runs every hour. Only processes users whose local hour is 0 (midnight to 1am).
+    Runs every hour. Only processes users whose local hour is 1 (1:00–1:59).
     Simulates the twin's day for all users who have completed onboarding.
     """
     from datetime import datetime
@@ -267,8 +250,7 @@ async def twin_simulation_job():
             local_now = datetime.now(tz)
             local_hour = local_now.hour
 
-            # Only process users whose local hour is 0 (midnight to 1am)
-            if local_hour != 0:
+            if local_hour != 1:
                 continue
 
             # Keep parity with daily_mission_reset_job: ensure date lookup uses same helper.
@@ -287,7 +269,7 @@ async def twin_simulation_job():
 
 async def twin_recalibration_job():
     """
-    Runs every hour. Only processes users whose local hour is 0 (midnight to 1am).
+    Runs every hour. Only processes users whose local hour is 1 (1:00–1:59).
     Checks each user to see if recalibration is due.
     """
     from datetime import datetime
@@ -314,8 +296,7 @@ async def twin_recalibration_job():
             local_now = datetime.now(tz)
             local_hour = local_now.hour
 
-            # Only process users whose local hour is 0 (midnight to 1am)
-            if local_hour != 0:
+            if local_hour != 1:
                 continue
 
             days = get_days_since_registration(user.get("registration_date", ""), user.get("timezone", "UTC"))
@@ -356,70 +337,92 @@ async def twin_recalibration_job():
     logger.info("twin_recalibration_job: done. Recalibrated %s users.", recal_count)
 
 
-async def power_score_job():
+async def user_local_maintenance_job():
     """
-    Runs daily at 01:45 UTC (after day_summary at 01:30).
-    Recalculates Power Score for all users.
+    Runs every hour. For each onboarded user in local hour 1:
+    1) Generate yesterday's day summary (idempotent if already stored)
+    2) Recalculate Power Score
+    3) Send any due scheduled in-app mails (twin_guide, day_7, etc.)
     """
-    from app.services.power_score_service import calculate_all_power_scores
-
-    logger.info("power_score_job: starting")
-    count = await calculate_all_power_scores()
-    logger.info("power_score_job: done. Processed %s users.", count)
-
-
-async def weekly_report_job():
-    """Runs every Sunday at 03:00 UTC. Generates weekly report for all onboarded users."""
-    from app.agents.report_agent import generate_weekly_report
-    from app.core.supabase_client import supabase_admin
-
-    logger.info("weekly_report_job: starting")
-    users = (
-        supabase_admin.table("users")
-        .select("id")
-        .eq("onboarding_complete", True)
-        .execute()
-        .data
-        or []
-    )
-
-    count = 0
-    for user in users:
-        try:
-            await generate_weekly_report(user["id"])
-            count += 1
-        except Exception as e:
-            logger.error("weekly_report_job: failed for user %s: %s", user.get("id"), e)
-    logger.info("weekly_report_job: done. Generated %s reports.", count)
-
-
-async def day_summary_job():
-    """Runs daily at 01:30 UTC. Generates yesterday's summary for all users."""
-    from datetime import date, timedelta
+    from datetime import datetime, timezone as dt_timezone
 
     from app.agents.report_agent import generate_day_summary
     from app.core.supabase_client import supabase_admin
+    from app.services.mail_service import check_and_send_scheduled_mails
+    from app.services.power_score_service import calculate_power_score
+    from zoneinfo import ZoneInfo
 
-    yesterday = str(date.today() - timedelta(days=1))
-    logger.info("day_summary_job: generating summaries for %s", yesterday)
+    logger.info("user_local_maintenance_job: starting")
 
-    users = (
+    users_result = (
         supabase_admin.table("users")
-        .select("id")
+        .select("id, timezone")
         .eq("onboarding_complete", True)
         .execute()
-        .data
-        or []
+    )
+
+    processed = 0
+    for user in users_result.data or []:
+        try:
+            tz_str = user.get("timezone") or "UTC"
+            try:
+                tz = ZoneInfo(tz_str)
+            except Exception:
+                tz = dt_timezone.utc
+            local_now = datetime.now(tz)
+            if local_now.hour != 1:
+                continue
+
+            yesterday = (local_now.date() - timedelta(days=1)).isoformat()
+            await generate_day_summary(user["id"], yesterday)
+            await calculate_power_score(user["id"])
+            await check_and_send_scheduled_mails(user["id"])
+            processed += 1
+        except Exception as e:
+            logger.error("user_local_maintenance_job: failed for user %s: %s", user.get("id"), e)
+            continue
+
+    logger.info("user_local_maintenance_job: done. Processed %s users (local hour 1).", processed)
+
+
+async def weekly_report_local_job():
+    """Runs every hour; generates the weekly report when user local time is Sunday 03:00–03:59."""
+    from datetime import datetime, timezone as dt_timezone
+
+    from app.agents.report_agent import generate_weekly_report
+    from app.core.supabase_client import supabase_admin
+    from zoneinfo import ZoneInfo
+
+    logger.info("weekly_report_local_job: starting")
+
+    users_result = (
+        supabase_admin.table("users")
+        .select("id, timezone")
+        .eq("onboarding_complete", True)
+        .execute()
     )
 
     count = 0
-    for user in users:
+    for user in users_result.data or []:
         try:
-            await generate_day_summary(user["id"], yesterday)
+            tz_str = user.get("timezone") or "UTC"
+            try:
+                tz = ZoneInfo(tz_str)
+            except Exception:
+                tz = dt_timezone.utc
+            local_now = datetime.now(tz)
+            # Monday=0 .. Sunday=6
+            if local_now.weekday() != 6:
+                continue
+            if local_now.hour != 3:
+                continue
+            await generate_weekly_report(user["id"])
             count += 1
         except Exception as e:
-            logger.error("day_summary_job: failed for user %s: %s", user.get("id"), e)
-    logger.info("day_summary_job: done. Generated %s summaries.", count)
+            logger.error("weekly_report_local_job: failed for user %s: %s", user.get("id"), e)
+            continue
+
+    logger.info("weekly_report_local_job: done. Generated %s reports.", count)
 
 
 async def nudge_check_job():
@@ -431,23 +434,3 @@ async def nudge_check_job():
     logger.info("nudge_check_job: %s", result)
 
 
-async def mail_check_job():
-    """Runs daily at 00:30 UTC. Sends scheduled in-app mails (twin_guide, day_7, etc.)."""
-    from app.core.supabase_client import supabase_admin
-    from app.services.mail_service import check_and_send_scheduled_mails
-
-    logger.info("mail_check_job: starting")
-    users = (
-        supabase_admin.table("users")
-        .select("id")
-        .eq("onboarding_complete", True)
-        .execute()
-        .data
-        or []
-    )
-    for user in users:
-        try:
-            await check_and_send_scheduled_mails(user["id"])
-        except Exception as e:
-            logger.error("mail_check_job: failed for user %s: %s", user.get("id"), e)
-    logger.info("mail_check_job: done")

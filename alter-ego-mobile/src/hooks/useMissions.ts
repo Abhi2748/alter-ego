@@ -56,7 +56,11 @@ export function useCompleteMission() {
         MISSION_KEYS.today,
         (old) => {
           if (!old) return old;
-          const updateMissions = (missions: typeof old.missions.core) =>
+          const core = old.missions?.core ?? [];
+          const interest = old.missions?.interest ?? [];
+          const resistance = old.missions?.resistance ?? [];
+          const personal = old.missions?.personal ?? [];
+          const updateMissions = (missions: typeof core) =>
             missions.map((m) =>
               m.id === missionId
                 ? { ...m, completed: true }
@@ -65,10 +69,10 @@ export function useCompleteMission() {
           return {
             ...old,
             missions: {
-              core: updateMissions(old.missions.core),
-              interest: updateMissions(old.missions.interest),
-              resistance: updateMissions(old.missions.resistance),
-              personal: updateMissions(old.missions.personal),
+              core: updateMissions(core),
+              interest: updateMissions(interest),
+              resistance: updateMissions(resistance),
+              personal: updateMissions(personal),
             },
             summary: {
               ...old.summary,
@@ -133,5 +137,57 @@ export function useRateMission() {
         rating,
         feedback_text: feedback,
       }),
+  });
+}
+
+// ── Delete personal mission ───────────────────────────────────────────────
+
+export function useDeletePersonalMission() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (missionId: string) => missionsService.deletePersonalMission(missionId),
+
+    onMutate: async (missionId: string) => {
+      await queryClient.cancelQueries({ queryKey: MISSION_KEYS.today });
+
+      const previousData =
+        queryClient.getQueryData<TodayMissionsResponse>(MISSION_KEYS.today);
+
+      queryClient.setQueryData<TodayMissionsResponse>(
+        MISSION_KEYS.today,
+        (old) => {
+          if (!old) return old;
+          const prevPersonal = old.missions?.personal ?? [];
+          const personal = prevPersonal.filter((m) => m.id !== missionId);
+          return {
+            ...old,
+            missions: {
+              ...old.missions,
+              core: old.missions?.core ?? [],
+              interest: old.missions?.interest ?? [],
+              resistance: old.missions?.resistance ?? [],
+              personal,
+            },
+            summary: {
+              ...old.summary,
+              total: Math.max(0, (old.summary?.total ?? 0) - 1),
+            },
+          };
+        }
+      );
+
+      return { previousData };
+    },
+
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: MISSION_KEYS.today });
+    },
+
+    onError: (_error, _missionId, context) => {
+      if (context?.previousData) {
+        queryClient.setQueryData(MISSION_KEYS.today, context.previousData);
+      }
+    },
   });
 }

@@ -3,7 +3,7 @@
  * Header: back + "Rank Card" + share. Card: gradient, rank badge (hideable), Power Score, character + pet, identity, oracle. Toggle rank, Share, Regenerate.
  */
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -26,6 +26,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import { PetAnimation } from "../components/PetAnimation";
 import type { MainStackParamList } from "../navigation/types";
+import { useUserStore } from "@/store/userStore";
+import { twinService } from "@/services/twin";
+import { leaderboardService } from "@/services/leaderboard";
 
 const CARD_MARGIN_H = 24;
 const CARD_RADIUS = 22;
@@ -33,19 +36,6 @@ const CHAR_W = 130;
 const CHAR_H = 185;
 const PET_SIZE = 64;
 const CTA_HEIGHT = 52;
-
-const PLACEHOLDER_RANK_CARD = {
-  username: "Alter",
-  stage: 2,
-  stage_title: "The Focused",
-  pet_stage: 1,
-  pet_name: "Cub",
-  power_score: 847,
-  streak: 12,
-  global_rank: 47,
-  oracle_line:
-    "Seven days of silence, then four of fire. This is what the pattern looks like when you decide.",
-};
 
 // Position-based theme (gold/silver/bronze) — matches LeaderboardScreen podium
 const GOLD = "#FFD700";
@@ -154,13 +144,38 @@ export function RankCardScreen() {
     ? RANK_CARD_THEME[rankPosition]
     : RANK_CARD_THEME.default;
 
+  const profile = useUserStore((s) => s.profile);
+  const [globalRank, setGlobalRank] = useState<number | null>(null);
+
   const [showRank, setShowRank] = useState(true);
-  const [oracleLine, setOracleLine] = useState(PLACEHOLDER_RANK_CARD.oracle_line);
+  const [oracleLine, setOracleLine] = useState("—");
   const [editingOracle, setEditingOracle] = useState(false);
   const [editOracleVisible, setEditOracleVisible] = useState(false);
   const [editOracleDraft, setEditOracleDraft] = useState(oracleLine);
   const [regenerating, setRegenerating] = useState(false);
   const [sharing, setSharing] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [strip, lb] = await Promise.all([
+          twinService.getStrip(),
+          leaderboardService.getLeaderboard(),
+        ]);
+        if (!alive) return;
+        const msg = strip.message?.trim();
+        if (msg) setOracleLine(msg);
+        const r = lb.current_user?.rank;
+        setGlobalRank(typeof r === "number" ? r : null);
+      } catch {
+        if (!alive) return;
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const cardWidth = screenWidth - CARD_MARGIN_H * 2;
 
@@ -202,11 +217,11 @@ export function RankCardScreen() {
   const handleRegenerate = async () => {
     setRegenerating(true);
     try {
-      // TODO: POST /api/v1/rank-card/regenerate-oracle when backend exists
-      await new Promise((r) => setTimeout(r, 1200));
-      setOracleLine(
-        "Another week, another step. The pattern is what you make it."
-      );
+      const strip = await twinService.getStrip();
+      const msg = strip.message?.trim();
+      if (msg) setOracleLine(msg);
+    } catch {
+      /* keep current line */
     } finally {
       setRegenerating(false);
     }
@@ -301,7 +316,7 @@ export function RankCardScreen() {
               <Text
                 style={[styles.powerScore, { color: theme.powerScoreColor }]}
               >
-                {PLACEHOLDER_RANK_CARD.power_score}
+                {(profile?.power_score ?? 0).toLocaleString()}
               </Text>
             </View>
 
@@ -327,7 +342,7 @@ export function RankCardScreen() {
                 <Text
                   style={[styles.rankBadgeNum, { color: theme.rankBadgeNumColor }]}
                 >
-                  {PLACEHOLDER_RANK_CARD.global_rank}
+                  {globalRank != null ? globalRank : "—"}
                 </Text>
                 <Text style={styles.rankBadgeLabel}>global</Text>
               </View>
@@ -370,7 +385,7 @@ export function RankCardScreen() {
                       { color: theme.stageBadgeTextColor },
                     ]}
                   >
-                    Stage {PLACEHOLDER_RANK_CARD.stage}
+                    Stage {profile?.character_stage ?? 1}
                   </Text>
                 </View>
               </View>
@@ -381,14 +396,20 @@ export function RankCardScreen() {
                     { borderColor: theme.petCircleBorder },
                   ]}
                 >
-                  <PetAnimation
-                    stage={PLACEHOLDER_RANK_CARD.pet_stage}
-                    isHappy
-                    size={60}
-                  />
+                  {profile?.pet_unlocked && (profile.pet_stage ?? 0) > 0 ? (
+                    <PetAnimation
+                      stage={Math.min(8, Math.max(1, profile.pet_stage))}
+                      isHappy
+                      size={60}
+                    />
+                  ) : (
+                    <Text style={{ fontSize: 9, color: "#6B7280", textAlign: "center", padding: 8 }}>
+                      Pet soon
+                    </Text>
+                  )}
                 </View>
                 <Text style={styles.petName}>
-                  {PLACEHOLDER_RANK_CARD.pet_name}
+                  {profile?.pet_name ?? "—"}
                 </Text>
               </View>
             </View>
@@ -397,16 +418,16 @@ export function RankCardScreen() {
             <View style={styles.identityRow}>
               <View>
                 <Text style={styles.username}>
-                  {PLACEHOLDER_RANK_CARD.username}
+                  {profile?.username ?? "—"}
                 </Text>
                 <Text style={styles.stageTitle}>
-                  {PLACEHOLDER_RANK_CARD.stage_title}
+                  {profile?.character_stage_name ?? "—"}
                 </Text>
               </View>
               <View style={styles.streakRow}>
                 <Ionicons name="flame" size={18} color="#F97316" />
                 <Text style={styles.streakNum}>
-                  {PLACEHOLDER_RANK_CARD.streak}
+                  {profile?.current_streak ?? 0}
                 </Text>
               </View>
             </View>

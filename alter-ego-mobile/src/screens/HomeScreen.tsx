@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RouteProp } from "@react-navigation/native";
 import type { MainStackParamList, MainTabParamList } from "../navigation/types";
 import { BlurView } from "expo-blur";
+import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { XPProgressBar, XPProgressBarRef } from "../components/XPProgressBar";
 import { PetRoaming } from "../components/PetRoaming";
@@ -31,10 +32,14 @@ import { CharacterEvolutionOverlay } from "../components/CharacterEvolutionOverl
 import { MilestoneAchievementCard } from "../components/MilestoneAchievementCard";
 import { SkeletonCard } from "@/components/SkeletonCard";
 import { useUserStore } from "@/store/userStore";
-import { useTodayMissions, useCompleteMission } from "@/hooks/useMissions";
+import { useTodayMissions, useCompleteMission, useDeletePersonalMission } from "@/hooks/useMissions";
+import { DeleteMissionSheet } from "@/components/DeleteMissionSheet";
+import { MissionRemovedToast } from "@/components/MissionRemovedToast";
+import { StreakAchievementOverlay } from "@/components/StreakAchievementOverlay";
 import { useTwinStrip } from "@/hooks/useTwinStrip";
 import type { Mission } from "@/services/missions";
 import { missionsService } from "@/services/missions";
+import { getErrorMessage } from "@/services/api";
 
 
 // Design tokens (spec Section 1)
@@ -165,6 +170,7 @@ export function HomeScreen() {
   const profile = useUserStore((state) => state.profile);
   const { data: todayData, isLoading, error, refetch } = useTodayMissions();
   const { mutate: completeMission, isPending: isCompleting } = useCompleteMission();
+  const { mutate: deletePersonalMission } = useDeletePersonalMission();
   const { data: twinStrip } = useTwinStrip();
 
   const [streakAnimationData, setStreakAnimationData] = useState<{
@@ -190,15 +196,19 @@ export function HomeScreen() {
   const [evolutionOverlayVisible, setEvolutionOverlayVisible] = useState(false);
   const [evolutionStageName, setEvolutionStageName] = useState("The Focused");
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
+  const [deleteSheetVisible, setDeleteSheetVisible] = useState(false);
+  const [missionToDelete, setMissionToDelete] = useState<Mission | null>(null);
+  const [removeSuccessToast, setRemoveSuccessToast] = useState(false);
+  const [removeErrorToast, setRemoveErrorToast] = useState(false);
 
-  const coreMissions = (todayData?.missions.core ?? []).map((m) => missionApiToCard(m, "Core"));
-  const interestMissions = (todayData?.missions.interest ?? []).map((m) => missionApiToCard(m, "Interest"));
-  const resistanceMissions = (todayData?.missions.resistance ?? []).map((m) => missionApiToCard(m, "Resistance"));
-  const personalMissions = (todayData?.missions.personal ?? []).map((m) => missionApiToCard(m, "Personal"));
+  const coreMissions = (todayData?.missions?.core ?? []).map((m) => missionApiToCard(m, "Core"));
+  const interestMissions = (todayData?.missions?.interest ?? []).map((m) => missionApiToCard(m, "Interest"));
+  const resistanceMissions = (todayData?.missions?.resistance ?? []).map((m) => missionApiToCard(m, "Resistance"));
+  const personalMissions = (todayData?.missions?.personal ?? []).map((m) => missionApiToCard(m, "Personal"));
 
   const dayNumber = todayData?.day_number ?? 1;
   const isDay1To14 = dayNumber >= 1 && dayNumber <= 14;
-  const completedToday = todayData?.summary.completed ?? 0;
+  const completedToday = todayData?.summary?.completed ?? 0;
   const showStartAnywhereHelper = completedToday === 0 && isDay1To14;
 
   const username = profile?.username ?? "";
@@ -270,7 +280,7 @@ export function HomeScreen() {
       const t = setTimeout(() => refetch(), 3000);
       return () => clearTimeout(t);
     }
-  }, [todayData?.summary.total, coreMissions.length, interestMissions.length, refetch]);
+  }, [todayData?.summary?.total, coreMissions.length, interestMissions.length, refetch]);
 
   useFocusEffect(
     useCallback(() => {
@@ -315,6 +325,17 @@ export function HomeScreen() {
   }, []);
 
   const openTwin = () => navigation.navigate("Twin");
+
+  const handleConfirmDeletePersonal = useCallback(() => {
+    if (!missionToDelete) return;
+    const id = missionToDelete.id;
+    setDeleteSheetVisible(false);
+    setMissionToDelete(null);
+    deletePersonalMission(id, {
+      onSuccess: () => setRemoveSuccessToast(true),
+      onError: () => setRemoveErrorToast(true),
+    });
+  }, [missionToDelete, deletePersonalMission]);
 
   const openMissionDetail = useCallback(
     (apiMission: Mission, type: "core" | "interest" | "resistance" | "personal") => {
@@ -388,7 +409,7 @@ export function HomeScreen() {
 
       {error ? (
         <View style={styles.errorWrap}>
-          <Text style={styles.errorText}>{error.message}</Text>
+          <Text style={styles.errorText}>{getErrorMessage(error)}</Text>
           <Pressable onPress={() => refetch()} style={styles.retryButton}>
             <Text style={styles.retryText}>Retry</Text>
           </Pressable>
@@ -529,7 +550,7 @@ export function HomeScreen() {
                 <SkeletonCard leftEdgeColor="#7F1D1D" delay={200} />
               </>
             ) : (
-              (todayData?.missions.core ?? []).map((apiMission, i) => {
+              (todayData?.missions?.core ?? []).map((apiMission, i) => {
                 const m = missionApiToCard(apiMission, "Core");
                 return (
                   <HomeMissionCard
@@ -613,7 +634,7 @@ export function HomeScreen() {
                 <SkeletonCard leftEdgeColor="#7F1D1D" delay={450} />
               </>
             ) : (
-              (todayData?.missions.resistance ?? []).map((apiMission, i) => {
+              (todayData?.missions?.resistance ?? []).map((apiMission, i) => {
                 const m = missionApiToCard(apiMission, "Resistance");
                 return (
                   <HomeMissionCard
@@ -653,7 +674,7 @@ export function HomeScreen() {
             {isLoading ? (
               <SkeletonCard delay={500} />
             ) : (
-              (todayData?.missions.personal ?? []).map((apiMission, i) => {
+              (todayData?.missions?.personal ?? []).map((apiMission, i) => {
                 const m = missionApiToCard(apiMission, "Personal");
                 return (
                   <HomeMissionCard
@@ -669,6 +690,15 @@ export function HomeScreen() {
                     missionType={m.missionType}
                     missionStreak={m.missionStreak ?? 0}
                     appearIndex={i}
+                    onLongPress={
+                      m.status === "pending"
+                        ? () => {
+                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            setMissionToDelete(apiMission);
+                            setDeleteSheetVisible(true);
+                          }
+                        : undefined
+                    }
                   />
                 );
               })
@@ -746,6 +776,36 @@ export function HomeScreen() {
           stageName={evolutionStageName}
         />
       )}
+
+      <DeleteMissionSheet
+        visible={deleteSheetVisible}
+        mission={missionToDelete}
+        onConfirm={handleConfirmDeletePersonal}
+        onCancel={() => {
+          setDeleteSheetVisible(false);
+          setMissionToDelete(null);
+        }}
+      />
+      <MissionRemovedToast
+        visible={removeSuccessToast}
+        variant="success"
+        message="Mission removed"
+        onHidden={() => setRemoveSuccessToast(false)}
+      />
+      <MissionRemovedToast
+        visible={removeErrorToast}
+        variant="error"
+        message="Couldn't remove mission. Try again."
+        onHidden={() => setRemoveErrorToast(false)}
+      />
+
+      {streakAnimationData?.show ? (
+        <StreakAchievementOverlay
+          visible
+          streakCount={streakAnimationData.count}
+          onDismiss={() => setStreakAnimationData(null)}
+        />
+      ) : null}
     </View>
   );
 }

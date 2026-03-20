@@ -1,22 +1,58 @@
 /**
- * Past Report Detail — Stub. Opens from Weekly Report "Past Reports" list.
- * TODO: Full layout mirroring main report card for a given report_id.
+ * Past weekly report by id — same card layout as current week.
  */
 
-import React from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import React, { useCallback, useState } from "react";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-
-type PastReportDetailParams = { report_id: string };
+import type { MainStackParamList } from "../navigation/types";
+import { reportsService } from "@/services/reports";
+import { mapRowToWeeklyReportData, weeklyDetailToRow } from "@/utils/weeklyReportMapper";
+import type { WeeklyReportData } from "@/types/weeklyReportUi";
+import { ReportCard } from "./WeeklyReportScreen";
+import { getErrorMessage } from "@/services/api";
 
 export function PastReportDetailScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const route = useRoute<RouteProp<{ PastReportDetail: PastReportDetailParams }, "PastReportDetail">>();
-  const reportId = route.params?.report_id ?? "—";
+  const route = useRoute<RouteProp<MainStackParamList, "PastReportDetail">>();
+  const reportId = route.params?.report_id ?? "";
+
+  const [data, setData] = useState<WeeklyReportData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!reportId) {
+      setError("Missing report.");
+      setLoading(false);
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await reportsService.getWeeklyById(reportId);
+      if (!res.available) {
+        setData(null);
+        setError("This report is no longer available.");
+        return;
+      }
+      const row = weeklyDetailToRow(res as unknown as Record<string, unknown>);
+      setData(mapRowToWeeklyReportData(row, []));
+    } catch (e) {
+      setError(getErrorMessage(e));
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [reportId]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
 
   return (
     <View style={styles.container}>
@@ -32,10 +68,26 @@ export function PastReportDetailScreen() {
         </Pressable>
         <Text style={styles.headerTitle}>Past Report</Text>
       </View>
-      <View style={styles.body}>
-        <Text style={styles.placeholder}>Report {reportId}</Text>
-        <Text style={styles.sub}>Full detail view coming soon.</Text>
-      </View>
+
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#8B5CF6" />
+        </View>
+      ) : error ? (
+        <View style={styles.center}>
+          <Text style={styles.err}>{error}</Text>
+          <Pressable onPress={() => void load()} style={styles.retry}>
+            <Text style={styles.retryTxt}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : data ? (
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 40 + insets.bottom, paddingHorizontal: 16 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <ReportCard data={data} onReturn={() => navigation.goBack()} />
+        </ScrollView>
+      ) : null}
     </View>
   );
 }
@@ -56,7 +108,8 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     color: "#E5E7EB",
   },
-  body: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
-  placeholder: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#E5E7EB", marginBottom: 8 },
-  sub: { fontSize: 13, color: "#6B7280" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  err: { color: "#9CA3AF", textAlign: "center", marginBottom: 12 },
+  retry: { paddingVertical: 10, paddingHorizontal: 20, backgroundColor: "rgba(139,92,246,0.2)", borderRadius: 12 },
+  retryTxt: { color: "#A78BFA", fontFamily: "Inter_600SemiBold" },
 });

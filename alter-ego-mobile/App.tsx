@@ -6,6 +6,7 @@ import {
   Inter_500Medium,
   Inter_600SemiBold,
   Inter_700Bold,
+  Inter_800ExtraBold,
 } from "@expo-google-fonts/inter";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
@@ -73,17 +74,20 @@ export default function App() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    Inter_800ExtraBold,
   });
 
   useEffect(() => {
-    const onSession = (token: string) => registerPushTokenAndTimezone(token);
+    const onSession = () => {
+      void registerPushTokenAndTimezone();
+    };
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && session?.access_token) {
-        onSession(session.access_token);
+        onSession();
       }
     });
     supabase.auth.getSession().then(({ data: sessionData }) => {
-      if (sessionData?.session?.access_token) onSession(sessionData.session.access_token);
+      if (sessionData?.session?.access_token) onSession();
     });
     return () => data?.subscription?.unsubscribe?.();
   }, []);

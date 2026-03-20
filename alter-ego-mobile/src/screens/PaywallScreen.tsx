@@ -13,6 +13,7 @@ import {
   Pressable,
   Platform,
   Linking,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -33,15 +34,9 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
-
-const PLACEHOLDER_USER = {
-  streak: 5,
-  xp: 1240,
-  pet_name: "Cub",
-  pet_stage: 1,
-  stage: 1,
-  stage_title: "The Awakened",
-};
+import { IS_CLOSED_BETA } from "@/constants/closedBeta";
+import { COLORS, RADIUS } from "@/constants/theme";
+import { useUserStore } from "@/store/userStore";
 
 const TIMELINE_ITEMS = [
   {
@@ -171,16 +166,106 @@ export function PaywallScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<{ Paywall: PaywallParams }, "Paywall">>();
   const dismissable = route.params?.dismissable === true;
+  const profile = useUserStore((s) => s.profile);
 
   const [selectedPlan, setSelectedPlan] = useState<"monthly" | "annual">("annual");
-  const user = PLACEHOLDER_USER; // TODO: from context/API
+  const user = {
+    streak: profile?.current_streak ?? 0,
+    xp: profile?.total_xp ?? 0,
+    pet_name: profile?.pet_name ?? "—",
+    pet_stage: profile?.pet_stage ?? 0,
+    stage: profile?.character_stage ?? 1,
+    stage_title: profile?.character_stage_name ?? "—",
+  };
+
+  if (IS_CLOSED_BETA) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient
+          colors={["#09091A", "#07080F"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <Pressable
+          onPress={() => navigation.goBack()}
+          style={[styles.closeBtn, { top: insets.top + 12 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
+          <Ionicons name="close" size={16} color="#6B7280" />
+        </Pressable>
+        <View
+          style={{
+            flex: 1,
+            justifyContent: "center",
+            paddingHorizontal: 24,
+            paddingTop: insets.top + 48,
+            paddingBottom: insets.bottom + 24,
+          }}
+        >
+          <Text
+            style={{
+              fontFamily: "Inter_700Bold",
+              fontSize: 22,
+              fontWeight: "700",
+              color: COLORS.text,
+              textAlign: "center",
+            }}
+          >
+            Included in closed beta
+          </Text>
+          <Text
+            style={{
+              marginTop: 16,
+              fontFamily: "Inter_400Regular",
+              fontSize: 16,
+              color: COLORS.text2,
+              textAlign: "center",
+              lineHeight: 24,
+            }}
+          >
+            Full app access — no subscription required during the beta. Thanks for testing ALTER EGO.
+          </Text>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={{ marginTop: 32, alignSelf: "center", minWidth: 200 }}
+          >
+            <LinearGradient
+              colors={["#6D28D9", "#8B5CF6"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={{
+                paddingVertical: 16,
+                paddingHorizontal: 32,
+                borderRadius: RADIUS.card,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ fontFamily: "Inter_600SemiBold", fontSize: 16, color: "#F3F4F6" }}>
+                Done
+              </Text>
+            </LinearGradient>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   const handleSubscribe = () => {
-    console.log("Purchase:", selectedPlan);
+    Alert.alert(
+      "Coming soon",
+      "Subscriptions will connect to the store in a future release. You still have full access during early testing.",
+      [{ text: "OK" }]
+    );
   };
 
   const handleRestore = () => {
-    console.log("Restore purchase");
+    Alert.alert(
+      "Restore purchases",
+      "Nothing to restore yet — billing is not enabled in this build.",
+      [{ text: "OK" }]
+    );
   };
 
   return (

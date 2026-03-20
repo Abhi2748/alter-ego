@@ -97,6 +97,8 @@ export interface HomeMissionCardProps {
   quitTargetName?: string;
   /** Resistance only: day counter e.g. 23. */
   dayCounter?: number;
+  /** Personal missions only: long-press to delete (500ms). */
+  onLongPress?: () => void;
 }
 
 export function HomeMissionCard({
@@ -114,6 +116,7 @@ export function HomeMissionCard({
   missionStreak = 0,
   quitTargetName,
   dayCounter,
+  onLongPress,
 }: HomeMissionCardProps) {
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -199,6 +202,8 @@ export function HomeMissionCard({
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={onLongPress ? 500 : undefined}
         style={styles.outer}
         onLayout={(e) => {
           cardWidth.value = e.nativeEvent.layout.width;

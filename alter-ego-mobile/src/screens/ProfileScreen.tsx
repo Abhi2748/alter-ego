@@ -176,6 +176,10 @@ export function ProfileScreen() {
     (navigation.getParent() as any)?.navigate("RankCard");
   };
 
+  const openMailInbox = () => {
+    (navigation.getParent() as any)?.navigate("MailInbox");
+  };
+
   const openEntry = (screen: keyof Omit<ProfileStackParamList, "ProfileMain">) => {
     navigation.navigate(screen);
   };
@@ -216,7 +220,7 @@ export function ProfileScreen() {
           >
             {/* Top row: profile pic + settings */}
             <View style={styles.topRow}>
-              {profile.profile_photo_url ? (
+              {profile?.profile_photo_url ? (
                 <Image
                   source={{ uri: profile.profile_photo_url }}
                   style={styles.profilePic}
@@ -231,9 +235,20 @@ export function ProfileScreen() {
                   <Text style={styles.profileInitial}>{initial}</Text>
                 </LinearGradient>
               )}
+              <View style={{ flex: 1 }} />
+              <Pressable
+                onPress={openMailInbox}
+                style={styles.settingsBtn}
+                hitSlop={10}
+              >
+                <Ionicons name="mail-outline" size={18} color="#6B7280" />
+                {(profile?.unread_mail_count ?? 0) > 0 ? (
+                  <View style={styles.mailBadge} />
+                ) : null}
+              </Pressable>
               <Pressable
                 onPress={openSettings}
-                style={styles.settingsBtn}
+                style={[styles.settingsBtn, { marginLeft: 8 }]}
                 hitSlop={10}
               >
                 <Ionicons name="settings-outline" size={18} color="#6B7280" />
@@ -530,6 +545,18 @@ const styles = StyleSheet.create({
     borderColor: "rgba(42,48,80,0.5)",
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
+  },
+  mailBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#8B5CF6",
+    borderWidth: 1,
+    borderColor: "#141824",
   },
   stageBadge: {
     alignSelf: "center",

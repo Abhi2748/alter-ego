@@ -3,7 +3,7 @@
  * Shared header + gradient bg. Spec: Tone History.
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,8 +22,6 @@ const TEXT = "#E5E7EB";
 const MUTED = "#6B7280";
 const DIM = "#374151";
 const VERY_DIM = "#2D3146";
-const ORANGE = "#F97316";
-const RED = "#DC2626";
 
 export interface ToneRating {
   tone_id: string;
@@ -40,16 +38,12 @@ export interface ToneHistoryData {
   current_blend: string[];
 }
 
-const PLACEHOLDER_TONE_HISTORY: ToneHistoryData = {
-  ratings: [
-    { tone_id: "t1", tone_name: "Cold & Direct", tone_emoji: "🧊", rating: "positive", count: 14, percentage: 78 },
-    { tone_id: "t2", tone_name: "Intense & Urgent", tone_emoji: "🔥", rating: "positive", count: 8, percentage: 44 },
-    { tone_id: "t3", tone_name: "Calm & Steady", tone_emoji: "🌿", rating: "neutral", count: 6, percentage: 33 },
-    { tone_id: "t4", tone_name: "Aggressive & Harsh", tone_emoji: "⚡", rating: "negative", count: 3, percentage: 17 },
-  ],
-  total_ratings: 18,
-  current_blend: ["Cold & Direct", "Intense & Urgent"],
-};
+function toneLabelFromKey(key: string): { name: string; emoji: string } {
+  const k = key.toLowerCase();
+  if (k === "philosopher") return { name: "Philosopher", emoji: "◇" };
+  if (k === "silent_force" || k === "silent force") return { name: "Silent Force", emoji: "◆" };
+  return { name: "Rival", emoji: "✦" };
+}
 
 function getRatingLabel(rating: ToneRating["rating"]) {
   if (rating === "positive") return "Rated 👍";
@@ -61,7 +55,7 @@ function ToneRow({ item, total }: { item: ToneRating; total: number }) {
   const fillPct = total > 0 ? (item.count / total) * 100 : 0;
   const isPositive = item.rating === "positive";
   const isNegative = item.rating === "negative";
-  const accentColor = item.tone_name.includes("Intense") ? ORANGE : item.tone_name.includes("Aggressive") ? RED : VIOLET;
+  const accentColor = item.rating === "negative" ? "#7F1D1D" : VIOLET;
   const trackColor = "rgba(30,35,51,0.90)";
 
   return (
@@ -82,7 +76,7 @@ function ToneRow({ item, total }: { item: ToneRating; total: number }) {
               styles.progressFill,
               {
                 width: `${fillPct}%`,
-                backgroundColor: isPositive ? undefined : isNegative ? RED : DIM,
+                backgroundColor: isPositive ? undefined : isNegative ? "#7F1D1D" : DIM,
               },
             ]}
           >
@@ -113,14 +107,26 @@ function ToneRow({ item, total }: { item: ToneRating; total: number }) {
 export function ToneHistoryScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const data = PLACEHOLDER_TONE_HISTORY;
+  const profile = useUserStore((s) => s.profile);
+
+  const data = useMemo((): ToneHistoryData => {
+    const toneKey = (profile?.twin_tone_type ?? "rival").toLowerCase();
+    const { name, emoji } = toneLabelFromKey(toneKey);
+    const intensity = profile?.twin_intensity ?? 3;
+    return {
+      ratings: [],
+      total_ratings: 0,
+      current_blend: [name, `Intensity ${intensity}/5`],
+    };
+  }, [profile?.twin_tone_type, profile?.twin_intensity]);
+
   const total = data.total_ratings;
   const positiveRatings = data.ratings.filter((r) => r.rating === "positive").sort((a, b) => b.count - a.count);
   const currentBlend = data.current_blend.length >= 2 ? data.current_blend : positiveRatings.slice(0, 2).map((r) => r.tone_name);
   const topPositive = currentBlend[0];
   const secondTone = currentBlend[1];
   const hasEnoughRatings = total >= 5;
-  const empty = data.ratings.every((r) => r.count === 0);
+  const empty = data.ratings.length === 0 || data.ratings.every((r) => r.count === 0);
 
   return (
     <View style={styles.container}>
@@ -142,16 +148,26 @@ export function ToneHistoryScreen() {
       >
         <View style={styles.explanationCard}>
           <Text style={styles.explanationText}>
-            Your Twin's personality adapts based on how you respond. These are the tones you've rated — the more you
-            engage, the better it knows you.
+            Your Twin voice is set from your archetype and recalibrates as you use the app. Per-response ratings will
+            appear here when that feedback loop ships.
           </Text>
+        </View>
+
+        <View style={[styles.explanationCard, { marginBottom: 20, borderColor: "rgba(139,92,246,0.22)" }]}>
+          <Text style={[styles.sectionLabel, { marginBottom: 6, color: VIOLET_GLOW }]}>CURRENT VOICE</Text>
+          <Text style={{ fontSize: 15, fontWeight: "700", color: TEXT }}>
+            {topPositive ?? "Twin"}
+          </Text>
+          <Text style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>{secondTone ?? ""}</Text>
         </View>
 
         {empty ? (
           <View style={styles.emptyWrap}>
             <Ionicons name="chatbubble-ellipses-outline" size={48} color="#1E2333" />
-            <Text style={styles.emptyTitle}>No ratings yet</Text>
-            <Text style={styles.emptySub}>Rate Twin responses with 👍 or 👎 after each chat.</Text>
+            <Text style={styles.emptyTitle}>No rating history yet</Text>
+            <Text style={styles.emptySub}>
+              Pull to refresh your profile after onboarding — tone and intensity come from your live Twin settings.
+            </Text>
           </View>
         ) : (
           <>
@@ -184,7 +200,9 @@ export function ToneHistoryScreen() {
                   <Text style={styles.blendHighlight}>{secondTone}</Text>. Keep rating to sharpen its voice.
                 </Text>
               ) : (
-                <Text style={styles.blendTextItalic}>Rate more Twin responses to start building your tone profile.</Text>
+                <Text style={styles.blendTextItalic}>
+                  Voice blend refines every few weeks from how you show up — not from mock data.
+                </Text>
               )}
             </View>
           </>

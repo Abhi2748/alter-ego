@@ -91,14 +91,43 @@ export interface CreatePersonalMissionRequest {
   multiday_days?: number;
 }
 
+/** Ensures list sections exist so UI/hooks never crash on partial API payloads. */
+export function normalizeTodayMissionsResponse(
+  data: TodayMissionsResponse | null | undefined
+): TodayMissionsResponse {
+  const m = data?.missions;
+  return {
+    date: data?.date ?? "",
+    day_number: data?.day_number,
+    missions: {
+      core: Array.isArray(m?.core) ? m.core : [],
+      interest: Array.isArray(m?.interest) ? m.interest : [],
+      resistance: Array.isArray(m?.resistance) ? m.resistance : [],
+      personal: Array.isArray(m?.personal) ? m.personal : [],
+    },
+    summary: {
+      total: Number(data?.summary?.total ?? 0),
+      completed: Number(data?.summary?.completed ?? 0),
+      xp_available: Number(data?.summary?.xp_available ?? 0),
+      pf_available: Number(data?.summary?.pf_available ?? 0),
+    },
+  };
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const missionsService = {
-  getTodayMissions: () =>
-    apiClient.get<TodayMissionsResponse>("/api/v1/missions/today"),
+  getTodayMissions: async () => {
+    const raw = await apiClient.get<TodayMissionsResponse>("/api/v1/missions/today");
+    return normalizeTodayMissionsResponse(raw);
+  },
 
-  getMissionsByDate: (date: string) =>
-    apiClient.get<TodayMissionsResponse>(`/api/v1/missions/date/${date}`),
+  getMissionsByDate: async (dateStr: string) => {
+    const raw = await apiClient.get<TodayMissionsResponse>(
+      `/api/v1/missions/date/${dateStr}`
+    );
+    return normalizeTodayMissionsResponse(raw);
+  },
 
   completeMission: (missionId: string) =>
     apiClient.post<CompleteMissionResponse>(

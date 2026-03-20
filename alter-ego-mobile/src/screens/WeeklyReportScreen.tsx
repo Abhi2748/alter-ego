@@ -19,8 +19,13 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Rect, Path, Circle, Defs, RadialGradient, Stop } from "react-native-svg";
 import { PetAnimation } from "../components/PetAnimation";
-import { supabase } from "@/utils/supabase";
-import { getWeeklyReport, type WeeklyReportRow } from "../utils/api";
+import { reportsService } from "@/services/reports";
+import {
+  mapRowToWeeklyReportData,
+  currentWeeklyToRow,
+} from "@/utils/weeklyReportMapper";
+import type { PastReportSummary, WeeklyReportData } from "@/types/weeklyReportUi";
+import { useUserStore } from "@/store/userStore";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const BAR_CHART_HEIGHT = 80;
@@ -30,76 +35,7 @@ const BAR_MIN = 8;
 // DATA SHAPE
 // -----------------------------------------------------------------------------
 
-export interface PastReportSummary {
-  report_id: string;
-  week_start: string;
-  week_end: string;
-  power_score: number;
-  streak: number;
-}
-
-export interface WeeklyReportData {
-  week_start: string;
-  week_end: string;
-  power_score: number;
-  power_score_change: number;
-  streak_current: number;
-  streak_longest_month: number;
-  daily_xp: number[];
-  pet_stage: number;
-  pet_name: string;
-  pet_next_name: string;
-  days_to_next_pet: number | null;
-  pet_was_sad: boolean;
-  gap_days: number;
-  gap_change: number;
-  narrative: string;
-  one_win: string;
-  one_focus: string;
-  twin_message: string;
-  next_week_note: string;
-  past_reports: PastReportSummary[];
-}
-
-const PLACEHOLDER_REPORT: WeeklyReportData = {
-  week_start: "2026-02-24",
-  week_end: "2026-03-02",
-  power_score: 1240,
-  power_score_change: 0,
-  streak_current: 5,
-  streak_longest_month: 5,
-  daily_xp: [120, 140, 60, 180, 90, 40, 160],
-  pet_stage: 2,
-  pet_name: "Cat",
-  pet_next_name: "Fox",
-  days_to_next_pet: 18,
-  pet_was_sad: false,
-  gap_days: 0,
-  gap_change: 2,
-  narrative:
-    "You completed 18 of 24 missions this week. Core: 6 of 7 days complete. 420 XP earned. 340 Pet Food earned.",
-  one_win: "Nailed sleep 6 nights. Consistent movement every day.",
-  one_focus: "Mindfulness slipped mid-week. Protect that block.",
-  twin_message:
-    '"You showed up. The gap is still there — close it next week. One week at a time."',
-  next_week_note: "Keep the streak. Add one harder mission.",
-  past_reports: [
-    {
-      report_id: "r1",
-      week_start: "2026-02-17",
-      week_end: "2026-02-23",
-      power_score: 1180,
-      streak: 8,
-    },
-    {
-      report_id: "r2",
-      week_start: "2026-02-10",
-      week_end: "2026-02-16",
-      power_score: 980,
-      streak: 3,
-    },
-  ],
-};
+export type { PastReportSummary, WeeklyReportData } from "@/types/weeklyReportUi";
 
 // -----------------------------------------------------------------------------
 // HELPERS
@@ -125,45 +61,14 @@ function isSunday(): boolean {
   return new Date().getDay() === 0;
 }
 
-/** Map API WeeklyReportRow to WeeklyReportData. */
-function mapRowToData(row: WeeklyReportRow, past: PastReportSummary[]): WeeklyReportData {
-  const d = row.this_week_data ?? {};
-  const completion = d.day_of_week_completion ?? [0, 0, 0, 0, 0, 0, 0];
-  const maxPct = Math.max(...completion, 1);
-  const daily_xp = completion.map((pct) => Math.round((pct / 100) * 180));
-  const weekEnd = (() => {
-    const s = new Date(row.week_start + "T00:00:00");
+function weekEndFromStart(weekStart: string): string {
+  try {
+    const s = new Date(weekStart + "T00:00:00");
     s.setDate(s.getDate() + 6);
     return s.toISOString().slice(0, 10);
-  })();
-  const wins = row.wins ?? [];
-  const one_win = wins.length > 0 ? wins.join(" ") : "—";
-  const twinParts = [row.twin_paragraph, row.twin_closing].filter(Boolean);
-  const twin_message = twinParts.length > 0 ? twinParts.join("\n") : "—";
-  return {
-    week_start: row.week_start,
-    week_end: weekEnd,
-    power_score: 0,
-    power_score_change: 0,
-    streak_current: d.current_streak ?? 0,
-    streak_longest_month: d.current_streak ?? 0,
-    daily_xp,
-    pet_stage: d.pet_stage ?? 0,
-    pet_name: d.pet_name ?? "—",
-    pet_next_name: "—",
-    days_to_next_pet: null,
-    pet_was_sad: false,
-    gap_days: 0,
-    gap_change: 0,
-    narrative:
-      `You completed ${d.missions_completed ?? 0} of ${d.missions_total ?? 0} missions. Core: ${d.core_days_complete ?? 0}/${d.core_days_total ?? 0} days. ${d.xp_earned ?? 0} XP, ${d.pet_food_earned ?? 0} Pet Food.` ||
-      "—",
-    one_win,
-    one_focus: row.keep_watching ?? "—",
-    twin_message,
-    next_week_note: row.next_week ?? "—",
-    past_reports: past,
-  };
+  } catch {
+    return weekStart;
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -299,7 +204,7 @@ function BlockDivider() {
 // MAIN REPORT CARD (all 8 blocks + next week + return)
 // -----------------------------------------------------------------------------
 
-function ReportCard({
+export function ReportCard({
   data,
   onReturn,
 }: {
@@ -478,38 +383,51 @@ export function WeeklyReportScreen() {
     setError(null);
     setLoading(true);
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.access_token) {
+      let pastList: PastReportSummary[] = [];
+      try {
+        const prev = await reportsService.getPreviousWeekly();
+        if (prev.available && "id" in prev && (prev as { id?: string }).id) {
+          const p = prev as {
+            id: string;
+            week_start: string;
+            week_end?: string;
+            this_week_data?: { current_streak?: number };
+          };
+          pastList = [
+            {
+              report_id: String(p.id),
+              week_start: p.week_start,
+              week_end: p.week_end ?? weekEndFromStart(p.week_start),
+              power_score: 0,
+              streak: p.this_week_data?.current_streak ?? 0,
+            },
+          ];
+        }
+      } catch {
+        /* optional */
+      }
+
+      const current = await reportsService.getCurrentWeekly();
+      const profilePs = useUserStore.getState().profile?.power_score;
+
+      if (!current.available) {
         setData(null);
-        setPastSummaries([]);
+        setPastSummaries(pastList);
         return;
       }
-      const res = await getWeeklyReport(session.access_token);
-      if (res.report) {
-        const past: PastReportSummary[] = (res.last_week
-          ? [
-              {
-                report_id: res.last_week.id,
-                week_start: res.last_week.week_start,
-                week_end: new Date(new Date(res.last_week.week_start).getTime() + 6 * 86400000).toISOString().slice(0, 10),
-                power_score: 0,
-                streak: res.last_week.this_week_data?.current_streak ?? 0,
-              },
-            ]
-          : []
-        ) as PastReportSummary[];
-        setData(mapRowToData(res.report, past));
-        setPastSummaries(past);
-      } else {
-        setData(null);
-        setPastSummaries([]);
+
+      const c = current as Record<string, unknown>;
+      const row = currentWeeklyToRow(c, String(c.week_start ?? "current"));
+      const mapped = mapRowToWeeklyReportData(row, pastList);
+      if (typeof profilePs === "number") {
+        mapped.power_score = profilePs;
       }
+      setData(mapped);
+      setPastSummaries(pastList);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load report");
-      setData(PLACEHOLDER_REPORT);
-      setPastSummaries(PLACEHOLDER_REPORT.past_reports);
+      setData(null);
+      setPastSummaries([]);
     } finally {
       setLoading(false);
     }

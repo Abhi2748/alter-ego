@@ -25,8 +25,9 @@ import Animated, {
 } from "react-native-reanimated";
 import { LeaderboardSkeleton } from "../components/LeaderboardSkeleton";
 import { COLORS, SPACING, GRADIENTS } from "../constants/theme";
-import { supabase } from "@/utils/supabase";
-import { getLeaderboard, type LeaderboardEntryOut } from "../utils/api";
+import { leaderboardService, type LeaderboardEntryApi } from "@/services/leaderboard";
+import { isApiError } from "@/services/api";
+import { useAuthStore } from "@/store/authStore";
 
 // Screen background (premium dark)
 const SCREEN_BG = "#06070E";
@@ -72,37 +73,22 @@ export interface LeaderboardEntry {
   pet_image_url: string | null;
 }
 
-function mapEntry(e: LeaderboardEntryOut): LeaderboardEntry {
+function mapEntryApi(e: LeaderboardEntryApi): LeaderboardEntry {
   const stage = Math.min(6, Math.max(1, e.character_stage ?? 1));
   return {
     rank: e.rank,
     user_id: e.user_id ?? "",
     username: e.username ?? "—",
     stage,
-    stage_title: STAGE_NAMES[stage - 1] ?? "The Awakened",
+    stage_title: e.character_stage_name ?? STAGE_NAMES[stage - 1] ?? "The Awakened",
     pet_stage: Math.min(8, Math.max(0, e.pet_stage ?? 0)),
-    streak: e.streak ?? 0,
+    streak: e.current_streak ?? 0,
     power_score: e.power_score ?? 0,
-    is_own_row: e.is_own ?? false,
+    is_own_row: Boolean(e.is_current_user),
     character_image_url: null,
     pet_image_url: null,
   };
 }
-
-// Placeholder when API unavailable
-const PLACEHOLDER_ENTRIES: LeaderboardEntry[] = [
-  { rank: 1, user_id: "u1", username: "iron_phoenix_9", stage: 6, stage_title: "The Sovereign", pet_stage: 8, streak: 62, power_score: 9840, is_own_row: false, character_image_url: null, pet_image_url: null },
-  { rank: 2, user_id: "u2", username: "silent_ember", stage: 5, stage_title: "The Formidable", pet_stage: 7, streak: 48, power_score: 8210, is_own_row: false, character_image_url: null, pet_image_url: null },
-  { rank: 3, user_id: "u3", username: "zero_day_zara", stage: 4, stage_title: "The Relentless", pet_stage: 6, streak: 41, power_score: 6890, is_own_row: false, character_image_url: null, pet_image_url: null },
-  { rank: 4, user_id: "u4", username: "ghost_mode_k", stage: 3, stage_title: "The Burning", pet_stage: 4, streak: 33, power_score: 5440, is_own_row: false, character_image_url: null, pet_image_url: null },
-  { rank: 5, user_id: "u5", username: "mindset_forge", stage: 3, stage_title: "The Burning", pet_stage: 3, streak: 28, power_score: 4920, is_own_row: false, character_image_url: null, pet_image_url: null },
-  { rank: 6, user_id: "u6", username: "cold_focus_rx", stage: 2, stage_title: "The Focused", pet_stage: 2, streak: 19, power_score: 3780, is_own_row: false, character_image_url: null, pet_image_url: null },
-  { rank: 7, user_id: "u7", username: "nova_discipline", stage: 2, stage_title: "The Focused", pet_stage: 2, streak: 15, power_score: 3100, is_own_row: false, character_image_url: null, pet_image_url: null },
-  { rank: 8, user_id: "u8", username: "steady_rise_42", stage: 2, stage_title: "The Focused", pet_stage: 1, streak: 12, power_score: 2650, is_own_row: false, character_image_url: null, pet_image_url: null },
-  { rank: 47, user_id: "me", username: "preview_user", stage: 2, stage_title: "The Focused", pet_stage: 2, streak: 5, power_score: 1240, is_own_row: true, character_image_url: null, pet_image_url: null },
-];
-const PLACEHOLDER_MY_RANK = 47;
-const PLACEHOLDER_TOTAL = 312;
 
 const ROW_STAGGER_MS = 45;
 const ROW_ANIM_MS = 280;
@@ -392,42 +378,63 @@ export function LeaderboardScreen() {
   const [myRank, setMyRank] = useState<number | null>(null);
   const [totalUsers, setTotalUsers] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [usePlaceholder, setUsePlaceholder] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [lockHint, setLockHint] = useState<string | null>(null);
 
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setLocked(false);
+    setLockHint(null);
+    const authed = useAuthStore.getState().isAuthenticated;
+    if (!authed) {
+      setEntries([]);
+      setMyRank(null);
+      setTotalUsers(null);
+      setError("Sign in to view the leaderboard.");
+      setLoading(false);
+      return;
+    }
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setEntries(PLACEHOLDER_ENTRIES);
-        setMyRank(PLACEHOLDER_MY_RANK);
-        setTotalUsers(PLACEHOLDER_TOTAL);
-        setUsePlaceholder(true);
-        setLoading(false);
-        return;
+      const data = await leaderboardService.getLeaderboard();
+      const mapped = (data.entries ?? []).map(mapEntryApi);
+      const me = data.current_user;
+      let list = mapped;
+      if (!me.in_top_100 && me.rank > 100) {
+        const stage = Math.min(6, Math.max(1, me.character_stage ?? 1));
+        const ownRow: LeaderboardEntry = {
+          rank: me.rank,
+          user_id: "",
+          username: me.username ?? "You",
+          stage,
+          stage_title: STAGE_NAMES[stage - 1] ?? "The Awakened",
+          pet_stage: 0,
+          streak: 0,
+          power_score: me.power_score ?? 0,
+          is_own_row: true,
+          character_image_url: null,
+          pet_image_url: null,
+        };
+        list = [...mapped, ownRow];
       }
-      const data = await getLeaderboard(session.access_token);
-      const out = data.entries ?? [];
-      const mapped = out.map(mapEntry);
-      const myEntry: LeaderboardEntry | null = data.my_entry ? mapEntry(data.my_entry) : null;
-      const rank = data.my_rank ?? null;
-      const total = data.total_users ?? null;
-
-      if (rank != null && rank > 100 && myEntry) {
-        setEntries([...mapped, myEntry]);
-      } else {
-        setEntries(mapped);
-      }
-      setMyRank(rank);
-      setTotalUsers(total ?? mapped.length);
-      setUsePlaceholder(false);
+      setEntries(list);
+      setMyRank(me.rank);
+      setTotalUsers(data.total_users ?? list.length);
     } catch (e) {
-      setEntries(PLACEHOLDER_ENTRIES);
-      setMyRank(PLACEHOLDER_MY_RANK);
-      setTotalUsers(PLACEHOLDER_TOTAL);
-      setUsePlaceholder(true);
-      setError(e instanceof Error ? e.message : "Failed to load leaderboard");
+      if (isApiError(e) && e.status === 403) {
+        setLocked(true);
+        const detail = e.data as { detail?: { message?: string; streak_needed?: number; current_streak?: number } };
+        const msg = detail?.detail?.message ?? "Complete a 3-day streak to unlock the leaderboard.";
+        setLockHint(msg);
+        setEntries([]);
+        setMyRank(null);
+        setTotalUsers(null);
+      } else {
+        setError(e instanceof Error ? e.message : "Failed to load leaderboard");
+        setEntries([]);
+        setMyRank(null);
+        setTotalUsers(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -467,7 +474,9 @@ export function LeaderboardScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <View>
           <Text style={styles.headerTitle}>Leaderboard</Text>
-          <Text style={styles.headerSubtitle}>{displayTotal} competing</Text>
+          <Text style={styles.headerSubtitle}>
+            {locked ? "—" : `${displayTotal} competing`}
+          </Text>
         </View>
         <View style={styles.globalChip}>
           <Text style={styles.globalChipText}>Global</Text>
@@ -482,8 +491,10 @@ export function LeaderboardScreen() {
               <Text style={styles.rankStripLabel}>Your rank</Text>
               <Text style={styles.rankStripValue}>#{myRank}</Text>
             </>
+          ) : locked ? (
+            <Text style={styles.rankStripNotVisible}>Unlock with a 3-day streak</Text>
           ) : (
-            <Text style={styles.rankStripNotVisible}>Keep going — visible after 7 consecutive days</Text>
+            <Text style={styles.rankStripNotVisible}>Sign in to see your rank</Text>
           )}
         </View>
         {showShare && (
@@ -498,24 +509,19 @@ export function LeaderboardScreen() {
         <View style={styles.skeletonWrap}>
           <LeaderboardSkeleton />
         </View>
-      ) : error && !usePlaceholder ? (
+      ) : locked ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>Leaderboard locked</Text>
+          <Text style={styles.emptySub}>{lockHint ?? "Keep your streak to unlock."}</Text>
+        </View>
+      ) : error ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptySub}>{error}</Text>
         </View>
-      ) : !userVisible && entries.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>No competitors yet</Text>
-          <Text style={styles.emptySub}>Be the first to hit 7 days</Text>
-        </View>
-      ) : !userVisible ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>Keep going.</Text>
-          <Text style={styles.emptySub}>You appear on the leaderboard after 7 consecutive days.</Text>
-        </View>
       ) : entries.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>Your rank</Text>
-          <Text style={styles.emptySub}>You're on the board. More people will appear as they hit 7 days.</Text>
+          <Text style={styles.emptyTitle}>No entries yet</Text>
+          <Text style={styles.emptySub}>Competitors appear here as more users unlock the board.</Text>
         </View>
       ) : (
         <ScrollView

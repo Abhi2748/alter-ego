@@ -3,6 +3,7 @@ import {
   View,
   Text,
   ScrollView,
+  KeyboardAvoidingView,
   Pressable,
   TextInput,
   StyleSheet,
@@ -31,7 +32,7 @@ export function MissionDetailScreen() {
   const [isCompleted, setIsCompleted] = useState(mission.completed);
 
   const { mutate: completeMission } = useCompleteMission();
-  const { mutate: submitRating } = useRateMission();
+  const { mutate: submitRating, isPending: isSubmittingRating } = useRateMission();
 
   const handleComplete = (missionId: string) => {
     completeMission(missionId, {
@@ -44,11 +45,16 @@ export function MissionDetailScreen() {
 
   const handleRatingSelect = (rating: 1 | 3 | 5) => {
     setSelectedRating(rating);
+    setRatingSubmitted(false);
+  };
+
+  const handleSendFeedback = () => {
+    if (selectedRating == null) return;
     submitRating(
       {
         missionId: mission.id,
-        rating,
-        feedback: feedbackText || undefined,
+        rating: selectedRating,
+        feedback: feedbackText.trim().length > 0 ? feedbackText : undefined,
       },
       {
         onSuccess: () => setRatingSubmitted(true),
@@ -130,22 +136,28 @@ export function MissionDetailScreen() {
   return (
     <LinearGradient colors={BG_GRADIENT} style={styles.container}>
       <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 32 }}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={0}
         >
-          {/* ZONE 1 — HEADER BAR */}
-          <View style={styles.headerBar}>
-            <Pressable
-              onPress={() => navigation.goBack()}
-              style={styles.backBtn}
-              hitSlop={10}
-            >
-              <Ionicons name="chevron-back" size={24} color="#E5E7EB" />
-            </Pressable>
-            <Text style={styles.headerTitle}>MISSION</Text>
-            <View style={{ width: 44 }} />
-          </View>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 32 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* ZONE 1 — HEADER BAR */}
+            <View style={styles.headerBar}>
+              <Pressable
+                onPress={() => navigation.goBack()}
+                style={styles.backBtn}
+                hitSlop={10}
+              >
+                <Ionicons name="chevron-back" size={24} color="#E5E7EB" />
+              </Pressable>
+              <Text style={styles.headerTitle}>MISSION</Text>
+              <View style={{ width: 44 }} />
+            </View>
 
           {/* ZONE 2 — TYPE BADGE + TITLE + CHIPS */}
           <View style={styles.zone2}>
@@ -395,6 +407,29 @@ export function MissionDetailScreen() {
               />
             </View>
 
+            {!ratingSubmitted ? (
+              <Pressable
+                onPress={handleSendFeedback}
+                disabled={selectedRating == null || isSubmittingRating}
+                style={({ pressed }) => [
+                  styles.sendFeedbackBtn,
+                  selectedRating == null || isSubmittingRating ? styles.sendFeedbackBtnDisabled : null,
+                  pressed && selectedRating != null && !isSubmittingRating ? { transform: [{ scale: 0.98 }] } : null,
+                ]}
+              >
+                <LinearGradient
+                  colors={["#6D28D9", "#8B5CF6"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.sendFeedbackBtnGradient}
+                >
+                  <Text style={styles.sendFeedbackBtnText}>
+                    {isSubmittingRating ? "Sending..." : "Send feedback"}
+                  </Text>
+                </LinearGradient>
+              </Pressable>
+            ) : null}
+
             {ratingSubmitted ? (
               <View style={styles.ratingConfirmRow}>
                 <Ionicons name="checkmark-circle" size={14} color="#8B5CF6" />
@@ -431,7 +466,8 @@ export function MissionDetailScreen() {
               </View>
             )}
           </View>
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -646,6 +682,29 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
+  },
+  sendFeedbackBtn: {
+    marginTop: 10,
+    height: 48,
+    borderRadius: 16,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendFeedbackBtnDisabled: {
+    opacity: 0.5,
+  },
+  sendFeedbackBtnGradient: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendFeedbackBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#E5E7EB",
+    letterSpacing: 0.2,
   },
   feedbackInput: {
     color: "#E5E7EB",

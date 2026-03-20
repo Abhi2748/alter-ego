@@ -14,6 +14,7 @@ import {
   type TodayMissionsResponse,
 } from "@/services/missions";
 import { useUserStore } from "@/store/userStore";
+import { PROFILE_KEYS } from "@/hooks/useProfile";
 
 // Query keys — centralised so invalidation works correctly
 export const MISSION_KEYS = {
@@ -110,6 +111,8 @@ export function useCompleteMission() {
       }
 
       queryClient.invalidateQueries({ queryKey: MISSION_KEYS.today });
+      // Home streak dots depend on /profile/streak heatmap; invalidate on completion.
+      queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
     },
 
     onError: (_error, _missionId, context) => {

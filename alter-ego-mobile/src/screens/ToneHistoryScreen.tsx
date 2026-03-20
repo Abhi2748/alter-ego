@@ -11,6 +11,7 @@ import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Pressable } from "react-native";
+import { useUserStore } from "@/store/userStore";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const SURFACE = "#111623";

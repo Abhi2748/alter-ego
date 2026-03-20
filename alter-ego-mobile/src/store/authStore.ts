@@ -9,6 +9,9 @@ import type { Session, User } from '@supabase/supabase-js';
 import { create } from 'zustand';
 import { supabase } from '@/utils/supabase';
 
+/** Avoid duplicate onAuthStateChange subscriptions if initialize() runs more than once. */
+let authListenerAttached = false;
+
 interface AuthState {
   // State
   session: Session | null;
@@ -47,15 +50,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Called once on app startup
     // Restores session from SecureStore
     set({ isLoading: true });
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    get().setSession(session);
+    try {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+      if (error) {
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+        get().setSession(null);
+      } else {
+        get().setSession(session);
+      }
+    } catch {
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+      get().setSession(null);
+    }
 
-    // Listen for auth changes (token refresh, sign out, etc.)
-    supabase.auth.onAuthStateChange((_event, session) => {
-      get().setSession(session);
-    });
+    if (!authListenerAttached) {
+      authListenerAttached = true;
+      supabase.auth.onAuthStateChange((_event, session) => {
+        get().setSession(session);
+      });
+    }
   },
 
   signInAnonymously: async () => {
@@ -104,9 +120,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   refreshSession: async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.refreshSession();
-    get().setSession(session);
+    try {
+      const { data, error } = await supabase.auth.refreshSession();
+      if (error) {
+        const msg = String((error as { message?: string }).message || error).toLowerCase();
+        if (msg.includes('invalid refresh token') || msg.includes('refresh token not found')) {
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+        }
+        get().setSession(null);
+        return;
+      }
+      get().setSession(data.session ?? null);
+    } catch {
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+      get().setSession(null);
+    }
   },
 }));

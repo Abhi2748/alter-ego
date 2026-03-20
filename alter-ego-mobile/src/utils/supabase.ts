@@ -114,6 +114,15 @@ export async function isGuestMode(): Promise<boolean> {
   return (await AsyncStorage.getItem(GUEST_STORAGE_KEY)) === "1";
 }
 
+/** Revoked / missing refresh token on server — treat as signed out, no red screen noise. */
+function isInvalidRefreshAuthError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes("invalid refresh token") ||
+    msg.includes("refresh token not found")
+  );
+}
+
 export const supabase = createClient(url, anonKey, {
   global: { fetch: fetchWithRetry },
   auth: {
@@ -130,5 +139,19 @@ supabase.auth.getSession = async () => {
   if (guest === "1") {
     return { data: { session: guestSession }, error: null };
   }
-  return originalGetSession();
+  try {
+    const result = await originalGetSession();
+    const err = result.error;
+    if (err && isInvalidRefreshAuthError(err)) {
+      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      return { data: { session: null }, error: null };
+    }
+    return result;
+  } catch (e: unknown) {
+    if (isInvalidRefreshAuthError(e)) {
+      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      return { data: { session: null }, error: null };
+    }
+    throw e;
+  }
 };

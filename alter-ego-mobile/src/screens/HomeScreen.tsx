@@ -3,7 +3,7 @@
  * Wired to backend: useTodayMissions, useUserStore, useTwinStrip, useCompleteMission.
  */
 
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -40,6 +40,7 @@ import { useTwinStrip } from "@/hooks/useTwinStrip";
 import type { Mission } from "@/services/missions";
 import { missionsService } from "@/services/missions";
 import { getErrorMessage } from "@/services/api";
+import { useProfileStreak } from "@/hooks/useProfile";
 
 
 // Design tokens (spec Section 1)
@@ -90,10 +91,8 @@ function missionApiToCard(
   m: Mission,
   category: "Core" | "Interest" | "Resistance" | "Personal"
 ): PlaceholderMission {
-  const difficulty =
-    m.difficulty === "Easy" || m.difficulty === "Medium" || m.difficulty === "Hard"
-      ? m.difficulty
-      : "Medium";
+  const diff = String(m.difficulty ?? "").toLowerCase();
+  const difficulty = diff === "easy" ? "Easy" : diff === "medium" ? "Medium" : diff === "hard" ? "Hard" : "Medium";
   return {
     id: m.id,
     title: m.title,
@@ -118,14 +117,9 @@ function missionApiToDetailParam(
   type: "core" | "interest" | "resistance" | "personal",
   date: string
 ): MainStackParamList["MissionDetail"]["mission"] {
+  const diff = String(m.difficulty ?? "").toLowerCase();
   const difficulty =
-    m.difficulty === "Easy"
-      ? ("easy" as const)
-      : m.difficulty === "Medium"
-        ? ("medium" as const)
-        : m.difficulty === "Hard"
-          ? ("hard" as const)
-          : ("medium" as const);
+    diff === "easy" ? ("easy" as const) : diff === "medium" ? ("medium" as const) : diff === "hard" ? ("hard" as const) : ("medium" as const);
 
   return {
     id: m.id,
@@ -172,6 +166,7 @@ export function HomeScreen() {
   const { mutate: completeMission, isPending: isCompleting } = useCompleteMission();
   const { mutate: deletePersonalMission } = useDeletePersonalMission();
   const { data: twinStrip } = useTwinStrip();
+  const { data: streakProfile } = useProfileStreak();
 
   const [streakAnimationData, setStreakAnimationData] = useState<{
     show: boolean;
@@ -221,7 +216,30 @@ export function HomeScreen() {
   const totalPetFood = profile?.total_pf ?? 0;
   const streak = profile?.current_streak ?? 0;
   const petHealthState = "idle";
-  const weekDots = [false, false, false, false, false, false, false];
+
+  const streakHeatmap = streakProfile?.heatmap ?? [];
+  const heatmapByDate = useMemo(() => new Map(streakHeatmap.map((r) => [r.date, r])), [streakHeatmap]);
+  // Treat the most recent heatmap date as "today" (backend anchors to the user's local calendar).
+  const anchorDateStr = streakHeatmap.length
+    ? streakHeatmap[streakHeatmap.length - 1].date
+    : new Date().toISOString().slice(0, 10);
+  const [ay, am, ad] = anchorDateStr.split("-").map((x) => Number(x));
+  const anchorUTCDate = new Date(Date.UTC(ay, am - 1, ad));
+  // Mon–Sun indices: Mon=0 ... Sun=6
+  const anchorMonBased = (anchorUTCDate.getUTCDay() + 6) % 7;
+  const weekDates = useMemo(() => {
+    return Array.from({ length: 7 }).map((_, i) => {
+      const d = new Date(anchorUTCDate);
+      d.setUTCDate(d.getUTCDate() - anchorMonBased + i);
+      return d.toISOString().slice(0, 10);
+    });
+  }, [anchorUTCDate, anchorMonBased]);
+  const weekDotType = weekDates.map((dateStr) => {
+    const row = heatmapByDate.get(dateStr);
+    if (row?.maintained) return "done" as const;
+    if (dateStr === anchorDateStr) return "today" as const;
+    return "pending" as const;
+  });
 
   const nextPetName = petStage >= 1 && petStage < 8 ? PET_NAMES[petStage - 1] : null;
   const pfProgress = profile?.pf_progress_pct ?? 0;
@@ -353,8 +371,6 @@ export function HomeScreen() {
   );
 
   const greeting = getGreeting();
-  const todayDotIndex = new Date().getDay();
-  const monBased = todayDotIndex === 0 ? 6 : todayDotIndex - 1;
 
   return (
     <View style={styles.container}>
@@ -393,13 +409,13 @@ export function HomeScreen() {
         <View style={styles.streakRight}>
           <Text style={styles.weekLabel}>This week</Text>
           <View style={styles.weekDotsRow}>
-            {weekDots.map((done, i) => (
+            {weekDotType.map((status, i) => (
               <View
                 key={i}
                 style={[
                   styles.weekDot,
-                  done && styles.weekDotDone,
-                  i === monBased && styles.weekDotToday,
+                  status === "done" ? styles.weekDotDone : null,
+                  status === "today" ? styles.weekDotToday : null,
                 ]}
               />
             ))}
@@ -899,7 +915,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   weekDotToday: {
-    backgroundColor: "rgba(249,115,22,0.4)",
+    backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1.5,
     borderColor: EMBER,
   },

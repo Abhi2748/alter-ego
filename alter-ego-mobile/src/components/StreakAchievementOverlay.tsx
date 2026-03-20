@@ -255,8 +255,6 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
   const ringWrapStyle = useAnimatedStyle(() => ({
     opacity: ringStamp.value,
     transform: [
-      { translateX: -80 },
-      { translateY: -80 },
       { scale: 0.82 + ringStamp.value * 0.18 },
       { rotate: `${(1 - ringStamp.value) * -4}deg` },
     ],
@@ -510,7 +508,7 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   stage: {
     alignSelf: "center",
-    marginTop: "12%",
+    marginTop: 0,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",

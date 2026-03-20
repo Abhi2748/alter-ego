@@ -25,6 +25,18 @@ const originalError = console.error;
 console.error = (...args: unknown[]) => {
   const msg = typeof args[0] === "string" ? args[0] : String(args[0]);
   if (msg.includes("Accessing element.ref was removed in React 19")) return;
+  // Supabase still console.error()s on INITIAL_SESSION when refresh token is stale/revoked,
+  // even after clearing storage — avoid LogBox noise; user is treated as signed out.
+  const flat = args
+    .map((a) => (a instanceof Error ? a.message : String(a)))
+    .join(" ")
+    .toLowerCase();
+  if (
+    flat.includes("invalid refresh token") ||
+    flat.includes("refresh token not found")
+  ) {
+    return;
+  }
   originalError.apply(console, args);
 };
 
@@ -86,9 +98,12 @@ export default function App() {
         onSession();
       }
     });
-    supabase.auth.getSession().then(({ data: sessionData }) => {
-      if (sessionData?.session?.access_token) onSession();
-    });
+    void supabase.auth
+      .getSession()
+      .then(({ data: sessionData }) => {
+        if (sessionData?.session?.access_token) onSession();
+      })
+      .catch(() => {});
     return () => data?.subscription?.unsubscribe?.();
   }, []);
 

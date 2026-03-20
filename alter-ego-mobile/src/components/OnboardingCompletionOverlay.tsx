@@ -3,7 +3,7 @@
  * Timer-driven phases only; parent navigates when the request resolves.
  */
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -237,8 +237,6 @@ function Connector({ filled }: { filled: boolean }) {
 }
 
 export function OnboardingCompletionOverlay({ active }: { active: boolean }) {
-  const [mainIdx, setMainIdx] = useState(0);
-  const [factIdx, setFactIdx] = useState(0);
   const [activeStep, setActiveStep] = useState(0);
   const [doneSteps, setDoneSteps] = useState<[boolean, boolean, boolean, boolean]>([
     false,
@@ -319,44 +317,11 @@ export function OnboardingCompletionOverlay({ active }: { active: boolean }) {
   }));
 
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const mainIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const factIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fadeMain = useCallback(
-    (next: () => void) => {
-      Animated.sequence([
-        Animated.timing(mainOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
-        Animated.timing(mainOpacity, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ]).start(() => {
-        next();
-        Animated.timing(mainOpacity, { toValue: 1, duration: 250, useNativeDriver: true }).start();
-      });
-    },
-    [mainOpacity]
-  );
-
-  const fadeFact = useCallback(
-    (next: () => void) => {
-      Animated.sequence([
-        Animated.timing(factOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
-      ]).start(() => {
-        next();
-        Animated.timing(factOpacity, { toValue: 1, duration: 250, useNativeDriver: true }).start();
-      });
-    },
-    [factOpacity]
-  );
 
   useEffect(() => {
     if (!active) {
       timersRef.current.forEach(clearTimeout);
       timersRef.current = [];
-      if (mainIntervalRef.current) clearInterval(mainIntervalRef.current);
-      if (factIntervalRef.current) clearInterval(factIntervalRef.current);
-      mainIntervalRef.current = null;
-      factIntervalRef.current = null;
-      setMainIdx(0);
-      setFactIdx(0);
       setActiveStep(0);
       setDoneSteps([false, false, false, false]);
       mainOpacity.setValue(1);
@@ -366,41 +331,41 @@ export function OnboardingCompletionOverlay({ active }: { active: boolean }) {
 
     setActiveStep(0);
     setDoneSteps([false, false, false, false]);
-    setMainIdx(0);
-    setFactIdx(0);
 
     timersRef.current = [
       setTimeout(() => {
         setDoneSteps([true, false, false, false]);
         setActiveStep(1);
-      }, 1000),
+      }, 2000),
       setTimeout(() => {
         setDoneSteps([true, true, false, false]);
         setActiveStep(2);
-      }, 2500),
+      }, 4000),
       setTimeout(() => {
         setDoneSteps([true, true, true, false]);
         setActiveStep(3);
-      }, 4000),
+      }, 6000),
     ];
-
-    mainIntervalRef.current = setInterval(() => {
-      fadeMain(() => setMainIdx((i) => (i + 1) % MAIN_MESSAGES.length));
-    }, 2500);
-
-    factIntervalRef.current = setInterval(() => {
-      fadeFact(() => setFactIdx((i) => (i + 1) % FACTS.length));
-    }, 4000);
 
     return () => {
       timersRef.current.forEach(clearTimeout);
       timersRef.current = [];
-      if (mainIntervalRef.current) clearInterval(mainIntervalRef.current);
-      if (factIntervalRef.current) clearInterval(factIntervalRef.current);
-      mainIntervalRef.current = null;
-      factIntervalRef.current = null;
     };
-  }, [active, fadeMain, fadeFact, mainOpacity, factOpacity]);
+  }, [active, mainOpacity, factOpacity]);
+
+  // Tie opacity + copy transitions to the step progression (facts should not change independently).
+  useEffect(() => {
+    if (!active) return;
+    mainOpacity.setValue(0);
+    factOpacity.setValue(0);
+    Animated.parallel([
+      Animated.timing(mainOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.timing(factOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+    ]).start();
+  }, [activeStep, active, mainOpacity, factOpacity]);
+
+  const mainIdx = Math.min(activeStep, MAIN_MESSAGES.length - 1);
+  const factIdx = Math.min(activeStep, FACTS.length - 1);
 
   if (!active) return null;
 
@@ -520,7 +485,8 @@ const styles = StyleSheet.create({
     borderRadius: 140,
     overflow: "hidden",
     alignSelf: "center",
-    top: "24%",
+    top: "50%",
+    transform: [{ translateY: -140 }],
   },
   hexHost: {
     width: 120,
@@ -548,7 +514,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: "hidden",
     alignSelf: "center",
-    top: 40,
+    top: "50%",
     zIndex: 10,
     shadowColor: "#8B5CF6",
     shadowOffset: { width: 0, height: 0 },

@@ -114,8 +114,11 @@ async function request<T = unknown>(
       if (error) {
         // Common when local storage has stale tokens after auth/backend changes
         const msg = String((error as { message?: string }).message || error);
-        if (msg.toLowerCase().includes('invalid refresh token')) {
-          await supabase.auth.signOut();
+        if (
+          msg.toLowerCase().includes('invalid refresh token') ||
+          msg.toLowerCase().includes('refresh token not found')
+        ) {
+          await supabase.auth.signOut({ scope: 'local' });
         }
         throw new AuthError();
       }
@@ -132,8 +135,11 @@ async function request<T = unknown>(
     } catch (e) {
       // Some Supabase errors can throw (AuthApiError)
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.toLowerCase().includes('invalid refresh token')) {
-        await supabase.auth.signOut();
+      if (
+        msg.toLowerCase().includes('invalid refresh token') ||
+        msg.toLowerCase().includes('refresh token not found')
+      ) {
+        await supabase.auth.signOut({ scope: 'local' });
       }
       throw new AuthError();
     }

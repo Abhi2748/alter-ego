@@ -46,16 +46,31 @@ def parse_interest_active_days(raw) -> list[int]:
             return [1, 2, 3, 4, 5, 6, 7]
     if not isinstance(raw, list) or len(raw) == 0:
         return [1, 2, 3, 4, 5, 6, 7]
-    out: list[int] = []
+    values: list[int] = []
     for x in raw:
         try:
-            n = int(x)
+            values.append(int(x))
         except (TypeError, ValueError):
             continue
-        if 0 <= n <= 6:
-            out.append(n + 1)
-        elif 1 <= n <= 7:
-            out.append(n)
+
+    if not values:
+        return [1, 2, 3, 4, 5, 6, 7]
+
+    # Detect which scheme the app is using.
+    # - Legacy scheme: contains 0 (Mon) .. 6 (Sun)
+    # - ISO scheme: 1 (Mon) .. 7 (Sun)
+    legacy_mode = any(n == 0 for n in values)
+
+    out: list[int] = []
+    if legacy_mode:
+        for n in values:
+            if 0 <= n <= 6:
+                out.append(n + 1)
+    else:
+        for n in values:
+            if 1 <= n <= 7:
+                out.append(n)
+
     return sorted(set(out)) or [1, 2, 3, 4, 5, 6, 7]
 
 

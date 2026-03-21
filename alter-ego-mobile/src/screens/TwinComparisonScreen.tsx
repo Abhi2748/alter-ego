@@ -21,6 +21,7 @@ import { useTwinState, useTwinStrip } from "@/hooks/useTwin";
 import type { TwinActivity, TwinComparisonOut } from "../utils/api";
 import { TwinComparisonShareCard } from "../components/TwinComparisonShareCard";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
+import { useUserStore } from "@/store/userStore";
 
 const ARENA_HEIGHT = 230;
 const CHAR_CARD_W = 96;
@@ -30,6 +31,10 @@ const STATS_ROW_HEIGHT = 56;
 const CHAT_FAB_BOTTOM = 8;
 const CHAT_FAB_RIGHT = 16;
 const CHAT_FAB_SIZE = 56;
+
+/** When strip_message is still empty (legacy rows), keep the screen from feeling broken. */
+const DEFAULT_TWIN_DIALOGUE =
+  "Your rival is you — one week ahead. Same starting line. Different choices. Show up and the gap tells the truth.";
 
 function formatTime(iso: string): string {
   try {
@@ -53,6 +58,7 @@ export function TwinComparisonScreen() {
   } = useTwinState();
 
   const { data: stripData } = useTwinStrip();
+  const profile = useUserStore((s) => s.profile);
 
   const comparison: TwinComparisonOut | null = useMemo(() => {
     if (!twinData) return null;
@@ -63,13 +69,27 @@ export function TwinComparisonScreen() {
 
     const inferredGapDays = gap.user_is_ahead ? -Math.abs(gap.days_user_ahead) : gap.days_user_ahead;
 
-    const activities: TwinActivity[] = (twin.missed_mission_titles ?? []).map((title) => ({
-      mission_title: title,
-      mission_type: "core",
-      difficulty: "Easy",
-      xp_earned: 0,
-      completed_at: null,
-    }));
+    const timeline = twinData.twin_timeline ?? [];
+    const activities: TwinActivity[] = timeline.map((row) => {
+      const d = String(row.difficulty ?? "medium").toLowerCase();
+      const difficulty: TwinActivity["difficulty"] =
+        d === "easy" ? "Easy" : d === "hard" || d === "elite" ? "Hard" : "Medium";
+      const mt = String(row.mission_type ?? "core").toLowerCase();
+      const mission_type: TwinActivity["mission_type"] =
+        mt === "interest" ? "focus" : mt === "personal" ? "personal" : "core";
+      return {
+        mission_title: row.mission_title,
+        mission_type,
+        difficulty,
+        xp_earned: row.xp_earned,
+        completed_at: row.completed_at,
+      };
+    });
+
+    const stripMessage =
+      twinData.strip_message?.trim() ||
+      stripData?.strip_message?.trim() ||
+      null;
 
     return {
       user_xp: user.total_xp,
@@ -86,12 +106,12 @@ export function TwinComparisonScreen() {
 
       current_gap_state: twin.gap_state,
       gap_line: "",
-      strip_message: stripData?.message ?? null,
+      strip_message: stripMessage,
       gap_days: inferredGapDays,
       username: user.username,
       twin_today_activities: activities,
     };
-  }, [stripData?.message, twinData]);
+  }, [stripData?.strip_message, twinData, profile?.current_streak, profile?.power_score]);
 
   const openTwinChat = () => {
     (navigation as any).navigate("TwinChat");
@@ -395,7 +415,7 @@ export function TwinComparisonScreen() {
         <View style={styles.dialogueCard}>
           <Text style={styles.dialogueLabel}>YOUR TWIN</Text>
           <Text style={styles.dialogueMessage}>
-            {stripData?.message ?? "—"}
+            {comparison?.strip_message?.trim() ? comparison.strip_message : DEFAULT_TWIN_DIALOGUE}
           </Text>
         </View>
 
@@ -421,10 +441,17 @@ export function TwinComparisonScreen() {
               end={{ x: 0, y: 1 }}
               style={styles.timelineLine}
             />
+            {activities.length === 0 ? (
+              <Text style={styles.timelineEmpty}>
+                {
+                  "Your Twin runs through the same mission set you see today. After today's plan is synced, you'll see their pace here — usually within your first open. A full refresh also runs overnight in your timezone."
+                }
+              </Text>
+            ) : null}
             {activities.map((item, i) => {
               const completed = item.completed_at != null;
               return (
-                <View key={i} style={styles.timelineItem}>
+                <View key={`${item.mission_title}-${i}`} style={styles.timelineItem}>
                   <View
                     style={[
                       styles.timelineItemDot,
@@ -790,6 +817,13 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
   timelineDate: { fontSize: 9, color: "#374151" },
+  timelineEmpty: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: "#9CA3AF",
+    marginBottom: 10,
+    paddingRight: 8,
+  },
   timelineContainer: {
     flex: 1,
     position: "relative",

@@ -1,4 +1,10 @@
 import React, { useMemo, useRef, useState } from "react";
+import type { UserProfile } from "@/store/userStore";
+import {
+  PET_PF_THRESHOLDS,
+  PET_STAGE_NAMES,
+  TOTAL_PET_STAGES,
+} from "@/constants/petProgression";
 import {
   View,
   Text,
@@ -38,6 +44,40 @@ interface CompanionData {
   companions: PetStageHistoryItem[];
 }
 
+/** When /profile/companion fails, use cached overview profile so the screen still opens. */
+function buildCompanionFromProfile(p: UserProfile): CompanionData {
+  const current_pet = Math.min(
+    TOTAL_PET_STAGES,
+    Math.max(0, p.pet_stage ?? 0)
+  );
+  const total_pf = p.total_pf ?? 0;
+  const pet_unlocked = p.pet_unlocked ?? false;
+  const companions: PetStageHistoryItem[] = [];
+  for (let i = 1; i <= TOTAL_PET_STAGES; i++) {
+    const threshold = PET_PF_THRESHOLDS[i - 1];
+    const next_threshold =
+      i < TOTAL_PET_STAGES ? PET_PF_THRESHOLDS[i] : null;
+    companions.push({
+      stage: i,
+      name: PET_STAGE_NAMES[i - 1],
+      pf_required: threshold,
+      pf_next: next_threshold,
+      unlocked: pet_unlocked && i <= current_pet,
+      current: i === current_pet,
+      earned_at: null,
+    });
+  }
+  return {
+    pet_unlocked,
+    current_pet_stage: current_pet,
+    current_pet_name: p.pet_name ?? (current_pet > 0 ? PET_STAGE_NAMES[current_pet - 1] : null),
+    total_pf,
+    pf_to_next: p.pf_to_next_pet ?? 0,
+    progress_pct: p.pf_progress_pct ?? 0,
+    companions,
+  };
+}
+
 export function ProfileCompanionScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -45,21 +85,31 @@ export function ProfileCompanionScreen() {
   const [selectedStage, setSelectedStage] = useState<number>(1);
   const [selectedPetName, setSelectedPetName] = useState<string>("Cub");
   const cardRef = useRef<View>(null);
-  const username = useUserStore((state) => state.profile?.username) ?? "";
+  const profile = useUserStore((state) => state.profile);
+  const username = profile?.username ?? "";
 
   const {
     data,
-    isLoading: loading,
-    error,
+    isPending,
+    isError,
     refetch,
   } = useProfileCompanion() as {
     data: CompanionData | undefined;
-    isLoading: boolean;
-    error: unknown;
+    isPending: boolean;
+    isError: boolean;
     refetch: () => void;
   };
 
-  const current = data;
+  const fallbackCompanion = useMemo(
+    () => (profile ? buildCompanionFromProfile(profile) : null),
+    [profile]
+  );
+
+  const display = data ?? (isError ? fallbackCompanion : null);
+  const usingCachedFallback = isError && !data && !!fallbackCompanion;
+  const loading = isPending && !display;
+
+  const current = display;
   const currentStage = current?.current_pet_stage ?? 0;
   const pfThreshold =
     current?.companions?.find((c) => c.stage === currentStage)?.pf_next ??
@@ -185,9 +235,30 @@ export function ProfileCompanionScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {loading || !current ? (
+      {!current ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator color="#10B981" />
+          {isError ? (
+            <View style={{ paddingHorizontal: 24, alignItems: "center" }}>
+              <Text style={{ color: "#9CA3AF", textAlign: "center", marginBottom: 16 }}>
+                Couldn&apos;t load companion from the server. Check your connection or try again.
+              </Text>
+              <Pressable
+                onPress={() => refetch()}
+                style={{
+                  paddingVertical: 12,
+                  paddingHorizontal: 20,
+                  borderRadius: 12,
+                  backgroundColor: "#0f1f14",
+                  borderWidth: 1,
+                  borderColor: "#14532d",
+                }}
+              >
+                <Text style={{ color: "#6EE7B7", fontFamily: "Inter_600SemiBold" }}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <ActivityIndicator color="#10B981" />
+          )}
         </View>
       ) : (
         <>
@@ -196,6 +267,23 @@ export function ProfileCompanionScreen() {
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 32 }}
           showsVerticalScrollIndicator={false}
         >
+          {usingCachedFallback ? (
+            <View
+              style={{
+                marginBottom: 12,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 12,
+                backgroundColor: "rgba(16,185,129,0.12)",
+                borderWidth: 1,
+                borderColor: "#14532d",
+              }}
+            >
+              <Text style={{ color: "#6EE7B7", fontSize: 13, textAlign: "center" }}>
+                Showing saved companion — server unavailable. Tap Retry in the card area or pull to refresh.
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.currentCard}>
             <LinearGradient
               colors={["transparent", "rgba(52,211,153,0.30)", "transparent"]}
@@ -249,7 +337,7 @@ export function ProfileCompanionScreen() {
                   />
                 </View>
 
-                {error ? (
+                {isError ? (
                   <Pressable onPress={() => refetch()} hitSlop={8} style={{ alignSelf: "flex-end", marginTop: 6 }}>
                     <Text style={[styles.daysEstimate, { color: "#34D399" }]}>Retry</Text>
                   </Pressable>

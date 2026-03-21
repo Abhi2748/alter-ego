@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
-from app.core.constants import CORE_MISSIONS, DAILY_PF_CAPS, DAILY_XP_CAPS
+from app.core.constants import CORE_MISSIONS, DAILY_PF_CAPS, DAILY_XP_CAPS, resolve_stat_tag
 from app.services.progression_service import (
     check_character_stage_progression,
     check_pet_stage_progression,
@@ -166,6 +166,7 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
 
     rows: list[dict] = []
     for mission in CORE_MISSIONS:
+        pillar = mission["pillar"]
         rows.append(
             {
                 "user_id": user_id,
@@ -177,7 +178,8 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
                 "mission_date": mission_date,
                 "completed": False,
                 "is_journal_mission": bool(mission.get("is_journal_mission", False)),
-                "core_pillar": mission["pillar"],
+                "core_pillar": pillar,
+                "stat_tag": resolve_stat_tag(pillar, "core"),
                 "estimated_minutes": mission["estimated_minutes"],
                 "rationale": mission["rationale"],
             }
@@ -260,7 +262,10 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
 
     user_result = (
         supabase_admin.table("users")
-        .select("total_xp, total_pf, character_stage, timezone, pet_stage, pet_unlocked, current_streak")
+        .select(
+            "total_xp, total_pf, character_stage, timezone, pet_stage, pet_unlocked, "
+            "current_streak, power_score"
+        )
         .eq("id", user_id)
         .single()
         .execute()
@@ -275,7 +280,49 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
             "pf_earned": 0,
             "new_total_xp": int(user.get("total_xp") or 0),
             "new_total_pf": int(user.get("total_pf") or 0),
+            "power_score": int(user.get("power_score") or 0),
+            "stat_gains": {
+                "primary_stat": None,
+                "primary_sp": 0,
+                "discipline_sp": 0,
+                "willpower_bonus_sp": 0,
+                "level_ups": [],
+            },
+            "willpower_progress": {
+                "missions_completed_today": 0,
+                "total_missions_today": 0,
+            },
+            "sigil": {
+                "aether_awarded": 0,
+                "surge_activated": False,
+                "surge_active": False,
+                "level_up": False,
+                "new_level": None,
+                "new_level_name": None,
+                "total_aether": 0,
+            },
         }
+
+    if mission.get("is_journal_mission"):
+        from app.core.journal_rules import journal_stored_qualifies_for_mission
+
+        je = (
+            supabase_admin.table("journal_entries")
+            .select("title, content")
+            .eq("user_id", user_id)
+            .eq("mission_date", str(mission.get("mission_date") or ""))
+            .limit(1)
+            .execute()
+        )
+        row = (je.data or [None])[0]
+        if not row or not journal_stored_qualifies_for_mission(
+            row.get("title"),
+            row.get("content"),
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="We don't see a saved journal entry for today yet. Open Journal, write at least a couple of lines, and tap Save — this mission completes automatically.",
+            )
 
     # Ensure mission is for "today" (user's timezone)
     today = get_user_date(user.get("timezone", "UTC") or "UTC")
@@ -293,7 +340,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
 
     # Enforce daily cap
     character_stage = int(user.get("character_stage") or 1)
-    daily_xp_cap = int(DAILY_XP_CAPS.get(character_stage, 200))
+    daily_xp_cap = int(DAILY_XP_CAPS.get(character_stage, 100))
     daily_pf_cap = int(DAILY_PF_CAPS.get(character_stage, 160))
 
     xp_today_result = (
@@ -345,11 +392,51 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     # Update user totals
     supabase_admin.table("users").update({"total_xp": new_total_xp, "total_pf": new_total_pf}).eq("id", user_id).execute()
 
+    sigil_result = {
+        "aether_awarded": 0,
+        "surge_activated": False,
+        "surge_active": False,
+        "level_up": False,
+        "new_level": None,
+        "new_level_name": None,
+        "total_aether": 0,
+    }
+    try:
+        from app.services.sigil_service import check_and_award_aether
+
+        sigil_result = await check_and_award_aether(
+            user_id=user_id,
+            mission_id=mission_id,
+            mission_difficulty=str(mission.get("difficulty") or "easy"),
+            xp_today_before=xp_today,
+            xp_earned_this_mission=xp_earned,
+            user_character_stage=character_stage,
+            today=today,
+        )
+    except Exception:
+        logger.exception("Sigil Aether award failed for user %s", user_id)
+
     # Progression checks
     stage_evolved = await check_character_stage_progression(user_id, new_total_xp, character_stage)
     pet_evolved = await check_pet_stage_progression(user_id, new_total_pf, pet_stage, bool(user.get("pet_unlocked")))
 
     streak_result = await process_streak(user_id)
+
+    from app.services.power_score_service import calculate_power_score
+
+    new_power_score = int(user.get("power_score") or 0)
+    try:
+        new_power_score = await calculate_power_score(user_id, log_event=False)
+    except Exception:
+        logger.exception("calculate_power_score failed after mission complete user=%s", user_id)
+        ps_row = (
+            supabase_admin.table("users")
+            .select("power_score")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        new_power_score = int((ps_row.data or {}).get("power_score") or 0)
 
     # Category C — milestone notifications (immediate, pre-written, no LLM)
     from app.agents.nudge_agent import send_category_c_notification
@@ -361,6 +448,27 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         await send_category_c_notification(user_id, f"stage_{stage_evolved['new_stage']}")
     if pet_evolved:
         await send_category_c_notification(user_id, f"pet_stage_{pet_evolved['new_stage']}")
+
+    stat_result = {
+        "primary_stat": None,
+        "primary_sp_awarded": 0,
+        "discipline_sp_awarded": 0,
+        "willpower_bonus_sp": 0,
+        "level_ups": [],
+        "missions_completed_today": 0,
+        "total_missions_today": 0,
+    }
+    try:
+        from app.services.stat_service import award_sp_for_mission
+
+        stat_result = await award_sp_for_mission(
+            user_id=user_id,
+            mission=mission,
+            difficulty=str(mission.get("difficulty") or "easy"),
+            today=today,
+        )
+    except Exception:
+        logger.exception("Stat SP award failed for user %s", user_id)
 
     return {
         "success": True,
@@ -383,6 +491,27 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         "new_streak_tier": streak_result.get("new_tier"),
         "milestone_reached": streak_result.get("milestone_reached"),
         "leaderboard_just_unlocked": streak_result.get("leaderboard_just_unlocked", False),
+        "power_score": new_power_score,
+        "stat_gains": {
+            "primary_stat": stat_result["primary_stat"],
+            "primary_sp": stat_result["primary_sp_awarded"],
+            "discipline_sp": stat_result["discipline_sp_awarded"],
+            "willpower_bonus_sp": stat_result["willpower_bonus_sp"],
+            "level_ups": stat_result["level_ups"],
+        },
+        "willpower_progress": {
+            "missions_completed_today": stat_result["missions_completed_today"],
+            "total_missions_today": stat_result["total_missions_today"],
+        },
+        "sigil": {
+            "aether_awarded": sigil_result["aether_awarded"],
+            "surge_activated": sigil_result["surge_activated"],
+            "surge_active": sigil_result["surge_active"],
+            "level_up": sigil_result["level_up"],
+            "new_level": sigil_result["new_level"],
+            "new_level_name": sigil_result["new_level_name"],
+            "total_aether": sigil_result["total_aether"],
+        },
     }
 
 

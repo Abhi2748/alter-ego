@@ -1,12 +1,12 @@
 /**
- * Profile stack: main profile (4 buttons) → Stats | Streak | Titles | Interests screens.
+ * Profile stack: main profile → Abilities | Streak | Journey | Interests | Quits.
  */
 
 import React from "react";
 import { createStackNavigator } from "@react-navigation/stack";
 import type { ProfileStackParamList } from "./types";
 import { ProfileScreen } from "../screens/ProfileScreen";
-import { ProfileStatsScreen } from "../screens/ProfileStatsScreen";
+import { ProfileAbilitiesScreen } from "../screens/ProfileAbilitiesScreen";
 import { ProfileStreakScreen } from "../screens/ProfileStreakScreen";
 import { ProfileIdentityScreen } from "../screens/ProfileIdentityScreen";
 import { ProfileCompanionScreen } from "../screens/ProfileCompanionScreen";
@@ -25,7 +25,7 @@ export function ProfileStack() {
       }}
     >
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
-      <Stack.Screen name="ProfileStats" component={ProfileStatsScreen} />
+      <Stack.Screen name="ProfileAbilities" component={ProfileAbilitiesScreen} />
       <Stack.Screen name="ProfileStreak" component={ProfileStreakScreen} />
       <Stack.Screen name="ProfileIdentity" component={ProfileIdentityScreen} />
       <Stack.Screen name="ProfileCompanion" component={ProfileCompanionScreen} />

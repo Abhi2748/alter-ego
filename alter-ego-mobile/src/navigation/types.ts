@@ -32,6 +32,7 @@ export type OnboardingStackParamList = {
 };
 
 export type MainTabParamList = {
+  Sigil: undefined;
   Home: { journalJustCompleted?: boolean } | undefined;
   Leaderboard: undefined;
   Twin: undefined;
@@ -45,6 +46,8 @@ export type MainStackParamList = {
   SettingsProfile: undefined;
   AccountSettings: undefined;
   ContactUs: undefined;
+  /** In-app FAQ from GET /api/v1/settings/faq */
+  SettingsFaq: undefined;
   MailInbox: undefined;
   ToneHistory: undefined;
   TwinChat: { initialMessage?: string } | undefined;
@@ -55,12 +58,17 @@ export type MainStackParamList = {
   Paywall: { dismissable?: boolean } | undefined;
   SubscriptionManagement: undefined;
   JournalList: undefined;
-  JournalEditor: { entry_id: string | null; read_only: boolean };
+  JournalEditor: {
+    entry_id: string | null;
+    read_only: boolean;
+    /** YYYY-MM-DD for a new entry (defaults to today's mission date from Home). */
+    mission_date?: string;
+  };
   JournalCalendar: undefined;
   MissionDetail: {
     mission: {
       id: string;
-      type: "core" | "interest" | "resistance" | "personal";
+      type: "core" | "interest" | "resistance";
       title: string;
       difficulty: "easy" | "medium" | "hard" | "elite";
       xp_value: number;
@@ -80,7 +88,7 @@ export type MainStackParamList = {
 
 export type ProfileStackParamList = {
   ProfileMain: undefined;
-  ProfileStats: undefined;
+  ProfileAbilities: undefined;
   ProfileStreak: undefined;
   ProfileIdentity: undefined;
   ProfileCompanion: undefined;

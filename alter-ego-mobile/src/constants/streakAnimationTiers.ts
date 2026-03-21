@@ -49,7 +49,8 @@ export const STREAK_VISUAL_TIERS: Record<StreakVisualTierKey, StreakVisualTier> 
     bloomColor: "rgba(109,40,217,0.28)",
     bloomSize: 340,
     shockColor: "rgba(139,92,246,0.25)",
-    numGradient: ["#C084FC", "#8B5CF6", "#5B21B6"],
+    /** 4-stop ramp: highlight → violet → deep (premium vs flat 2-tone) */
+    numGradient: ["#EDE9FE", "#C4B5FD", "#8B5CF6", "#4C1D95"],
     glowColor: "rgba(139,92,246,0.50)",
     numSize: 108,
     ringColor: "rgba(139,92,246,0.55)",

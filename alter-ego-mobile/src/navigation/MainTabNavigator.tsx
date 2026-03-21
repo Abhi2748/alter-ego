@@ -1,6 +1,7 @@
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import type { MainTabParamList } from "./types";
+import { SigilScreen } from "../screens/SigilScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { LeaderboardScreen } from "../screens/LeaderboardScreen";
 import { TwinComparisonScreen } from "../screens/TwinComparisonScreen";
@@ -16,6 +17,7 @@ export function MainTabNavigator() {
       tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{ headerShown: false }}
     >
+      <Tab.Screen name="Sigil" component={SigilScreen} />
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Leaderboard" component={LeaderboardScreen} />
       <Tab.Screen name="Twin" component={TwinComparisonScreen} />

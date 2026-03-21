@@ -182,12 +182,14 @@ Just the response. In character. Always.
 """
 
 
-async def get_twin_response(user_id: str, user_message: str) -> str:
+async def get_twin_response(user_id: str, user_message: str) -> dict:
     """
     Generates the twin's response to a user message.
     Loads all context fresh from DB on every call.
     Stores the conversation in twin_messages table.
-    Returns the twin's response as a plain string.
+
+    Returns:
+        {"response": str, "user_message_id": str | None, "twin_message_id": str | None}
     """
     # Load user, twin, dna
     user_result = supabase_admin.table("users").select("*").eq("id", user_id).single().execute()
@@ -339,9 +341,14 @@ async def get_twin_response(user_id: str, user_message: str) -> str:
         raise
 
     # Store user message
-    supabase_admin.table("twin_messages").insert(
-        {"user_id": user_id, "role": "user", "content": user_message}
-    ).execute()
+    user_ins = (
+        supabase_admin.table("twin_messages")
+        .insert({"user_id": user_id, "role": "user", "content": user_message})
+        .select("id")
+        .execute()
+    )
+    user_row = (user_ins.data or [None])[0] or {}
+    user_message_id = user_row.get("id")
 
     llm = ChatOpenAI(
         model="gpt-4o-mini",
@@ -353,9 +360,18 @@ async def get_twin_response(user_id: str, user_message: str) -> str:
     response = await llm.ainvoke([SystemMessage(content=prompt), HumanMessage(content=user_message)])
     twin_response = str(response.content).strip()
 
-    supabase_admin.table("twin_messages").insert(
-        {"user_id": user_id, "role": "twin", "content": twin_response}
-    ).execute()
+    twin_ins = (
+        supabase_admin.table("twin_messages")
+        .insert({"user_id": user_id, "role": "twin", "content": twin_response})
+        .select("id")
+        .execute()
+    )
+    twin_row = (twin_ins.data or [None])[0] or {}
+    twin_message_id = twin_row.get("id")
 
-    return twin_response
+    return {
+        "response": twin_response,
+        "user_message_id": str(user_message_id) if user_message_id else None,
+        "twin_message_id": str(twin_message_id) if twin_message_id else None,
+    }
 

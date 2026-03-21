@@ -14,6 +14,13 @@ import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useProfileIdentity } from "@/hooks/useProfile";
 import { useUserStore } from "@/store/userStore";
+import type { UserProfile } from "@/store/userStore";
+import {
+  CHARACTER_STAGE_NAMES,
+  CHARACTER_XP_THRESHOLDS,
+  computeCharacterXpDerived,
+  TOTAL_CHARACTER_STAGES,
+} from "@/constants/characterProgression";
 import { AchievementCardModal, type TitleStage } from "./ProfileTitlesScreen";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
 
@@ -36,24 +43,70 @@ type IdentityResponse = {
   stages: IdentityStage[];
 };
 
+/** When /profile/identity fails (e.g. Supabase gateway), use cached overview profile so the screen still opens. */
+function buildIdentityFromProfile(p: UserProfile): IdentityResponse {
+  const current_stage = Math.min(
+    TOTAL_CHARACTER_STAGES,
+    Math.max(1, p.character_stage || 1)
+  );
+  const total_xp = p.total_xp ?? 0;
+  const stages: IdentityStage[] = [];
+  for (let i = 1; i <= TOTAL_CHARACTER_STAGES; i++) {
+    const threshold = CHARACTER_XP_THRESHOLDS[i - 1];
+    const next_threshold =
+      i < TOTAL_CHARACTER_STAGES ? CHARACTER_XP_THRESHOLDS[i] : null;
+    stages.push({
+      stage: i,
+      name: CHARACTER_STAGE_NAMES[i - 1],
+      xp_required: threshold,
+      xp_next: next_threshold,
+      unlocked: i <= current_stage,
+      current: i === current_stage,
+      earned_at: null,
+    });
+  }
+  const { xp_to_next_stage, stage_progress_pct } = computeCharacterXpDerived(
+    total_xp,
+    current_stage
+  );
+  return {
+    current_stage,
+    current_stage_name: p.character_stage_name ?? CHARACTER_STAGE_NAMES[current_stage - 1],
+    total_xp,
+    xp_to_next: xp_to_next_stage,
+    progress_pct: stage_progress_pct,
+    stages,
+  };
+}
+
 export function ProfileIdentityScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const [shareStage, setShareStage] = useState<TitleStage | null>(null);
 
-  const username = useUserStore((state) => state.profile?.username) ?? "";
+  const profile = useUserStore((state) => state.profile);
+  const username = profile?.username ?? "";
 
   const {
     data,
-    isLoading: loading,
-    error,
+    isPending,
+    isError,
     refetch,
   } = useProfileIdentity() as {
     data: IdentityResponse | undefined;
-    isLoading: boolean;
-    error: unknown;
+    isPending: boolean;
+    isError: boolean;
     refetch: () => void;
   };
+
+  const fallbackIdentity = useMemo(
+    () => (profile ? buildIdentityFromProfile(profile) : null),
+    [profile]
+  );
+
+  const display = data ?? (isError ? fallbackIdentity : null);
+  const usingCachedFallback = isError && !data && !!fallbackIdentity;
+  const loading = isPending && !display;
 
   const toTitleStage = useMemo(
     () => (st: IdentityStage): TitleStage => ({
@@ -65,12 +118,12 @@ export function ProfileIdentityScreen() {
       is_locked: !st.unlocked,
       xp_to_unlock: st.xp_required,
       peak_streak_at_stage: null,
-      xp_earned_at_stage: st.current ? (data?.total_xp ?? null) : null,
+      xp_earned_at_stage: st.current ? (display?.total_xp ?? null) : null,
     }),
-    [data?.total_xp]
+    [display?.total_xp]
   );
 
-  const current = data;
+  const current = display;
   const currentStage = current?.current_stage ?? 1;
   const xpToNext = current?.xp_to_next ?? 0;
   const progressPct = current?.progress_pct ?? 0;
@@ -169,9 +222,30 @@ export function ProfileIdentityScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {loading || !current ? (
+      {!current ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator color="#8B5CF6" />
+          {isError ? (
+            <View style={{ paddingHorizontal: 24, alignItems: "center" }}>
+              <Text style={{ color: "#9CA3AF", textAlign: "center", marginBottom: 16 }}>
+                Couldn&apos;t load identity from the server. Check your connection or try again.
+              </Text>
+              <Pressable
+                onPress={() => refetch()}
+                style={{
+                  paddingVertical: 12,
+                  paddingHorizontal: 20,
+                  borderRadius: 12,
+                  backgroundColor: "#1E2333",
+                  borderWidth: 1,
+                  borderColor: "#2A3050",
+                }}
+              >
+                <Text style={{ color: "#8B5CF6", fontFamily: "Inter_600SemiBold" }}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <ActivityIndicator color="#8B5CF6" />
+          )}
         </View>
       ) : (
         <ScrollView
@@ -179,6 +253,23 @@ export function ProfileIdentityScreen() {
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 32 }}
           showsVerticalScrollIndicator={false}
         >
+          {usingCachedFallback ? (
+            <View
+              style={{
+                marginBottom: 12,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: 12,
+                backgroundColor: "rgba(139,92,246,0.12)",
+                borderWidth: 1,
+                borderColor: "#2A3050",
+              }}
+            >
+              <Text style={{ color: "#A78BFA", fontSize: 13, textAlign: "center" }}>
+                Showing saved profile — server unavailable. Pull to refresh or tap Retry below.
+              </Text>
+            </View>
+          ) : null}
           <View style={styles.currentCard}>
             <LinearGradient
               colors={["transparent", "rgba(139,92,246,0.25)", "transparent"]}
@@ -228,7 +319,7 @@ export function ProfileIdentityScreen() {
                   />
                 </View>
 
-                {error ? (
+                {isError ? (
                   <Pressable onPress={() => refetch()} hitSlop={8} style={{ alignSelf: "flex-end", marginTop: 6 }}>
                     <Text style={[styles.daysEstimate, { color: "#8B5CF6" }]}>Retry</Text>
                   </Pressable>

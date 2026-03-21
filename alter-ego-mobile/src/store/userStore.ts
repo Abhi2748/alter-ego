@@ -55,6 +55,7 @@ interface UserState {
   ) => void;
   updatePF: (pfEarned: number, newTotal: number) => void;
   updateStreak: (newStreak: number) => void;
+  updatePowerScore: (score: number) => void;
   updateStage: (newStage: number, newStageName: string) => void;
   updatePetStage: (newPetStage: number, newPetName: string) => void;
   incrementUnreadMail: () => void;
@@ -138,6 +139,17 @@ export const useUserStore = create<UserState>((set, get) => ({
         ...profile,
         current_streak: newStreak,
         longest_streak: Math.max(profile.longest_streak, newStreak),
+      },
+    });
+  },
+
+  updatePowerScore: (score) => {
+    const profile = get().profile;
+    if (!profile) return;
+    set({
+      profile: {
+        ...profile,
+        power_score: score,
       },
     });
   },

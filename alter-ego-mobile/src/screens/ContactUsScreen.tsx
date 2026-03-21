@@ -19,6 +19,8 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
+import type { StackNavigationProp } from "@react-navigation/stack";
+import type { MainStackParamList } from "@/navigation/types";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import Svg, { Path, Circle } from "react-native-svg";
@@ -35,8 +37,6 @@ const TEXT = "#E5E7EB";
 const MUTED = "#6B7280";
 const DIM = "#374151";
 const VERY_DIM = "#2D3146";
-
-const FAQ_URL = "https://alterego.app/faq";
 
 function IconInfo() {
   return (
@@ -112,11 +112,8 @@ export function ContactUsScreen() {
   const [sending, setSending] = useState(false);
 
   const openFAQs = useCallback(() => {
-    try {
-      const Linking = require("expo-linking").default;
-      Linking.openURL(FAQ_URL);
-    } catch (_) {}
-  }, []);
+    navigation.navigate("SettingsFaq");
+  }, [navigation]);
 
   const openFeedback = useCallback((subj: FeedbackSubject) => {
     setSubject(subj);

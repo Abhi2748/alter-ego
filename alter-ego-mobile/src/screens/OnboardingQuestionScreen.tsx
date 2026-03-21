@@ -89,6 +89,7 @@ const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
     "Starting completely fresh": "rebuilding",
     "Trying to quit something that's holding me back": "stuck",
     "Looking to become a better version of myself": "ambitious",
+    "I'm in a solid season — I want to sharpen my edge and keep winning": "competitive",
     "I've always been competitive and want to win this": "competitive",
   },
   q5_reason: {
@@ -106,6 +107,8 @@ const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
     "Dive straight in and figure it out": "jump_in",
     "Put it off until I can't anymore": "depends_on_mood",
     "Break it into the smallest possible steps": "research_first",
+    "First I set up accountability — a check-in, partner, or hard deadline":
+      "need_accountability",
     "I need accountability to stay consistent": "need_accountability",
   },
   q7_recovery: {
@@ -127,6 +130,8 @@ const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
     "Feel a little annoyed by it": "full_control",
     "Depends entirely on who's telling me": "flexible",
     "I work best with a clear structure and plan": "structured_plan",
+    "Fine by me — I do better when they stay involved and check I'm executing":
+      "accountability_partner",
     "I need someone to check in and keep me accountable": "accountability_partner",
     // Backward compatibility for previously released copy.
     "Tune it out almost automatically": "full_control",

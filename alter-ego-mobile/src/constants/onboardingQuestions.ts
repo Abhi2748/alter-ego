@@ -26,7 +26,7 @@ const Q4_OPTIONS = [
   "Starting completely fresh",
   "Trying to quit something that's holding me back",
   "Looking to become a better version of myself",
-  "I've always been competitive and want to win this",
+  "I'm in a solid season — I want to sharpen my edge and keep winning",
 ];
 
 const Q5_OPTIONS = [
@@ -42,7 +42,7 @@ const Q6_OPTIONS = [
   "Dive straight in and figure it out",
   "Put it off until I can't anymore",
   "Break it into the smallest possible steps",
-  "I need accountability to stay consistent",
+  "First I set up accountability — a check-in, partner, or hard deadline",
 ];
 
 const Q7_OPTIONS = [
@@ -66,7 +66,7 @@ const Q9_OPTIONS = [
   "Feel a little annoyed by it",
   "Depends entirely on who's telling me",
   "I work best with a clear structure and plan",
-  "I need someone to check in and keep me accountable",
+  "Fine by me — I do better when they stay involved and check I'm executing",
 ];
 
 const Q10_OPTIONS = [

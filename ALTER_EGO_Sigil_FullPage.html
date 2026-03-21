@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ALTER EGO — Sigil Full Page View</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:#030305;
+  font-family:'Inter',sans-serif;
+  color:#E5E7EB;
+}
+
+/* Each sigil gets its own full viewport section */
+.sigil-page{
+  min-height:100vh;
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+  overflow:hidden;
+  padding:40px 24px;
+}
+
+/* ambient background glow per level */
+.sigil-page::before{
+  content:'';
+  position:absolute;
+  width:600px;height:600px;
+  border-radius:50%;
+  background:radial-gradient(circle,var(--ambient,rgba(100,116,139,0.06)) 0%,transparent 65%);
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  pointer-events:none;
+  animation:ambient-breathe 5s ease-in-out infinite;
+}
+@keyframes ambient-breathe{0%,100%{opacity:0.6;transform:scale(1)}50%{opacity:1;transform:scale(1.12)}}
+
+/* divider between pages */
+.page-divider{
+  width:100%;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.06),transparent);
+}
+
+/* level label area */
+.lv-header{
+  text-align:center;
+  margin-bottom:48px;
+  position:relative;z-index:2;
+}
+.lv-number{
+  font-size:10px;font-weight:700;letter-spacing:5px;
+  text-transform:uppercase;margin-bottom:10px;display:block;
+  color:var(--accent,#64748B);
+}
+.lv-title{
+  font-size:36px;font-weight:900;letter-spacing:-1.2px;
+  color:#E5E7EB;margin-bottom:8px;
+  line-height:1.1;
+}
+.lv-aether{
+  font-size:13px;font-weight:600;
+  color:var(--accent,#64748B);
+  letter-spacing:1px;
+}
+
+/* sigil canvas */
+.sigil-canvas{
+  position:relative;
+  width:340px;height:340px;
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:48px;
+  flex-shrink:0;
+}
+.canvas-glow{
+  position:absolute;inset:-40px;border-radius:50%;
+  background:radial-gradient(circle,var(--glow,rgba(100,116,139,0.15)) 0%,transparent 60%);
+  animation:ambient-breathe 4s ease-in-out infinite;
+  pointer-events:none;
+}
+.canvas-glow2{
+  position:absolute;inset:-80px;border-radius:50%;
+  background:radial-gradient(circle,var(--glow2,rgba(100,116,139,0.06)) 0%,transparent 55%);
+  animation:ambient-breathe 6s ease-in-out 1s infinite;
+  pointer-events:none;
+}
+
+/* lv description */
+.lv-desc{
+  text-align:center;
+  max-width:360px;
+  font-size:15px;color:#6B7280;line-height:1.8;
+  position:relative;z-index:2;
+  border-top:1px solid rgba(255,255,255,0.05);
+  padding-top:28px;
+}
+.lv-desc strong{color:#9CA3AF;font-weight:600;}
+
+/* aether bar */
+.aether-bar-wrap{
+  width:280px;
+  margin:20px auto 0;
+  position:relative;z-index:2;
+}
+.aether-bar-label{
+  display:flex;justify-content:space-between;
+  font-size:10px;font-weight:600;letter-spacing:1px;
+  color:var(--accent,#64748B);margin-bottom:6px;
+  text-transform:uppercase;
+}
+.aether-bar-track{
+  height:3px;background:rgba(255,255,255,0.05);
+  border-radius:3px;overflow:visible;position:relative;
+}
+.aether-bar-fill{
+  height:100%;border-radius:3px;
+  background:linear-gradient(90deg,var(--accent2,#475569),var(--accent,#64748B));
+  position:relative;
+  box-shadow:0 0 8px var(--accent,#64748B);
+}
+.aether-bar-fill::after{
+  content:'';position:absolute;right:-3px;top:50%;
+  transform:translateY(-50%);
+  width:7px;height:7px;border-radius:50%;
+  background:var(--accent,#64748B);
+  box-shadow:0 0 8px var(--accent,#64748B),0 0 16px var(--accent,#64748B);
+}
+
+/* ── ANIMATIONS ── */
+@keyframes rot{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes rot-r{from{transform:rotate(0deg)}to{transform:rotate(-360deg)}}
+@keyframes pulse{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
+@keyframes pulse-s{0%,100%{opacity:.7;transform:scale(1)}50%{opacity:1;transform:scale(1.04)}}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+@keyframes breathe-s{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+@keyframes flicker{0%,100%{opacity:var(--fo,.7)}35%{opacity:1}72%{opacity:calc(var(--fo,.7)*.45)}}
+@keyframes dust{0%,100%{transform:scale(1);opacity:var(--fo,.3)}50%{transform:scale(1.15);opacity:.85}}
+@keyframes float-particle{
+  0%,100%{transform:scale(1);opacity:var(--fo,.5)}
+  40%{transform:scale(1.2);opacity:0.9}
+  70%{transform:scale(0.85);opacity:0.3}
+}
+
+/* Orbital animations with exact radii */
+@keyframes o70{from{transform:rotate(0deg) translateX(70px) rotate(0deg)}to{transform:rotate(360deg) translateX(70px) rotate(-360deg)}}
+@keyframes o70r{from{transform:rotate(0deg) translateX(70px) rotate(0deg)}to{transform:rotate(-360deg) translateX(70px) rotate(360deg)}}
+@keyframes o55{from{transform:rotate(0deg) translateX(55px) rotate(0deg)}to{transform:rotate(360deg) translateX(55px) rotate(-360deg)}}
+@keyframes o55r{from{transform:rotate(0deg) translateX(55px) rotate(0deg)}to{transform:rotate(-360deg) translateX(55px) rotate(360deg)}}
+@keyframes o40{from{transform:rotate(0deg) translateX(40px) rotate(0deg)}to{transform:rotate(360deg) translateX(40px) rotate(-360deg)}}
+@keyframes o40r{from{transform:rotate(0deg) translateX(40px) rotate(0deg)}to{transform:rotate(-360deg) translateX(40px) rotate(360deg)}}
+@keyframes o90{from{transform:rotate(0deg) translateX(90px) rotate(0deg)}to{transform:rotate(360deg) translateX(90px) rotate(-360deg)}}
+@keyframes o90r{from{transform:rotate(0deg) translateX(90px) rotate(0deg)}to{transform:rotate(-360deg) translateX(90px) rotate(360deg)}}
+@keyframes o110{from{transform:rotate(0deg) translateX(110px) rotate(0deg)}to{transform:rotate(360deg) translateX(110px) rotate(-360deg)}}
+@keyframes o110r{from{transform:rotate(0deg) translateX(110px) rotate(0deg)}to{transform:rotate(-360deg) translateX(110px) rotate(360deg)}}
+@keyframes o130{from{transform:rotate(0deg) translateX(130px) rotate(0deg)}to{transform:rotate(360deg) translateX(130px) rotate(-360deg)}}
+@keyframes o25{from{transform:rotate(0deg) translateX(25px) rotate(0deg)}to{transform:rotate(360deg) translateX(25px) rotate(-360deg)}}
+@keyframes o25r{from{transform:rotate(0deg) translateX(25px) rotate(0deg)}to{transform:rotate(-360deg) translateX(25px) rotate(360deg)}}
+
+/* nav dots */
+.page-nav{
+  position:fixed;right:24px;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:8px;z-index:100;
+}
+.nav-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:rgba(255,255,255,0.15);
+  cursor:pointer;transition:all 0.3s;
+  display:block;
+}
+.nav-dot:hover{background:rgba(255,255,255,0.4);transform:scale(1.5);}
+</style>
+</head>
+<body>
+
+<!-- page nav dots -->
+<div class="page-nav" id="pageNav"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 1 — L1 THE EMBER
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p1" style="--ambient:rgba(100,116,139,0.07);">
+  <div class="lv-header">
+    <span class="lv-number" style="--accent:#64748B;">Level 01</span>
+    <div class="lv-title">The Ember</div>
+    <div class="lv-aether" style="--accent:#64748B;">0 Aether · Starting Point</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(100,116,139,0.18);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(100,116,139,0.07);"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="animation:pulse 6s ease-in-out infinite;">
+      <!-- scattered cosmic dust — large canvas, particles spread wide -->
+      <circle cx="170" cy="170" r="8" fill="#334155" opacity="0.45" style="animation:dust 7s ease-in-out 0s infinite;--tx:6px;--ty:-8px;--fo:0.45;"/>
+      <circle cx="120" cy="130" r="5" fill="#475569" opacity="0.32" style="animation:dust 9s ease-in-out 1s infinite;--tx:-7px;--ty:5px;--fo:0.32;"/>
+      <circle cx="220" cy="140" r="4" fill="#334155" opacity="0.28" style="animation:dust 8s ease-in-out 2s infinite;--tx:9px;--ty:-4px;--fo:0.28;"/>
+      <circle cx="130" cy="210" r="6" fill="#475569" opacity="0.38" style="animation:dust 10s ease-in-out 0.5s infinite;--tx:-5px;--ty:-7px;--fo:0.38;"/>
+      <circle cx="230" cy="205" r="5" fill="#334155" opacity="0.30" style="animation:dust 7.5s ease-in-out 1.5s infinite;--tx:7px;--ty:5px;--fo:0.30;"/>
+      <circle cx="170" cy="95" r="4" fill="#475569" opacity="0.25" style="animation:dust 11s ease-in-out 3s infinite;--tx:-4px;--ty:8px;--fo:0.25;"/>
+      <circle cx="95" cy="170" r="5" fill="#334155" opacity="0.30" style="animation:dust 8.5s ease-in-out 0.8s infinite;--tx:8px;--ty:-2px;--fo:0.30;"/>
+      <circle cx="248" cy="170" r="4" fill="#475569" opacity="0.25" style="animation:dust 9.5s ease-in-out 2.5s infinite;--tx:-6px;--ty:-5px;--fo:0.25;"/>
+      <circle cx="145" cy="108" r="3" fill="#64748B" opacity="0.28" style="animation:dust 12s ease-in-out 4s infinite;--tx:4px;--ty:7px;--fo:0.28;"/>
+      <circle cx="200" cy="235" r="3" fill="#64748B" opacity="0.22" style="animation:dust 10s ease-in-out 1.2s infinite;--tx:-7px;--ty:3px;--fo:0.22;"/>
+      <circle cx="258" cy="118" r="3" fill="#334155" opacity="0.2" style="animation:dust 13s ease-in-out 5s infinite;--tx:5px;--ty:-6px;--fo:0.2;"/>
+      <circle cx="80" cy="220" r="3" fill="#475569" opacity="0.2" style="animation:dust 11s ease-in-out 3.5s infinite;--tx:-4px;--ty:-7px;--fo:0.2;"/>
+      <circle cx="255" cy="255" r="4" fill="#334155" opacity="0.18" style="animation:dust 14s ease-in-out 6s infinite;--tx:5px;--ty:5px;--fo:0.18;"/>
+      <circle cx="82" cy="105" r="3.5" fill="#475569" opacity="0.22" style="animation:dust 10s ease-in-out 2s infinite;--tx:6px;--ty:-4px;--fo:0.22;"/>
+      <circle cx="280" cy="180" r="2.5" fill="#64748B" opacity="0.18" style="animation:dust 12s ease-in-out 4.5s infinite;--tx:-5px;--ty:4px;--fo:0.18;"/>
+      <circle cx="62" cy="160" r="2.5" fill="#64748B" opacity="0.18" style="animation:dust 9s ease-in-out 3.8s infinite;--tx:4px;--ty:-5px;--fo:0.18;"/>
+      <!-- very faint connecting wisps suggesting a proto-form -->
+      <path d="M120 170 Q170 120 220 170" stroke="#64748B" stroke-width="1.25" fill="none" opacity="0.18" stroke-dasharray="4 6"/>
+      <path d="M120 170 Q170 220 220 170" stroke="#64748B" stroke-width="1.25" fill="none" opacity="0.14" stroke-dasharray="4 6"/>
+      <path d="M140 140 Q170 170 200 200" stroke="#475569" stroke-width="0.75" fill="none" opacity="0.12" stroke-dasharray="3 7"/>
+      <path d="M200 140 Q170 170 140 200" stroke="#475569" stroke-width="0.75" fill="none" opacity="0.12" stroke-dasharray="3 7"/>
+      <!-- faint outer dust halo -->
+      <circle cx="170" cy="170" r="120" stroke="#334155" stroke-width="0.75" fill="none" opacity="0.1" stroke-dasharray="2 10"/>
+      <!-- tiny seed core -->
+      <circle cx="170" cy="170" r="18" fill="rgba(51,65,85,0.5)" stroke="#475569" stroke-width="1" opacity="0.6"/>
+      <circle cx="170" cy="170" r="9" fill="#3F4F63" opacity="0.85"/>
+      <circle cx="170" cy="170" r="4" fill="#64748B"/>
+      <circle cx="170" cy="170" r="1.5" fill="#94A3B8" opacity="0.7" style="animation:flicker 5s ease-in-out infinite;--fo:0.7;"/>
+    </svg>
+  </div>
+  <div class="lv-desc">
+    <strong>Cosmic dust.</strong> Scattered, unformed — the seed of something that has not yet decided what it will become. One dim spark at the centre.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="--accent:#64748B;">
+      <span>Aether</span><span>0 / 300</span>
+    </div>
+    <div class="aether-bar-track">
+      <div class="aether-bar-fill" style="width:0%;--accent:#64748B;--accent2:#334155;"></div>
+    </div>
+  </div>
+</div>
+<div class="page-divider"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 2 — L2 THE FRACTURE
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p2" style="--ambient:rgba(96,165,250,0.07);">
+  <div class="lv-header">
+    <span class="lv-number" style="color:#60A5FA;">Level 02</span>
+    <div class="lv-title">The Fracture</div>
+    <div class="lv-aether" style="color:#60A5FA;">300 Aether</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(96,165,250,0.2);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(96,165,250,0.08);"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="animation:pulse 5s ease-in-out infinite;">
+      <!-- outer dust halo -->
+      <circle cx="170" cy="170" r="150" stroke="#3B82F6" stroke-width="0.75" fill="none" opacity="0.12" stroke-dasharray="2 9"/>
+      <!-- two slow spiral arms from centre -->
+      <g style="transform-origin:170px 170px;animation:rot 24s linear infinite;">
+        <path d="M170 170 Q198 135 228 112 Q258 90 268 98 Q278 106 270 118 Q258 132 234 138 Q212 144 196 158 Q182 168 174 174" stroke="#60A5FA" stroke-width="2" fill="none" opacity="0.45" stroke-linecap="round"/>
+        <path d="M170 170 Q142 205 112 228 Q82 250 72 242 Q62 234 70 222 Q82 208 106 202 Q128 196 144 182 Q158 172 166 166" stroke="#60A5FA" stroke-width="2" fill="none" opacity="0.4" stroke-linecap="round"/>
+        <!-- trailing wisps on each arm -->
+        <path d="M228 112 Q252 96 268 104" stroke="#93C5FD" stroke-width="1" fill="none" opacity="0.3" stroke-linecap="round"/>
+        <path d="M112 228 Q88 244 72 236" stroke="#93C5FD" stroke-width="1" fill="none" opacity="0.25" stroke-linecap="round"/>
+      </g>
+      <!-- floating blue dust particles -->
+      <circle cx="112" cy="106" r="4" fill="#60A5FA" opacity="0.28" style="animation:float-particle 9s ease-in-out 0s infinite;--fo:0.28;--dx:6px;--dy:-8px;--dx2:-4px;--dy2:5px;"/>
+      <circle cx="234" cy="108" r="3" fill="#93C5FD" opacity="0.25" style="animation:float-particle 11s ease-in-out 1s infinite;--fo:0.25;--dx:-7px;--dy:-4px;--dx2:5px;--dy2:7px;"/>
+      <circle cx="252" cy="234" r="4" fill="#60A5FA" opacity="0.28" style="animation:float-particle 8s ease-in-out 2s infinite;--fo:0.28;--dx:-6px;--dy:7px;--dx2:5px;--dy2:-5px;"/>
+      <circle cx="90" cy="240" r="3" fill="#93C5FD" opacity="0.22" style="animation:float-particle 12s ease-in-out 0.5s infinite;--fo:0.22;--dx:5px;--dy:7px;--dx2:-6px;--dy2:-4px;"/>
+      <circle cx="170" cy="60" r="3" fill="#60A5FA" opacity="0.25" style="animation:float-particle 10s ease-in-out 3s infinite;--fo:0.25;--dx:-4px;--dy:5px;--dx2:6px;--dy2:-6px;"/>
+      <circle cx="170" cy="285" r="3" fill="#60A5FA" opacity="0.22" style="animation:float-particle 10s ease-in-out 1.5s infinite;--fo:0.22;--dx:4px;--dy:-6px;--dx2:-5px;--dy2:5px;"/>
+      <circle cx="60" cy="170" r="3.5" fill="#93C5FD" opacity="0.22" style="animation:float-particle 13s ease-in-out 4s infinite;--fo:0.22;--dx:8px;--dy:-3px;--dx2:-5px;--dy2:6px;"/>
+      <circle cx="288" cy="170" r="3" fill="#60A5FA" opacity="0.2" style="animation:float-particle 11s ease-in-out 2.5s infinite;--fo:0.2;--dx:-6px;--dy:4px;--dx2:4px;--dy2:-6px;"/>
+      <!-- first glow ring forming -->
+      <g style="transform-origin:170px 170px;animation:rot-r 18s linear infinite;">
+        <circle cx="170" cy="170" r="72" stroke="#3B82F6" stroke-width="1" fill="none" opacity="0.22" stroke-dasharray="5 7"/>
+      </g>
+      <!-- core -->
+      <circle cx="170" cy="170" r="30" fill="rgba(59,130,246,0.12)" stroke="#60A5FA" stroke-width="1.5" opacity="0.6"/>
+      <circle cx="170" cy="170" r="16" fill="rgba(59,130,246,0.3)" opacity="0.85"/>
+      <circle cx="170" cy="170" r="7" fill="#3B82F6"/>
+      <circle cx="170" cy="170" r="3" fill="#BFDBFE" style="animation:flicker 3.5s ease-in-out infinite;--fo:1;"/>
+    </svg>
+  </div>
+  <div class="lv-desc">
+    <strong>Blue enters.</strong> Two spiral arms reach outward — the first suggestion of structure. Dust is being pulled inward. Something is forming.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="color:#60A5FA;">
+      <span>Aether</span><span>300 / 900</span>
+    </div>
+    <div class="aether-bar-track">
+      <div class="aether-bar-fill" style="width:30%;background:linear-gradient(90deg,#1D4ED8,#60A5FA);box-shadow:0 0 8px #60A5FA;"></div>
+    </div>
+  </div>
+</div>
+<div class="page-divider"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 3 — L3 THE CURRENT
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p3" style="--ambient:rgba(45,212,191,0.07);">
+  <div class="lv-header">
+    <span class="lv-number" style="color:#2DD4BF;">Level 03</span>
+    <div class="lv-title">The Current</div>
+    <div class="lv-aether" style="color:#2DD4BF;">900 Aether</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(45,212,191,0.22);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(45,212,191,0.08);"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="animation:pulse 4s ease-in-out infinite;">
+      <!-- outer faint circle -->
+      <circle cx="170" cy="170" r="152" stroke="#0D9488" stroke-width="0.75" fill="none" opacity="0.15" stroke-dasharray="3 9"/>
+      <!-- 4-arm galaxy slow -->
+      <g style="transform-origin:170px 170px;animation:rot 28s linear infinite;">
+        <path d="M170 170 Q198 128 232 108 Q266 88 278 96 Q290 104 278 120 Q264 136 238 142 Q214 148 196 162 Q182 172 174 176" stroke="#2DD4BF" stroke-width="2.5" fill="none" opacity="0.55" stroke-linecap="round"/>
+        <path d="M170 170 Q142 212 108 232 Q74 252 62 244 Q50 236 62 220 Q76 204 102 198 Q126 192 144 178 Q158 168 166 164" stroke="#2DD4BF" stroke-width="2.5" fill="none" opacity="0.55" stroke-linecap="round"/>
+        <path d="M170 170 Q212 198 232 232 Q252 266 244 278 Q236 290 220 278 Q204 264 198 238 Q192 214 178 196 Q168 182 164 174" stroke="#14B8A6" stroke-width="2" fill="none" opacity="0.45" stroke-linecap="round"/>
+        <path d="M170 170 Q128 142 108 108 Q88 74 96 62 Q104 50 120 62 Q136 76 142 102 Q148 126 162 144 Q172 158 176 166" stroke="#14B8A6" stroke-width="2" fill="none" opacity="0.45" stroke-linecap="round"/>
+      </g>
+      <!-- counter-rotating inner plasma ring -->
+      <g style="transform-origin:170px 170px;animation:rot-r 16s linear infinite;">
+        <circle cx="170" cy="170" r="80" stroke="#2DD4BF" stroke-width="1.5" fill="none" opacity="0.3" stroke-dasharray="6 5"/>
+      </g>
+      <!-- teal particle ring — 6 dots orbiting -->
+      <g style="transform-origin:170px 170px;animation:rot 20s linear infinite;">
+        <circle cx="170" cy="70" r="5" fill="#2DD4BF" opacity="0.55"/>
+        <circle cx="170" cy="70" r="5" fill="#5EEAD4" opacity="0.5" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <circle cx="170" cy="70" r="5" fill="#2DD4BF" opacity="0.55" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <circle cx="170" cy="70" r="5" fill="#5EEAD4" opacity="0.5" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <circle cx="170" cy="70" r="5" fill="#2DD4BF" opacity="0.55" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <circle cx="170" cy="70" r="5" fill="#5EEAD4" opacity="0.5" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+      </g>
+      <!-- teal floating particles -->
+      <circle cx="96" cy="96" r="4" fill="#2DD4BF" opacity="0.32" style="animation:float-particle 8s ease-in-out 0s infinite;--fo:0.32;--dx:5px;--dy:-7px;--dx2:-4px;--dy2:6px;"/>
+      <circle cx="248" cy="96" r="3.5" fill="#5EEAD4" opacity="0.28" style="animation:float-particle 10s ease-in-out 1s infinite;--fo:0.28;--dx:-6px;--dy:-4px;--dx2:5px;--dy2:7px;"/>
+      <circle cx="252" cy="252" r="4" fill="#2DD4BF" opacity="0.3" style="animation:float-particle 9s ease-in-out 2s infinite;--fo:0.3;--dx:-5px;--dy:7px;--dx2:6px;--dy2:-5px;"/>
+      <circle cx="92" cy="255" r="3" fill="#5EEAD4" opacity="0.25" style="animation:float-particle 11s ease-in-out 0.5s infinite;--fo:0.25;--dx:6px;--dy:6px;--dx2:-5px;--dy2:-5px;"/>
+      <!-- core teal -->
+      <circle cx="170" cy="170" r="36" fill="rgba(20,184,166,0.12)" stroke="#2DD4BF" stroke-width="2" opacity="0.6" style="animation:breathe-s 3s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="20" fill="rgba(20,184,166,0.3)"/>
+      <circle cx="170" cy="170" r="11" fill="#0D9488"/>
+      <circle cx="170" cy="170" r="5" fill="#2DD4BF"/>
+      <circle cx="170" cy="170" r="2" fill="#CCFBF1" style="animation:flicker 2.5s ease-in-out infinite;--fo:1;"/>
+    </svg>
+  </div>
+  <div class="lv-desc">
+    <strong>A galaxy in miniature.</strong> Four teal arms spiral outward from the core. Six orbital nodes trace a ring. The energy is moving now.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="color:#2DD4BF;">
+      <span>Aether</span><span>900 / 2,100</span>
+    </div>
+    <div class="aether-bar-track">
+      <div class="aether-bar-fill" style="width:35%;background:linear-gradient(90deg,#0F766E,#2DD4BF);box-shadow:0 0 8px #2DD4BF;"></div>
+    </div>
+  </div>
+</div>
+<div class="page-divider"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 4 — L4 THE VORTEX
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p4" style="--ambient:rgba(129,140,248,0.08);">
+  <div class="lv-header">
+    <span class="lv-number" style="color:#818CF8;">Level 04</span>
+    <div class="lv-title">The Vortex</div>
+    <div class="lv-aether" style="color:#818CF8;">2,100 Aether</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(129,140,248,0.24);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(99,102,241,0.1);"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="animation:pulse-s 3.5s ease-in-out infinite;">
+      <!-- 5 concentric tilted plasma rings — each at different inclination and speed -->
+      <g style="transform-origin:170px 170px;animation:rot 35s linear infinite;">
+        <ellipse cx="170" cy="170" rx="155" ry="55" stroke="#818CF8" stroke-width="1" fill="none" opacity="0.28"/>
+      </g>
+      <g style="transform-origin:170px 170px;animation:rot 24s linear infinite 3s;">
+        <ellipse cx="170" cy="170" rx="130" ry="46" stroke="#6366F1" stroke-width="1.25" fill="none" opacity="0.32"/>
+      </g>
+      <g style="transform-origin:170px 170px;animation:rot-r 18s linear infinite;">
+        <ellipse cx="170" cy="170" rx="105" ry="38" stroke="#818CF8" stroke-width="1.5" fill="none" opacity="0.38"/>
+      </g>
+      <g style="transform-origin:170px 170px;animation:rot 13s linear infinite 1.5s;">
+        <ellipse cx="170" cy="170" rx="78" ry="28" stroke="#A5B4FC" stroke-width="2" fill="none" opacity="0.45"/>
+      </g>
+      <g style="transform-origin:170px 170px;animation:rot-r 9s linear infinite;">
+        <ellipse cx="170" cy="170" rx="52" ry="18" stroke="#C7D2FE" stroke-width="2" fill="none" opacity="0.5"/>
+      </g>
+      <!-- radial spokes -->
+      <g style="transform-origin:170px 170px;animation:rot 22s linear infinite;opacity:0.3;">
+        <line x1="170" y1="170" x2="170" y2="18" stroke="#818CF8" stroke-width="1"/>
+        <line x1="170" y1="170" x2="170" y2="18" stroke="#6366F1" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <line x1="170" y1="170" x2="170" y2="18" stroke="#818CF8" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <line x1="170" y1="170" x2="170" y2="18" stroke="#6366F1" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(135deg)"/>
+        <line x1="170" y1="170" x2="170" y2="18" stroke="#818CF8" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <line x1="170" y1="170" x2="170" y2="18" stroke="#6366F1" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(225deg)"/>
+        <line x1="170" y1="170" x2="170" y2="18" stroke="#818CF8" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <line x1="170" y1="170" x2="170" y2="18" stroke="#6366F1" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(315deg)"/>
+      </g>
+      <!-- 4 orbiting nodes on outer ring -->
+      <g style="transform-origin:170px 170px;animation:rot 35s linear infinite;">
+        <circle cx="170" cy="15" r="5" fill="#818CF8" opacity="0.7"/>
+        <circle cx="170" cy="15" r="5" fill="#A5B4FC" opacity="0.6" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <circle cx="170" cy="15" r="5" fill="#818CF8" opacity="0.7" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <circle cx="170" cy="15" r="5" fill="#A5B4FC" opacity="0.6" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+      </g>
+      <!-- storm eye core -->
+      <circle cx="170" cy="170" r="38" fill="rgba(99,102,241,0.16)" stroke="#818CF8" stroke-width="2" opacity="0.65" style="animation:breathe-s 2.8s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="22" fill="rgba(99,102,241,0.35)"/>
+      <circle cx="170" cy="170" r="12" fill="#4338CA"/>
+      <circle cx="170" cy="170" r="6" fill="#818CF8"/>
+      <circle cx="170" cy="170" r="2.5" fill="#E0E7FF" style="animation:flicker 2s ease-in-out infinite;--fo:1;"/>
+    </svg>
+  </div>
+  <div class="lv-desc">
+    <strong>Five plasma rings orbit at different speeds and inclinations.</strong> Like a solar system being born. A storm eye forms — indigo, compressed, barely contained.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="color:#818CF8;">
+      <span>Aether</span><span>2,100 / 4,500</span>
+    </div>
+    <div class="aether-bar-track">
+      <div class="aether-bar-fill" style="width:40%;background:linear-gradient(90deg,#4338CA,#818CF8);box-shadow:0 0 8px #818CF8;"></div>
+    </div>
+  </div>
+</div>
+<div class="page-divider"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 5 — L5 THE CONVERGENCE
+     Violet. A radiant diamond / jewel crystallising. 
+     Faceted, refracting light. Pure geometry but organic.
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p5" style="--ambient:rgba(167,139,250,0.1);">
+  <div class="lv-header">
+    <span class="lv-number" style="color:#A78BFA;">Level 05</span>
+    <div class="lv-title">The Convergence</div>
+    <div class="lv-aether" style="color:#A78BFA;">4,500 Aether</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(167,139,250,0.28);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(124,58,237,0.12);"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="animation:pulse-s 3s ease-in-out infinite;">
+
+      <!-- outer slow-rotating starburst: 16 long thin rays  -->
+      <g style="transform-origin:170px 170px;animation:rot 45s linear infinite;opacity:0.4;">
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#A78BFA" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(0deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#7C3AED" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(22.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#A78BFA" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#7C3AED" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(67.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#A78BFA" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#7C3AED" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(112.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#A78BFA" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(135deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#7C3AED" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(157.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#A78BFA" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#7C3AED" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(202.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#A78BFA" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(225deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#7C3AED" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(247.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#A78BFA" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#7C3AED" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(292.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#A78BFA" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(315deg)"/>
+        <line x1="170" y1="170" x2="170" y2="10" stroke="#7C3AED" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(337.5deg)"/>
+      </g>
+
+      <!-- outer circle with 8 large diamond nodes -->
+      <circle cx="170" cy="170" r="138" stroke="#8B5CF6" stroke-width="1" fill="none" opacity="0.25"/>
+      <g style="transform-origin:170px 170px;animation:rot-r 30s linear infinite;opacity:0.65;">
+        <polygon points="170,28 178,42 170,56 162,42" fill="#A78BFA"/>
+        <polygon points="170,28 178,42 170,56 162,42" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <polygon points="170,28 178,42 170,56 162,42" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <polygon points="170,28 178,42 170,56 162,42" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(135deg)"/>
+        <polygon points="170,28 178,42 170,56 162,42" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <polygon points="170,28 178,42 170,56 162,42" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(225deg)"/>
+        <polygon points="170,28 178,42 170,56 162,42" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <polygon points="170,28 178,42 170,56 162,42" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(315deg)"/>
+      </g>
+
+      <!-- large 8-pointed star — two squares rotated 45deg -->
+      <g style="transform-origin:170px 170px;animation:rot 60s linear infinite;opacity:0.5;">
+        <polygon points="170,60 200,140 280,170 200,200 170,280 140,200 60,170 140,140" fill="none" stroke="#8B5CF6" stroke-width="1.5"/>
+      </g>
+      <g style="transform-origin:170px 170px;animation:rot-r 60s linear infinite;opacity:0.4;">
+        <polygon points="170,60 200,140 280,170 200,200 170,280 140,200 60,170 140,140" fill="none" stroke="#A78BFA" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(22.5deg)"/>
+      </g>
+
+      <!-- medium ring with 4 glowing orbs orbiting -->
+      <g style="transform-origin:170px 170px;animation:rot 15s linear infinite;">
+        <circle cx="170" cy="80" r="7" fill="#8B5CF6" opacity="0.8"/>
+        <circle cx="170" cy="80" r="7" fill="#A78BFA" opacity="0.75" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <circle cx="170" cy="80" r="7" fill="#8B5CF6" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <circle cx="170" cy="80" r="7" fill="#A78BFA" opacity="0.75" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+      </g>
+
+      <!-- inner ring -->
+      <circle cx="170" cy="170" r="72" stroke="#7C3AED" stroke-width="1.25" fill="none" opacity="0.35" style="animation:breathe-s 4s ease-in-out infinite;"/>
+
+      <!-- 12-petal spinning rose — medium -->
+      <g style="transform-origin:170px 170px;animation:rot 11s linear infinite;opacity:0.6;">
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#8B5CF6"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#8B5CF6" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#8B5CF6" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#8B5CF6" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <ellipse cx="170" cy="130" rx="8" ry="32" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+
+      <!-- core -->
+      <circle cx="170" cy="170" r="32" fill="rgba(124,58,237,0.25)" stroke="#A78BFA" stroke-width="2.5" opacity="0.9" style="animation:breathe-s 2.5s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="18" fill="#5B21B6"/>
+      <circle cx="170" cy="170" r="9" fill="#8B5CF6"/>
+      <circle cx="170" cy="170" r="4" fill="#C4B5FD"/>
+      <circle cx="170" cy="170" r="1.5" fill="white" style="animation:flicker 2s ease-in-out infinite;--fo:1;"/>
+    </svg>
+  </div>
+  <div class="lv-desc">
+    <strong>A violet jewel crystallising.</strong> 16 starburst rays. An 8-pointed star. Eight diamond nodes orbit the outer ring. A 12-petal rose blooms at the core.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="color:#A78BFA;">
+      <span>Aether</span><span>4,500 / 9,000</span>
+    </div>
+    <div class="aether-bar-track">
+      <div class="aether-bar-fill" style="width:45%;background:linear-gradient(90deg,#5B21B6,#A78BFA);box-shadow:0 0 10px #A78BFA;"></div>
+    </div>
+  </div>
+</div>
+<div class="page-divider"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 6 — L6 THE RESONANCE
+     Hot violet + magenta. Massive blooming lotus / sacred flower.
+     The sigil feels alive and breathing. 
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p6" style="--ambient:rgba(192,132,252,0.1);">
+  <div class="lv-header">
+    <span class="lv-number" style="color:#C084FC;">Level 06</span>
+    <div class="lv-title">The Resonance</div>
+    <div class="lv-aether" style="color:#C084FC;">9,000 Aether</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(192,132,252,0.3);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(192,132,252,0.12);"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="animation:pulse-s 2.8s ease-in-out infinite;">
+
+      <!-- outermost slow drifting circle -->
+      <g style="transform-origin:170px 170px;animation:rot 60s linear infinite;">
+        <circle cx="170" cy="170" r="155" stroke="#C084FC" stroke-width="0.75" fill="none" opacity="0.2" stroke-dasharray="2 10"/>
+      </g>
+
+      <!-- 12 diamond nodes on outer boundary -->
+      <g style="transform-origin:170px 170px;animation:rot-r 40s linear infinite;opacity:0.6;">
+        <polygon points="170,12 177,26 170,40 163,26" fill="#C084FC"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <polygon points="170,12 177,26 170,40 163,26" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+
+      <!-- large outer lotus petals — 6 massive petals, very slow -->
+      <g style="transform-origin:170px 170px;animation:rot 55s linear infinite;opacity:0.38;">
+        <ellipse cx="170" cy="68" rx="18" ry="90" fill="#9333EA"/>
+        <ellipse cx="170" cy="68" rx="18" ry="90" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="68" rx="18" ry="90" fill="#9333EA" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="68" rx="18" ry="90" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="68" rx="18" ry="90" fill="#9333EA" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="68" rx="18" ry="90" fill="#7C3AED" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+      </g>
+
+      <!-- mid lotus petals — 12 petals, medium speed -->
+      <g style="transform-origin:170px 170px;animation:rot-r 22s linear infinite;opacity:0.55;">
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#C084FC"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <ellipse cx="170" cy="96" rx="10" ry="68" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+
+      <!-- inner tight 12-petal counter spinning, brighter -->
+      <g style="transform-origin:170px 170px;animation:rot 9s linear infinite;opacity:0.72;">
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#C084FC"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <ellipse cx="170" cy="124" rx="7" ry="42" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+
+      <!-- 4 orbiting glowing spheres mid-radius -->
+      <g style="transform-origin:170px 170px;animation:rot 10s linear infinite;">
+        <circle cx="170" cy="80" r="8" fill="#C084FC" opacity="0.85" style="filter:blur(1px)"/>
+        <circle cx="170" cy="80" r="8" fill="#E879F9" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(90deg);filter:blur(1px)"/>
+        <circle cx="170" cy="80" r="8" fill="#C084FC" opacity="0.85" style="transform-origin:170px 170px;transform:rotate(180deg);filter:blur(1px)"/>
+        <circle cx="170" cy="80" r="8" fill="#E879F9" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(270deg);filter:blur(1px)"/>
+      </g>
+
+      <!-- core -->
+      <circle cx="170" cy="170" r="36" fill="rgba(192,132,252,0.3)" stroke="#C084FC" stroke-width="2.5" opacity="0.92" style="animation:breathe-s 2.2s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="20" fill="#6D28D9"/>
+      <circle cx="170" cy="170" r="11" fill="#C084FC"/>
+      <circle cx="170" cy="170" r="5" fill="#F5D0FE"/>
+      <circle cx="170" cy="170" r="2" fill="white" style="animation:flicker 1.8s ease-in-out infinite;--fo:1;"/>
+    </svg>
+  </div>
+  <div class="lv-desc">
+    <strong>A living lotus of violet light.</strong> Three layers of petals rotate in opposing directions. 12 diamond nodes orbit the boundary. The sigil breathes.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="color:#C084FC;">
+      <span>Aether</span><span>9,000 / 16,500</span>
+    </div>
+    <div class="aether-bar-track">
+      <div class="aether-bar-fill" style="width:50%;background:linear-gradient(90deg,#7C3AED,#C084FC);box-shadow:0 0 12px #C084FC;"></div>
+    </div>
+  </div>
+</div>
+<div class="page-divider"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 7 — L7 THE DOMINION
+     Deep magenta + electric blue streaks. Supernova.
+     A massive explosion frozen at its most beautiful moment.
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p7" style="--ambient:rgba(232,121,249,0.1);">
+  <div class="lv-header">
+    <span class="lv-number" style="color:#E879F9;">Level 07</span>
+    <div class="lv-title">The Dominion</div>
+    <div class="lv-aether" style="color:#E879F9;">16,500 Aether</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(232,121,249,0.3);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(232,121,249,0.12);"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="animation:pulse-s 2.5s ease-in-out infinite;">
+      
+      <!-- shockwave rings — different sizes, staggered flicker -->
+      <circle cx="170" cy="170" r="158" stroke="#E879F9" stroke-width="0.75" fill="none" opacity="0.15" style="animation:flicker 3s ease-in-out 0s infinite;--fo:0.15;"/>
+      <circle cx="170" cy="170" r="145" stroke="#C084FC" stroke-width="1" fill="none" opacity="0.2" style="animation:flicker 3s ease-in-out 0.5s infinite;--fo:0.2;"/>
+      <circle cx="170" cy="170" r="130" stroke="#E879F9" stroke-width="1.25" fill="none" opacity="0.26" style="animation:flicker 3s ease-in-out 1s infinite;--fo:0.26;"/>
+      <circle cx="170" cy="170" r="112" stroke="#A78BFA" stroke-width="1.5" fill="none" opacity="0.32" style="animation:flicker 3s ease-in-out 1.5s infinite;--fo:0.32;"/>
+      <circle cx="170" cy="170" r="92" stroke="#E879F9" stroke-width="2" fill="none" opacity="0.38" style="animation:flicker 3s ease-in-out 2s infinite;--fo:0.38;"/>
+
+      <!-- 12 jagged lightning spikes radiating outward — counter rotating slowly -->
+      <g style="transform-origin:170px 170px;animation:rot-r 25s linear infinite;opacity:0.6;">
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#E879F9" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#F0ABFC" stroke-width="1.25" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#E879F9" stroke-width="1.5" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#D946EF" stroke-width="1.25" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#E879F9" stroke-width="1.5" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#F0ABFC" stroke-width="1.25" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#E879F9" stroke-width="1.5" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#D946EF" stroke-width="1.25" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#E879F9" stroke-width="1.5" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#F0ABFC" stroke-width="1.25" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#E879F9" stroke-width="1.5" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <path d="M170 170 L176 128 L171 128 L178 86" stroke="#D946EF" stroke-width="1.25" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+
+      <!-- 8 large spinning petals — outer layer, bright magenta -->
+      <g style="transform-origin:170px 170px;animation:rot 18s linear infinite;opacity:0.5;">
+        <ellipse cx="170" cy="82" rx="14" ry="82" fill="#D946EF"/>
+        <ellipse cx="170" cy="82" rx="14" ry="82" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <ellipse cx="170" cy="82" rx="14" ry="82" fill="#D946EF" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <ellipse cx="170" cy="82" rx="14" ry="82" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(135deg)"/>
+        <ellipse cx="170" cy="82" rx="14" ry="82" fill="#D946EF" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="82" rx="14" ry="82" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(225deg)"/>
+        <ellipse cx="170" cy="82" rx="14" ry="82" fill="#D946EF" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <ellipse cx="170" cy="82" rx="14" ry="82" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(315deg)"/>
+      </g>
+
+      <!-- 12-petal inner counter -->
+      <g style="transform-origin:170px 170px;animation:rot-r 8s linear infinite;opacity:0.7;">
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#E879F9"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#C084FC" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#E879F9" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <ellipse cx="170" cy="116" rx="8" ry="50" fill="#A78BFA" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+
+      <!-- 6 large orbiting plasma balls -->
+      <g style="transform-origin:170px 170px;animation:rot 12s linear infinite;">
+        <circle cx="170" cy="66" r="9" fill="#E879F9" opacity="0.85"/>
+        <circle cx="170" cy="66" r="9" fill="#C084FC" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <circle cx="170" cy="66" r="9" fill="#E879F9" opacity="0.85" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <circle cx="170" cy="66" r="9" fill="#C084FC" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <circle cx="170" cy="66" r="9" fill="#E879F9" opacity="0.85" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <circle cx="170" cy="66" r="9" fill="#C084FC" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+      </g>
+
+      <!-- core -->
+      <circle cx="170" cy="170" r="38" fill="rgba(217,70,239,0.28)" stroke="#E879F9" stroke-width="3" opacity="0.94" style="animation:breathe-s 2s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="22" fill="#86198F"/>
+      <circle cx="170" cy="170" r="12" fill="#E879F9"/>
+      <circle cx="170" cy="170" r="5.5" fill="#FAE8FF"/>
+      <circle cx="170" cy="170" r="2.2" fill="white" style="animation:flicker 1.6s ease-in-out infinite;--fo:1;"/>
+    </svg>
+  </div>
+  <div class="lv-desc">
+    <strong>A supernova frozen at its most beautiful instant.</strong> Five shockwave rings. 12 lightning spikes. Two layers of petals spinning in opposite directions. Six plasma orbs in orbit.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="color:#E879F9;">
+      <span>Aether</span><span>16,500 / 28,000</span>
+    </div>
+    <div class="aether-bar-track">
+      <div class="aether-bar-fill" style="width:55%;background:linear-gradient(90deg,#86198F,#E879F9);box-shadow:0 0 14px #E879F9;"></div>
+    </div>
+  </div>
+</div>
+<div class="page-divider"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 8 — L8 THE ASCENDANCY
+     Rose shifts warm. Solar prominence arcs. Like a star 
+     growing prominences — massive arcing loops of plasma.
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p8" style="--ambient:rgba(251,113,133,0.1);">
+  <div class="lv-header">
+    <span class="lv-number" style="color:#FB7185;">Level 08</span>
+    <div class="lv-title">The Ascendancy</div>
+    <div class="lv-aether" style="color:#FB7185;">28,000 Aether</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(251,113,133,0.32);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(251,113,133,0.14);"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="animation:pulse-s 2.2s ease-in-out infinite;">
+
+      <!-- outer glow rings -->
+      <circle cx="170" cy="170" r="156" stroke="#FB7185" stroke-width="0.75" fill="none" opacity="0.18" style="animation:flicker 3s ease-in-out 0s infinite;--fo:0.18;"/>
+      <circle cx="170" cy="170" r="140" stroke="#F43F5E" stroke-width="1" fill="none" opacity="0.22" style="animation:flicker 3s ease-in-out 0.4s infinite;--fo:0.22;"/>
+
+      <!-- solar prominence arcs — large beautiful loops -->
+      <g style="transform-origin:170px 170px;animation:rot 30s linear infinite;opacity:0.55;">
+        <path d="M170 80 Q240 50 260 100 Q280 150 240 175 Q220 188 200 178" stroke="#FB7185" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <path d="M170 80 Q100 50 80 100 Q60 150 100 175 Q120 188 140 178" stroke="#FB7185" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <path d="M170 260 Q240 290 260 240 Q280 190 240 165 Q220 152 200 162" stroke="#FB7185" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <path d="M170 260 Q100 290 80 240 Q60 190 100 165 Q120 152 140 162" stroke="#FB7185" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      </g>
+      <!-- second set of arcs offset 45deg -->
+      <g style="transform-origin:170px 170px;animation:rot-r 22s linear infinite;opacity:0.45;">
+        <path d="M170 80 Q240 50 260 100 Q280 150 240 175 Q220 188 200 178" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <path d="M170 80 Q100 50 80 100 Q60 150 100 175 Q120 188 140 178" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <path d="M170 260 Q240 290 260 240 Q280 190 240 165 Q220 152 200 162" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <path d="M170 260 Q100 290 80 240 Q60 190 100 165 Q120 152 140 162" stroke="#FBBF24" stroke-width="2" fill="none" stroke-linecap="round" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+      </g>
+
+      <!-- 24 radial rays rotating -->
+      <g style="transform-origin:170px 170px;animation:rot 40s linear infinite;opacity:0.38;">
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(0deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#F43F5E" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(15deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#F43F5E" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(75deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(105deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#F43F5E" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(135deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(165deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#F43F5E" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(195deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(225deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#F43F5E" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(255deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(285deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#F43F5E" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(315deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FB7185" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+        <line x1="170" y1="170" x2="170" y2="12" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(345deg)"/>
+      </g>
+
+      <!-- 12-petal rose inner, rose-gold mix -->
+      <g style="transform-origin:170px 170px;animation:rot-r 7s linear infinite;opacity:0.68;">
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#FB7185"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#FB7185" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#F43F5E" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#FB7185" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#FB7185" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#F43F5E" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#FB7185" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#FB7185" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <ellipse cx="170" cy="120" rx="9" ry="46" fill="#F43F5E" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+
+      <!-- 8 orbiting plasma balls close in -->
+      <g style="transform-origin:170px 170px;animation:rot 9s linear infinite;">
+        <circle cx="170" cy="72" r="8" fill="#FB7185" opacity="0.88"/>
+        <circle cx="170" cy="72" r="8" fill="#FBBF24" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <circle cx="170" cy="72" r="8" fill="#FB7185" opacity="0.88" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <circle cx="170" cy="72" r="8" fill="#FBBF24" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(135deg)"/>
+        <circle cx="170" cy="72" r="8" fill="#FB7185" opacity="0.88" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <circle cx="170" cy="72" r="8" fill="#FBBF24" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(225deg)"/>
+        <circle cx="170" cy="72" r="8" fill="#FB7185" opacity="0.88" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <circle cx="170" cy="72" r="8" fill="#FBBF24" opacity="0.8" style="transform-origin:170px 170px;transform:rotate(315deg)"/>
+      </g>
+
+      <!-- core warm glow -->
+      <circle cx="170" cy="170" r="38" fill="rgba(251,113,133,0.28)" stroke="#FBBF24" stroke-width="3" opacity="0.95" style="animation:breathe-s 1.9s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="22" fill="#9F1239"/>
+      <circle cx="170" cy="170" r="12" fill="#FB7185"/>
+      <circle cx="170" cy="170" r="6" fill="#FEF3C7"/>
+      <circle cx="170" cy="170" r="2.5" fill="white" style="animation:flicker 1.5s ease-in-out infinite;--fo:1;"/>
+    </svg>
+  </div>
+  <div class="lv-desc">
+    <strong>Solar prominences arc outward.</strong> Eight massive plasma loops. 24 radial rays. The colour shifts from rose to gold at the tips. The core burns near-white.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="color:#FB7185;">
+      <span>Aether</span><span>28,000 / 45,000</span>
+    </div>
+    <div class="aether-bar-track">
+      <div class="aether-bar-fill" style="width:62%;background:linear-gradient(90deg,#9F1239,#FB7185,#FBBF24);box-shadow:0 0 14px #FB7185;"></div>
+    </div>
+  </div>
+</div>
+<div class="page-divider"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 9 — L9 THE ABSOLUTE
+     Amber-white. Near-solar corona. Dense, overwhelming.
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p9" style="--ambient:rgba(253,230,138,0.12);">
+  <div class="lv-header">
+    <span class="lv-number" style="color:#FDE68A;">Level 09</span>
+    <div class="lv-title">The Absolute</div>
+    <div class="lv-aether" style="color:#FDE68A;">45,000 Aether</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(253,230,138,0.32);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(253,230,138,0.15);"></div>
+    <div style="position:absolute;inset:-50px;border-radius:50%;background:radial-gradient(circle,rgba(253,230,138,0.1) 0%,transparent 55%);animation:ambient-breathe 3s ease-in-out infinite;pointer-events:none;"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="animation:pulse-s 1.9s ease-in-out infinite;overflow:visible;">
+
+      <!-- far corona halos bleeding beyond -->
+      <circle cx="170" cy="170" r="168" stroke="#FDE68A" stroke-width="0.5" fill="rgba(253,230,138,0.015)" opacity="0.25"/>
+      <circle cx="170" cy="170" r="155" stroke="#FCD34D" stroke-width="0.75" fill="rgba(252,211,77,0.02)" opacity="0.3"/>
+      <circle cx="170" cy="170" r="142" stroke="#FBBF24" stroke-width="1" fill="rgba(251,191,36,0.02)" opacity="0.35"/>
+      <circle cx="170" cy="170" r="126" stroke="#FDE68A" stroke-width="1.25" fill="none" opacity="0.4" style="animation:flicker 2.5s ease-in-out 0s infinite;--fo:0.4;"/>
+      <circle cx="170" cy="170" r="108" stroke="#F59E0B" stroke-width="1.5" fill="none" opacity="0.45" style="animation:flicker 2.5s ease-in-out 0.4s infinite;--fo:0.45;"/>
+
+      <!-- 36 dense solar rays -->
+      <g style="transform-origin:170px 170px;animation:rot 55s linear infinite;opacity:0.5;">
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(0deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(10deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(20deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(40deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#F59E0B" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(50deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(70deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(80deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(100deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#F59E0B" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(110deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(130deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(140deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(160deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#F59E0B" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(170deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(190deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(200deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(220deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#F59E0B" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(230deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(250deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(260deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(280deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#F59E0B" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(290deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(310deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(320deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FBBF24" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#FDE68A" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(340deg)"/>
+        <line x1="170" y1="170" x2="170" y2="5" stroke="#F59E0B" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(350deg)"/>
+      </g>
+
+      <!-- 12 prominent diamond nodes blazing -->
+      <g style="transform-origin:170px 170px;animation:rot-r 20s linear infinite;opacity:0.8;">
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FDE68A"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FEF3C7" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FEF3C7" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <polygon points="170,22 178,40 170,58 162,40" fill="#FEF3C7" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+
+      <!-- 12-petal amber rose spinning fast -->
+      <g style="transform-origin:170px 170px;animation:rot-r 5.5s linear infinite;opacity:0.72;">
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FDE68A"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FEF3C7" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#F59E0B" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <ellipse cx="170" cy="118" rx="9" ry="48" fill="#FEF3C7" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+      <!-- inner 6-petal tiny counter -->
+      <g style="transform-origin:170px 170px;animation:rot 3.5s linear infinite;opacity:0.65;">
+        <ellipse cx="170" cy="138" rx="6" ry="28" fill="#FFFBEB"/>
+        <ellipse cx="170" cy="138" rx="6" ry="28" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="138" rx="6" ry="28" fill="#FFFBEB" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="138" rx="6" ry="28" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="138" rx="6" ry="28" fill="#FFFBEB" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="138" rx="6" ry="28" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+      </g>
+
+      <!-- core near-white -->
+      <circle cx="170" cy="170" r="40" fill="rgba(253,230,138,0.35)" stroke="#FFFBEB" stroke-width="3" opacity="0.97" style="animation:breathe-s 1.7s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="24" fill="#92400E"/>
+      <circle cx="170" cy="170" r="14" fill="#FDE68A"/>
+      <circle cx="170" cy="170" r="7" fill="#FFFBEB" style="animation:breathe-s 1.3s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="3" fill="white"/>
+    </svg>
+  </div>
+  <div class="lv-desc">
+    <strong>Near-solar.</strong> Five corona halos. 36 rays. 12 blazing diamond nodes. White breaks through at the core. The sigil is becoming light itself.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="color:#FDE68A;">
+      <span>Aether</span><span>45,000 / 70,000</span>
+    </div>
+    <div class="aether-bar-track">
+      <div class="aether-bar-fill" style="width:75%;background:linear-gradient(90deg,#92400E,#F59E0B,#FDE68A,#FFFBEB);box-shadow:0 0 16px #FDE68A;"></div>
+    </div>
+  </div>
+</div>
+<div class="page-divider"></div>
+
+<!-- ════════════════════════════════════════
+     PAGE 10 — L10 THE ETERNAL FLAME
+     Pure white. Total stellar ignition. 
+     ════════════════════════════════════════ -->
+<div class="sigil-page" id="p10" style="--ambient:rgba(255,255,255,0.12);background:linear-gradient(180deg,#030305 0%,#080810 50%,#030305 100%);">
+  <div style="position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(255,255,255,0.04) 0%,transparent 60%);pointer-events:none;"></div>
+  <div class="lv-header">
+    <span class="lv-number" style="color:rgba(248,250,252,0.7);">Level 10</span>
+    <div class="lv-title" style="background:linear-gradient(135deg,#FEF3C7,#FDE68A,white);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">The Eternal Flame</div>
+    <div class="lv-aether" style="color:rgba(248,250,252,0.6);">70,000 Aether · Maximum</div>
+  </div>
+  <div class="sigil-canvas">
+    <div class="canvas-glow" style="--glow:rgba(255,255,255,0.35);"></div>
+    <div class="canvas-glow2" style="--glow2:rgba(253,230,138,0.2);"></div>
+    <div style="position:absolute;inset:-70px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.12) 0%,rgba(253,230,138,0.08) 35%,transparent 60%);animation:ambient-breathe 2.5s ease-in-out infinite;pointer-events:none;"></div>
+    <div style="position:absolute;inset:-120px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,0.05) 0%,transparent 50%);animation:ambient-breathe 4s ease-in-out 1s infinite;pointer-events:none;"></div>
+    <svg width="340" height="340" viewBox="0 0 340 340" fill="none" style="overflow:visible;">
+      <!-- 4 outer corona rings -->
+      <circle cx="170" cy="170" r="170" stroke="white" stroke-width="0.5" fill="rgba(255,255,255,0.01)" opacity="0.22" style="animation:flicker 2s ease-in-out 0s infinite;--fo:0.22;"/>
+      <circle cx="170" cy="170" r="158" stroke="#FDE68A" stroke-width="0.5" fill="rgba(253,230,138,0.02)" opacity="0.28" style="animation:flicker 2s ease-in-out 0.3s infinite;--fo:0.28;"/>
+      <circle cx="170" cy="170" r="144" stroke="white" stroke-width="0.75" fill="rgba(255,255,255,0.02)" opacity="0.33" style="animation:flicker 2s ease-in-out 0.6s infinite;--fo:0.33;"/>
+      <circle cx="170" cy="170" r="128" stroke="#FCD34D" stroke-width="1" fill="rgba(252,211,77,0.03)" opacity="0.38" style="animation:flicker 2s ease-in-out 0.9s infinite;--fo:0.38;"/>
+
+      <!-- 48 ultra-dense corona rays — pure white-gold -->
+      <g style="transform-origin:170px 170px;animation:rot 90s linear infinite;opacity:0.6;">
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(0deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(7.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(15deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(22.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(37.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(52.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(67.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(75deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(82.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(97.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(105deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(112.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(127.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(135deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(142.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(157.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(165deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(172.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(187.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(195deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(202.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(217.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(225deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(232.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(247.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(255deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(262.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(277.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(285deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(292.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(307.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(315deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(322.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FDE68A" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(337.5deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="white" stroke-width="1.5" style="transform-origin:170px 170px;transform:rotate(345deg)"/>
+        <line x1="170" y1="170" x2="170" y2="0" stroke="#FCD34D" stroke-width="1" style="transform-origin:170px 170px;transform:rotate(352.5deg)"/>
+      </g>
+
+      <!-- 12 blazing white diamond nodes -->
+      <g style="transform-origin:170px 170px;animation:rot-r 14s linear infinite;opacity:0.88;">
+        <polygon points="170,18 180,42 170,66 160,42" fill="white"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="white" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="#FCD34D" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="white" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="white" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="#FCD34D" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="white" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="white" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <polygon points="170,18 180,42 170,66 160,42" fill="#FCD34D" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+
+      <!-- tri-layer rose: outer large white-gold, mid amber, inner pure white -->
+      <g style="transform-origin:170px 170px;animation:rot 3.5s linear infinite;opacity:0.75;">
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="white"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(30deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="white" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(90deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="white" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(150deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="white" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(210deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="white" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(270deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="white" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+        <ellipse cx="170" cy="112" rx="10" ry="54" fill="#FBBF24" style="transform-origin:170px 170px;transform:rotate(330deg)"/>
+      </g>
+      <g style="transform-origin:170px 170px;animation:rot-r 5s linear infinite;opacity:0.6;">
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(15deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="white" style="transform-origin:170px 170px;transform:rotate(45deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(75deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="white" style="transform-origin:170px 170px;transform:rotate(105deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(135deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="white" style="transform-origin:170px 170px;transform:rotate(165deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(195deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="white" style="transform-origin:170px 170px;transform:rotate(225deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(255deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="white" style="transform-origin:170px 170px;transform:rotate(285deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(315deg)"/>
+        <ellipse cx="170" cy="132" rx="7" ry="36" fill="white" style="transform-origin:170px 170px;transform:rotate(345deg)"/>
+      </g>
+      <g style="transform-origin:170px 170px;animation:rot 2.5s linear infinite;opacity:0.7;">
+        <ellipse cx="170" cy="148" rx="5" ry="20" fill="white"/>
+        <ellipse cx="170" cy="148" rx="5" ry="20" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(60deg)"/>
+        <ellipse cx="170" cy="148" rx="5" ry="20" fill="white" style="transform-origin:170px 170px;transform:rotate(120deg)"/>
+        <ellipse cx="170" cy="148" rx="5" ry="20" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(180deg)"/>
+        <ellipse cx="170" cy="148" rx="5" ry="20" fill="white" style="transform-origin:170px 170px;transform:rotate(240deg)"/>
+        <ellipse cx="170" cy="148" rx="5" ry="20" fill="#FDE68A" style="transform-origin:170px 170px;transform:rotate(300deg)"/>
+      </g>
+
+      <!-- core — total white ignition -->
+      <circle cx="170" cy="170" r="44" fill="rgba(255,255,255,0.35)" stroke="white" stroke-width="4" opacity="1" style="animation:breathe-s 1.5s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="28" fill="rgba(255,255,255,0.8)"/>
+      <circle cx="170" cy="170" r="18" fill="white"/>
+      <circle cx="170" cy="170" r="10" fill="white" style="animation:breathe-s 1.1s ease-in-out infinite;"/>
+      <circle cx="170" cy="170" r="4" fill="white"/>
+    </svg>
+  </div>
+  <div class="lv-desc" style="border-top-color:rgba(255,255,255,0.08);">
+    <strong style="color:#E5E7EB;">Total ignition.</strong> Four corona halos. 48 solar rays — the densest possible. Twelve white diamond nodes. A triple-layered rose of pure white and gold. The core is indistinguishable from a star. It burns without fuel. It simply is.
+  </div>
+  <div class="aether-bar-wrap">
+    <div class="aether-bar-label" style="color:rgba(248,250,252,0.6);">
+      <span>Aether</span><span>70,000 / Maximum</span>
+    </div>
+    <div class="aether-bar-track" style="background:rgba(255,255,255,0.06);">
+      <div class="aether-bar-fill" style="width:100%;background:linear-gradient(90deg,#92400E,#F59E0B,#FDE68A,white);box-shadow:0 0 20px white,0 0 40px rgba(253,230,138,0.5);"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Build nav dots
+const pages = 10;
+const nav = document.getElementById('pageNav');
+for(let i=1;i<=pages;i++){
+  const dot = document.createElement('a');
+  dot.className='nav-dot';
+  dot.href='#p'+i;
+  dot.title='Level '+i;
+  nav.appendChild(dot);
+}
+// Update active dot on scroll
+const sections = Array.from({length:10},(_,i)=>document.getElementById('p'+(i+1)));
+const dots = nav.querySelectorAll('.nav-dot');
+const obs = new IntersectionObserver(entries=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting){
+      const idx = sections.indexOf(e.target);
+      dots.forEach((d,i)=>d.style.background=i===idx?'rgba(255,255,255,0.7)':'rgba(255,255,255,0.15)');
+    }
+  });
+},{threshold:0.5});
+sections.forEach(s=>obs.observe(s));
+</script>
+</body>
+</html>

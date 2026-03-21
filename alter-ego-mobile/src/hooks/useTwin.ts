@@ -9,6 +9,7 @@ export const TWIN_KEYS = {
   state: ['twin', 'state'] as const,
   strip: ['twin', 'strip'] as const,
   chat: ['twin', 'chat'] as const,
+  toneHistory: ['twin', 'tone-history'] as const,
 };
 
 // ── Twin comparison state ──────────────────────────────────────────────────
@@ -17,19 +18,12 @@ export function useTwinState() {
   return useQuery({
     queryKey: TWIN_KEYS.state,
     queryFn: async () => twinService.getState(),
-    staleTime: 5 * 60 * 1000,
-    refetchOnMount: true,
-  });
-}
-
-export function useTwinStrip() {
-  return useQuery({
-    queryKey: TWIN_KEYS.strip,
-    queryFn: async () => twinService.getStrip(),
     staleTime: 60 * 1000,
     refetchOnMount: true,
   });
 }
+
+export { useTwinStrip } from "./useTwinStrip";
 
 // ── Chat history ───────────────────────────────────────────────────────────
 
@@ -95,44 +89,9 @@ export function useSendTwinMessage() {
       return { previousDataByKey };
     },
 
-    onSuccess: (result, message) => {
-      const limitKeySuffixes = queryClient
-        .getQueryCache()
-        .findAll({ queryKey: TWIN_KEYS.chat })
-        .map((query) => query.queryKey)
-        .filter((queryKey) => Array.isArray(queryKey) && queryKey.length >= 3);
-
-      for (const queryKey of limitKeySuffixes) {
-        queryClient.setQueryData<TwinChatHistoryData | undefined>(
-          queryKey,
-          (old) => {
-            if (!old) return old;
-            const confirmedUserMessage: TwinMessage = {
-              id: `user-${Date.now()}`,
-              role: 'user',
-              content: message,
-              created_at: new Date().toISOString(),
-            };
-            const twinMessage: TwinMessage = {
-              id: `twin-${Date.now()}`,
-              role: 'twin',
-              content: result.response,
-              created_at: new Date().toISOString(),
-            };
-            return {
-              ...old,
-              messages: [
-                ...old.messages.filter(
-                  (existingMessage) =>
-                    !String(existingMessage.id).startsWith('temp-')
-                ),
-                confirmedUserMessage,
-                twinMessage,
-              ],
-            };
-          }
-        );
-      }
+    onSuccess: () => {
+      // Refetch so message IDs match DB (required for tone ratings).
+      queryClient.invalidateQueries({ queryKey: TWIN_KEYS.chat });
     },
 
     onError: (_error, _message, context) => {

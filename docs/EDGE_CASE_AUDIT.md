@@ -10,7 +10,6 @@
 | **Power Score** | Queried `streak_log.date` / `completed_missions` (invalid columns) | Use **`log_date`**, **`total_missions_done`**, **`total_missions`**. |
 | **Power Score** | Nullable numeric fields from DB | Coerce **`int()`** / **`bool()`** for stage, XP, streak, pet. |
 | **GET /reports/weekly** | Week key used UTC `date.today()` | Use **`local_completed_week_bounds`** (same as generation). |
-| **GET /profile/stats** | `since` used UTC | Anchor **`since`** to user **local** calendar. |
 | **GET /profile/streak** | 52-week `since` used UTC | Same; single user fetch includes **timezone**. |
 | **generate_weekly_report** | Duplicated week math | Delegates to **`local_completed_week_bounds`**. |
 | **generate_day_summary** | `streak_row` could be `None` → `[0]` crash | Normalise to **`data or []`** before indexing. |

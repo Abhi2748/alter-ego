@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timedelta, date as date_type
+from zoneinfo import ZoneInfo
 
 from app.core.supabase_client import supabase_admin
 
@@ -117,8 +118,6 @@ async def simulate_twin_day(user_id: str) -> dict:
     Simulates the twin's day for a given user.
     Called nightly by the cron job at 01:00 UTC.
     """
-    from zoneinfo import ZoneInfo
-
     from app.core.constants import (
         DAILY_PF_CAPS,
         DAILY_XP_CAPS,
@@ -135,7 +134,7 @@ async def simulate_twin_day(user_id: str) -> dict:
         supabase_admin.table("users")
         .select(
             "total_xp, total_pf, character_stage, pet_stage, "
-            "pet_unlocked, timezone, archetype, registration_date"
+            "pet_unlocked, timezone, archetype, registration_date, streak_requirement_tier"
         )
         .eq("id", user_id)
         .single()
@@ -152,12 +151,25 @@ async def simulate_twin_day(user_id: str) -> dict:
     timezone_str = user.get("timezone", "UTC") or "UTC"
     today = get_user_date(timezone_str)
 
+    # One simulation per user per calendar day (twin XP must not double-apply).
+    existing_day = (
+        supabase_admin.table("twin_daily_record")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("record_date", today)
+        .limit(1)
+        .execute()
+    )
+    if existing_day.data:
+        logger.debug("simulate_twin_day: skip user=%s already simulated for %s", user_id, today)
+        return {"simulated": False, "reason": "already_simulated_today"}
+
     tz = ZoneInfo(timezone_str)
     day_of_week = datetime.now(tz).isoweekday()
 
     missions_result = (
         supabase_admin.table("missions")
-        .select("id, type, difficulty, xp_value, pf_value, title, is_journal_mission")
+        .select("id, type, difficulty, xp_value, pf_value, title, is_journal_mission, completed")
         .eq("user_id", user_id)
         .eq("mission_date", today)
         .execute()
@@ -249,20 +261,33 @@ async def simulate_twin_day(user_id: str) -> dict:
     core_missions = [m for m in today_missions if m.get("type") == "core" and not m.get("is_journal_mission")]
     non_core_missions = [m for m in today_missions if m not in core_missions]
 
+    personal_ms = [m for m in non_core_missions if m.get("type") == "personal"]
+    rest_nc = [m for m in non_core_missions if m.get("type") != "personal"]
+
     core_rate = min(0.97, today_rate + 0.10)
     core_target = round(len(core_missions) * core_rate)
     non_core_target = round(len(non_core_missions) * today_rate)
+    non_core_target = min(len(non_core_missions), max(0, non_core_target))
 
     if non_core_target > 0 and random.random() < 0.30:
         non_core_target = max(0, non_core_target - 1)
 
     completed_core = core_missions[:core_target]
-    completed_non_core = non_core_missions[:non_core_target]
+
+    nc_total = len(non_core_missions)
+    if nc_total > 0 and non_core_target > 0:
+        p_cap = len(personal_ms)
+        p_take = min(p_cap, max(0, round(non_core_target * p_cap / nc_total))) if p_cap else 0
+        rem = min(len(rest_nc), max(0, non_core_target - p_take))
+        completed_non_core = personal_ms[:p_take] + rest_nc[:rem]
+    else:
+        completed_non_core = []
+
     all_completed = completed_core + completed_non_core
     all_missed = [m for m in today_missions if m not in all_completed]
 
     twin_stage = int(twin.get("twin_character_stage") or 1)
-    xp_cap = int(DAILY_XP_CAPS.get(twin_stage, 200))
+    xp_cap = int(DAILY_XP_CAPS.get(twin_stage, 100))
     pf_cap = int(DAILY_PF_CAPS.get(twin_stage, 160))
 
     raw_xp_earned = sum(int(m.get("xp_value") or 0) for m in all_completed)
@@ -331,14 +356,62 @@ async def simulate_twin_day(user_id: str) -> dict:
         on_conflict="user_id,record_date",
     ).execute()
 
+    from app.services.streak_service import evaluate_streak_requirement
+
+    done_ids = {str(m.get("id")) for m in all_completed}
+    twin_view_today = []
+    for m in today_missions:
+        mm = dict(m)
+        mm["completed"] = str(m.get("id")) in done_ids
+        twin_view_today.append(mm)
+
+    streak_tier = user.get("streak_requirement_tier") or "tier_1"
+    today_met = evaluate_streak_requirement(twin_view_today, streak_tier)
+
+    yesterday = str(today_date - timedelta(days=1))
+    y_missions_res = (
+        supabase_admin.table("missions")
+        .select("id, type, is_journal_mission, completed")
+        .eq("user_id", user_id)
+        .eq("mission_date", yesterday)
+        .execute()
+    )
+    y_missions = y_missions_res.data or []
+    y_rec_res = (
+        supabase_admin.table("twin_daily_record")
+        .select("completed_mission_ids")
+        .eq("user_id", user_id)
+        .eq("record_date", yesterday)
+        .limit(1)
+        .execute()
+    )
+    y_rows = y_rec_res.data or []
+    yesterday_met = False
+    if y_missions and y_rows:
+        y_ids_raw = y_rows[0].get("completed_mission_ids") or []
+        y_done = {str(x) for x in y_ids_raw}
+        y_view = []
+        for m in y_missions:
+            mm = dict(m)
+            mm["completed"] = str(m.get("id")) in y_done
+            y_view.append(mm)
+        yesterday_met = evaluate_streak_requirement(y_view, streak_tier)
+
+    prev_twin_streak = int(twin.get("twin_streak") or 0)
+    if not today_met:
+        new_twin_streak = 0
+    elif yesterday_met:
+        new_twin_streak = prev_twin_streak + 1
+    else:
+        new_twin_streak = 1
+
     twin_update = {
         "twin_xp": new_twin_xp,
         "twin_pf": new_twin_pf,
         "twin_character_stage": new_twin_stage,
         "twin_pet_stage": new_twin_pet_stage,
         "twin_pet_unlocked": twin_pet_unlocked,
-        "twin_streak": int(twin.get("twin_streak") or 0)
-        + (1 if len([m for m in completed_core if m.get("completed")]) >= 3 else 0),
+        "twin_streak": new_twin_streak,
         "current_gap_state": gap_state,
     }
     if user_passed_twin:
@@ -366,6 +439,139 @@ async def simulate_twin_day(user_id: str) -> dict:
         "gap_state": gap_state,
         "user_passed_twin": user_passed_twin,
     }
+
+
+async def ensure_twin_simulated_for_today(user_id: str) -> None:
+    """
+    If there is no twin_daily_record for the user's local today, run simulate_twin_day once.
+
+    Scheduled job still runs at ~1:00 local; this fills the gap for users who open the app
+    earlier so Twin Comparison and strip have data from day 1.
+    """
+    from app.services.mission_service import get_user_date
+
+    user_row = (
+        supabase_admin.table("users")
+        .select("timezone, onboarding_complete")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    user = user_row.data or {}
+    if not user.get("onboarding_complete"):
+        return
+
+    today = get_user_date(user.get("timezone", "UTC") or "UTC")
+    existing = (
+        supabase_admin.table("twin_daily_record")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("record_date", today)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return
+
+    # Avoid calling simulate on every request before missions exist for today.
+    has_mission = (
+        supabase_admin.table("missions")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("mission_date", today)
+        .limit(1)
+        .execute()
+    )
+    if not has_mission.data:
+        return
+
+    await simulate_twin_day(user_id)
+
+
+def build_twin_day_timeline(
+    user_id: str,
+    today: str,
+    completed_mission_ids: list | None,
+    timezone_str: str | None = None,
+) -> list[dict]:
+    """
+    Timeline rows for Twin Comparison — twin's completed missions today.
+    Display times are synthetic but always between local 06:00 and min(now, 21:30)
+    on the user's calendar day so nothing appears in the future.
+    """
+    ids = completed_mission_ids or []
+    if not ids:
+        return []
+
+    mres = (
+        supabase_admin.table("missions")
+        .select("id, title, type, difficulty, xp_value")
+        .eq("user_id", user_id)
+        .in_("id", list(ids))
+        .execute()
+    )
+    rows = mres.data or []
+    id_to_row = {str(r.get("id")): r for r in rows}
+
+    ordered: list[dict] = []
+    for mid in ids:
+        r = id_to_row.get(str(mid))
+        if r:
+            ordered.append(r)
+
+    n = len(ordered)
+    if n == 0:
+        return []
+
+    tz_name = (timezone_str or "UTC").strip() or "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+
+    d = date_type.fromisoformat(today)
+    now_local = datetime.now(tz)
+    day_start = datetime(d.year, d.month, d.day, 6, 0, 0, tzinfo=tz)
+    soft_end = datetime(d.year, d.month, d.day, 21, 30, 0, tzinfo=tz)
+
+    if now_local.date() == d:
+        cap = min(now_local, soft_end)
+    else:
+        cap = soft_end
+
+    if cap <= day_start:
+        latest = day_start + timedelta(minutes=30)
+    else:
+        latest = cap - timedelta(seconds=30)
+
+    if latest < day_start:
+        latest = day_start
+
+    span_seconds = max(60, int((latest - day_start).total_seconds()))
+
+    timestamps: list[datetime] = []
+    if n == 1:
+        timestamps.append(latest)
+    else:
+        for i in range(n):
+            frac = i / (n - 1)
+            t = day_start + timedelta(seconds=span_seconds * frac)
+            if t > latest:
+                t = latest
+            timestamps.append(t)
+
+    timeline: list[dict] = []
+    for r, t in zip(ordered, timestamps, strict=True):
+        timeline.append(
+            {
+                "mission_title": r.get("title") or "Mission",
+                "mission_type": r.get("type") or "core",
+                "difficulty": str(r.get("difficulty") or "easy"),
+                "xp_earned": int(r.get("xp_value") or 0),
+                "completed_at": t.replace(microsecond=0).isoformat(),
+            }
+        )
+    return timeline
 
 
 async def get_home_strip_context(user_id: str) -> dict:

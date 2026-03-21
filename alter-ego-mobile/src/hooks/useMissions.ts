@@ -12,16 +12,28 @@ import {
 import {
   missionsService,
   type CompleteMissionResponse,
+  type Mission,
   type TodayMissionsResponse,
 } from "@/services/missions";
 import { useUserStore } from "@/store/userStore";
 import { PROFILE_KEYS } from "@/hooks/useProfile";
+import { STATS_KEYS } from "@/hooks/useStats";
+import { SIGIL_KEYS } from "@/hooks/useSigil";
 
 // Query keys — centralised so invalidation works correctly
 export const MISSION_KEYS = {
   today: ["missions", "today"] as const,
   byDate: (date: string) => ["missions", "date", date] as const,
 };
+
+function findMissionById(
+  data: TodayMissionsResponse | undefined,
+  missionId: string
+): Mission | undefined {
+  if (!data?.missions) return undefined;
+  const { core, interest, resistance, personal } = data.missions;
+  return [...core, ...interest, ...resistance, ...personal].find((m) => m.id === missionId);
+}
 
 // ── Fetch today's missions ─────────────────────────────────────────────────
 
@@ -54,6 +66,7 @@ export function useCompleteMission() {
   const updateXP = useUserStore((state) => state.updateXP);
   const updatePF = useUserStore((state) => state.updatePF);
   const updateStreak = useUserStore((state) => state.updateStreak);
+  const updatePowerScore = useUserStore((state) => state.updatePowerScore);
   const updatePetStage = useUserStore((state) => state.updatePetStage);
 
   return useMutation({
@@ -65,6 +78,11 @@ export function useCompleteMission() {
 
       const previousData =
         queryClient.getQueryData<TodayMissionsResponse>(MISSION_KEYS.today);
+
+      const target = findMissionById(previousData, missionId);
+      if (target?.is_journal_mission) {
+        return { previousData };
+      }
 
       queryClient.setQueryData<TodayMissionsResponse>(
         MISSION_KEYS.today,
@@ -128,6 +146,12 @@ export function useCompleteMission() {
       queryClient.invalidateQueries({ queryKey: MISSION_KEYS.today });
       // Home streak dots depend on /profile/streak heatmap; invalidate on completion.
       queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
+      // Twin comparison + strip read twin_daily_record / missions for today.
+      queryClient.invalidateQueries({ queryKey: ["twin", "state"] });
+      queryClient.invalidateQueries({ queryKey: ["twin", "strip"] });
+      queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
+      queryClient.invalidateQueries({ queryKey: STATS_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: SIGIL_KEYS.all });
     },
 
     onError: (_error, _missionId, context) => {

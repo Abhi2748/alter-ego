@@ -13,13 +13,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import type { MainStackParamList } from "../navigation/types";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
-import { HomeMissionCard } from "../components/HomeMissionCard";
 import { missionsService, type Mission } from "@/services/missions";
 import { reportsService } from "@/services/reports";
 import { profileService } from "@/services/profile";
 import { getErrorMessage } from "@/services/api";
 import { useUserStore } from "@/store/userStore";
 import type { UserProfile } from "@/store/userStore";
+import {
+  formatLocalYmd,
+  isCalendarDayTappable,
+  registrationFirstLocalCalendarDay,
+} from "@/utils/calendarDate";
 
 type DayDetailRouteProp = RouteProp<MainStackParamList, "DayDetail">;
 
@@ -72,12 +76,12 @@ function formatFullDate(d: DayHistory): string {
 }
 
 const DAILY_XP_CAPS: Record<number, number> = {
-  1: 200,
-  2: 300,
-  3: 450,
-  4: 600,
-  5: 800,
-  6: 1000,
+  1: 100,
+  2: 150,
+  3: 200,
+  4: 280,
+  5: 380,
+  6: 500,
 };
 const DAILY_PF_CAPS: Record<number, number> = {
   1: 160,
@@ -105,6 +109,12 @@ function mapMissionToDay(m: Mission, section: DayMission["type"]): DayMission {
   const diffRaw = String(m.difficulty ?? "easy").toLowerCase();
   const difficulty: DayMission["difficulty"] =
     diffRaw === "medium" ? "medium" : diffRaw === "hard" ? "hard" : "easy";
+  const interestLabel =
+    section === "interest"
+      ? (m.interest_name ?? "").trim() || undefined
+      : section === "resistance"
+        ? (m.quit_target_name ?? "").trim() || undefined
+        : undefined;
   return {
     id: m.id,
     title: m.title,
@@ -113,7 +123,7 @@ function mapMissionToDay(m: Mission, section: DayMission["type"]): DayMission {
     xp_value: m.xp_value,
     pf_value: m.pf_value ?? 0,
     completed: !!m.completed,
-    interest_name: undefined,
+    interest_name: interestLabel,
     mission_streak: 0,
   };
 }
@@ -138,7 +148,7 @@ function buildHistory(
   const weekday = new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long" });
   const day_number = dayNumberForDate(profile?.registration_date, date);
   const stage = Math.min(6, Math.max(1, profile?.character_stage ?? 1));
-  const xpCap = DAILY_XP_CAPS[stage] ?? 200;
+  const xpCap = DAILY_XP_CAPS[stage] ?? 100;
   const pfCap = DAILY_PF_CAPS[stage] ?? 160;
 
   const core = (missionsRes.missions.core ?? []).map((m) => mapMissionToDay(m, "core"));
@@ -151,8 +161,21 @@ function buildHistory(
   const completed = missions.filter((m) => m.completed).length;
   const completion_pct = total > 0 ? Math.round((100 * completed) / total) : 0;
 
-  const xp_earned = heatmapRow?.xp_earned ?? 0;
-  const pf_earned = heatmapRow?.pf_earned ?? 0;
+  // Authoritative: sum rewards from missions completed that day (streak_log denormalized fields can be stale or missing).
+  const xp_from_missions = missions
+    .filter((m) => m.completed)
+    .reduce((s, m) => s + (Number(m.xp_value) || 0), 0);
+  const pf_from_missions = missions
+    .filter((m) => m.completed)
+    .reduce((s, m) => s + (Number(m.pf_value) || 0), 0);
+  const xp_earned =
+    xp_from_missions > 0 || pf_from_missions > 0 || !heatmapRow
+      ? xp_from_missions
+      : Number(heatmapRow.xp_earned ?? 0);
+  const pf_earned =
+    xp_from_missions > 0 || pf_from_missions > 0 || !heatmapRow
+      ? pf_from_missions
+      : Number(heatmapRow.pf_earned ?? 0);
 
   const is_streak_day = heatmapRow ? !!heatmapRow.maintained : false;
   const streak_at_day = heatmapRow?.streak_count ?? 0;
@@ -218,8 +241,26 @@ export function DayDetailScreen() {
         profileService.getIdentity().catch(() => null),
       ]);
 
+      const eligible =
+        (streakRes as { heatmap_eligible_since?: string | null })?.heatmap_eligible_since ??
+        registrationFirstLocalCalendarDay(p?.registration_date);
+      const todayYmd = formatLocalYmd(new Date());
+      const dateKey = String(date).slice(0, 10);
+      if (!eligible || !isCalendarDayTappable(dateKey, eligible, todayYmd)) {
+        setHistory(null);
+        setError(
+          !eligible
+            ? "Could not verify your start date. Pull to refresh or try again."
+            : dateKey > todayYmd
+              ? "That day hasn’t happened yet."
+              : "You weren’t on ALTER EGO yet this day."
+        );
+        setLoading(false);
+        return;
+      }
+
       const heatmap = (streakRes as { heatmap?: Array<Record<string, unknown>> })?.heatmap ?? [];
-      const row = heatmap.find((h) => String(h.date) === date);
+      const row = heatmap.find((h) => String(h.date).slice(0, 10) === dateKey);
       const heatmapRow = row
         ? {
             maintained: !!row.maintained,
@@ -570,7 +611,7 @@ export function DayDetailScreen() {
             </View>
           </View>
 
-          {/* Mission sections — reuse HomeMissionCard for exact premium look */}
+          {/* Mission sections — read-only rows: done ✓, missed strikethrough + ✕ */}
           {["core", "interest", "personal", "resistance"].map((section) => {
             const missions = history.missions.filter((m) => m.type === section);
             if (!missions.length) return null;
@@ -581,37 +622,37 @@ export function DayDetailScreen() {
               section === "core"
                 ? "CORE"
                 : section === "interest"
-                ? "FOCUS"
-                : section === "personal"
-                ? "PERSONAL"
-                : "RESISTANCE";
+                  ? "FOCUS"
+                  : section === "personal"
+                    ? "PERSONAL"
+                    : "RESISTANCE";
 
             const barStyle =
               section === "core"
                 ? styles.sectionBarCore
                 : section === "interest"
-                ? styles.sectionBarFocus
-                : section === "personal"
-                ? styles.sectionBarPersonal
-                : styles.sectionBarResistance;
+                  ? styles.sectionBarFocus
+                  : section === "personal"
+                    ? styles.sectionBarPersonal
+                    : styles.sectionBarResistance;
 
             const labelStyle =
               section === "core"
                 ? styles.sectionLabelCore
                 : section === "interest"
-                ? styles.sectionLabelFocus
-                : section === "personal"
-                ? styles.sectionLabelPersonal
-                : styles.sectionLabelResistance;
+                  ? styles.sectionLabelFocus
+                  : section === "personal"
+                    ? styles.sectionLabelPersonal
+                    : styles.sectionLabelResistance;
 
             const doneColorStyle =
               section === "core"
                 ? styles.sectionCountDoneCore
                 : section === "interest"
-                ? styles.sectionCountDoneFocus
-                : section === "personal"
-                ? styles.sectionCountDonePersonal
-                : styles.sectionCountDoneResistance;
+                  ? styles.sectionCountDoneFocus
+                  : section === "personal"
+                    ? styles.sectionCountDonePersonal
+                    : styles.sectionCountDoneResistance;
 
             return (
               <View key={section} style={styles.missionSection}>
@@ -625,45 +666,61 @@ export function DayDetailScreen() {
                     /{total}
                   </Text>
                 </View>
-                {missions.map((m, index) => {
-                  const difficultyLabel =
+                {missions.map((m) => {
+                  const sub =
+                    section === "interest" || section === "resistance"
+                      ? m.interest_name
+                      : undefined;
+                  const diffLabel =
                     m.difficulty === "easy"
                       ? "Easy"
                       : m.difficulty === "medium"
-                      ? "Medium"
-                      : "Hard";
-
+                        ? "Medium"
+                        : "Hard";
                   return (
-                    <HomeMissionCard
-                      key={m.id}
-                      title={m.title}
-                      category={
-                        section === "core"
-                          ? "Core"
-                          : section === "interest"
-                          ? m.interest_name ?? "Focus"
-                          : section === "personal"
-                          ? "Personal"
-                          : "Resistance"
-                      }
-                      difficulty={difficultyLabel as "Easy" | "Medium" | "Hard"}
-                      xpValue={m.xp_value}
-                      petFoodValue={m.pf_value}
-                      status={m.completed ? "complete" : "expired"}
-                      onComplete={() => {}}
-                      missionType={
-                        section === "core"
-                          ? "core"
-                          : section === "interest"
-                          ? "interest"
-                          : section === "personal"
-                          ? "personal"
-                          : "resistance"
-                      }
-                      interestName={m.interest_name}
-                      appearIndex={index}
-                      missionStreak={m.mission_streak ?? 0}
-                    />
+                    <View key={m.id} style={styles.dayMissionRow}>
+                      <Ionicons
+                        name={m.completed ? "checkmark-circle" : "close-circle"}
+                        size={22}
+                        color={m.completed ? "#A78BFA" : "#6B7280"}
+                        style={styles.dayMissionIcon}
+                      />
+                      <View style={styles.dayMissionMain}>
+                        <Text
+                          style={[
+                            styles.dayMissionTitle,
+                            !m.completed && styles.dayMissionTitleMissed,
+                          ]}
+                          numberOfLines={3}
+                        >
+                          {m.title}
+                        </Text>
+                        {!!sub && (
+                          <Text style={styles.dayMissionSub} numberOfLines={1}>
+                            {sub}
+                          </Text>
+                        )}
+                        <Text style={styles.dayMissionTier}>{diffLabel}</Text>
+                      </View>
+                      <View style={styles.dayMissionRewards}>
+                        <Text
+                          style={[
+                            styles.dayMissionXp,
+                            !m.completed && styles.dayMissionRewardMuted,
+                          ]}
+                        >
+                          +{m.xp_value} XP
+                        </Text>
+                        <Text
+                          style={[
+                            styles.dayMissionPf,
+                            !m.completed && styles.dayMissionRewardMuted,
+                          ]}
+                        >
+                          +{m.pf_value} PF
+                        </Text>
+                      </View>
+                    </View>
                   );
                 })}
               </View>
@@ -1163,6 +1220,63 @@ const styles = StyleSheet.create({
   missionCheckTextMissed: {
     fontSize: 11,
     color: "#374151",
+  },
+
+  dayMissionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#141824",
+    borderWidth: 1,
+    borderColor: "#1E2333",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  dayMissionIcon: {
+    marginRight: 10,
+  },
+  dayMissionMain: {
+    flex: 1,
+    minWidth: 0,
+  },
+  dayMissionTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#E5E7EB",
+  },
+  dayMissionTitleMissed: {
+    color: "#6B7280",
+    textDecorationLine: "line-through",
+  },
+  dayMissionSub: {
+    fontSize: 11,
+    color: "#A78BFA",
+    marginTop: 2,
+  },
+  dayMissionTier: {
+    fontSize: 10,
+    color: "#4B5563",
+    marginTop: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  dayMissionRewards: {
+    alignItems: "flex-end",
+    marginLeft: 8,
+  },
+  dayMissionXp: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: "#A78BFA",
+  },
+  dayMissionPf: {
+    fontSize: 10,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  dayMissionRewardMuted: {
+    color: "#4B5563",
   },
 });
 

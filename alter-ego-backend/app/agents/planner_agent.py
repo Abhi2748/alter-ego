@@ -13,6 +13,7 @@ from app.core.constants import (
     INTEREST_LEVEL_MAP,
     MISSION_PF,
     mission_xp_for_type,
+    resolve_stat_tag,
     STAGE_NAMES,
 )
 from app.core.supabase_client import supabase_admin
@@ -103,7 +104,7 @@ OUTPUT — return ONLY valid JSON, no preamble, no markdown:
   "estimated_minutes": 20,
   "rationale": "Why this specific mission works for this domain at this level. Reference the skill being built. 2-3 sentences that a practitioner would nod at.",
   "phase_principle": "Which phase principle this follows and why",
-  "domain_knowledge_applied": "The specific knowledge about this domain used to design this mission",
+  "domain_knowledge_applied": "THE RESEARCH (2–4 sentences): what skill-acquisition or domain evidence shaped this mission (deliberate practice, progressive overload, feedback loops, etc.). Concrete, not generic.",
   "adjusted_tier": "easy|medium|hard|elite"
 }}
 """
@@ -194,7 +195,7 @@ OUTPUT — return ONLY valid JSON, no preamble, no markdown:
   "when_to_do": "Specific timing — when in the day or relative to urge",
   "rationale": "Why this replacement works for this need category. Reference the behaviour change mechanism. 2-3 sentences.",
   "phase_principle": "Which phase principle this follows",
-  "need_addressed": "How this mission addresses the underlying need"
+  "need_addressed": "THE RESEARCH (2–4 sentences): cite the behaviour-change mechanism (habit loop, replacement, underlying need, urge surfing, environmental design — whichever fits). Plain language, no jargon wall."
 }}
 """
 
@@ -351,7 +352,12 @@ async def generate_interest_mission(
             "interest_id": interest["id"],
             "mission_date": mission_date,
             "completed": False,
+            "stat_tag": resolve_stat_tag(None, "interest"),
             "rationale": "Consistent presence builds the habit foundation.",
+            "domain_knowledge": (
+                "Deliberate practice research: short, focused sessions with clear intent beat "
+                "rare long blocks for skill building — this mission keeps the dose achievable."
+            ),
             "estimated_minutes": 20,
         }
         ins = supabase_admin.table("missions").insert(fallback).execute()
@@ -544,7 +550,12 @@ async def generate_quit_target_mission(
             "quit_target_id": quit_target["id"],
             "mission_date": mission_date,
             "completed": False,
+            "stat_tag": resolve_stat_tag(None, "resistance"),
             "rationale": "Physical replacement interrupts the habit loop at the moment of urge.",
+            "domain_knowledge": (
+                "Habit literature shows replacement behaviours stick when they meet the same "
+                "underlying need as the old pattern — not when you rely on willpower alone."
+            ),
             "estimated_minutes": 5,
         }
         ins = supabase_admin.table("missions").insert(fallback).execute()
@@ -561,6 +572,7 @@ async def generate_quit_target_mission(
         "quit_target_id": quit_target["id"],
         "mission_date": mission_date,
         "completed": False,
+        "stat_tag": resolve_stat_tag(None, "resistance"),
         "rationale": mission_data.get("rationale", ""),
         "phase_principle": mission_data.get("phase_principle", ""),
         "domain_knowledge": mission_data.get("need_addressed", ""),

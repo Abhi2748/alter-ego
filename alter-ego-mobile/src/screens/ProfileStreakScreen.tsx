@@ -30,6 +30,16 @@ import Animated, {
 import { PetAnimation } from "../components/PetAnimation";
 import { useProfileStreak } from "@/hooks/useProfile";
 import { useUserStore } from "@/store/userStore";
+import {
+  clampViewMonthToEarliest,
+  countDaysInMonthOnOrAfterJoin,
+  earliestNavigableMonth,
+  formatLocalYmd,
+  isCalendarDayTappable,
+  isoDateStringGte,
+  parseIsoDateParts,
+  registrationFirstLocalCalendarDay,
+} from "@/utils/calendarDate";
 
 // -----------------------------------------------------------------------------
 // DATA SHAPE
@@ -39,6 +49,8 @@ type StreakApiResponse = {
   current_streak: number;
   longest_streak: number;
   streak_requirement_tier: string;
+  /** First calendar day included in heatmap (YYYY-MM-DD); from API after registration filter */
+  heatmap_eligible_since?: string | null;
   heatmap: Array<{
     date: string;
     maintained: boolean;
@@ -104,27 +116,64 @@ export function ProfileStreakScreen() {
     transform: [{ translateY: petFloat.value }],
   }));
 
+  const eligibleSince =
+    data?.heatmap_eligible_since ??
+    registrationFirstLocalCalendarDay(profile?.registration_date);
+
+  /** Join date for taps + month clamp; require known join before enabling days */
+  const joinForCalendar =
+    eligibleSince ?? registrationFirstLocalCalendarDay(profile?.registration_date);
+
+  const effectiveHeatmap = useMemo(() => {
+    const raw = data?.heatmap ?? [];
+    if (!eligibleSince) return raw;
+    return raw.filter((r) => isoDateStringGte(String(r.date), eligibleSince));
+  }, [data?.heatmap, eligibleSince]);
+
+  const earliestMonth = useMemo(
+    () => earliestNavigableMonth(joinForCalendar ?? undefined),
+    [joinForCalendar]
+  );
+
+  useEffect(() => {
+    if (!earliestMonth) return;
+    setViewMonth((prev) => clampViewMonthToEarliest(prev, earliestMonth));
+  }, [earliestMonth]);
+
   const goPrevMonth = () => {
     setViewMonth((prev) => {
-      if (prev.month === 0) return { month: 11, year: prev.year - 1 };
-      return { month: prev.month - 1, year: prev.year };
+      let y = prev.year;
+      let m = prev.month;
+      if (m === 0) {
+        m = 11;
+        y -= 1;
+      } else {
+        m -= 1;
+      }
+      return clampViewMonthToEarliest({ year: y, month: m }, earliestMonth);
     });
   };
 
   const goNextMonth = () => {
-    const now = new Date();
+    const clock = new Date();
     setViewMonth((prev) => {
-      if (prev.year > now.getFullYear()) return prev;
-      if (prev.year === now.getFullYear() && prev.month >= now.getMonth()) return prev;
+      if (prev.year > clock.getFullYear()) return prev;
+      if (prev.year === clock.getFullYear() && prev.month >= clock.getMonth()) return prev;
       if (prev.month === 11) return { month: 0, year: prev.year + 1 };
       return { month: prev.month + 1, year: prev.year };
     });
   };
 
-  const now = useMemo(() => new Date(), []);
+  const clock = new Date();
+  const todayYmd = formatLocalYmd(clock);
   const canGoNext =
-    viewMonth.year < now.getFullYear() ||
-    (viewMonth.year === now.getFullYear() && viewMonth.month < now.getMonth());
+    viewMonth.year < clock.getFullYear() ||
+    (viewMonth.year === clock.getFullYear() && viewMonth.month < clock.getMonth());
+  const atEarliestMonth =
+    !!earliestMonth &&
+    viewMonth.year === earliestMonth.year &&
+    viewMonth.month === earliestMonth.month;
+  const canGoPrevMonth = !atEarliestMonth;
 
   const displayMonthName = MONTH_NAMES[viewMonth.month];
   const displayYear = viewMonth.year;
@@ -150,20 +199,20 @@ export function ProfileStreakScreen() {
   }, [viewMonthCells]);
 
   const monthEntries = useMemo(() => {
-    if (!data?.heatmap) return [];
+    if (!effectiveHeatmap.length) return [];
     const m = viewMonth.month;
     const y = viewMonth.year;
-    return data.heatmap.filter((r) => {
-      const d = new Date(r.date);
-      return d.getFullYear() === y && d.getMonth() === m;
+    return effectiveHeatmap.filter((r) => {
+      const p = parseIsoDateParts(String(r.date));
+      return p !== null && p.y === y && p.m === m;
     });
-  }, [data?.heatmap, viewMonth.month, viewMonth.year]);
+  }, [effectiveHeatmap, viewMonth.month, viewMonth.year]);
 
   const completedSet = useMemo(() => {
     const set = new Set<number>();
     for (const r of monthEntries) {
-      const d = new Date(r.date);
-      if (r.maintained) set.add(d.getDate());
+      const p = parseIsoDateParts(String(r.date));
+      if (p && r.maintained) set.add(p.d);
     }
     return set;
   }, [monthEntries]);
@@ -173,27 +222,31 @@ export function ProfileStreakScreen() {
     [monthEntries]
   );
 
+  /** Days in this calendar month on or after join (denominator for progress + "remaining"). */
+  const eligibleDaysInMonth = useMemo(
+    () => countDaysInMonthOnOrAfterJoin(displayYear, viewMonth.month, joinForCalendar),
+    [displayYear, viewMonth.month, joinForCalendar]
+  );
+
   const activeDaysThisYear = useMemo(() => {
-    if (!data?.heatmap) return 0;
+    if (!effectiveHeatmap.length) return 0;
     const y = viewMonth.year;
-    return data.heatmap.filter((r) => {
-      const d = new Date(r.date);
-      return d.getFullYear() === y && (r.missions_done ?? 0) > 0;
+    return effectiveHeatmap.filter((r) => {
+      const p = parseIsoDateParts(String(r.date));
+      return p !== null && p.y === y && (r.missions_done ?? 0) > 0;
     }).length;
-  }, [data?.heatmap, viewMonth.year]);
+  }, [effectiveHeatmap, viewMonth.year]);
 
   const isViewingCurrentMonth =
-    viewMonth.year === now.getFullYear() && viewMonth.month === now.getMonth();
-  const todayDay = isViewingCurrentMonth ? now.getDate() : null;
+    viewMonth.year === clock.getFullYear() && viewMonth.month === clock.getMonth();
+  const todayDay = isViewingCurrentMonth ? clock.getDate() : null;
   const todayCompleted = useMemo(() => {
     if (!isViewingCurrentMonth) return false;
-    const todayIso = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      .toISOString()
-      .slice(0, 10);
-    const row = data?.heatmap?.find((r) => String(r.date).slice(0, 10) === todayIso);
+    const todayLocal = formatLocalYmd(new Date());
+    const row = effectiveHeatmap.find((r) => String(r.date).slice(0, 10) === todayLocal);
     if (!row) return false;
     return row.maintained;
-  }, [data?.heatmap, isViewingCurrentMonth, now]);
+  }, [effectiveHeatmap, isViewingCurrentMonth]);
 
   return (
     <View style={styles.container}>
@@ -294,8 +347,16 @@ export function ProfileStreakScreen() {
           <View style={styles.calendarHeader}>
             <Text style={styles.calendarMonthText}>{displayMonthName} {displayYear}</Text>
             <View style={styles.calendarNav}>
-              <Pressable onPress={goPrevMonth} style={styles.calendarNavBtn}>
-                <Ionicons name="chevron-back" size={12} color="#6B7280" />
+              <Pressable
+                onPress={goPrevMonth}
+                style={styles.calendarNavBtn}
+                disabled={!canGoPrevMonth}
+              >
+                <Ionicons
+                  name="chevron-back"
+                  size={12}
+                  color={canGoPrevMonth ? "#6B7280" : "#4B5563"}
+                />
               </Pressable>
               <Pressable onPress={goNextMonth} style={styles.calendarNavBtn} disabled={!canGoNext}>
                 <Ionicons name="chevron-forward" size={12} color={canGoNext ? "#6B7280" : "#4B5563"} />
@@ -323,22 +384,26 @@ export function ProfileStreakScreen() {
               >
                 {row.map((day, colIndex) => {
                   const isEmpty = day === null;
-                  const isToday = day === todayDay;
-                  const completed = day !== null && completedSet.has(day);
-                  const isTodayNotCompleted = isToday && !todayCompleted;
-                  const key = rowIndex * 7 + colIndex;
-
                   const dateString =
                     day && !isEmpty
                       ? `${displayYear}-${String(viewMonth.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
                       : "";
+                  const tappable =
+                    !!dateString &&
+                    !!joinForCalendar &&
+                    isCalendarDayTappable(dateString, joinForCalendar, todayYmd);
+                  const blocked = !isEmpty && !!dateString && !tappable;
+                  const isToday = !blocked && day === todayDay;
+                  const completed = !blocked && day !== null && completedSet.has(day);
+                  const isTodayNotCompleted = isToday && !todayCompleted;
+                  const key = rowIndex * 7 + colIndex;
 
                   return (
                     <Pressable
                       key={key}
-                      disabled={isEmpty}
+                      disabled={isEmpty || blocked}
                       onPress={() => {
-                        if (!isEmpty && dateString) {
+                        if (!isEmpty && !blocked && dateString) {
                           // @ts-ignore navigation typed via useNavigation
                           (navigation as any).navigate?.("DayDetail", { date: dateString });
                         }
@@ -352,10 +417,11 @@ export function ProfileStreakScreen() {
                           marginRight: colIndex < 6 ? calendarGap : 0,
                         },
                         isEmpty && styles.calendarCellEmpty,
-                        completed && !isToday && styles.calendarCellCompleted,
+                        blocked && styles.calendarCellBlocked,
+                        completed && !isToday && !blocked && styles.calendarCellCompleted,
                         isToday && todayCompleted && styles.calendarCellTodayDone,
                         isTodayNotCompleted && styles.calendarCellTodayPending,
-                        pressed && !isEmpty && styles.calendarCellPressed,
+                        pressed && !isEmpty && !blocked && styles.calendarCellPressed,
                       ]}
                     >
                       {!isEmpty && (
@@ -363,9 +429,10 @@ export function ProfileStreakScreen() {
                           <Text
                             style={[
                               styles.calendarCellText,
+                              blocked && styles.calendarCellTextBlocked,
                               (completed || (isToday && todayCompleted)) && styles.calendarCellTextDone,
                               isTodayNotCompleted && styles.calendarCellTextPending,
-                              !completed && !isToday && styles.calendarCellTextEmpty,
+                              !completed && !isToday && !blocked && styles.calendarCellTextEmpty,
                             ]}
                           >
                             {day}
@@ -621,6 +688,14 @@ const styles = StyleSheet.create({
   },
   calendarCellEmpty: {
     opacity: 0,
+  },
+  calendarCellBlocked: {
+    opacity: 0.38,
+    backgroundColor: "rgba(30,35,51,0.5)",
+  },
+  calendarCellTextBlocked: {
+    color: "#374151",
+    fontFamily: "Inter_400Regular",
   },
   calendarCellCompleted: {
     backgroundColor: "rgba(249,115,22,0.12)",

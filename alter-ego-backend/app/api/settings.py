@@ -4,9 +4,9 @@ Settings — FAQ, username, notifications, feedback, delete account.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
-
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
@@ -15,6 +15,7 @@ from app.api.auth import get_user_id_from_token
 from app.core.supabase_client import supabase_admin
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
+logger = logging.getLogger(__name__)
 
 # ── FAQ ────────────────────────────────────────────────────────────────────
 
@@ -186,25 +187,137 @@ async def submit_feedback(
         }
     ).execute()
 
-    zapier_url = os.environ.get("ZAPIER_WEBHOOK_URL")
-    if zapier_url:
-        try:
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    zapier_url,
-                    json={
-                        "user_id": user_id,
-                        "type": body.type,
-                        "content": (body.content or "").strip(),
-                        "app_version": body.app_version,
-                        "submitted_at": datetime.utcnow().isoformat(),
-                    },
-                    timeout=5.0,
-                )
-        except Exception:
-            pass
+    payload = {
+        "user_id": user_id,
+        "type": body.type,
+        "content": (body.content or "").strip(),
+        "app_version": body.app_version,
+        "submitted_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+    await _notify_feedback_outside_db(payload)
 
     return {"success": True, "message": "Feedback received. Thank you."}
+
+
+def _normalize_webhook_url(raw: str) -> str:
+    u = str(raw).strip()
+    if len(u) >= 2 and u[0] == u[-1] and u[0] in "\"'":
+        u = u[1:-1].strip()
+    return u
+
+
+def _feedback_webhook_urls() -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for key in (
+        "ZAPIER_WEBHOOK_URL",
+        "FEEDBACK_WEBHOOK_URL",
+        "FORMSPREE_FEEDBACK_URL",
+    ):
+        raw = os.environ.get(key)
+        if not raw:
+            continue
+        u = _normalize_webhook_url(raw)
+        if u and u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def _is_formspree_url(url: str) -> bool:
+    lower = url.lower()
+    return "formspree.io" in lower or "formspree.com" in lower
+
+
+async def _post_feedback_webhooks(payload: dict) -> None:
+    for url in _feedback_webhook_urls():
+        try:
+            async with httpx.AsyncClient() as client:
+                if _is_formspree_url(url):
+                    # Formspree expects form fields (not raw JSON) for email delivery
+                    form = {
+                        "_subject": f"[ALTER EGO] {payload.get('type', 'feedback')} feedback",
+                        "feedback_type": str(payload.get("type") or ""),
+                        "user_id": str(payload.get("user_id") or ""),
+                        "app_version": str(payload.get("app_version") or ""),
+                        "submitted_at": str(payload.get("submitted_at") or ""),
+                        "message": str(payload.get("content") or ""),
+                    }
+                    r = await client.post(
+                        url,
+                        data=form,
+                        headers={"Accept": "application/json"},
+                        timeout=12.0,
+                    )
+                else:
+                    r = await client.post(url, json=payload, timeout=12.0)
+                if r.status_code >= 400:
+                    logger.warning(
+                        "Feedback webhook HTTP %s for %s: %s",
+                        r.status_code,
+                        url[:48],
+                        (r.text or "")[:300],
+                    )
+        except Exception as e:
+            logger.warning("Feedback webhook failed for %s: %s", url[:48], e)
+
+
+async def _send_feedback_via_resend(payload: dict) -> None:
+    """Optional: set RESEND_API_KEY + FEEDBACK_NOTIFY_EMAIL (team inbox)."""
+    api_key = (os.environ.get("RESEND_API_KEY") or "").strip()
+    to_email = (os.environ.get("FEEDBACK_NOTIFY_EMAIL") or "").strip()
+    from_email = (os.environ.get("RESEND_FROM_EMAIL") or "onboarding@resend.dev").strip()
+    if not api_key or not to_email:
+        return
+    subject = f"[ALTER EGO] {payload.get('type', 'feedback')} — {payload.get('user_id', '')[:8]}…"
+    text_body = (
+        f"type: {payload.get('type')}\n"
+        f"user_id: {payload.get('user_id')}\n"
+        f"app_version: {payload.get('app_version')}\n"
+        f"submitted_at: {payload.get('submitted_at')}\n\n"
+        f"{payload.get('content', '')}"
+    )
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": from_email,
+                    "to": [to_email],
+                    "subject": subject[:998],
+                    "text": text_body,
+                },
+                timeout=15.0,
+            )
+            if r.status_code >= 400:
+                logger.warning(
+                    "Resend feedback email failed HTTP %s: %s",
+                    r.status_code,
+                    (r.text or "")[:400],
+                )
+    except Exception as e:
+        logger.warning("Resend feedback email failed: %s", e)
+
+
+async def _notify_feedback_outside_db(payload: dict) -> None:
+    webhook_urls = _feedback_webhook_urls()
+    resend_configured = bool(
+        (os.environ.get("RESEND_API_KEY") or "").strip()
+        and (os.environ.get("FEEDBACK_NOTIFY_EMAIL") or "").strip()
+    )
+    await _post_feedback_webhooks(payload)
+    await _send_feedback_via_resend(payload)
+    if not webhook_urls and not resend_configured:
+        logger.info(
+            "Feedback stored in DB; no webhook (ZAPIER_WEBHOOK_URL / FEEDBACK_WEBHOOK_URL / "
+            "FORMSPREE_FEEDBACK_URL) or Resend (RESEND_API_KEY + FEEDBACK_NOTIFY_EMAIL) — "
+            "configure one to receive email alerts."
+        )
 
 
 # ── DELETE ACCOUNT ─────────────────────────────────────────────────────────

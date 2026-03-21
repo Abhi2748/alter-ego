@@ -46,13 +46,14 @@ PET_UNLOCK_DAY = 6  # Pet unlocks on day 6 of registration (not day 7)
 
 # Both caps increase as character progresses
 # Key = character stage (1-6), Value = daily cap amount
+# REVISED — users hit Surge State (daily XP cap) more often; drives Aether after cap.
 DAILY_XP_CAPS = {
-    1: 200,
-    2: 300,
-    3: 450,
-    4: 600,
-    5: 800,
-    6: 1_000,
+    1: 100,
+    2: 150,
+    3: 200,
+    4: 280,
+    5: 380,
+    6: 500,
 }
 
 DAILY_PF_CAPS = {
@@ -177,7 +178,7 @@ MULTIDAY_PERSONAL_BONUS = 24
 
 STREAK_TIER_REQUIREMENTS = {
     "tier_1": {
-        "description": "Any 2 core missions OR 1 interest mission",
+        "description": "2 core OR 1 interest OR 3+ core+interest (no resistance requirement)",
         "core_minimum": 2,
         "interest_minimum": 0,
         "personal_minimum": 0,
@@ -320,7 +321,7 @@ ARCHETYPE_TWIN_INTRO_LINE = {
 
 # All 6 core missions — shown every day to every user
 # 5 pillars + journal. All 6 required (per product decision).
-# Journal mission auto-completes when journal entry with 50+ words is saved.
+# Journal mission auto-completes when a saved entry meets journal_rules (≈2 lines + 5 words; wrap counts).
 
 CORE_MISSIONS = [
     {
@@ -417,8 +418,6 @@ CORE_MISSIONS = [
         ),
     },
 ]
-
-JOURNAL_MIN_WORDS = 50
 
 # ── INTEREST LEVEL MAPPING ───────────────────────────────────────────────
 
@@ -567,4 +566,158 @@ INTEREST_MILESTONE_SESSIONS = {
     "sessions_200":  200,
     "sessions_365":  365,
 }
+
+# ── STAT SYSTEM ─────────────────────────────────────────────────────────
+
+STAT_LEVEL_THRESHOLDS = [
+    0,
+    150,
+    450,
+    1_000,
+    2_200,
+    4_500,
+    8_500,
+    15_000,
+    25_000,
+    40_000,
+]
+
+STAT_LEVEL_NAMES = [
+    "Dormant",
+    "Stirring",
+    "Forming",
+    "Grounded",
+    "Rising",
+    "Forged",
+    "Honed",
+    "Sovereign",
+    "Transcendent",
+    "Eternal",
+]
+
+STAT_SP_BY_DIFFICULTY = {
+    "easy": {"primary": 8, "discipline": 3},
+    "medium": {"primary": 16, "discipline": 5},
+    "hard": {"primary": 32, "discipline": 9},
+}
+
+STAT_DAILY_CAPS = {
+    "vitality": 80,
+    "focus": 80,
+    "craft": 50,
+    "discipline": 40,
+    "willpower": 80,
+}
+
+WILLPOWER_BONUS = {
+    4: 20,
+    6: 45,
+    "all": 80,
+}
+
+PILLAR_TO_STAT = {
+    "sleep": "vitality",
+    "movement": "vitality",
+    "hydration": "vitality",
+    "mindfulness": "focus",
+    "no_phone": "focus",
+    "journal": "focus",
+}
+
+MISSION_TYPE_TO_STAT = {
+    "interest": "craft",
+    "personal": "willpower",
+    "resistance": "discipline",
+    "recovery": "discipline",
+    "core": "discipline",
+}
+
+
+def resolve_stat_tag(core_pillar: str | None, mission_type: str) -> str:
+    """Pillar wins when set on core missions; otherwise map by mission type."""
+    p = (core_pillar or "").strip().lower().replace("-", "_")
+    if p in PILLAR_TO_STAT:
+        return PILLAR_TO_STAT[p]
+    mt = (mission_type or "core").lower()
+    return MISSION_TYPE_TO_STAT.get(mt, "discipline")
+
+
+# ── SIGIL / AETHER SYSTEM ────────────────────────────────────────────────────
+
+SIGIL_LEVEL_THRESHOLDS = [
+    0,
+    300,
+    900,
+    2_100,
+    4_500,
+    9_000,
+    16_500,
+    28_000,
+    45_000,
+    70_000,
+]
+
+SIGIL_LEVEL_NAMES = [
+    "The Ember",
+    "The Fracture",
+    "The Current",
+    "The Vortex",
+    "The Convergence",
+    "The Resonance",
+    "The Dominion",
+    "The Ascendancy",
+    "The Absolute",
+    "The Eternal Flame",
+]
+
+AETHER_PER_MISSION = {
+    "easy": 10,
+    "medium": 20,
+    "hard": 40,
+}
+
+AETHER_ALL_COMPLETE_BONUS = 30
+
+
+def get_sigil_level(total_aether: int) -> int:
+    level = 1
+    for i, threshold in enumerate(SIGIL_LEVEL_THRESHOLDS):
+        if total_aether >= threshold:
+            level = i + 1
+        else:
+            break
+    return min(level, 10)
+
+
+def get_sigil_progress(total_aether: int) -> dict:
+    """Progress within current sigil level (for API / Sigil screen)."""
+    level = get_sigil_level(total_aether)
+    name = SIGIL_LEVEL_NAMES[level - 1]
+
+    if level >= 10:
+        return {
+            "level": 10,
+            "name": "The Eternal Flame",
+            "aether_total": total_aether,
+            "aether_in_level": total_aether - SIGIL_LEVEL_THRESHOLDS[9],
+            "aether_for_next": SIGIL_LEVEL_THRESHOLDS[9],
+            "aether_needed": 0,
+            "progress_percent": 100.0,
+        }
+
+    current_threshold = SIGIL_LEVEL_THRESHOLDS[level - 1]
+    next_threshold = SIGIL_LEVEL_THRESHOLDS[level]
+    aether_in_level = total_aether - current_threshold
+    level_range = next_threshold - current_threshold
+    progress_percent = round((aether_in_level / level_range) * 100, 1) if level_range else 0.0
+
+    return {
+        "level": level,
+        "name": name,
+        "aether_total": total_aether,
+        "aether_in_level": aether_in_level,
+        "aether_for_next": next_threshold,
+        "aether_needed": level_range - aether_in_level,
+        "progress_percent": min(progress_percent, 99.9),
+    }
 

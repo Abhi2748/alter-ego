@@ -34,6 +34,8 @@ import { PetAnimation } from "../components/PetAnimation";
 import type { ProfileStackParamList } from "../navigation/types";
 import { useUserStore } from "@/store/userStore";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
+import { SigilMiniPreview } from "@/components/sigil/SigilMiniPreview";
+import { useSigilData } from "@/hooks/useSigil";
 
 const ARCHETYPE_DISPLAY: Record<string, string> = {
   restless_creator: "The Restless Creator",
@@ -48,12 +50,21 @@ type Nav = CompositeNavigationProp<
   StackNavigationProp<ProfileStackParamList>
 >;
 
-function StatsIcon() {
+function AbilitiesIcon() {
   return (
     <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
-      <Rect x={1} y={10} width={4} height={7} rx={1} fill="#6D28D9" opacity={0.5} />
-      <Rect x={7} y={6} width={4} height={11} rx={1} fill="#6D28D9" opacity={0.75} />
-      <Rect x={13} y={2} width={4} height={15} rx={1} fill="#8B5CF6" />
+      <Path
+        d="M9 1.5L14.5 5.25V12.75L9 16.5L3.5 12.75V5.25L9 1.5Z"
+        stroke="#8B5CF6"
+        strokeWidth={1.4}
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M9 6.5V11.5M6.5 9H11.5"
+        stroke="#A78BFA"
+        strokeWidth={1.2}
+        strokeLinecap="round"
+      />
     </Svg>
   );
 }
@@ -125,7 +136,7 @@ const NAV_ENTRIES: {
   label: string;
   Icon: React.FC;
 }[] = [
-  { key: "ProfileStats", label: "Stats", Icon: StatsIcon },
+  { key: "ProfileAbilities", label: "Abilities", Icon: AbilitiesIcon },
   { key: "ProfileStreak", label: "Streak", Icon: StreakIcon },
   { key: "ProfileIdentity", label: "Journey", Icon: JourneyIcon },
   { key: "ProfileInterests", label: "Interests", Icon: InterestsIcon },
@@ -179,6 +190,14 @@ export function ProfileScreen() {
   const openMailInbox = () => {
     (navigation.getParent() as any)?.navigate("MailInbox");
   };
+
+  const openSigil = () => {
+    const tabNav = (navigation as any).getParent?.()?.getParent?.();
+    tabNav?.navigate("Sigil");
+  };
+
+  const { data: sigilData } = useSigilData();
+  const sigilPreviewLevel = sigilData?.sigil_level ?? 1;
 
   const openEntry = (screen: keyof Omit<ProfileStackParamList, "ProfileMain">) => {
     navigation.navigate(screen);
@@ -236,6 +255,15 @@ export function ProfileScreen() {
                 </LinearGradient>
               )}
               <View style={{ flex: 1 }} />
+              <Pressable
+                onPress={openSigil}
+                style={[styles.settingsBtn, { marginRight: 4 }]}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Open Aether sigil"
+              >
+                <SigilMiniPreview level={sigilPreviewLevel} size={24} />
+              </Pressable>
               <Pressable
                 onPress={openMailInbox}
                 style={styles.settingsBtn}

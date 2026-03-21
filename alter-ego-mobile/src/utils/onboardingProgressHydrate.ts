@@ -28,17 +28,27 @@ const QUESTION_KEYS: Record<number, string> = {
   13: "q13_hours",
 };
 
-/** Same mapping as OnboardingQuestionScreen — UI label → API scoring value. */
+/**
+ * Same mapping as OnboardingQuestionScreen — UI label → API scoring value.
+ * For labels that share one API value, list the current copy first so resume
+ * hydration shows the latest wording.
+ */
 const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
   q4_situation: {
     "Grinding hard but staying inconsistent": "overwhelmed",
     "Starting completely fresh": "rebuilding",
     "Trying to quit something that's holding me back": "stuck",
     "Looking to become a better version of myself": "ambitious",
+    "I'm in a solid season — I want to sharpen my edge and keep winning":
+      "competitive",
+    "I've always been competitive and want to win this": "competitive",
   },
   q5_reason: {
     "I keep failing at habits and I'm tired of it": "escape_habit",
     "I want to become someone genuinely different": "prove_to_self",
+    "I want to prove to others that I can do this": "prove_to_others",
+    "I want to build something meaningful for my future": "build_something",
+    "I want to level up and perform better": "level_up",
     "I need to quit something for good": "escape_habit",
     "Someone showed me this": "level_up",
   },
@@ -47,29 +57,40 @@ const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
     "Dive straight in and figure it out": "jump_in",
     "Put it off until I can't anymore": "depends_on_mood",
     "Break it into the smallest possible steps": "research_first",
+    "First I set up accountability — a check-in, partner, or hard deadline":
+      "need_accountability",
+    "I need accountability to stay consistent": "need_accountability",
   },
   q7_recovery: {
     "Feel guilty and spiral further": "guilt_spiral",
     "Shake it off and start again": "restart_immediately",
     "Use it as fuel to come back harder": "restart_immediately",
     "Pretend it didn't happen and move on": "need_time",
+    "I lock in harder so I don't miss again": "dont_miss",
   },
   q8_motivation: {
     "I could see the progress happening": "internal_standards",
     "I didn't want to let myself down": "fear_of_regret",
     "It was genuinely enjoyable": "curiosity",
     "Someone was counting on me": "external_validation",
+    "Competing with others kept me sharp": "competition",
   },
   q9_autonomy: {
     "Appreciate the structure — it helps": "guidance_welcome",
     "Feel a little annoyed by it": "full_control",
     "Depends entirely on who's telling me": "flexible",
+    "I work best with a clear structure and plan": "structured_plan",
+    "Fine by me — I do better when they stay involved and check I'm executing":
+      "accountability_partner",
+    "I need someone to check in and keep me accountable": "accountability_partner",
     "Tune it out almost automatically": "full_control",
   },
   q10_comparison: {
     "I love it — competition drives me": "drives_me",
     "Indifferent — I don't think about it": "dont_care",
     "Mildly motivating when I'm ahead": "motivates_briefly",
+    "Comparisons usually make me uncomfortable": "uncomfortable",
+    "I use comparison as a benchmark to improve": "use_as_benchmark",
     "I'd rather just run my own race": "dont_care",
   },
 };

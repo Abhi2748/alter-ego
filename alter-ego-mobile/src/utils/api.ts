@@ -347,14 +347,24 @@ export async function getTwinComparison(
   const twin = raw?.twin ?? {};
   const gap = raw?.gap ?? {};
 
-  const missions = Array.isArray(user?.missions_today) ? user.missions_today : [];
-  const twinActs: TwinActivity[] = missions.map((m: any) => ({
-    mission_title: String(m?.title ?? ""),
-    mission_type: (m?.type as "core" | "focus" | "personal") ?? "core",
-    difficulty: (m?.difficulty as "Easy" | "Medium" | "Hard") ?? "Easy",
-    xp_earned: Number(m?.xp_value ?? m?.xp_earned_today ?? 0) || 0,
-    completed_at: m?.completed ? new Date().toISOString() : null,
-  }));
+  const timeline = Array.isArray(raw?.twin_timeline) ? raw.twin_timeline : [];
+  const twinActs: TwinActivity[] = timeline.length
+    ? timeline.map((row: any) => {
+        const d = String(row?.difficulty ?? "medium").toLowerCase();
+        const difficulty: TwinActivity["difficulty"] =
+          d === "easy" ? "Easy" : d === "hard" || d === "elite" ? "Hard" : "Medium";
+        const mt = String(row?.mission_type ?? "core").toLowerCase();
+        const mission_type: TwinActivity["mission_type"] =
+          mt === "interest" ? "focus" : mt === "personal" ? "personal" : "core";
+        return {
+          mission_title: String(row?.mission_title ?? ""),
+          mission_type,
+          difficulty,
+          xp_earned: Number(row?.xp_earned ?? 0) || 0,
+          completed_at: row?.completed_at ? String(row.completed_at) : null,
+        };
+      })
+    : [];
 
   return {
     user_xp: Number(user?.total_xp ?? 0) || 0,
@@ -369,7 +379,7 @@ export async function getTwinComparison(
     twin_power_score: null,
     current_gap_state: String(gap?.gap_state ?? ""),
     gap_line: "",
-    strip_message: null,
+    strip_message: (raw?.strip_message as string | null) ?? null,
     gap_days: Number(gap?.days_user_ahead ?? 0),
     username: user?.username ?? null,
     twin_today_activities: twinActs,
@@ -522,13 +532,13 @@ export async function saveJournal(
   payload: JournalSavePayload
 ): Promise<JournalSaveOut> {
   if (apiMock) return apiMock.saveJournal(accessToken, payload);
-  const res = await fetch(`${BASE}/api/v1/journal`, {
+  const res = await fetch(`${BASE}/api/v1/missions/journal/save`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ content: payload.content, date: payload.date ?? "" }),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -553,7 +563,7 @@ export async function getJournalEntries(
   const qs = params.toString();
   if (apiMock)
     return apiMock.getJournalEntries(accessToken, fromDate, toDate, limit ?? undefined);
-  const url = `${BASE}/api/v1/journal${qs ? `?${qs}` : ""}`;
+  const url = `${BASE}/api/v1/missions/journal${qs ? `?${qs}` : ""}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {
     const text = await res.text();

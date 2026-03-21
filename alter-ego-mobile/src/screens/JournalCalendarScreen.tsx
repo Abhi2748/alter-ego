@@ -11,7 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { Platform } from "react-native";
-import { getJournalEntries } from "../utils/journalStore";
+import { useJournalList } from "@/hooks/useJournal";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const TEXT_PRIMARY = "#E5E7EB";
@@ -43,15 +43,18 @@ export function JournalCalendarScreen() {
   const navigation = useNavigation();
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
-  const [entriesByDate, setEntriesByDate] = useState<Map<string, { id: string }>>(new Map());
+  const { data, refetch } = useJournalList();
+
+  const entriesByDate = useMemo(() => {
+    const map = new Map<string, { id: string }>();
+    (data?.entries ?? []).forEach((e) => map.set(e.date, { id: e.id }));
+    return map;
+  }, [data?.entries]);
 
   useFocusEffect(
     useCallback(() => {
-      const entries = getJournalEntries();
-      const map = new Map<string, { id: string }>();
-      entries.forEach((e) => map.set(e.date, { id: e.id }));
-      setEntriesByDate(map);
-    }, [])
+      refetch();
+    }, [refetch])
   );
 
   const monthLabel = useMemo(() => {
@@ -91,7 +94,11 @@ export function JournalCalendarScreen() {
     if (entry) {
       (navigation as any).navigate("JournalEditor", { entry_id: entry.id, read_only: true });
     } else if (dateStr === todayKey) {
-      (navigation as any).navigate("JournalEditor", { entry_id: null, read_only: false });
+      (navigation as any).navigate("JournalEditor", {
+        entry_id: null,
+        read_only: false,
+        mission_date: dateStr,
+      });
     }
     // past day, no entry: no action
   };

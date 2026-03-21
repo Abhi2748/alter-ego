@@ -28,6 +28,13 @@ All of these iterate users hourly and filter by **that user’s** local time (in
 
 **Midnight–1:00 local:** If the user opens the app before 1:00, `GET /api/v1/missions/today` still creates today’s missions on demand.
 
+## Shadow Twin (comparison + strip)
+
+- **Scheduled:** `twin_simulation_job` runs at **local hour 1** (same window as mission reset). It runs `simulate_twin_day`, writes **`twin_daily_record`** for that calendar day, updates **`twin_state`** (XP, gap, streak), then **`update_strip_message`**.
+- **On demand (day 1+ any time):** `GET /api/v1/twin/state` and `GET /api/v1/twin/strip` call **`ensure_twin_simulated_for_today`**. If there is **no** `twin_daily_record` row for the user’s **local today**, the server runs **`simulate_twin_day` once** (same logic as the job). Simulation is **idempotent per day**: a second run the same calendar day does **not** double-apply twin XP.
+- **Strip text in Supabase:** New users get an initial **`twin_state.strip_message`** at onboarding (tone-matched). If it is still empty (legacy rows), **`get_twin_state`** triggers **`update_strip_message`** once.
+- **Twin Comparison timeline:** Built from **`twin_daily_record.completed_mission_ids`** → mission titles/XP (`build_twin_day_timeline`). Display times are spread between the user’s local **06:00** and **min(now, 21:30)** on that calendar day so nothing appears in the future. Returned on **`GET /api/v1/twin/state`** as **`twin_timeline`** plus **`strip_message`**.
+
 ## Mission sync (interests & quit targets)
 
 - **`sync_today_planner_missions`** (`app/services/mission_service.py`) runs from **`GET /api/v1/missions/today`** (and the daily reset path uses it too).

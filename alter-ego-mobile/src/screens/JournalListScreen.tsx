@@ -12,18 +12,18 @@ import {
   Pressable,
   Modal,
   Platform,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import {
-  getJournalEntries,
-  toggleBookmark as storeToggleBookmark,
-  subscribe as storeSubscribe,
-  type JournalEntry,
-} from "../utils/journalStore";
+import { useJournalList, useSaveJournal } from "@/hooks/useJournal";
+import { useTodayMissions } from "@/hooks/useMissions";
+import type { JournalApiEntry } from "@/services/missions";
+import { getErrorMessage } from "@/services/api";
 
 // Design tokens — spec §1
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
@@ -79,22 +79,34 @@ type Filter = "all" | "bookmarked" | "month";
 export function JournalListScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [entries, setEntries] = useState<JournalEntry[]>(() => getJournalEntries());
+  const { data, isLoading, isError, refetch } = useJournalList();
+  const { data: todayMissions } = useTodayMissions();
+  const { mutateAsync: persistJournal } = useSaveJournal();
+  const entries = data?.entries ?? [];
   const [filter, setFilter] = useState<Filter>("all");
   const [menuVisible, setMenuVisible] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      setEntries(getJournalEntries());
-      const unsub = storeSubscribe(() => setEntries(getJournalEntries()));
-      return unsub;
-    }, [])
+      refetch();
+    }, [refetch])
   );
 
-  const toggleBookmark = useCallback((id: string) => {
-    storeToggleBookmark(id);
-    setEntries(getJournalEntries());
-  }, []);
+  const toggleBookmark = useCallback(
+    async (entry: JournalApiEntry) => {
+      try {
+        await persistJournal({
+          content: entry.content,
+          date: entry.date,
+          title: entry.title,
+          bookmarked: !entry.bookmarked,
+        });
+      } catch (e) {
+        Alert.alert("Couldn't update bookmark", getErrorMessage(e));
+      }
+    },
+    [persistJournal]
+  );
 
   const filtered = useMemo(() => {
     const today = dateToKey(new Date());
@@ -188,7 +200,21 @@ export function JournalListScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
         showsVerticalScrollIndicator={false}
       >
-        {grouped.length === 0 ? (
+        {isLoading && entries.length === 0 ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator color={VIOLET} />
+            <Text style={styles.loadingText}>Loading your journal…</Text>
+          </View>
+        ) : null}
+        {isError ? (
+          <View style={styles.loadingWrap}>
+            <Text style={styles.errorText}>Couldn't load journal.</Text>
+            <Pressable onPress={() => refetch()} style={styles.retryPress}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {!isLoading && !isError && grouped.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Ionicons name="journal-outline" size={48} color="#1E2333" />
             <Text style={styles.emptyTitle}>No entries yet</Text>
@@ -197,7 +223,7 @@ export function JournalListScreen() {
               <Text style={styles.emptyPrivacy}>Your journal is private. Only you can see it.</Text>
             )}
           </View>
-        ) : (
+        ) : !isError ? (
           grouped.map(({ label, items }) => (
             <View key={label}>
               <Text style={styles.groupLabel}>{label}</Text>
@@ -225,7 +251,7 @@ export function JournalListScreen() {
                         {entry.title || "Untitled"}
                       </Text>
                       <Pressable
-                        onPress={() => toggleBookmark(entry.id)}
+                        onPress={() => toggleBookmark(entry)}
                         hitSlop={8}
                         style={styles.bookmarkBtn}
                       >
@@ -248,7 +274,7 @@ export function JournalListScreen() {
               ))}
             </View>
           ))
-        )}
+        ) : null}
       </ScrollView>
 
       {/* FAB — spec §2.5 */}
@@ -487,4 +513,14 @@ const styles = StyleSheet.create({
   },
   menuItemLast: { borderBottomWidth: 0 },
   menuItemText: { fontSize: 14, fontWeight: "500", color: TEXT_PRIMARY },
+  loadingWrap: {
+    paddingTop: 48,
+    paddingBottom: 24,
+    alignItems: "center",
+    gap: 12,
+  },
+  loadingText: { fontSize: 13, color: MUTED },
+  errorText: { fontSize: 14, color: TEXT_PRIMARY, textAlign: "center" },
+  retryPress: { paddingVertical: 10, paddingHorizontal: 16 },
+  retryText: { fontSize: 14, fontWeight: "600", color: VIOLET },
 });

@@ -1,9 +1,8 @@
 /**
- * Journal Editor — Full-screen editor with large title + body. Spec §3.
- * Params: entry_id (string | null), read_only (boolean).
+ * Journal Editor — loads/saves via API. Mission completes when entry meets length rules (server + client aligned).
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -14,6 +13,7 @@ import {
   Platform,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -21,12 +21,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import type { MainStackParamList } from "../navigation/types";
+import { useTodayMissions } from "@/hooks/useMissions";
+import { useJournalEntry, useSaveJournal } from "@/hooks/useJournal";
 import {
-  getJournalEntry,
-  createOrUpdateEntry,
-  toggleBookmark as storeToggleBookmark,
-  type JournalEntry,
-} from "../utils/journalStore";
+  combinedJournalText,
+  effectiveLineCount,
+  journalMeetsSaveMinimum,
+} from "@/utils/journalValidation";
+import { getErrorMessage } from "@/services/api";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const TEXT_PRIMARY = "#E5E7EB";
@@ -48,83 +50,107 @@ function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function lineCount(text: string): number {
-  const lines = text.split(/\n/).filter((l) => l.trim().length > 0);
-  if (lines.length > 0) return lines.length;
-  return text.trim().length > 0 ? 1 : 0;
-}
-
 export function JournalEditorScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const route = useRoute<RouteProp<MainStackParamList, "JournalEditor">>();
-  const { entry_id, read_only } = route.params ?? { entry_id: null as string | null, read_only: false };
+  const { entry_id, read_only, mission_date: routeMissionDate } = route.params ?? {
+    entry_id: null as string | null,
+    read_only: false,
+  };
 
-  const [entry, setEntry] = useState<JournalEntry | null>(null);
+  const { data: todayData } = useTodayMissions();
+  const calendarDate =
+    routeMissionDate ?? todayData?.date ?? dateToKey(new Date());
+
+  const {
+    data: remoteEntry,
+    isLoading: loadingEntry,
+    isError: loadError,
+    refetch: refetchEntry,
+  } = useJournalEntry(entry_id);
+
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [bookmarked, setBookmarked] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
-  const bodyRef = useRef<TextInput>(null);
+  const { mutateAsync: saveJournal, isPending: saving } = useSaveJournal();
 
-  const dateStr = entry?.date ?? dateToKey(new Date());
-  const wordCount = countWords(title + " " + content);
-  const bodyLines = lineCount(content);
-  const canSave = !read_only && (title.trim().length > 0 || content.trim().length > 0) && bodyLines >= 2;
+  const dateStr = remoteEntry?.date ?? calendarDate;
+  const combined = useMemo(() => combinedJournalText(title, content), [title, content]);
+  const effectiveLines = useMemo(() => effectiveLineCount(combined), [combined]);
+  const wordCount = useMemo(() => countWords(combined), [combined]);
+  const canSave =
+    !read_only && journalMeetsSaveMinimum(title, content) && !saving;
 
   useEffect(() => {
-    if (entry_id) {
-      const e = getJournalEntry(entry_id);
-      if (e) {
-        setEntry(e);
-        setTitle(e.title || "");
-        setContent(e.content || "");
-        setBookmarked(e.bookmarked);
-      } else {
-        setEntry(null);
-        setTitle("");
-        setContent("");
-        setBookmarked(false);
-      }
-    } else {
-      setEntry(null);
+    if (!entry_id) {
       setTitle("");
       setContent("");
       setBookmarked(false);
     }
-  }, [entry_id]);
+  }, [entry_id, calendarDate]);
+
+  useEffect(() => {
+    if (entry_id && remoteEntry) {
+      setTitle(remoteEntry.title ?? "");
+      setContent(remoteEntry.content ?? "");
+      setBookmarked(!!remoteEntry.bookmarked);
+    }
+  }, [entry_id, remoteEntry]);
 
   const handleSave = useCallback(async () => {
     if (!canSave || saving) return;
-    setSaving(true);
-    setSaveStatus("idle");
     try {
-      createOrUpdateEntry(entry_id, dateStr, title.trim(), content.trim(), bookmarked);
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 1500);
+      await saveJournal({
+        content: content.trim(),
+        date: dateStr,
+        title: title.trim(),
+        bookmarked,
+      });
+      // useSaveJournal invalidates today's missions — Home updates when you return.
       navigation.goBack();
-    } catch {
-      setSaveStatus("error");
-      Alert.alert("Couldn't save", "Try again.");
-    } finally {
-      setSaving(false);
+    } catch (e) {
+      Alert.alert("Couldn't save", getErrorMessage(e));
     }
-  }, [canSave, saving, entry_id, dateStr, title, content, bookmarked, navigation]);
+  }, [canSave, saving, saveJournal, content, dateStr, title, bookmarked, navigation]);
 
   const toggleBookmark = useCallback(() => {
-    if (entry_id) {
-      storeToggleBookmark(entry_id);
-      setBookmarked((prev) => !prev);
-    } else {
-      setBookmarked((prev) => !prev);
-    }
-  }, [entry_id]);
+    if (read_only) return;
+    setBookmarked((prev) => !prev);
+  }, [read_only]);
 
   const todayKey = dateToKey(new Date());
-  const headerTitle =
-    entry && entry.date !== todayKey ? formatHeaderDate(entry.date) : "Today's Journal";
+  const headerTitle = dateStr === todayKey ? "Today's Journal" : formatHeaderDate(dateStr);
   const headerDateStr = formatHeaderDate(dateStr);
+
+  if (entry_id && loadingEntry) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient colors={BG_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+        <View style={[styles.centered, { paddingTop: insets.top }]}>
+          <ActivityIndicator color={VIOLET} />
+          <Text style={styles.loadHint}>Loading entry…</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (entry_id && loadError) {
+    return (
+      <View style={styles.container}>
+        <LinearGradient colors={BG_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
+        <View style={[styles.centered, { paddingTop: insets.top, paddingHorizontal: 24 }]}>
+          <Text style={styles.errorTitle}>Couldn't load journal</Text>
+          <Pressable onPress={() => refetchEntry()} style={styles.retryBtn}>
+            <Text style={styles.retryBtnText}>Retry</Text>
+          </Pressable>
+          <Pressable onPress={() => navigation.goBack()} style={styles.retryBtn}>
+            <Text style={[styles.retryBtnText, { color: MUTED }]}>Go back</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -140,7 +166,7 @@ export function JournalEditorScreen() {
             <Text style={styles.headerDate}>{headerDateStr}</Text>
           </View>
           <View style={styles.headerRight}>
-            <Pressable onPress={toggleBookmark} style={styles.headerBtn} hitSlop={8}>
+            <Pressable onPress={toggleBookmark} style={styles.headerBtn} hitSlop={8} disabled={read_only}>
               <Ionicons name={bookmarked ? "bookmark" : "bookmark-outline"} size={18} color={bookmarked ? VIOLET : DIM} />
             </Pressable>
             {!read_only && (
@@ -149,7 +175,9 @@ export function JournalEditorScreen() {
                 disabled={!canSave}
                 style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
               >
-                <Text style={[styles.saveBtnText, !canSave && styles.saveBtnTextDisabled]}>Save</Text>
+                <Text style={[styles.saveBtnText, !canSave && styles.saveBtnTextDisabled]}>
+                  {saving ? "…" : "Save"}
+                </Text>
               </Pressable>
             )}
           </View>
@@ -186,7 +214,6 @@ export function JournalEditorScreen() {
               />
               <View style={styles.divider} />
               <TextInput
-                ref={bodyRef}
                 style={styles.bodyInput}
                 value={content}
                 onChangeText={setContent}
@@ -196,25 +223,27 @@ export function JournalEditorScreen() {
                 textAlignVertical="top"
                 scrollEnabled={false}
               />
-              {bodyLines < 2 && (
-                <Text style={styles.minLines}>{bodyLines} / 2 lines minimum</Text>
-              )}
+              {!journalMeetsSaveMinimum(title, content) && (title.trim().length > 0 || content.trim().length > 0) ? (
+                <Text style={styles.minLines}>
+                  {effectiveLines} / 2 lines · {wordCount} / 5 words minimum (wrapped text counts as multiple lines)
+                </Text>
+              ) : null}
               <Text style={styles.wordCount}>{wordCount} words</Text>
             </>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-      {saveStatus === "saved" && (
-        <View style={[styles.statusWrap, { top: insets.top + 50 }]}>
-          <Text style={styles.statusText}>Saved ✓</Text>
-        </View>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  centered: { flex: 1, justifyContent: "center", alignItems: "center", gap: 16 },
+  loadHint: { fontSize: 14, color: MUTED, marginTop: 8 },
+  errorTitle: { fontSize: 16, color: TEXT_PRIMARY, textAlign: "center", marginBottom: 8 },
+  retryBtn: { paddingVertical: 12, paddingHorizontal: 20 },
+  retryBtnText: { fontSize: 15, fontWeight: "600", color: VIOLET },
   header: {
     paddingBottom: 12,
     paddingHorizontal: 16,
@@ -301,13 +330,4 @@ const styles = StyleSheet.create({
   },
   minLines: { fontSize: 10, color: VERY_DIM, textAlign: "right", marginTop: 4 },
   wordCount: { fontSize: 10, color: VERY_DIM, textAlign: "right", marginTop: 4 },
-  statusWrap: {
-    position: "absolute",
-    alignSelf: "center",
-    backgroundColor: "rgba(20,24,36,0.9)",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  statusText: { fontSize: 13, color: VIOLET, fontWeight: "600" },
 });

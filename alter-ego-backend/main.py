@@ -8,6 +8,8 @@ from app.api.onboarding import router as onboarding_router
 from app.api.profile import router as profile_router
 from app.api.reports import router as reports_router
 from app.api.settings import router as settings_router
+from app.api.sigil import router as sigil_router
+from app.api.stats import router as stats_router
 from app.api.twin import router as twin_router
 from app.core.scheduler import setup_scheduler
 
@@ -23,6 +25,8 @@ app.include_router(reports_router)
 app.include_router(mail_router)
 app.include_router(profile_router)
 app.include_router(settings_router)
+app.include_router(stats_router)
+app.include_router(sigil_router)
 
 
 @app.on_event("startup")

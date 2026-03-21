@@ -1,7 +1,7 @@
 """
 Streak calculation with progressive tier system.
 
-Tier 1 (default): any 2 core missions OR 1 interest mission
+Tier 1 (default): 2 core OR 1 interest OR 3+ among core+interest (resistance excluded)
 Tier 2 (character stage 2 reached): 4 core + 1 interest
 Tier 3 (30-day streak hit for first time): all 5 core missions
 Tier 4 (60-day streak hit for first time): all 5 core + 1 interest + 1 personal
@@ -38,7 +38,13 @@ def evaluate_streak_requirement(completed_missions: list[dict], streak_tier: str
     personal_done = sum(1 for m in completed_missions if m.get("type") == "personal" and m.get("completed"))
 
     if req.get("core_or_interest"):
-        return core_done >= req["core_minimum"] or interest_done >= 1
+        # Do not require resistance — users without quit targets would never streak.
+        pillar_done = core_done + interest_done
+        return (
+            core_done >= req["core_minimum"]
+            or interest_done >= 1
+            or pillar_done >= 3
+        )
 
     return (
         core_done >= req["core_minimum"]

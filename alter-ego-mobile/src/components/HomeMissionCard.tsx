@@ -16,6 +16,7 @@ import Animated, {
   runOnJS,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { STATS, type StatKey } from "@/constants/stats";
 
 export type HomeMissionType = "core" | "interest" | "personal" | "recovery" | "resistance";
 export type HomeMissionDifficulty = "Easy" | "Medium" | "Hard";
@@ -97,8 +98,10 @@ export interface HomeMissionCardProps {
   quitTargetName?: string;
   /** Resistance only: day counter e.g. 23. */
   dayCounter?: number;
-  /** Personal missions only: long-press to delete (500ms). */
+  /** Optional long-press (e.g. alternate affordance). */
   onLongPress?: () => void;
+  /** Character stat this mission feeds (symbol in meta row). */
+  statKey?: StatKey;
 }
 
 export function HomeMissionCard({
@@ -117,6 +120,7 @@ export function HomeMissionCard({
   quitTargetName,
   dayCounter,
   onLongPress,
+  statKey,
 }: HomeMissionCardProps) {
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -193,7 +197,11 @@ export function HomeMissionCard({
           ? "Core"
           : missionType === "personal"
             ? "Personal"
-            : "Recovery";
+            : missionType === "interest"
+              ? "Interest"
+              : missionType === "resistance"
+                ? "Resistance"
+                : "Recovery";
   const difficultyTextColor = DIFFICULTY_TEXT_COLOR[difficulty];
 
   return (
@@ -254,6 +262,22 @@ export function HomeMissionCard({
               </View>
               <Text style={styles.xpMeta}>★ {xpValue}</Text>
               <Text style={styles.pfMeta}>🌿 {petFoodValue}</Text>
+              {statKey ? (
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "800",
+                    color: STATS[statKey].color,
+                    textShadowColor: STATS[statKey].glowColor,
+                    textShadowOffset: { width: 0, height: 0 },
+                    textShadowRadius: 6,
+                    lineHeight: 16,
+                    fontFamily: "Inter_800ExtraBold",
+                  }}
+                >
+                  {STATS[statKey].symbol}
+                </Text>
+              ) : null}
             </View>
           </View>
           <View style={styles.rightBlock}>

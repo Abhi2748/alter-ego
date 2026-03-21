@@ -196,6 +196,23 @@ async def send_app_mail(
 
 
 async def send_welcome_mail_sequence(user_id: str) -> None:
+    """
+    Idempotent: onboarding complete may run more than once (retries / double submit).
+    Only one welcome mail per user.
+    """
+    try:
+        existing = (
+            supabase_admin.table("app_mails")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("mail_type", "welcome")
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            return
+    except Exception as e:
+        logger.warning("send_welcome_mail_sequence: could not check existing welcome: %s", e)
     await send_app_mail(user_id, "welcome")
 
 

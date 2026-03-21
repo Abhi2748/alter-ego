@@ -511,6 +511,14 @@ async def complete_onboarding(user_id: str) -> dict:
     try:
         existing = supabase_admin.table("twin_state").select("user_id").eq("user_id", user_id).execute()
         if not existing.data:
+            from app.services.strip_message_service import get_strip_message
+
+            _dna_tone = get_initial_dna(archetype_key)
+            _tone = str(_dna_tone.get("twin_tone_type", "rival")).lower()
+            if _tone not in ("rival", "philosopher", "silent_force"):
+                _tone = "rival"
+            _day_one_strip = get_strip_message("neck_and_neck", _tone, None, "you")
+
             supabase_admin.table("twin_state").insert(
                 {
                     "user_id": user_id,
@@ -522,7 +530,7 @@ async def complete_onboarding(user_id: str) -> dict:
                     "twin_streak": 0,
                     "current_gap_state": "neck_and_neck",
                     "consistency_ceiling": TWIN_INITIAL_CONSISTENCY,
-                    "strip_message": None,
+                    "strip_message": _day_one_strip,
                 }
             ).execute()
     except Exception as e:

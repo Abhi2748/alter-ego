@@ -13,13 +13,13 @@ import {
   Platform,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { LinearGradient } from "expo-linear-gradient";
-import MaskedView from "@react-native-masked-view/masked-view";
 import Svg, {
   Circle,
   Defs,
   LinearGradient as SvgLinearGradient,
+  RadialGradient as SvgRadialGradient,
   Stop as SvgStop,
+  Text as SvgText,
 } from "react-native-svg";
 import Animated, {
   Easing,
@@ -39,6 +39,7 @@ import {
 } from "@/constants/streakAnimationTiers";
 import { StreakOrnament } from "@/components/streak/StreakOrnament";
 import { BloomRadialGlow } from "@/components/streak/BloomRadialGlow";
+import { parseRgba, rgbaToRgb } from "@/components/streak/parseRgba";
 
 const STAGE_W = 360;
 const STAGE_H = 460;
@@ -57,31 +58,37 @@ type Props = {
 function SealRing({
   size,
   tier,
-  gradId,
+  innerGradId,
 }: {
   size: number;
   tier: ReturnType<typeof getStreakVisualTier>;
-  gradId: string;
+  innerGradId: string;
 }) {
   const c = tier.ringColor;
-  const ic = tier.ringInnerColor;
+  const ic = parseRgba(tier.ringInnerColor);
+  const icRgb = rgbaToRgb(ic);
   const r1 = size / 2 - 4;
   const r2 = size / 2 - 16;
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <Defs>
-        <SvgLinearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
-          {tier.numGradient.map((col, i, arr) => (
-            <SvgStop
-              key={i}
-              offset={`${(i / Math.max(1, arr.length - 1)) * 100}%`}
-              stopColor={col}
-            />
-          ))}
-        </SvgLinearGradient>
+        <SvgRadialGradient id={innerGradId} cx="50%" cy="44%" r="68%">
+          <SvgStop offset="0%" stopColor={icRgb} stopOpacity={Math.min(1, ic.a * 1.8)} />
+          <SvgStop offset="42%" stopColor={icRgb} stopOpacity={ic.a * 0.45} />
+          <SvgStop offset="78%" stopColor={icRgb} stopOpacity={ic.a * 0.08} />
+          <SvgStop offset="100%" stopColor={icRgb} stopOpacity={0} />
+        </SvgRadialGradient>
       </Defs>
       <Circle cx={size / 2} cy={size / 2} r={r1} fill="none" stroke={c} strokeWidth={1.5} opacity={0.8} />
-      <Circle cx={size / 2} cy={size / 2} r={r2} fill={ic} stroke={c} strokeWidth={0.6} opacity={0.5} />
+      <Circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r2}
+        fill={`url(#${innerGradId})`}
+        stroke={c}
+        strokeWidth={0.6}
+        opacity={0.92}
+      />
       {[0, 90, 180, 270].map((deg) => {
         const a = (deg * Math.PI) / 180 - Math.PI / 2;
         const mx = size / 2 + (r1 - 1) * Math.cos(a);
@@ -101,7 +108,9 @@ function SealRing({
 export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Props) {
   const { width: winW, height: winH } = useWindowDimensions();
   const tier = useMemo(() => getStreakVisualTier(streakCount), [streakCount]);
-  const gradId = useMemo(() => `sealGrad_${streakCount}`, [streakCount]);
+  const innerSealGradId = useMemo(() => `seal_inner_${streakCount}`, [streakCount]);
+  const numLinearGradId = useMemo(() => `streak_num_grad_${streakCount}`, [streakCount]);
+  const glowRgb = useMemo(() => parseRgba(tier.glowColor), [tier.glowColor]);
   const layoutScale = Math.min((winW * 0.92) / STAGE_W, (winH * 0.72) / STAGE_H, 1.12);
   const bloomGradId = useMemo(() => `bloom_${streakCount}_${tier.bloomSize}`, [streakCount, tier.bloomSize]);
 
@@ -117,6 +126,7 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
   const badgeOp = useSharedValue(0);
   const labelOp = useSharedValue(0);
   const dismissOp = useSharedValue(0);
+  const numGlowPulse = useSharedValue(0);
   const spin = useSharedValue(0);
   const spinRev = useSharedValue(0);
 
@@ -148,6 +158,7 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
     cancelAnimation(badgeOp);
     cancelAnimation(labelOp);
     cancelAnimation(dismissOp);
+    cancelAnimation(numGlowPulse);
     cancelAnimation(spin);
     cancelAnimation(spinRev);
 
@@ -163,6 +174,7 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
     badgeOp.value = 0;
     labelOp.value = 0;
     dismissOp.value = 0;
+    numGlowPulse.value = 0;
     spin.value = 0;
     spinRev.value = 0;
 
@@ -196,6 +208,18 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
     labelOp.value = withDelay(1000, withTiming(1, { duration: 350, easing: Easing.out(Easing.ease) }));
     dismissOp.value = withDelay(1500, withTiming(1, { duration: 350, easing: Easing.out(Easing.ease) }));
 
+    numGlowPulse.value = withDelay(
+      1100,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1250, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 1250, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        false
+      )
+    );
+
     startSpin();
   }, [
     overlayOpacity,
@@ -210,6 +234,7 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
     badgeOp,
     labelOp,
     dismissOp,
+    numGlowPulse,
     spin,
     spinRev,
     startSpin,
@@ -277,6 +302,16 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
   const badgeStyle = useAnimatedStyle(() => ({ opacity: badgeOp.value }));
   const labelsStyle = useAnimatedStyle(() => ({ opacity: labelOp.value }));
   const dismissStyle = useAnimatedStyle(() => ({ opacity: dismissOp.value }));
+  const numGlowStyle = useAnimatedStyle(() => {
+    const t = numGlowPulse.value;
+    return {
+      shadowColor: `rgb(${glowRgb.r},${glowRgb.g},${glowRgb.b})`,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.4 + t * 0.42,
+      shadowRadius: 12 + t * 22,
+      elevation: 8 + Math.round(t * 10),
+    };
+  });
   const spinOuterStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${spin.value}deg` }],
   }));
@@ -408,7 +443,7 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
                 ]}
                 pointerEvents="none"
               >
-                <SealRing size={ringSize} tier={tier} gradId={gradId} />
+                <SealRing size={ringSize} tier={tier} innerGradId={innerSealGradId} />
               </Animated.View>
 
               <View style={styles.centerStack} pointerEvents="none">
@@ -431,38 +466,60 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
                     <Animated.Text style={[styles.flame, { fontSize: tier.flameSize }, flameStyle]}>
                       🔥
                     </Animated.Text>
-                    <MaskedView
-                      style={{
-                        height: tier.numSize + 8,
-                        alignSelf: "center",
-                        minWidth: 120,
-                        maxWidth: 280,
-                      }}
-                      maskElement={
-                        <Text
-                          style={[
-                            styles.numMask,
-                            {
-                              fontSize: tier.numSize,
-                              lineHeight: tier.numSize + 4,
-                            },
-                          ]}
-                        >
-                          {String(streakCount)}
-                        </Text>
-                      }
+                    <Animated.View
+                      style={[
+                        styles.numHeroOuter,
+                        { width: numW, height: numH },
+                        numGlowStyle,
+                      ]}
                     >
-                      <LinearGradient
-                        colors={tier.numGradient}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={{ height: tier.numSize + 8, width: 280 }}
-                      />
-                    </MaskedView>
+                      <Svg width={numW} height={numH} viewBox={`0 0 ${numW} ${numH}`}>
+                        <Defs>
+                          <SvgLinearGradient id={numLinearGradId} x1="0%" y1="0%" x2="100%" y2="100%">
+                            {tier.numGradient.map((col, i, arr) => (
+                              <SvgStop
+                                key={i}
+                                offset={`${(i / Math.max(1, arr.length - 1)) * 100}%`}
+                                stopColor={col}
+                              />
+                            ))}
+                          </SvgLinearGradient>
+                        </Defs>
+                        <SvgText
+                          x={numW / 2}
+                          y={numH / 2}
+                          textAnchor="middle"
+                          dominantBaseline="central"
+                          fontSize={tier.numSize}
+                          fontWeight="800"
+                          letterSpacing={-3}
+                          fill={`url(#${numLinearGradId})`}
+                          fontFamily={Platform.select({
+                            ios: "Inter_800ExtraBold",
+                            android: "Inter_800ExtraBold",
+                            default: "System",
+                          })}
+                        >
+                          {streakStr}
+                        </SvgText>
+                      </Svg>
+                    </Animated.View>
                   </Animated.View>
 
                   <Animated.View style={[styles.labelBlock, labelsStyle]}>
-                    <Text style={[styles.labelStreak, { color: tier.streakLabelColor }]}>DAY STREAK</Text>
+                    <Text
+                      style={[
+                        styles.labelStreak,
+                        {
+                          color: tier.streakLabelColor,
+                          textShadowColor: "rgba(139,92,246,0.22)",
+                          textShadowOffset: { width: 0, height: 0 },
+                          textShadowRadius: 10,
+                        },
+                      ]}
+                    >
+                      DAY STREAK
+                    </Text>
                     <Text style={styles.labelDay}>{getOrdinalDayLabel(streakCount)}</Text>
                     {milestoneSub ? (
                       <Text style={[styles.labelSub, { color: tier.streakLabelColor }]}>{milestoneSub}</Text>
@@ -582,18 +639,14 @@ const styles = StyleSheet.create({
   },
   heroCol: {
     alignItems: "center",
+    justifyContent: "center",
     zIndex: 10,
   },
-  numMask: {
-    fontWeight: "900",
-    textAlign: "center",
-    color: "#000",
-    fontFamily: Platform.select({
-      ios: "Inter_800ExtraBold",
-      android: "Inter_800ExtraBold",
-      default: "System",
-    }),
-    letterSpacing: -3,
+  numHeroOuter: {
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+    backgroundColor: "transparent",
   },
   flame: {
     marginBottom: 2,
@@ -631,8 +684,9 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     letterSpacing: 2,
     textTransform: "uppercase",
-    color: "#374151",
+    color: "#9CA3AF",
     marginTop: 4,
+    opacity: 0.92,
   },
   labelSub: {
     fontSize: 10,
@@ -653,7 +707,8 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 1.5,
     textTransform: "uppercase",
-    color: "#4B5563",
+    color: "#6B7280",
     zIndex: 20,
+    opacity: 0.9,
   },
 });

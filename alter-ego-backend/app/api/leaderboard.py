@@ -1,8 +1,13 @@
 """
 Leaderboard endpoints.
-Unlocks when user hits their first 3-day streak.
-For beta: all beta_free users are unlocked automatically.
+
+Production: visible entries are users with `leaderboard_unlocked = true` (e.g. 3-day streak).
+
+Beta: requesters with `subscription_tier = beta_free` OR env `ALTER_EGO_BETA_LEADERBOARD_POOL=1`
+see a wider pool: `leaderboard_unlocked` OR `beta_free`, so solo beta testers still appear.
 """
+
+import os
 
 from fastapi import APIRouter, Header, HTTPException
 
@@ -12,6 +17,30 @@ from app.core.supabase_client import supabase_admin
 
 router = APIRouter(prefix="/api/v1/leaderboard", tags=["leaderboard"])
 
+_BETA_POOL_ENV = os.environ.get("ALTER_EGO_BETA_LEADERBOARD_POOL", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+
+def _requester_beta_leaderboard_pool(user: dict) -> bool:
+    """Widen leaderboard membership query (beta / staging only)."""
+    return user.get("subscription_tier") == "beta_free" or _BETA_POOL_ENV
+
+
+def _beta_leaderboard_access_granted(user: dict) -> bool:
+    """Who may open the leaderboard at all (beta / staging)."""
+    return bool(user.get("leaderboard_unlocked")) or user.get("subscription_tier") == "beta_free" or _BETA_POOL_ENV
+
+
+def _apply_leaderboard_pool_filter(q, use_beta_pool: bool):
+    """Restrict to users who should appear on the leaderboard."""
+    q = q.eq("onboarding_complete", True)
+    if use_beta_pool:
+        return q.or_("leaderboard_unlocked.eq.true,subscription_tier.eq.beta_free")
+    return q.eq("leaderboard_unlocked", True)
+
 
 @router.get("", response_model=dict)
 async def get_leaderboard(authorization: str = Header(None)):
@@ -19,11 +48,13 @@ async def get_leaderboard(authorization: str = Header(None)):
     Returns the leaderboard — top 100 users by Power Score.
     Also returns the current user's rank even if outside top 100.
 
-    Requires: leaderboard_unlocked = true OR subscription_tier = 'beta_free'
+    Access: `leaderboard_unlocked` OR `subscription_tier = beta_free`.
+
+    Beta pool (who appears in the list): same as access when using beta pool mode;
+    otherwise only `leaderboard_unlocked` users.
     """
     user_id = get_user_id_from_token(authorization)
 
-    # Check access
     user_result = (
         supabase_admin.table("users")
         .select(
@@ -36,11 +67,9 @@ async def get_leaderboard(authorization: str = Header(None)):
     )
     user = user_result.data or {}
 
-    # Beta users bypass the unlock requirement
-    is_beta = user.get("subscription_tier") == "beta_free"
-    is_unlocked = user.get("leaderboard_unlocked", False)
+    use_beta_pool = _requester_beta_leaderboard_pool(user)
 
-    if not is_beta and not is_unlocked:
+    if not _beta_leaderboard_access_granted(user):
         raise HTTPException(
             status_code=403,
             detail={
@@ -51,15 +80,14 @@ async def get_leaderboard(authorization: str = Header(None)):
             },
         )
 
-    # Get top 100 users
     top_100 = (
-        supabase_admin.table("users")
-        .select(
-            "id, username, power_score, character_stage, "
-            "pet_stage, pet_unlocked, current_streak"
+        _apply_leaderboard_pool_filter(
+            supabase_admin.table("users").select(
+                "id, username, power_score, character_stage, "
+                "pet_stage, pet_unlocked, current_streak, subscription_tier"
+            ),
+            use_beta_pool,
         )
-        .eq("onboarding_complete", True)
-        .eq("leaderboard_unlocked", True)
         .order("power_score", desc=True)
         .limit(100)
         .execute()
@@ -67,19 +95,18 @@ async def get_leaderboard(authorization: str = Header(None)):
         or []
     )
 
-    # Find current user's rank — count how many users have a higher power score
     user_power_score = user.get("power_score", 0)
     rank_result = (
-        supabase_admin.table("users")
-        .select("id", count="exact")
-        .eq("onboarding_complete", True)
+        _apply_leaderboard_pool_filter(
+            supabase_admin.table("users").select("id", count="exact"),
+            use_beta_pool,
+        )
         .gt("power_score", user_power_score)
         .execute()
     )
     higher_count = getattr(rank_result, "count", None)
     user_rank = (higher_count or 0) + 1
 
-    # Format leaderboard entries
     entries = []
     for i, u in enumerate(top_100):
         stage = u.get("character_stage", 1) or 1
@@ -102,10 +129,10 @@ async def get_leaderboard(authorization: str = Header(None)):
         )
 
     pool_count_res = (
-        supabase_admin.table("users")
-        .select("id", count="exact")
-        .eq("onboarding_complete", True)
-        .eq("leaderboard_unlocked", True)
+        _apply_leaderboard_pool_filter(
+            supabase_admin.table("users").select("id", count="exact"),
+            use_beta_pool,
+        )
         .execute()
     )
     total_on_leaderboard = getattr(pool_count_res, "count", None) or len(top_100)
@@ -121,6 +148,7 @@ async def get_leaderboard(authorization: str = Header(None)):
         },
         "total_users": total_on_leaderboard,
         "last_updated": "nightly",
+        "beta_leaderboard_pool": use_beta_pool,
     }
 
 
@@ -142,10 +170,13 @@ async def get_my_rank(authorization: str = Header(None)):
     user = user_result.data or {}
 
     user_power_score = user.get("power_score", 0)
+    use_beta_pool = _requester_beta_leaderboard_pool(user)
+
     rank_result = (
-        supabase_admin.table("users")
-        .select("id", count="exact")
-        .eq("onboarding_complete", True)
+        _apply_leaderboard_pool_filter(
+            supabase_admin.table("users").select("id", count="exact"),
+            use_beta_pool,
+        )
         .gt("power_score", user_power_score)
         .execute()
     )
@@ -155,7 +186,6 @@ async def get_my_rank(authorization: str = Header(None)):
     return {
         "rank": rank,
         "power_score": user_power_score,
-        "leaderboard_unlocked": user.get("leaderboard_unlocked", False)
-        or user.get("subscription_tier") == "beta_free",
+        "leaderboard_unlocked": _beta_leaderboard_access_granted(user),
+        "beta_leaderboard_pool": use_beta_pool,
     }
-

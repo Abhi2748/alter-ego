@@ -725,7 +725,7 @@ content text, app_version text, created_at timestamptz
 
 -- quit_targets: intervention_hour (0-23) added in 002 — when urge typically hits (Category B nudges)
 -- nudge_log: nudge_category ('A'|'B'|'C') added in 002 — for analytics
--- xp_log, streak_log, twin_daily_record: used by profile/stats/streak endpoints
+-- xp_log, streak_log, twin_daily_record: used by profile/streak and related endpoints
 ```
 
 ---
@@ -745,7 +745,7 @@ content text, app_version text, created_at timestamptz
 # leaderboard.py — GET /leaderboard
 # reports.py    — GET /reports (weekly report)
 # mail.py       — GET /mail (inbox), PATCH /mail/read
-# profile.py    — GET /profile/overview, /profile/stats, /profile/streak,
+# profile.py    — GET /profile/overview, /profile/streak,
 #                  /profile/identity, /profile/companion, /profile/interests, /profile/quits
 # settings.py   — GET /settings/faq, POST /settings/username, /settings/notifications,
 #                  POST /settings/feedback, DELETE /settings/account
@@ -764,7 +764,12 @@ SUPABASE_URL=
 SUPABASE_SERVICE_KEY=        # service role key — never expose to client
 OPENAI_API_KEY=
 POSTHOG_API_KEY=
-ZAPIER_WEBHOOK_URL=          # optional; feedback form POSTs here (fire-and-forget)
+ZAPIER_WEBHOOK_URL=          # optional; feedback webhook (Formspree URL works here too)
+FEEDBACK_WEBHOOK_URL=        # optional; same — JSON POST, or Formspree form-encoded if URL is formspree.io
+FORMSPREE_FEEDBACK_URL=      # optional; alias for the same webhook slot
+RESEND_API_KEY=              # optional; team email via Resend
+FEEDBACK_NOTIFY_EMAIL=       # optional; recipient when using Resend
+RESEND_FROM_EMAIL=           # optional; sender (must be verified in Resend)
 ```
 
 ---
@@ -827,7 +832,7 @@ Conversation history: {history}
 | Leaderboard | LeaderboardScreen.tsx | 1.22 | Part 3B Screen 19 |
 | Weekly Report | WeeklyReportScreen.tsx | 1.23 + 1.36 | Part 3B Screen 20 |
 | Profile (shell) | ProfileScreen.tsx | 1.24 | Part 3B Screen 21 |
-| Profile: Stats | ProfileStatsTab.tsx | 1.25 | Part 3B Screen 21 Stats |
+| Profile: Abilities | AbilitiesTab.tsx + ProfileAbilitiesScreen | — | Character stat system UI (placeholders) |
 | Profile: Streak | ProfileStreakTab.tsx | 1.26 | Part 3B Screen 21 Streak |
 | Profile: Titles | ProfileTitlesTab.tsx | 1.27 | Part 3B Screen 21 Titles |
 | Profile: Interests | ProfileInterestsTab.tsx | 1.35 | Part 3B Screen 21 Interests |

@@ -20,6 +20,10 @@ export interface Mission {
   core_pillar?: string | null;
   interest_id?: string | null;
   quit_target_id?: string | null;
+  /** Resolved from interests.normalised_name (API enrich) */
+  interest_name?: string | null;
+  /** Resolved from quit_targets.normalised_name (API enrich) */
+  quit_target_name?: string | null;
   rationale?: string | null;
   phase_principle?: string | null;
   domain_knowledge?: string | null;
@@ -66,6 +70,29 @@ export interface CompleteMissionResponse {
   new_streak_tier?: string | null;
   milestone_reached?: number | null;
   leaderboard_just_unlocked?: boolean;
+  /** Recalculated on server after each completion */
+  power_score?: number | null;
+
+  stat_gains?: {
+    primary_stat: string | null;
+    primary_sp: number;
+    discipline_sp: number;
+    willpower_bonus_sp: number;
+    level_ups: string[];
+  };
+  willpower_progress?: {
+    missions_completed_today: number;
+    total_missions_today: number;
+  };
+  sigil?: {
+    aether_awarded: number;
+    surge_activated: boolean;
+    surge_active: boolean;
+    level_up: boolean;
+    new_level: number | null;
+    new_level_name: string | null;
+    total_aether: number;
+  };
 }
 
 export interface MissionRatingRequest {
@@ -90,6 +117,26 @@ export interface CreatePersonalMissionRequest {
   date: string;
   multiday_days?: number;
 }
+
+/** Journal API row (list + detail). */
+export type JournalApiEntry = {
+  id: string;
+  date: string;
+  title: string;
+  content: string;
+  word_count: number;
+  bookmarked: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type JournalSaveResponse = {
+  saved: boolean;
+  mission_completed: boolean;
+  word_count: number;
+};
+
+export type JournalListApiResponse = { entries: JournalApiEntry[] };
 
 /** Ensures list sections exist so UI/hooks never crash on partial API payloads. */
 export function normalizeTodayMissionsResponse(
@@ -137,8 +184,30 @@ export const missionsService = {
   rateMission: (missionId: string, data: MissionRatingRequest) =>
     apiClient.post(`/api/v1/missions/${missionId}/rate`, data),
 
-  saveJournal: (content: string, date: string) =>
-    apiClient.post("/api/v1/missions/journal/save", { content, date }),
+  listJournalEntries: async (params?: { fromDate?: string; toDate?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.fromDate) qs.set("from_date", params.fromDate);
+    if (params?.toDate) qs.set("to_date", params.toDate);
+    if (params?.limit != null) qs.set("limit", String(params.limit));
+    const suffix = qs.size ? `?${qs.toString()}` : "";
+    return apiClient.get<JournalListApiResponse>(`/api/v1/missions/journal${suffix}`);
+  },
+
+  getJournalEntryById: (entryId: string) =>
+    apiClient.get<JournalApiEntry>(`/api/v1/missions/journal/${entryId}`),
+
+  saveJournal: (body: {
+    content: string;
+    date: string;
+    title?: string;
+    bookmarked?: boolean;
+  }) =>
+    apiClient.post<JournalSaveResponse>("/api/v1/missions/journal/save", {
+      content: body.content,
+      date: body.date,
+      title: body.title ?? "",
+      bookmarked: body.bookmarked ?? false,
+    }),
 
   estimatePersonalMission: (missionText: string) =>
     apiClient.post<PersonalMissionEstimate>(

@@ -1,23 +1,10 @@
 /**
- * Atmospheric bloom — matches Alter-Ego-streakanimation.html:
- * radial-gradient(circle, bloomColor 0%, transparent 65%)
- * Soft glow, NOT a flat opaque disk.
+ * Atmospheric bloom — richer than flat radial: hot core + mid halo + long falloff
+ * (premium read vs a single flat purple disk).
  */
 import React, { useMemo } from "react";
 import Svg, { Circle, Defs, RadialGradient, Stop } from "react-native-svg";
-
-function parseRgba(rgba: string): { r: number; g: number; b: number; a: number } {
-  const m = rgba.match(
-    /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)/i
-  );
-  if (!m) return { r: 109, g: 40, b: 217, a: 0.28 };
-  return {
-    r: Number(m[1]),
-    g: Number(m[2]),
-    b: Number(m[3]),
-    a: m[4] !== undefined ? Number(m[4]) : 1,
-  };
-}
+import { parseRgba, rgbaToRgb } from "@/components/streak/parseRgba";
 
 type Props = {
   size: number;
@@ -28,7 +15,11 @@ type Props = {
 
 export function BloomRadialGlow({ size, bloomColor, gradientId }: Props) {
   const { r, g, b, a } = useMemo(() => parseRgba(bloomColor), [bloomColor]);
-  const rgb = `rgb(${r},${g},${b})`;
+  const rgb = rgbaToRgb({ r, g, b });
+  /** Slightly brighter core, softer shoulder — reads more “lit” than one flat stop */
+  const coreA = Math.min(1, a * 1.35);
+  const midA = a * 0.55;
+  const outerA = a * 0.12;
 
   return (
     <Svg
@@ -38,9 +29,11 @@ export function BloomRadialGlow({ size, bloomColor, gradientId }: Props) {
       pointerEvents="none"
     >
       <Defs>
-        <RadialGradient id={gradientId} cx="50%" cy="50%" r="50%">
-          <Stop offset="0%" stopColor={rgb} stopOpacity={a} />
-          <Stop offset="65%" stopColor={rgb} stopOpacity={0} />
+        <RadialGradient id={gradientId} cx="48%" cy="44%" r="52%">
+          <Stop offset="0%" stopColor={rgb} stopOpacity={coreA} />
+          <Stop offset="22%" stopColor={rgb} stopOpacity={midA} />
+          <Stop offset="48%" stopColor={rgb} stopOpacity={outerA} />
+          <Stop offset="72%" stopColor={rgb} stopOpacity={0} />
           <Stop offset="100%" stopColor={rgb} stopOpacity={0} />
         </RadialGradient>
       </Defs>

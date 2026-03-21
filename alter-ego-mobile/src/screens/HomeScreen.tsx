@@ -13,9 +13,11 @@ import {
   Dimensions,
   Platform,
   Image,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RouteProp } from "@react-navigation/native";
 import type { MainStackParamList, MainTabParamList } from "../navigation/types";
@@ -41,6 +43,21 @@ import type { Mission } from "@/services/missions";
 import { missionsService } from "@/services/missions";
 import { getErrorMessage } from "@/services/api";
 import { useProfileStreak } from "@/hooks/useProfile";
+import { SpGainToast } from "@/components/SpGainToast";
+import { SurgeIndicator } from "@/components/SurgeIndicator";
+import { AetherToast } from "@/components/AetherToast";
+import {
+  SigilLevelUpOverlay,
+  type SigilLevelUpPayload,
+} from "@/components/SigilLevelUpOverlay";
+import {
+  parseStatTag,
+  resolveStatKeyForMission,
+  type AbilityStatKey,
+} from "@/constants/stats";
+import { useCharacterStats } from "@/hooks/useStats";
+import { useSigilData, SIGIL_KEYS } from "@/hooks/useSigil";
+import type { StatGains } from "@/services/stats";
 
 
 // Design tokens (spec Section 1)
@@ -109,17 +126,25 @@ function missionApiToCard(
           ? "resistance"
           : "personal") as MissionType,
     missionStreak: 0,
+    interestName: (m.interest_name ?? "").trim() || undefined,
+    quitTargetName: (m.quit_target_name ?? "").trim() || undefined,
   };
 }
 
 function missionApiToDetailParam(
   m: Mission,
-  type: "core" | "interest" | "resistance" | "personal",
+  type: "core" | "interest" | "resistance",
   date: string
 ): MainStackParamList["MissionDetail"]["mission"] {
   const diff = String(m.difficulty ?? "").toLowerCase();
-  const difficulty =
-    diff === "easy" ? ("easy" as const) : diff === "medium" ? ("medium" as const) : diff === "hard" ? ("hard" as const) : ("medium" as const);
+  const difficulty: MainStackParamList["MissionDetail"]["mission"]["difficulty"] =
+    diff === "easy"
+      ? "easy"
+      : diff === "hard"
+        ? "hard"
+        : diff === "elite"
+          ? "elite"
+          : "medium";
 
   return {
     id: m.id,
@@ -150,6 +175,98 @@ function getGreeting(): string {
 
 const PET_NAMES = ["Cub", "Cat", "Fox", "Wolf", "Snow Leopard", "Panther", "Griffin", "Dragon"] as const;
 
+function buildSpToastGains(
+  gains: StatGains | undefined
+): Array<{ statKey: AbilityStatKey; amount: number }> {
+  if (!gains) return [];
+  const out: Array<{ statKey: AbilityStatKey; amount: number }> = [];
+  const pk = gains.primary_stat ? parseStatTag(gains.primary_stat) : undefined;
+  if (pk && gains.primary_sp > 0) {
+    out.push({ statKey: pk, amount: gains.primary_sp });
+  }
+  if (gains.discipline_sp > 0) {
+    out.push({ statKey: "discipline", amount: gains.discipline_sp });
+  }
+  if (gains.willpower_bonus_sp > 0) {
+    out.push({ statKey: "willpower", amount: gains.willpower_bonus_sp });
+  }
+  return out;
+}
+
+function WillpowerNudgeCard({
+  completedToday,
+  totalMissionsToday,
+}: {
+  completedToday: number;
+  totalMissionsToday: number;
+}) {
+  const total = totalMissionsToday;
+  const c = completedToday;
+  if (total <= 0 || c >= total) return null;
+
+  let line: string;
+  let phaseTarget: number;
+
+  if (c < 4 && total >= 4) {
+    const rem = 4 - c;
+    phaseTarget = 4;
+    line = `${rem} more mission${rem === 1 ? "" : "s"} = +20 Willpower SP`;
+  } else if (total >= 6 && c < 6 && c >= 4) {
+    const rem = 6 - c;
+    phaseTarget = 6;
+    line = `${rem} more mission${rem === 1 ? "" : "s"} = +45 Willpower SP`;
+  } else {
+    const rem = total - c;
+    phaseTarget = total;
+    line = `${rem} more mission${rem === 1 ? "" : "s"} = +80 Willpower SP (full day)`;
+  }
+
+  return (
+    <View style={willNudgeStyles.card}>
+      <Text style={willNudgeStyles.symbol}>⬡</Text>
+      <View style={willNudgeStyles.mid}>
+        <Text style={willNudgeStyles.title}>{line}</Text>
+        <Text style={willNudgeStyles.sub}>Complete your day fully to earn it</Text>
+      </View>
+      <Text style={willNudgeStyles.fraction}>
+        {c}/{phaseTarget}
+      </Text>
+    </View>
+  );
+}
+
+const willNudgeStyles = StyleSheet.create({
+  card: {
+    marginTop: 8,
+    marginBottom: 16,
+    backgroundColor: "rgba(239, 68, 68, 0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.15)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  symbol: { fontSize: 16, color: "#EF4444", fontFamily: "Inter_700Bold" },
+  mid: { flex: 1 },
+  title: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#EF4444",
+    marginBottom: 1,
+    fontFamily: "Inter_700Bold",
+  },
+  sub: { fontSize: 10, color: "#6B7280", fontFamily: "Inter_500Medium" },
+  fraction: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#EF4444",
+    fontFamily: "Inter_800ExtraBold",
+  },
+});
+
 export function HomeScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<MainTabParamList, "Home">>();
@@ -161,8 +278,11 @@ export function HomeScreen() {
   const heroX = (windowWidth - (CHARACTER_WIDTH + PET_OFFSET + ROAMING_PET_SIZE)) / 2 + CHARACTER_WIDTH + PET_OFFSET;
   const heroY = 20 + 4 + CHARACTER_HEIGHT / 2 - ROAMING_PET_SIZE / 2;
 
+  const queryClient = useQueryClient();
   const profile = useUserStore((state) => state.profile);
   const { data: todayData, isPending, isFetching, error, refetch } = useTodayMissions();
+  const { data: characterStats } = useCharacterStats();
+  const { data: sigilSnapshot } = useSigilData();
   /** No cached missions yet — show full mission-area skeleton (top may already render from profile). */
   const showMissionSkeletons = !error && !todayData && (isPending || isFetching);
   const { mutate: completeMission, isPending: isCompleting } = useCompleteMission();
@@ -197,6 +317,16 @@ export function HomeScreen() {
   const [missionToDelete, setMissionToDelete] = useState<Mission | null>(null);
   const [removeSuccessToast, setRemoveSuccessToast] = useState(false);
   const [removeErrorToast, setRemoveErrorToast] = useState(false);
+  const [spToast, setSpToast] = useState<{
+    k: number;
+    gains: Array<{ statKey: StatKey; amount: number }>;
+  } | null>(null);
+  const [aetherPopup, setAetherPopup] = useState<number | null>(null);
+  const [sigilLevelUp, setSigilLevelUp] = useState<SigilLevelUpPayload | null>(null);
+
+  const closeSigilLevelUp = useCallback(() => setSigilLevelUp(null), []);
+
+  const surgeActive = sigilSnapshot?.surge_active ?? false;
 
   const coreMissions = (todayData?.missions?.core ?? []).map((m) => missionApiToCard(m, "Core"));
   const interestMissions = (todayData?.missions?.interest ?? []).map((m) => missionApiToCard(m, "Interest"));
@@ -206,6 +336,10 @@ export function HomeScreen() {
   const dayNumber = todayData?.day_number ?? 1;
   const isDay1To14 = dayNumber >= 1 && dayNumber <= 14;
   const completedToday = todayData?.summary?.completed ?? 0;
+  const missionsCompletedForNudge =
+    characterStats?.missions_completed_today ?? completedToday;
+  const totalMissionsForNudge =
+    characterStats?.total_missions_today ?? todayData?.summary.total ?? 0;
   const showStartAnywhereHelper = completedToday === 0 && isDay1To14;
 
   const username = profile?.username ?? "";
@@ -281,10 +415,33 @@ export function HomeScreen() {
               twinCongratulation: "Your Twin noticed.",
             });
           }
+          if (!result.already_completed) {
+            const tg = buildSpToastGains(result.stat_gains);
+            if (tg.length > 0) {
+              setSpToast({ k: Date.now(), gains: tg });
+            }
+          }
+
+          const sigil = result.sigil;
+          if (sigil) {
+            void queryClient.invalidateQueries({ queryKey: SIGIL_KEYS.all });
+            if (sigil.aether_awarded > 0) {
+              setAetherPopup(sigil.aether_awarded);
+            }
+            if (sigil.level_up && sigil.new_level != null) {
+              setSigilLevelUp({
+                level: sigil.new_level,
+                name: sigil.new_level_name ?? null,
+              });
+            }
+          }
+        },
+        onError: (e) => {
+          Alert.alert("Can't mark done", getErrorMessage(e));
         },
       });
     },
-    [completeMission]
+    [completeMission, queryClient]
   );
 
   const showTwinStrip = twinStrip?.has_twin && twinStrip?.strip_message;
@@ -402,6 +559,18 @@ export function HomeScreen() {
           </View>
           <Text style={styles.greeting} numberOfLines={1}>{greeting}</Text>
         </View>
+      </View>
+
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: insets.top + 6,
+          right: 16,
+          zIndex: 40,
+        }}
+      >
+        <SurgeIndicator visible={surgeActive} />
       </View>
 
       {/* 2. Streak strip */}
@@ -585,6 +754,10 @@ export function HomeScreen() {
                     missionType={m.missionType}
                     missionStreak={m.missionStreak ?? 0}
                     appearIndex={i}
+                    statKey={
+                      parseStatTag(apiMission.stat_tag) ??
+                      resolveStatKeyForMission("core", apiMission.core_pillar ?? null)
+                    }
                   />
                 );
               })}
@@ -621,6 +794,7 @@ export function HomeScreen() {
                     interestName={m.interestName}
                     missionStreak={m.missionStreak ?? 0}
                     appearIndex={i}
+                    statKey={resolveStatKeyForMission("interest", apiMission.core_pillar ?? null)}
                   />
                 );
               })}
@@ -657,6 +831,10 @@ export function HomeScreen() {
                   quitTargetName={m.quitTargetName}
                   dayCounter={m.dayCounter}
                   appearIndex={i}
+                  statKey={
+                    parseStatTag(apiMission.stat_tag) ??
+                    resolveStatKeyForMission("resistance", apiMission.core_pillar ?? null)
+                  }
                 />
               );
             })}
@@ -688,18 +866,15 @@ export function HomeScreen() {
                   petFoodValue={m.petFoodValue}
                   status={m.status}
                   onComplete={() => handleComplete(m.id)}
-                  onPress={() => openMissionDetail(apiMission, "personal")}
+                  onPress={
+                    m.status === "pending" ? () => openPersonalDeleteSheet(apiMission) : undefined
+                  }
                   missionType={m.missionType}
                   missionStreak={m.missionStreak ?? 0}
                   appearIndex={i}
-                  onLongPress={
-                    m.status === "pending"
-                      ? () => {
-                          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                          setMissionToDelete(apiMission);
-                          setDeleteSheetVisible(true);
-                        }
-                      : undefined
+                  statKey={
+                    parseStatTag(apiMission.stat_tag) ??
+                    resolveStatKeyForMission("personal", apiMission.core_pillar ?? null)
                   }
                 />
               );
@@ -714,10 +889,31 @@ export function HomeScreen() {
             <Text style={styles.addPersonalPlus}>+</Text>
             <Text style={styles.addPersonalLabel}>Add Personal Mission</Text>
           </Pressable>
+          <WillpowerNudgeCard
+            completedToday={missionsCompletedForNudge}
+            totalMissionsToday={totalMissionsForNudge}
+          />
         </View>
         </>
         ) : null}
       </ScrollView>
+
+      {spToast ? (
+        <SpGainToast
+          key={spToast.k}
+          gains={spToast.gains}
+          onFinish={() => setSpToast(null)}
+        />
+      ) : null}
+
+      {aetherPopup != null ? (
+        <AetherToast
+          amount={aetherPopup}
+          visible
+          onDismiss={() => setAetherPopup(null)}
+        />
+      ) : null}
+      <SigilLevelUpOverlay payload={sigilLevelUp} onClose={closeSigilLevelUp} />
 
       {/* Pet roaming overlay */}
       {viewportHeight > 0 && windowWidth > 0 && petStage >= 1 && (

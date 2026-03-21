@@ -3,7 +3,6 @@ import { profileService } from '@/services/profile';
 
 export const PROFILE_KEYS = {
   overview: ['profile', 'overview'] as const,
-  stats: (days: number) => ['profile', 'stats', days] as const,
   streak: ['profile', 'streak'] as const,
   identity: ['profile', 'identity'] as const,
   companion: ['profile', 'companion'] as const,
@@ -15,15 +14,6 @@ export function useProfileOverview() {
   return useQuery({
     queryKey: PROFILE_KEYS.overview,
     queryFn: profileService.getOverview,
-    staleTime: 5 * 60 * 1000,
-    refetchOnMount: true,
-  });
-}
-
-export function useProfileStats(days: number = 30) {
-  return useQuery({
-    queryKey: PROFILE_KEYS.stats(days),
-    queryFn: () => profileService.getStats(days),
     staleTime: 5 * 60 * 1000,
     refetchOnMount: true,
   });
@@ -44,6 +34,8 @@ export function useProfileIdentity() {
     queryFn: profileService.getIdentity,
     staleTime: 10 * 60 * 1000,
     refetchOnMount: true,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   });
 }
 
@@ -53,6 +45,8 @@ export function useProfileCompanion() {
     queryFn: profileService.getCompanion,
     staleTime: 10 * 60 * 1000,
     refetchOnMount: true,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   });
 }
 

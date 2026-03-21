@@ -3,8 +3,9 @@
  * Shared header + gradient bg. Spec: Tone History.
  */
 
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, Platform } from "react-native";
+import React, { useCallback, useMemo } from "react";
+import { View, Text, StyleSheet, ScrollView, Platform, RefreshControl } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -12,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Pressable } from "react-native";
 import { useUserStore } from "@/store/userStore";
+import { useTwinToneHistory } from "@/hooks/useTwin";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const SURFACE = "#111623";
@@ -109,23 +111,35 @@ export function ToneHistoryScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const profile = useUserStore((s) => s.profile);
+  const { data: apiData, isRefetching, refetch } = useTwinToneHistory();
+
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
 
   const data = useMemo((): ToneHistoryData => {
+    if (apiData && typeof apiData.total_ratings === "number") {
+      return {
+        ratings: apiData.ratings as ToneRating[],
+        total_ratings: apiData.total_ratings,
+        current_blend: apiData.current_blend?.length ? apiData.current_blend : [],
+      };
+    }
     const toneKey = (profile?.twin_tone_type ?? "rival").toLowerCase();
-    const { name, emoji } = toneLabelFromKey(toneKey);
+    const { name } = toneLabelFromKey(toneKey);
     const intensity = profile?.twin_intensity ?? 3;
     return {
       ratings: [],
       total_ratings: 0,
       current_blend: [name, `Intensity ${intensity}/5`],
     };
-  }, [profile?.twin_tone_type, profile?.twin_intensity]);
+  }, [apiData, profile?.twin_intensity, profile?.twin_tone_type]);
 
   const total = data.total_ratings;
-  const positiveRatings = data.ratings.filter((r) => r.rating === "positive").sort((a, b) => b.count - a.count);
-  const currentBlend = data.current_blend.length >= 2 ? data.current_blend : positiveRatings.slice(0, 2).map((r) => r.tone_name);
-  const topPositive = currentBlend[0];
-  const secondTone = currentBlend[1];
+  const topPositive = data.current_blend[0] ?? "Twin";
+  const secondTone = data.current_blend[1] ?? "";
   const hasEnoughRatings = total >= 5;
   const empty = data.ratings.length === 0 || data.ratings.every((r) => r.count === 0);
 
@@ -146,11 +160,19 @@ export function ToneHistoryScreen() {
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 60 }]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={() => refetch()}
+            tintColor={VIOLET}
+            colors={[VIOLET]}
+          />
+        }
       >
         <View style={styles.explanationCard}>
           <Text style={styles.explanationText}>
-            Your Twin voice is set from your archetype and recalibrates as you use the app. Per-response ratings will
-            appear here when that feedback loop ships.
+            Your Twin voice starts from your archetype and adapts as you use the app. When you rate Twin chat replies
+            (👍 / — / 👎), those counts show up here by tone.
           </Text>
         </View>
 
@@ -167,7 +189,7 @@ export function ToneHistoryScreen() {
             <Ionicons name="chatbubble-ellipses-outline" size={48} color="#1E2333" />
             <Text style={styles.emptyTitle}>No rating history yet</Text>
             <Text style={styles.emptySub}>
-              Pull to refresh your profile after onboarding — tone and intensity come from your live Twin settings.
+              Open Twin Chat (center tab) and rate Twin replies with 👍, —, or 👎. Your counts will show here.
             </Text>
           </View>
         ) : (

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.auth import get_user_id_from_token
 from app.core.supabase_client import supabase_admin
-from app.core.constants import JOURNAL_MIN_WORDS, MISSION_PF, PERSONAL_MISSION_XP_BY_TIER
+from app.core.constants import MISSION_PF, PERSONAL_MISSION_XP_BY_TIER, resolve_stat_tag
+from app.core.journal_rules import journal_stored_qualifies_for_mission, word_count as journal_word_count
 from app.agents.personal_mission_agent import estimate_personal_mission_tier
 from app.services.mission_service import (
     complete_mission,
@@ -19,7 +20,48 @@ from app.services.mission_service import (
 router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
 
 
+def _enrich_mission_rows(rows: list[dict]) -> None:
+    """
+    Attach interest_name / quit_target_name for list UIs (Home chips).
+    Missions only store interest_id / quit_target_id.
+    """
+    if not rows:
+        return
+    i_ids = list({str(r["interest_id"]) for r in rows if r.get("interest_id")})
+    q_ids = list({str(r["quit_target_id"]) for r in rows if r.get("quit_target_id")})
+    i_map: dict[str, str] = {}
+    q_map: dict[str, str] = {}
+    if i_ids:
+        ir = (
+            supabase_admin.table("interests")
+            .select("id, normalised_name, raw_text")
+            .in_("id", i_ids)
+            .execute()
+        )
+        for x in ir.data or []:
+            label = (x.get("normalised_name") or x.get("raw_text") or "").strip() or "Interest"
+            i_map[str(x["id"])] = label
+    if q_ids:
+        qr = (
+            supabase_admin.table("quit_targets")
+            .select("id, normalised_name, raw_text")
+            .in_("id", q_ids)
+            .execute()
+        )
+        for x in qr.data or []:
+            label = (x.get("normalised_name") or x.get("raw_text") or "").strip() or "Resistance"
+            q_map[str(x["id"])] = label
+    for r in rows:
+        iid = r.get("interest_id")
+        if iid:
+            r["interest_name"] = i_map.get(str(iid))
+        qid = r.get("quit_target_id")
+        if qid:
+            r["quit_target_name"] = q_map.get(str(qid))
+
+
 def _group_missions(rows: list[dict]) -> dict:
+    """Shape mission rows for the client (includes rationale + domain_knowledge for detail / research)."""
     grouped = {"core": [], "interest": [], "resistance": [], "personal": []}
     for r in rows or []:
         t = r.get("type")
@@ -35,6 +77,12 @@ def _group_missions(rows: list[dict]) -> dict:
                     "is_journal_mission": r.get("is_journal_mission", False),
                     "core_pillar": r.get("core_pillar"),
                     "rationale": r.get("rationale"),
+                    "domain_knowledge": r.get("domain_knowledge"),
+                    "phase_principle": r.get("phase_principle"),
+                    "interest_id": r.get("interest_id"),
+                    "quit_target_id": r.get("quit_target_id"),
+                    "estimated_minutes": r.get("estimated_minutes"),
+                    "mission_date": r.get("mission_date"),
                 }
             )
     return grouped
@@ -55,6 +103,8 @@ class RateMissionRequest(BaseModel):
 class JournalSaveRequest(BaseModel):
     content: str
     date: str  # YYYY-MM-DD
+    title: str | None = ""
+    bookmarked: bool = False
 
 
 class StageEvolved(BaseModel):
@@ -71,6 +121,19 @@ class StreakAnimation(BaseModel):
     show: bool
     streak_count: int
     animation_tier: str
+
+
+class StatGainsOut(BaseModel):
+    primary_stat: str | None = None
+    primary_sp: int = 0
+    discipline_sp: int = 0
+    willpower_bonus_sp: int = 0
+    level_ups: list[str] = Field(default_factory=list)
+
+
+class WillpowerProgressOut(BaseModel):
+    missions_completed_today: int = 0
+    total_missions_today: int = 0
 
 
 class CompleteMissionResponse(BaseModel):
@@ -95,6 +158,10 @@ class CompleteMissionResponse(BaseModel):
     new_streak_tier: str | None = None
     milestone_reached: int | None = None
     leaderboard_just_unlocked: bool | None = None
+    power_score: int | None = None
+
+    stat_gains: StatGainsOut | None = None
+    willpower_progress: WillpowerProgressOut | None = None
 
 
 class PersonalMissionEstimateRequest(BaseModel):
@@ -134,6 +201,13 @@ async def get_missions_today(authorization: str = Header(None)):
     await sync_today_planner_missions(user_id, mission_date)
 
     rows = await get_today_missions(user_id, mission_date)
+    _enrich_mission_rows(rows)
+
+    from app.services.stat_service import ensure_sp_day_aligned, set_total_missions_for_day
+
+    await ensure_sp_day_aligned(user_id, mission_date)
+    await set_total_missions_for_day(user_id, len(rows))
+
     return {
         "date": mission_date,
         "day_number": get_days_since_registration(str(registration_date), str(timezone_str)),
@@ -155,6 +229,7 @@ async def get_missions_for_date(date_str: str, authorization: str = Header(None)
         .execute()
     )
     rows = result.data or []
+    _enrich_mission_rows(rows)
     return {
         "date": date_str,
         "missions": _group_missions(rows),
@@ -251,41 +326,121 @@ async def rate_mission(mission_id: str, body: RateMissionRequest, authorization:
     return {"saved": True}
 
 
+@router.get("/journal", response_model=dict)
+async def list_journal_entries(
+    authorization: str = Header(None),
+    from_date: str | None = None,
+    to_date: str | None = None,
+    limit: int = 200,
+):
+    """All journal entries for the user, newest first."""
+    user_id = get_user_id_from_token(authorization)
+    lim = max(1, min(int(limit), 500))
+    q = (
+        supabase_admin.table("journal_entries")
+        .select(
+            "id, mission_date, title, content, word_count, bookmarked, created_at, updated_at"
+        )
+        .eq("user_id", user_id)
+        .order("mission_date", desc=True)
+        .limit(lim)
+    )
+    if from_date:
+        q = q.gte("mission_date", from_date)
+    if to_date:
+        q = q.lte("mission_date", to_date)
+    result = q.execute()
+    entries = []
+    for row in result.data or []:
+        entries.append(
+            {
+                "id": str(row["id"]),
+                "date": row["mission_date"],
+                "title": row.get("title") or "",
+                "content": row.get("content") or "",
+                "word_count": int(row.get("word_count") or 0),
+                "bookmarked": bool(row.get("bookmarked")),
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
+            }
+        )
+    return {"entries": entries}
+
+
+@router.get("/journal/{entry_id}", response_model=dict)
+async def get_journal_entry(entry_id: str, authorization: str = Header(None)):
+    user_id = get_user_id_from_token(authorization)
+    result = (
+        supabase_admin.table("journal_entries")
+        .select(
+            "id, mission_date, title, content, word_count, bookmarked, created_at, updated_at"
+        )
+        .eq("id", entry_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+    row = result.data
+    return {
+        "id": str(row["id"]),
+        "date": row["mission_date"],
+        "title": row.get("title") or "",
+        "content": row.get("content") or "",
+        "word_count": int(row.get("word_count") or 0),
+        "bookmarked": bool(row.get("bookmarked")),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
 @router.post("/journal/save", response_model=dict)
 async def save_journal(body: JournalSaveRequest, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
     content = body.content or ""
+    title = (body.title or "").strip()
     mission_date = body.date
 
-    words = [w for w in content.strip().split() if w]
-    word_count = len(words)
+    full_text = f"{title}\n\n{content}".strip() if title else content.strip()
+    wc = journal_word_count(full_text) if full_text else 0
 
     supabase_admin.table("journal_entries").upsert(
         {
             "user_id": user_id,
             "mission_date": mission_date,
+            "title": title,
             "content": content,
-            "word_count": word_count,
+            "word_count": wc,
+            "bookmarked": bool(body.bookmarked),
         },
         on_conflict="user_id,mission_date",
     ).execute()
 
-    if word_count >= JOURNAL_MIN_WORDS:
-        journal_mission = (
+    qualifies = journal_stored_qualifies_for_mission(title, content)
+    mission_row = None
+    if qualifies:
+        jm = (
             supabase_admin.table("missions")
             .select("id, completed")
             .eq("user_id", user_id)
             .eq("mission_date", mission_date)
             .eq("type", "core")
             .eq("core_pillar", "journal")
-            .single()
+            .limit(1)
             .execute()
         )
-        if journal_mission.data and not journal_mission.data.get("completed"):
-            await complete_mission(user_id, str(journal_mission.data["id"]))
-        return {"saved": True, "mission_completed": True, "word_count": word_count}
+        rows = jm.data or []
+        mission_row = rows[0] if rows else None
+        if mission_row and not mission_row.get("completed"):
+            await complete_mission(user_id, str(mission_row["id"]))
+        return {
+            "saved": True,
+            "mission_completed": bool(mission_row),
+            "word_count": wc,
+        }
 
-    return {"saved": True, "mission_completed": False, "words_remaining": JOURNAL_MIN_WORDS - word_count}
+    return {"saved": True, "mission_completed": False, "word_count": wc}
 
 
 @router.post("/personal/estimate", response_model=dict)

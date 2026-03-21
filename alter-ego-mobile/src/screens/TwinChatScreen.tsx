@@ -25,7 +25,9 @@ import type { MainStackParamList } from "../navigation/types";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import { useTwinChatHistory, useSendTwinMessage } from "@/hooks/useTwin";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTwinChatHistory, useSendTwinMessage, TWIN_KEYS } from "@/hooks/useTwin";
+import { twinService } from "@/services/twin";
 import { useUserStore } from "@/store/userStore";
 import Animated, {
   type SharedValue,
@@ -214,6 +216,7 @@ export function TwinChatScreen() {
   const initialMessageSentRef = useRef(false);
 
   const profile = useUserStore((state) => state.profile);
+  const queryClient = useQueryClient();
 
   const { data: chatData, isLoading: historyLoading } = useTwinChatHistory(50);
   const { mutate: sendTwinMessage, isPending: isSending } = useSendTwinMessage();
@@ -225,7 +228,9 @@ export function TwinChatScreen() {
       role: m.role,
       content: m.content,
       timestamp: m.created_at,
-      rated: ratedMessageIds[m.id] ?? false,
+      rated:
+        Boolean(m.tone_rating) ||
+        Boolean(ratedMessageIds[m.id]),
     }));
   }, [chatData?.messages, ratedMessageIds]);
 
@@ -233,11 +238,18 @@ export function TwinChatScreen() {
   const listDataReversed = useMemo(() => [...listData].reverse(), [listData]);
   const handleClose = () => navigation.goBack();
 
-  const sendToneRating = useCallback(async (messageId: string, rating: "positive" | "neutral" | "negative") => {
-    try {
-      // Phase 2: await fetch(... POST /api/v1/twin/tone-rating { message_id, rating })
-    } catch (_) {}
-  }, []);
+  const sendToneRating = useCallback(
+    async (messageId: string, rating: "positive" | "neutral" | "negative") => {
+      try {
+        await twinService.submitToneRating(messageId, rating);
+        await queryClient.invalidateQueries({ queryKey: TWIN_KEYS.toneHistory });
+        await queryClient.invalidateQueries({ queryKey: TWIN_KEYS.chat });
+      } catch {
+        // Non-fatal; user still sees local "rated" state
+      }
+    },
+    [queryClient]
+  );
 
   // No Reanimated — immediate state update to avoid iOS crash when rating
   const rateTone = useCallback(

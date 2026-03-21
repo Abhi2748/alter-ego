@@ -1,5 +1,5 @@
 /**
- * Bottom sheet to confirm removal of a personal mission (long-press from Home).
+ * Bottom sheet to confirm removal of a personal mission (tap card on Home).
  */
 
 import React from "react";

@@ -1,13 +1,15 @@
 """
-Profile tab data endpoints — overview, stats, streak, identity, companion, interests, quits.
+Profile tab data endpoints — overview, streak, identity, companion, interests, quits.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
-from datetime import date, timedelta
+import logging
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Header, HTTPException
+from postgrest.exceptions import APIError
 
 from app.api.auth import get_user_id_from_token
 from app.core.constants import (
@@ -23,6 +25,71 @@ from app.core.supabase_client import supabase_admin
 from app.services.mission_service import get_user_date
 
 router = APIRouter(prefix="/api/v1/profile", tags=["profile"])
+logger = logging.getLogger(__name__)
+
+
+def _milestone_rows_character_stages(user_id: str) -> list:
+    """Stage unlock times for identity; empty list on transient DB / gateway errors."""
+    types = [f"stage_{i}" for i in range(1, TOTAL_CHARACTER_STAGES + 1)]
+    try:
+        return (
+            supabase_admin.table("milestone_log")
+            .select("milestone_type, earned_at")
+            .eq("user_id", user_id)
+            .in_("milestone_type", types)
+            .order("earned_at")
+            .execute()
+            .data
+            or []
+        )
+    except APIError as e:
+        logger.warning(
+            "milestone_log fetch failed (profile identity): %s",
+            getattr(e, "message", str(e))[:500],
+        )
+        return []
+    except Exception as e:
+        logger.warning("milestone_log fetch failed (profile identity, unexpected): %s", e)
+        return []
+
+
+def _milestone_rows_pet_stages(user_id: str) -> list:
+    types = [f"pet_stage_{i}" for i in range(1, TOTAL_PET_STAGES + 1)]
+    try:
+        return (
+            supabase_admin.table("milestone_log")
+            .select("milestone_type, earned_at")
+            .eq("user_id", user_id)
+            .in_("milestone_type", types)
+            .order("earned_at")
+            .execute()
+            .data
+            or []
+        )
+    except APIError as e:
+        logger.warning(
+            "milestone_log fetch failed (profile companion): %s",
+            getattr(e, "message", str(e))[:500],
+        )
+        return []
+    except Exception as e:
+        logger.warning("milestone_log fetch failed (profile companion, unexpected): %s", e)
+        return []
+
+
+def _first_local_calendar_date_from_registration(iso_ts: str | None, tz_str: str) -> str | None:
+    """First calendar day (user TZ) the user existed — streak heatmap must not show earlier days."""
+    if not iso_ts:
+        return None
+    try:
+        s = str(iso_ts).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        z = ZoneInfo((tz_str or "UTC").strip() or "UTC")
+        return dt.astimezone(z).date().isoformat()
+    except Exception:
+        return None
 
 
 @router.get("/overview", response_model=dict)
@@ -128,99 +195,6 @@ async def get_profile_overview(authorization: str = Header(None)):
     }
 
 
-@router.get("/stats", response_model=dict)
-async def get_profile_stats(
-    authorization: str = Header(None),
-    days: int = Query(30, ge=7, le=365),
-):
-    user_id = get_user_id_from_token(authorization)
-    since = str(date.today() - timedelta(days=days))
-
-    xp_rows = (
-        supabase_admin.table("xp_log")
-        .select("amount, log_date")
-        .eq("user_id", user_id)
-        .gte("log_date", since)
-        .order("log_date")
-        .execute()
-        .data
-        or []
-    )
-
-    xp_by_date = defaultdict(int)
-    for row in xp_rows:
-        xp_by_date[row["log_date"]] += row.get("amount", 0)
-
-    streak_rows = (
-        supabase_admin.table("streak_log")
-        .select(
-            "log_date, total_missions_done, total_missions, "
-            "streak_maintained, streak_count"
-        )
-        .eq("user_id", user_id)
-        .gte("log_date", since)
-        .order("log_date")
-        .execute()
-        .data
-        or []
-    )
-
-    twin_rows = (
-        supabase_admin.table("twin_daily_record")
-        .select("record_date, missions_completed, missions_assigned")
-        .eq("user_id", user_id)
-        .gte("record_date", since)
-        .execute()
-        .data
-        or []
-    )
-    twin_by_date = {r["record_date"]: r for r in twin_rows}
-
-    twin_gap_chart = []
-    for r in streak_rows:
-        d = r["log_date"]
-        u_done = int(r.get("total_missions_done", 0) or 0)
-        u_tot = int(r.get("total_missions", 0) or 0)
-        u_pct = round((u_done / u_tot * 100), 1) if u_tot > 0 else 0.0
-        tr = twin_by_date.get(d)
-        if tr:
-            t_done = int(tr.get("missions_completed", 0) or 0)
-            t_tot = int(tr.get("missions_assigned", 0) or 0)
-            t_pct = round((t_done / max(t_tot, 1) * 100), 1)
-        else:
-            t_pct = 95.0
-        twin_gap_chart.append({"date": d, "gap": round(t_pct - u_pct, 1)})
-
-    total_done = sum(r.get("total_missions_done", 0) for r in streak_rows)
-    total_possible = sum(r.get("total_missions", 0) for r in streak_rows)
-    completion_rate = (
-        round((total_done / total_possible * 100), 1) if total_possible > 0 else 0
-    )
-
-    all_dates = sorted(
-        set(list(xp_by_date.keys()) + [r["log_date"] for r in streak_rows])
-    )
-
-    return {
-        "period_days": days,
-        "xp_chart": [{"date": d, "xp": xp_by_date.get(d, 0)} for d in all_dates],
-        "completion_rate": completion_rate,
-        "total_missions_completed": total_done,
-        "total_missions_possible": total_possible,
-        "streak_chart": [
-            {
-                "date": r["log_date"],
-                "streak": r.get("streak_count", 0),
-                "maintained": r.get("streak_maintained", False),
-                "missions_done": r.get("total_missions_done", 0),
-                "missions_total": r.get("total_missions", 0),
-            }
-            for r in streak_rows
-        ],
-        "twin_gap_chart": twin_gap_chart,
-    }
-
-
 @router.get("/streak", response_model=dict)
 async def get_profile_streak(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
@@ -257,10 +231,17 @@ async def get_profile_streak(authorization: str = Header(None)):
         or []
     )
 
+    reg_start = _first_local_calendar_date_from_registration(
+        user.get("registration_date"), tz_str
+    )
+    if reg_start:
+        rows = [r for r in rows if str(r.get("log_date") or "") >= reg_start]
+
     return {
         "current_streak": user.get("current_streak", 0),
         "longest_streak": user.get("longest_streak", 0),
         "streak_requirement_tier": user.get("streak_requirement_tier", "tier_1"),
+        "heatmap_eligible_since": reg_start,
         "heatmap": [
             {
                 "date": r["log_date"],
@@ -281,25 +262,25 @@ async def get_profile_streak(authorization: str = Header(None)):
 async def get_profile_identity(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
-    user_result = (
-        supabase_admin.table("users")
-        .select("character_stage, total_xp")
-        .eq("id", user_id)
-        .single()
-        .execute()
-    )
+    try:
+        user_result = (
+            supabase_admin.table("users")
+            .select("character_stage, total_xp")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+    except Exception as e:
+        # PostgREST can raise APIError; empty/HTML responses also surface as JSON errors.
+        logger.warning("users fetch failed (profile identity): %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail="Profile data temporarily unavailable. Please try again.",
+        ) from e
+
     user = user_result.data or {}
 
-    milestones = (
-        supabase_admin.table("milestone_log")
-        .select("milestone_type, earned_at")
-        .eq("user_id", user_id)
-        .like("milestone_type", "stage_%")
-        .order("earned_at")
-        .execute()
-        .data
-        or []
-    )
+    milestones = _milestone_rows_character_stages(user_id)
 
     current_stage = user.get("character_stage", 1) or 1
     total_xp = user.get("total_xp", 0) or 0
@@ -359,88 +340,96 @@ async def get_profile_identity(authorization: str = Header(None)):
 async def get_profile_companion(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
-    user_result = (
-        supabase_admin.table("users")
-        .select("pet_stage, total_pf, pet_unlocked")
-        .eq("id", user_id)
-        .single()
-        .execute()
-    )
-    user = user_result.data or {}
+    try:
+        try:
+            user_result = (
+                supabase_admin.table("users")
+                .select("pet_stage, total_pf, pet_unlocked")
+                .eq("id", user_id)
+                .single()
+                .execute()
+            )
+        except Exception as e:
+            logger.warning("users fetch failed (profile companion): %s", e)
+            raise HTTPException(
+                status_code=503,
+                detail="Profile data temporarily unavailable. Please try again.",
+            ) from e
 
-    milestones = (
-        supabase_admin.table("milestone_log")
-        .select("milestone_type, earned_at")
-        .eq("user_id", user_id)
-        .like("milestone_type", "pet_stage_%")
-        .order("earned_at")
-        .execute()
-        .data
-        or []
-    )
+        user = user_result.data or {}
 
-    current_pet = user.get("pet_stage", 0) or 0
-    total_pf = user.get("total_pf", 0) or 0
-    pet_unlocked = user.get("pet_unlocked", False)
+        milestones = _milestone_rows_pet_stages(user_id)
 
-    pets = []
-    for i in range(1, TOTAL_PET_STAGES + 1):
-        threshold = PF_THRESHOLDS[i - 1]
-        next_threshold = (
-            PF_THRESHOLDS[i] if i < len(PF_THRESHOLDS) else None
+        current_pet = user.get("pet_stage", 0) or 0
+        total_pf = user.get("total_pf", 0) or 0
+        pet_unlocked = user.get("pet_unlocked", False)
+
+        pets = []
+        for i in range(1, TOTAL_PET_STAGES + 1):
+            threshold = PF_THRESHOLDS[i - 1]
+            next_threshold = (
+                PF_THRESHOLDS[i] if i < len(PF_THRESHOLDS) else None
+            )
+            earned_at = next(
+                (
+                    m["earned_at"]
+                    for m in milestones
+                    if m.get("milestone_type") == f"pet_stage_{i}"
+                ),
+                None,
+            )
+            pets.append({
+                "stage": i,
+                "name": PET_NAMES[i - 1],
+                "pf_required": threshold,
+                "pf_next": next_threshold,
+                "unlocked": pet_unlocked and i <= current_pet,
+                "current": i == current_pet,
+                "earned_at": earned_at,
+            })
+
+        pf_start = (
+            PF_THRESHOLDS[current_pet - 1]
+            if current_pet > 0
+            else 0
         )
-        earned_at = next(
-            (
-                m["earned_at"]
-                for m in milestones
-                if m.get("milestone_type") == f"pet_stage_{i}"
+        pf_end = (
+            PF_THRESHOLDS[current_pet]
+            if current_pet < len(PF_THRESHOLDS) - 1
+            else pf_start
+        )
+        if current_pet >= TOTAL_PET_STAGES:
+            pf_end = PF_THRESHOLDS[current_pet - 1]
+        progress_pct = (
+            round(
+                ((total_pf - pf_start) / max(pf_end - pf_start, 1)) * 100,
+                1,
+            )
+            if current_pet < TOTAL_PET_STAGES
+            else 100.0
+        )
+
+        return {
+            "pet_unlocked": pet_unlocked,
+            "current_pet_stage": current_pet,
+            "current_pet_name": (
+                PET_NAMES[current_pet - 1] if current_pet > 0 else None
             ),
-            None,
-        )
-        pets.append({
-            "stage": i,
-            "name": PET_NAMES[i - 1],
-            "pf_required": threshold,
-            "pf_next": next_threshold,
-            "unlocked": pet_unlocked and i <= current_pet,
-            "current": i == current_pet,
-            "earned_at": earned_at,
-        })
-
-    pf_start = (
-        PF_THRESHOLDS[current_pet - 1]
-        if current_pet > 0
-        else 0
-    )
-    pf_end = (
-        PF_THRESHOLDS[current_pet]
-        if current_pet < len(PF_THRESHOLDS) - 1
-        else pf_start
-    )
-    if current_pet >= TOTAL_PET_STAGES:
-        pf_end = PF_THRESHOLDS[current_pet - 1]
-    progress_pct = (
-        round(
-            ((total_pf - pf_start) / max(pf_end - pf_start, 1)) * 100,
-            1,
-        )
-        if current_pet < TOTAL_PET_STAGES
-        else 100.0
-    )
-
-    return {
-        "pet_unlocked": pet_unlocked,
-        "current_pet_stage": current_pet,
-        "current_pet_name": (
-            PET_NAMES[current_pet - 1] if current_pet > 0 else None
-        ),
-        "total_pf": total_pf,
-        "pf_to_next": (
-            max(0, pf_end - total_pf) if current_pet < TOTAL_PET_STAGES else 0
-        ),
-        "progress_pct": progress_pct,
-        "companions": pets,
-    }
+            "total_pf": total_pf,
+            "pf_to_next": (
+                max(0, pf_end - total_pf) if current_pet < TOTAL_PET_STAGES else 0
+            ),
+            "progress_pct": progress_pct,
+            "companions": pets,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("get_profile_companion failed: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail="Companion data temporarily unavailable. Please try again.",
+        ) from e
 
 
 @router.get("/interests", response_model=dict)

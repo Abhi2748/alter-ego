@@ -163,7 +163,14 @@ async def daily_mission_reset_job():
     Users are in different timezones — we scan each hour and filter by local hour.
     """
     from app.core.supabase_client import supabase_admin
-    from app.services.mission_service import generate_core_missions_for_user, get_user_date, sync_today_planner_missions
+    from app.services.mission_service import (
+        generate_core_missions_for_user,
+        get_today_missions,
+        get_user_date,
+        sync_today_planner_missions,
+    )
+    from app.services.stat_service import ensure_sp_day_aligned, set_total_missions_for_day
+    from app.services.sigil_service import reset_daily_surge
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
@@ -195,6 +202,8 @@ async def daily_mission_reset_job():
 
             today = get_user_date(timezone)
 
+            await ensure_sp_day_aligned(user["id"], today)
+
             existing = (
                 supabase_admin.table("missions")
                 .select("id")
@@ -204,14 +213,21 @@ async def daily_mission_reset_job():
                 .limit(1)
                 .execute()
             )
-            if existing.data:
-                continue
+            if not existing.data:
+                await generate_core_missions_for_user(user["id"], today)
+                await sync_today_planner_missions(user["id"], today)
+                reset_count += 1
+                logger.info("daily_mission_reset_job: generated missions for user %s", user["id"])
+            else:
+                await sync_today_planner_missions(user["id"], today)
 
-            await generate_core_missions_for_user(user["id"], today)
-            await sync_today_planner_missions(user["id"], today)
+            rows = await get_today_missions(user["id"], today)
+            await set_total_missions_for_day(user["id"], len(rows))
 
-            reset_count += 1
-            logger.info("daily_mission_reset_job: generated missions for user %s", user["id"])
+            try:
+                await reset_daily_surge(user["id"], today)
+            except Exception as e:
+                logger.error("Sigil daily reset failed for user %s: %s", user.get("id"), e)
 
         except Exception as e:
             logger.error("daily_mission_reset_job: failed for user %s: %s", user.get("id"), e)

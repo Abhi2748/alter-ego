@@ -8,6 +8,7 @@ import {
   TextInput,
   StyleSheet,
   Platform,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,6 +21,55 @@ import { useCompleteMission, useRateMission } from "@/hooks/useMissions";
 type MissionDetailRoute = RouteProp<MainStackParamList, "MissionDetail">;
 
 const BG_GRADIENT = ["#0D0F1A", "#07080F"] as const;
+
+/** Match HomeMissionCard / Home — types, difficulty text, XP·PF meta */
+const TEXT_PRIMARY = "#E5E7EB";
+const TEXT_DIM = "#4B5563";
+const TEXT_MUTED = "#6B7280";
+const TEXT_SECONDARY = "#9CA3AF";
+
+const TYPE_BADGE_STYLES: Record<
+  "core" | "interest" | "resistance",
+  { bg: string; border: string; dot: string; text: string; label: string }
+> = {
+  core: {
+    bg: "rgba(239,68,68,0.10)",
+    border: "rgba(239,68,68,0.18)",
+    dot: "#F87171",
+    text: "#F87171",
+    label: "CORE MISSION",
+  },
+  interest: {
+    bg: "rgba(139,92,246,0.10)",
+    border: "rgba(139,92,246,0.2)",
+    dot: "#8B5CF6",
+    text: "#A78BFA",
+    label: "INTEREST MISSION",
+  },
+  resistance: {
+    bg: "rgba(194,65,12,0.12)",
+    border: "rgba(249,115,22,0.30)",
+    dot: "#F97316",
+    text: "#FB923C",
+    label: "RESISTANCE MISSION",
+  },
+};
+
+const DIFFICULTY_TEXT: Record<"easy" | "medium" | "hard" | "elite", string> = {
+  easy: "#10B981",
+  medium: "#F97316",
+  hard: "#EF4444",
+  elite: "#EF4444",
+};
+
+const DIFFICULTY_PILL_BG = "rgba(139,92,246,0.09)";
+const DIFFICULTY_PILL_BORDER = "rgba(139,92,246,0.18)";
+
+const RESEARCH_FALLBACK_INTEREST =
+  "Skill research favours short, focused practice you can repeat — not occasional marathon sessions. Your planner uses that idea so missions stay completable while still pushing the skill.";
+
+const RESEARCH_FALLBACK_RESISTANCE =
+  "Evidence on habit change shows replacements work when they satisfy the same underlying need as the old pattern. This mission is built around that mechanism instead of asking you to white-knuckle every urge.";
 
 export function MissionDetailScreen() {
   const navigation = useNavigation();
@@ -39,6 +89,9 @@ export function MissionDetailScreen() {
       onSuccess: () => {
         setIsCompleted(true);
         setTimeout(() => navigation.goBack(), 600);
+      },
+      onError: (e) => {
+        Alert.alert("Can't mark done", getErrorMessage(e));
       },
     });
   };
@@ -77,13 +130,6 @@ export function MissionDetailScreen() {
         border: "rgba(139,92,246,0.30)",
         dot: "#8B5CF6",
         label: "INTEREST MISSION",
-      };
-    if (mission.type === "personal")
-      return {
-        bg: "rgba(107,114,128,0.12)",
-        border: "rgba(107,114,128,0.25)",
-        dot: "#6B7280",
-        label: "PERSONAL MISSION",
       };
     return {
       bg: "rgba(127,29,29,0.15)",
@@ -130,8 +176,16 @@ export function MissionDetailScreen() {
         ? "This is a core discipline mission — the biological\nfoundation of every other habit. Sleep, movement, hydration,\nmindfulness, and focused attention are the non-negotiable\nsubstrate that makes every other goal possible."
         : "Mission rationale is being generated.";
 
-  const showResearch =
-    mission.domain_knowledge != null && mission.domain_knowledge.trim().length > 0;
+  const showResearchSection = mission.type === "interest" || mission.type === "resistance";
+  const researchBodyRaw = mission.domain_knowledge?.trim() ?? "";
+  const researchBody =
+    researchBodyRaw.length > 0
+      ? researchBodyRaw
+      : showResearchSection
+        ? mission.type === "interest"
+          ? RESEARCH_FALLBACK_INTEREST
+          : RESEARCH_FALLBACK_RESISTANCE
+        : "";
 
   return (
     <LinearGradient colors={BG_GRADIENT} style={styles.container}>
@@ -153,7 +207,7 @@ export function MissionDetailScreen() {
                 style={styles.backBtn}
                 hitSlop={10}
               >
-                <Ionicons name="chevron-back" size={24} color="#E5E7EB" />
+                <Ionicons name="chevron-back" size={24} color={TEXT_PRIMARY} />
               </Pressable>
               <Text style={styles.headerTitle}>MISSION</Text>
               <View style={{ width: 44 }} />
@@ -176,13 +230,11 @@ export function MissionDetailScreen() {
             <Text style={styles.missionTitle}>{mission.title}</Text>
 
             <View style={styles.chipsRow}>
-              <View style={styles.rewardChip}>
-                <Ionicons name="star" size={12} color="#A78BFA" />
-                <Text style={styles.rewardChipText}>{`${mission.xp_value} XP`}</Text>
+              <View style={styles.rewardMetaChip}>
+                <Text style={styles.rewardMetaText}>{`★ ${mission.xp_value}`}</Text>
               </View>
-              <View style={styles.rewardChip}>
-                <Ionicons name="leaf" size={12} color="#F59E0B" />
-                <Text style={styles.pfChipText}>{`${mission.pf_value} PF`}</Text>
+              <View style={styles.rewardMetaChip}>
+                <Text style={styles.rewardMetaText}>{`🌿 ${mission.pf_value}`}</Text>
               </View>
               <View
                 style={[
@@ -228,19 +280,33 @@ export function MissionDetailScreen() {
             <Text style={styles.rationaleBody}>{rationaleText}</Text>
           </View>
 
-          {/* ZONE 4 — THE RESEARCH */}
-          {showResearch ? (
+          {/* ZONE 4 — THE RESEARCH (interest + resistance; API domain_knowledge or fallback) */}
+          {showResearchSection ? (
             <View style={styles.zone4}>
               <View style={styles.sectionHeaderRow}>
-                <View style={[styles.accentBar, { backgroundColor: "#374151" }]} />
+                {mission.type === "interest" ? (
+                  <LinearGradient
+                    colors={["#8B5CF6", "#6D28D9"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 1 }}
+                    style={styles.accentBar}
+                  />
+                ) : (
+                  <LinearGradient
+                    colors={["#FB923C", "#EA580C"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 1 }}
+                    style={styles.accentBar}
+                  />
+                )}
                 <Text style={styles.researchLabel}>THE RESEARCH</Text>
               </View>
-              <Text style={styles.researchBody}>{mission.domain_knowledge}</Text>
+              <Text style={styles.researchBody}>{researchBody}</Text>
             </View>
           ) : null}
 
           {/* DIVIDER */}
-          <View style={{ paddingHorizontal: 20, marginTop: showResearch ? 16 : 0 }}>
+          <View style={{ paddingHorizontal: 20, marginTop: showResearchSection ? 16 : 0 }}>
             <LinearGradient
               colors={["transparent", "#1E2333", "transparent"]}
               start={{ x: 0, y: 0 }}
@@ -497,7 +563,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#6B7280",
+    color: TEXT_MUTED,
     letterSpacing: 2,
     textTransform: "uppercase",
   },
@@ -527,7 +593,7 @@ const styles = StyleSheet.create({
   missionTitle: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#E5E7EB",
+    color: TEXT_PRIMARY,
     lineHeight: 30,
     marginBottom: 16,
   },
@@ -536,26 +602,17 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 10,
   },
-  rewardChip: {
-    backgroundColor: "rgba(30,35,51,0.8)",
-    borderWidth: 1,
-    borderColor: "#1E2333",
-    borderRadius: 10,
+  /** Home card meta: ★ XP / 🌿 PF at ~9px dim — slightly larger here for readability */
+  rewardMetaChip: {
     paddingVertical: 6,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
+    paddingHorizontal: 4,
+    justifyContent: "center",
   },
-  rewardChipText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#E5E7EB",
-  },
-  pfChipText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#F59E0B",
+  rewardMetaText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: TEXT_DIM,
+    letterSpacing: 0.2,
   },
   diffChip: {
     borderWidth: 1,
@@ -580,7 +637,7 @@ const styles = StyleSheet.create({
   durationChipText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#6B7280",
+    color: TEXT_MUTED,
   },
 
   divider: { height: 1, marginHorizontal: 0 },
@@ -602,10 +659,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 3,
     textTransform: "uppercase",
-    color: "#6B7280",
+    color: TEXT_MUTED,
   },
   rationaleBody: {
-    color: "#E5E7EB",
+    color: TEXT_PRIMARY,
     fontSize: 14,
     lineHeight: 24,
   },
@@ -615,10 +672,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 3,
     textTransform: "uppercase",
-    color: "#4B5563",
+    color: TEXT_MUTED,
   },
   researchBody: {
-    color: "#9CA3AF",
+    color: TEXT_SECONDARY,
     fontSize: 13,
     lineHeight: 22,
   },
@@ -767,7 +824,7 @@ const styles = StyleSheet.create({
   completedBtnText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#4B5563",
+    color: TEXT_DIM,
     letterSpacing: 0.5,
   },
 });

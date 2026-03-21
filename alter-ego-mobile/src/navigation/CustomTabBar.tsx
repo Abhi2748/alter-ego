@@ -5,6 +5,8 @@ import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
+import { SigilMiniPreview } from "@/components/sigil/SigilMiniPreview";
+import { useSigilData } from "@/hooks/useSigil";
 
 const TAB_HEIGHT = 56;
 const TWIN_BUTTON_SIZE = 56;
@@ -12,13 +14,27 @@ const TWIN_RAISE = 14;
 const ICON_SIZE = 22;
 const ICON_SIZE_TWIN = 26;
 
-const tabConfig: Record<string, { label: string; icon: keyof typeof Ionicons.glyphMap }> = {
+const tabConfig: Record<
+  string,
+  { label: string; icon?: keyof typeof Ionicons.glyphMap; isSigil?: boolean }
+> = {
+  Sigil: { label: "Sigil", isSigil: true },
   Home: { label: "Home", icon: "home-outline" },
   Leaderboard: { label: "Rank", icon: "podium-outline" },
   Twin: { label: "Twin", icon: "flash" },
   Report: { label: "Report", icon: "document-text-outline" },
   Profile: { label: "Profile", icon: "person-outline" },
 };
+
+function SigilTabIcon({ focused }: { focused: boolean }) {
+  const { data } = useSigilData();
+  const level = data?.sigil_level ?? 1;
+  return (
+    <View style={{ opacity: focused ? 1 : 0.65 }}>
+      <SigilMiniPreview level={level} size={22} />
+    </View>
+  );
+}
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -42,6 +58,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
         const isTwin = name === "Twin";
         const isFocused = state.routes[state.index].name === name;
         const config = tabConfig[name] ?? { label: name, icon: "ellipse-outline" as const };
+        const isSigil = name === "Sigil";
 
         if (isTwin) {
           return (
@@ -95,11 +112,15 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             accessibilityRole="button"
             accessibilityState={isFocused ? { selected: true } : {}}
           >
-            <Ionicons
-              name={config.icon}
-              size={ICON_SIZE}
-              color={isFocused ? COLORS.violet : COLORS.muted}
-            />
+            {isSigil ? (
+              <SigilTabIcon focused={isFocused} />
+            ) : (
+              <Ionicons
+                name={config.icon ?? "ellipse-outline"}
+                size={ICON_SIZE}
+                color={isFocused ? COLORS.violet : COLORS.muted}
+              />
+            )}
             <Text
               style={{
                 fontSize: 11,

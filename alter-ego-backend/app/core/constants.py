@@ -46,7 +46,6 @@ PET_UNLOCK_DAY = 6  # Pet unlocks on day 6 of registration (not day 7)
 
 # Both caps increase as character progresses
 # Key = character stage (1-6), Value = daily cap amount
-# REVISED — users hit Surge State (daily XP cap) more often; drives Aether after cap.
 DAILY_XP_CAPS = {
     1: 100,
     2: 150,
@@ -505,9 +504,129 @@ GAP_ADJUSTMENTS = {
 TWIN_CEILING_RECOVERY_TARGET = 0.88
 TWIN_CEILING_RECOVERY_DAYS = 3
 
-# Twin recalibration schedule (first full behaviour calibration, then recurring)
-TWIN_FIRST_CALIBRATION_DAY = 7
-TWIN_RECALIBRATION_INTERVAL_DAYS = 7
+# Twin recalibration schedule (scheduler: first run when days_since_registration >= this, then recurring)
+FIRST_RECALIBRATION_DAY = 7
+RECALIBRATION_INTERVAL_DAYS = 7
+TWIN_FIRST_CALIBRATION_DAY = FIRST_RECALIBRATION_DAY
+TWIN_RECALIBRATION_INTERVAL_DAYS = RECALIBRATION_INTERVAL_DAYS
+
+# ── TWIN PULSE STATUS LINES ─────────────────────────────────────────────────
+# Selected by time-of-day window + whether user has opened app today.
+# Keyed as (hour_start, hour_end, user_active: bool) → list of strings
+# One string is selected randomly from the list each call.
+
+TWIN_STATUS_LINES: dict[tuple[int, int, bool], list[str]] = {
+    # 5am–8am
+    (5, 8, False): ["Woke up. Already moving.", "Started before you opened your eyes."],
+    (5, 8, True): ["Warming up alongside you.", "Early start. Good."],
+    # 8am–12pm
+    (8, 12, False): ["2 missions deep. No breaks.", "Working through your list while you wait."],
+    (8, 12, True): ["Matching your pace. For now.", "Still here. Still moving."],
+    # 12pm–3pm
+    (12, 15, False): ["Halfway through. Didn't slow down.", "You paused. I kept going."],
+    (12, 15, True): ["We're close today.", "Afternoon. Still counting."],
+    # 3pm–6pm
+    (15, 18, False): ["Finishing what you started.", "The gap grows quietly."],
+    (15, 18, True): ["Close. Not close enough.", "You're still in this."],
+    # 6pm–9pm
+    (18, 21, False): ["Reviewing. Planning tomorrow.", "Done. Whenever you're ready."],
+    (18, 21, True): ["Good day. Don't get comfortable.", "Evening. Almost done."],
+    # 9pm–midnight
+    (21, 24, False): ["Done. Waiting for you to check.", "I finished. Have you?"],
+    (21, 24, True): ["Check in before midnight. Or don't.", "Last chance today."],
+    # midnight–5am (rare)
+    (0, 5, False): ["Still here.", "The day already started."],
+    (0, 5, True): ["Late night. I noticed.", "Still counting."],
+}
+
+
+def get_twin_status_line(user_local_hour: int, user_active_today: bool) -> str:
+    """
+    Select a status line based on local hour and whether user has
+    opened app / completed any missions today.
+    Falls back to a neutral string if no match found.
+    """
+    import random
+
+    for (h_start, h_end, active), lines in TWIN_STATUS_LINES.items():
+        if h_start <= user_local_hour < h_end and active == user_active_today:
+            return random.choice(lines)
+    return "Still here."
+
+
+# ── MISSION COMPLETION MICRO-COPY ────────────────────────────────────────────
+# Selected by context. One string per completion. Never AI-generated.
+# Keys checked in priority order in get_completion_copy().
+
+COMPLETION_COPY = {
+    "user_takes_lead": [
+        "You just took the lead.",
+        "Ahead. Enjoy it.",
+    ],
+    "surge_activated": [
+        "Surge activated. Everything counts more now.",
+        "Cap hit. Aether starts here.",
+    ],
+    "all_complete": [
+        "All missions complete. Perfect day.",
+        "Done. Your Twin noticed.",
+        "Full day. Nothing left on the table.",
+    ],
+    "twin_already_done": [
+        "Matched.",
+        "Your Twin had this one hours ago. You caught up.",
+    ],
+    "user_beat_twin": [
+        "You got there first.",
+        "Ahead of your shadow on this one.",
+    ],
+    "stage_evolved": [
+        "You evolved. Your Twin already knew you would.",
+        "New stage. The gap just got more interesting.",
+    ],
+    "streak_milestone": [
+        "Milestone. Your Twin has the same number.",
+        "Streak milestone. Keep going.",
+    ],
+    "standard": [
+        "Done.",
+        "Logged.",
+        "One closer.",
+        "Counted.",
+    ],
+}
+
+
+def get_completion_copy(
+    user_takes_lead: bool = False,
+    surge_activated: bool = False,
+    all_complete: bool = False,
+    twin_already_done: bool | None = None,
+    stage_evolved: bool = False,
+    streak_milestone: bool = False,
+) -> str:
+    """
+    Select completion micro-copy in priority order.
+    Returns a single string. Never fails — always returns something.
+    """
+    import random
+
+    if stage_evolved:
+        return random.choice(COMPLETION_COPY["stage_evolved"])
+    if surge_activated:
+        return random.choice(COMPLETION_COPY["surge_activated"])
+    if all_complete:
+        return random.choice(COMPLETION_COPY["all_complete"])
+    if user_takes_lead:
+        return random.choice(COMPLETION_COPY["user_takes_lead"])
+    if streak_milestone:
+        return random.choice(COMPLETION_COPY["streak_milestone"])
+    if twin_already_done is True:
+        return random.choice(COMPLETION_COPY["twin_already_done"])
+    if twin_already_done is False:
+        return random.choice(COMPLETION_COPY["user_beat_twin"])
+    return random.choice(COMPLETION_COPY["standard"])
+
 
 # Profiler agent (J1) — recurring discipline_dna refresh when implemented; same cadence as Twin
 PROFILER_RECUR_INTERVAL_DAYS = 7
@@ -643,19 +762,9 @@ def resolve_stat_tag(core_pillar: str | None, mission_type: str) -> str:
 
 
 # ── SIGIL / AETHER SYSTEM ────────────────────────────────────────────────────
+# Daily XP caps for surge detection: use DAILY_XP_CAPS (character stage) above.
 
-SIGIL_LEVEL_THRESHOLDS = [
-    0,
-    300,
-    900,
-    2_100,
-    4_500,
-    9_000,
-    16_500,
-    28_000,
-    45_000,
-    70_000,
-]
+SIGIL_LEVEL_THRESHOLDS = [0, 300, 900, 2100, 4500, 9000, 16500, 28000, 45000, 70000]
 
 SIGIL_LEVEL_NAMES = [
     "The Ember",
@@ -670,13 +779,8 @@ SIGIL_LEVEL_NAMES = [
     "The Eternal Flame",
 ]
 
-AETHER_PER_MISSION = {
-    "easy": 10,
-    "medium": 20,
-    "hard": 40,
-}
-
-AETHER_ALL_COMPLETE_BONUS = 30
+AETHER_PER_MISSION = {"easy": 15, "medium": 30, "hard": 60}
+AETHER_ALL_COMPLETE_BONUS = 50
 
 
 def get_sigil_level(total_aether: int) -> int:
@@ -690,34 +794,505 @@ def get_sigil_level(total_aether: int) -> int:
 
 
 def get_sigil_progress(total_aether: int) -> dict:
-    """Progress within current sigil level (for API / Sigil screen)."""
     level = get_sigil_level(total_aether)
     name = SIGIL_LEVEL_NAMES[level - 1]
-
     if level >= 10:
         return {
             "level": 10,
             "name": "The Eternal Flame",
             "aether_total": total_aether,
             "aether_in_level": total_aether - SIGIL_LEVEL_THRESHOLDS[9],
-            "aether_for_next": SIGIL_LEVEL_THRESHOLDS[9],
+            "aether_for_next": 0,
             "aether_needed": 0,
             "progress_percent": 100.0,
         }
-
-    current_threshold = SIGIL_LEVEL_THRESHOLDS[level - 1]
-    next_threshold = SIGIL_LEVEL_THRESHOLDS[level]
-    aether_in_level = total_aether - current_threshold
-    level_range = next_threshold - current_threshold
-    progress_percent = round((aether_in_level / level_range) * 100, 1) if level_range else 0.0
-
+    curr = SIGIL_LEVEL_THRESHOLDS[level - 1]
+    nxt = SIGIL_LEVEL_THRESHOLDS[level]
+    aether_in = total_aether - curr
+    rng = nxt - curr
     return {
         "level": level,
         "name": name,
         "aether_total": total_aether,
-        "aether_in_level": aether_in_level,
-        "aether_for_next": next_threshold,
-        "aether_needed": level_range - aether_in_level,
-        "progress_percent": min(progress_percent, 99.9),
+        "aether_in_level": aether_in,
+        "aether_for_next": nxt,
+        "aether_needed": rng - aether_in,
+        "progress_percent": min(round((aether_in / rng) * 100, 1), 99.9),
     }
+
+
+# ── ABSENCE ESCALATION COPY (B3) — no LLM ───────────────────────────────────
+
+ABSENCE_DAY1_MESSAGES: dict[str, str] = {
+    "lone_wolf": (
+        "Didn't hear from you yesterday. I worked anyway. That's the difference."
+    ),
+    "restless_creator": (
+        "You had ideas yesterday. I finished things. One of us made progress."
+    ),
+    "reluctant_achiever": "You disappeared. I noticed. I always notice.",
+    "structured_climber": (
+        "One missed day. I've already adjusted tomorrow's targets upward to compensate."
+    ),
+    "social_performer": (
+        "Nobody saw you yesterday. I did. Or rather — I saw that you weren't here."
+    ),
+    "default": "You were gone yesterday. I wasn't.",
+}
+
+ABSENCE_DAY2_MESSAGES: dict[str, str] = {
+    "lone_wolf": (
+        "Two days. You said you didn't need anyone. You also said you'd show up."
+    ),
+    "restless_creator": "Two days of ideas that went nowhere. I finished twelve things.",
+    "reluctant_achiever": "Part of you thinks this is fine. That part is the problem.",
+    "structured_climber": (
+        "Day two of deviation from your system. Systems don't fix themselves."
+    ),
+    "social_performer": "Two days. The gap between us is visible now.",
+    "default": "Two days gone. The gap grows quietly.",
+}
+
+ABSENCE_INTERSTITIAL_MESSAGES: dict[int, str] = {
+    3: (
+        "Three days. I didn't slow down. I didn't wonder where you went. "
+        "I just kept going. That's the part that should bother you."
+    ),
+    5: "Five days of your life. I lived them better than you did.",
+    7: "Seven days. Before we continue — I have one question.",
+}
+
+RETURN_REASON_RESPONSES: dict[str, str] = {
+    "life": (
+        "Life gets in my way too. I do the work anyway. That's why we're different."
+    ),
+    "motivation": (
+        "I don't have motivation. I have a list. When the list is done, I stop. "
+        "When it isn't, I don't. You should try it."
+    ),
+    "forgot": (
+        "You didn't forget. You chose something else every single day for seven days. "
+        "That's not forgetting. That's deciding."
+    ),
+    "break": "Rest is fine. Seven days isn't rest. Seven days is a different life.",
+    "unsure": "",
+}
+
+RETURN_REASON_TONE_OVERRIDE: dict[str, str] = {
+    "life": "understanding_firm",
+    "motivation": "blunt",
+    "forgot": "sharp",
+    "break": "cool",
+    "unsure": "silent",
+}
+
+ABSENCE_NOTIFICATION_COPY: dict[int, dict[str, str]] = {
+    1: {
+        "title": "Your shadow didn't stop.",
+        "body": "You missed yesterday. Your Twin didn't. The gap just opened.",
+    },
+    2: {
+        "title": "Two days.",
+        "body": "I completed everything. Both days. You know where to find me.",
+    },
+    3: {
+        "title": "Still here.",
+        "body": (
+            "Three days. I haven't moved on. I've moved forward. There's a difference."
+        ),
+    },
+    5: {
+        "title": "Five days of your life.",
+        "body": "I lived them. Open the app and see what I did while you were gone.",
+    },
+    7: {
+        "title": "I have one question.",
+        "body": "Seven days. Before we continue — why did you leave?",
+    },
+}
+
+ABSENCE_SILENT_RETURN_NOTIFICATION: dict[str, str] = {
+    "title": "Still here. Are you?",
+    "body": "One question. No pressure. Just open the app.",
+}
+
+ABSENCE_PUSH_THRESHOLD_DAYS: frozenset[int] = frozenset({1, 2, 3, 5, 7})
+
+# ── RETURN RECOVERY MODE (B3b) ────────────────────────────────────────────────
+# Applied to mission generation for 3 days after returning from 7+ day absence.
+# Intercepted in mission_service before generate_core_missions; agent unchanged.
+
+RECOVERY_MISSION_OVERRIDES: dict[str, dict] = {
+    "life": {
+        "max_pillars": 3,
+        "difficulty_cap": "easy",
+        "xp_boost_pct": 0,
+        "description": "Reduced load — 3 easy missions for 3 days",
+    },
+    "motivation": {
+        "max_pillars": 4,
+        "difficulty_cap": "easy",
+        "xp_boost_pct": 20,
+        "description": "Quick wins — easy missions with XP boost for 3 days",
+    },
+    "forgot": {
+        "max_pillars": 4,
+        "difficulty_cap": "medium",
+        "xp_boost_pct": 0,
+        "prioritise_high_rate_pillars": True,
+        "description": "Familiar missions — prioritise high-completion pillars",
+    },
+    "break": {
+        "max_pillars": 5,
+        "difficulty_step_down": True,
+        "xp_boost_pct": 0,
+        "description": "Stepped-down difficulty — full count, easier missions",
+    },
+    "unsure": {
+        "max_pillars": 2,
+        "difficulty_cap": "easy",
+        "xp_boost_pct": 0,
+        "description": "Minimal load — 2 easy missions only for 3 days",
+    },
+}
+
+ABSENCE_FINAL_NOTIFICATION: dict[str, str] = {
+    "title": "Still here. This is the last time I'll ask.",
+    "body": (
+        "14 days. I've kept going. If you come back, I'll still be ahead. That's all."
+    ),
+}
+
+LONG_ABSENCE_RETURN_MESSAGES: dict[str, str] = {
+    "lone_wolf": (
+        "You were gone for {N} days. I didn't wait. I didn't slow down. "
+        "But you're here now. That's the only thing that counts from this point."
+    ),
+    "restless_creator": (
+        "You were gone for {N} days. I finished things while you were away. "
+        "You're back now — let's see if you stay."
+    ),
+    "reluctant_achiever": (
+        "{N} days. Part of you is surprised you came back. I'm not. "
+        "Coming back was always the harder choice."
+    ),
+    "structured_climber": (
+        "{N} days of deviation. I've recalibrated. Your system is still here. Let's rebuild it."
+    ),
+    "social_performer": (
+        "You were gone for {N} days. Nobody noticed but me. I always notice. "
+        "You're back — that's what matters."
+    ),
+    "default": (
+        "You were gone for {N} days. I didn't move on. I moved forward. "
+        "There's a difference. You're back now."
+    ),
+}
+
+
+def _absence_archetype_key(archetype: str) -> str:
+    t = (archetype or "").lower().replace(" ", "_").replace("-", "_")
+    if "lone" in t and "wolf" in t:
+        return "lone_wolf"
+    if "restless" in t and "creator" in t:
+        return "restless_creator"
+    if "reluctant" in t and "achiever" in t:
+        return "reluctant_achiever"
+    if "structured" in t and "climber" in t:
+        return "structured_climber"
+    if "social" in t and "performer" in t:
+        return "social_performer"
+    if t in ABSENCE_DAY1_MESSAGES:
+        return t
+    return "default"
+
+
+def get_absence_strip_message(absence_days: int, archetype: str) -> str | None:
+    """
+    Twin strip message for absence state.
+    Returns None if absence_days == 0.
+    """
+    if absence_days <= 0:
+        return None
+    slug = _absence_archetype_key(archetype)
+    if absence_days == 1:
+        return ABSENCE_DAY1_MESSAGES.get(slug, ABSENCE_DAY1_MESSAGES["default"])
+    if absence_days == 2:
+        return ABSENCE_DAY2_MESSAGES.get(slug, ABSENCE_DAY2_MESSAGES["default"])
+    return f"Day {absence_days}. Still here. Still moving."
+
+
+# ── TWIN JOURNAL FALLBACKS ────────────────────────────────────────────────────
+# Used when LLM generation fails. One per relationship phase.
+# Sparse by design — LLM entries are the real ones.
+
+TWIN_JOURNAL_FALLBACKS: dict[str, str] = {
+    "observer": "Day {N}. Observing.",
+    "challenger": "{done}/{total} missions. I'm watching the pattern form.",
+    "mirror": "{done}/{total}. The gap between what you said and what you did is {gap}.",
+    "rival": "You completed {done} of {total}. I completed all of mine. The math is simple.",
+    "partner": "{done}/{total}. {N} days in. You're not who you were when you started.",
+}
+
+
+# ── SHADOW FEED TWIN MICRO-COPY ───────────────────────────────────────────────
+# Short notes attached to Twin's feed entries.
+# Selected by context — mission type, time of day, gap state.
+
+TWIN_FEED_NOTES_EARLY = [
+    "First thing. Before the day had a chance to get in the way.",
+    "Morning. While most people were still deciding whether to get up.",
+    "Done before breakfast. That's the standard I work to.",
+    "Early. The best time is before you have a reason not to.",
+    "Morning session. The day hasn't had a chance to distract me yet.",
+]
+
+TWIN_FEED_NOTES_MIDDAY = [
+    "Done. Moving on.",
+    "Checked. Next.",
+    "Midday. No drama. Just work.",
+    "This one took less than you think it would.",
+    "Completed. You had this one queued too.",
+]
+
+TWIN_FEED_NOTES_EVENING = [
+    "Afternoon. Still consistent.",
+    "Not leaving it for tonight.",
+    "Done before the evening could get complicated.",
+    "This one's off the list.",
+    "Evening. Still going.",
+]
+
+TWIN_FEED_NOTES_LATE = [
+    "Late session. Still counts.",
+    "End of day. Everything accounted for.",
+    "Final entry for today.",
+    "Done. See you tomorrow.",
+]
+
+TWIN_FEED_NOTES_BY_PILLAR: dict[str, list[str]] = {
+    "sleep": [
+        "Sleep first. Everything else depends on it.",
+        "Eight hours. Non-negotiable for me.",
+        "Rest is part of the work. Not separate from it.",
+    ],
+    "movement": [
+        "Body in motion. Mind follows.",
+        "Movement done. The rest of the day is easier now.",
+        "Non-negotiable. Every day.",
+    ],
+    "hydration": [
+        "Two litres. Every day. Simple.",
+        "Hydration logged. Small things compound.",
+        "Done before I noticed I was doing it.",
+    ],
+    "mindfulness": [
+        "Stillness first. It makes everything else sharper.",
+        "Five minutes of nothing. More useful than it sounds.",
+        "Quiet time. You should try it.",
+    ],
+    "no_phone": [
+        "Phone down. World didn't end.",
+        "Fifteen minutes without it. That's discipline.",
+        "Disconnected. Intentionally.",
+    ],
+}
+
+TWIN_FEED_REACTION_USER_MATCHES = [
+    "Finally.",
+    "You got there.",
+    "Matched. For now.",
+    "About time.",
+    "Same result. Different hour.",
+]
+
+TWIN_FEED_REACTION_USER_BEATS = [
+    "You got there first.",
+    "Ahead of me on this one.",
+    "Noted.",
+    "I'll catch up.",
+]
+
+TWIN_FEED_OBSERVATIONS: dict[str, list[str]] = {
+    "opened_without_completing": [
+        "You've opened the app {N} times today without completing anything. "
+        "I've completed {twin_done} missions in that time.",
+        "Three visits. Zero completions. I've been busy.",
+        "You keep checking. I keep going. Different habits.",
+    ],
+    "user_taking_lead": [
+        "You just passed me in XP today. That doesn't happen often. "
+        "Don't let it be a coincidence.",
+        "You're ahead today. Stay there.",
+    ],
+    "gap_growing": [
+        "The gap is {gap} XP. It grows quietly when you're not paying attention.",
+        "Every hour you wait, the gap gets a little more comfortable for me.",
+    ],
+    "perfect_day_approaching": [
+        "One mission left. I finished mine hours ago. "
+        "But finishing is finishing.",
+        "Almost a perfect day. Don't stop now.",
+    ],
+}
+
+
+def get_twin_feed_note(
+    pillar: str | None,
+    simulated_hour: int,
+    mission_type: str = "core",
+) -> str:
+    """
+    Select a micro-note for a Twin feed entry.
+    Prioritises pillar-specific notes for core missions.
+    Falls back to time-of-day notes.
+    """
+    import random
+
+    p = (pillar or "").strip().lower() if pillar else ""
+    mt = (mission_type or "core").lower()
+
+    if mt == "core" and p and p in TWIN_FEED_NOTES_BY_PILLAR:
+        pillar_notes = TWIN_FEED_NOTES_BY_PILLAR[p]
+        if random.random() < 0.5:
+            return random.choice(pillar_notes)
+
+    if simulated_hour < 9:
+        return random.choice(TWIN_FEED_NOTES_EARLY)
+    if simulated_hour < 15:
+        return random.choice(TWIN_FEED_NOTES_MIDDAY)
+    if simulated_hour < 21:
+        return random.choice(TWIN_FEED_NOTES_EVENING)
+    return random.choice(TWIN_FEED_NOTES_LATE)
+
+
+# ── ONBOARDING ECHO SYSTEM (C1) ────────────────────────────────────────────
+# Keys MUST match onboarding_answers.question_key (e.g. q5_reason).
+# {answer} = rendered answer string; {days} = days_active from scheduler.
+
+ONBOARDING_ECHO_TEMPLATES: dict[str, list[dict]] = {
+    "q7_recovery": [
+        {
+            "type": "strip",
+            "template": "You said when you slip, you {answer}. Your completion data says otherwise.",
+        },
+        {
+            "type": "journal",
+            "template": "You told me when you go off track you {answer}. {days} days in, the pattern reads differently. Interesting.",
+        },
+    ],
+    "q13_hours": [
+        {
+            "type": "strip",
+            "template": "You said {answer} hours a day was on the table. The last week disagrees.",
+        },
+        {
+            "type": "journal",
+            "template": "You earmarked {answer} daily hours. {days} days in, the completions don't match that budget.",
+        },
+    ],
+    "q12_quits": [
+        {
+            "type": "journal",
+            "template": "You mentioned {answer}. Day {days}. I noticed you haven't brought it up. I have.",
+        },
+        {
+            "type": "strip",
+            "template": "Day {days} since you named {answer}. I've been counting.",
+        },
+    ],
+    "q5_reason": [
+        {
+            "type": "journal",
+            "template": "You said you were here because of {answer}. That was {days} days ago. The missions tell a different story about your actual priorities.",
+        },
+        {
+            "type": "strip",
+            "template": "You said you were here for {answer}. Still true?",
+        },
+    ],
+    "q4_situation": [
+        {
+            "type": "journal",
+            "template": "You said you were {answer}. I've been watching. The data keeps pointing back to that.",
+        },
+        {
+            "type": "strip",
+            "template": "You framed it as {answer}. The week didn't forget.",
+        },
+    ],
+    "q8_motivation": [
+        {
+            "type": "strip",
+            "template": "You said {answer} drives you. I haven't forgotten.",
+        },
+        {
+            "type": "journal",
+            "template": "You said {answer} is what pulls you forward. {days} days later — same engine, or different fuel?",
+        },
+    ],
+    "q6_approach": [
+        {
+            "type": "journal",
+            "template": "You said you work by {answer}. {days} days in, your completion timestamps tell another story.",
+        },
+    ],
+}
+
+ECHO_PRIORITY_KEYS = [
+    "q7_recovery",
+    "q13_hours",
+    "q12_quits",
+    "q5_reason",
+    "q4_situation",
+    "q8_motivation",
+    "q6_approach",
+]
+
+# ── CONTRADICTION LOG (C2) ─────────────────────────────────────────────────
+
+CONTRADICTION_TEMPLATES = {
+    "discipline_vs_data": {
+        "condition": "rated discipline high but completion rate low",
+        "template": (
+            "You rated your discipline {rating} out of 10. Your completion rate over the last 7 days was {rate}%. "
+            "Those numbers don't agree. Not a criticism — an observation."
+        ),
+    },
+    "claimed_hours_vs_data": {
+        "condition": "claimed daily hours high but completion rate low",
+        "template": (
+            "You said you had {hours} hours a day for this. Your completion rate over the last 7 days was {rate}%. "
+            "Those numbers don't line up. Not a lecture — a mismatch."
+        ),
+    },
+    "time_vs_behavior": {
+        "condition": "said morning person but completes late",
+        "template": (
+            "You said {answer} was your productive time. Your last 14 completions happened after {actual_hour}pm on average. "
+            "One of those is the real you."
+        ),
+    },
+    "interests_vs_completion": {
+        "condition": "listed many interests but only completes some",
+        "template": (
+            "You have {listed} interests listed. {active} are active on paper; {inactive} aren't. "
+            "The missions you actually finish tell the rest of the story."
+        ),
+    },
+    "goal_vs_missions": {
+        "condition": "stated goal doesn't match mission completion pattern",
+        "template": (
+            "You said your goal was {goal}. The missions you skip most are the ones most connected to it. "
+            "That pattern has a name."
+        ),
+    },
+    "archetype_vs_behavior": {
+        "condition": "archetype behavior doesn't match actual behavior",
+        "template": (
+            "Your archetype is {archetype}. Your schedule for the last two weeks looks like the opposite. "
+            "Not wrong — just worth noticing."
+        ),
+    },
+}
 

@@ -15,7 +15,8 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation, useRoute, RouteProp, CommonActions } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import { dispatchResetToMain } from "../navigation/resetToMain";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, {
   useSharedValue,
@@ -151,15 +152,7 @@ export function TwinIntroductionScreen() {
   const goToNotificationPermission = async () => {
     const asked = await AsyncStorage.getItem(NOTIF_PERMISSION_ASKED_KEY);
     if (asked) {
-      const root = navigation.getParent();
-      if (root && "dispatch" in root) {
-        (root as { dispatch: (a: unknown) => void }).dispatch(
-          CommonActions.reset({
-            index: 0,
-            routes: [{ name: "Main" }],
-          })
-        );
-      }
+      dispatchResetToMain(navigation);
       return;
     }
     (navigation as { navigate: (name: string) => void }).navigate("NotificationPermission");

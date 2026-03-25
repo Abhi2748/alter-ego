@@ -45,6 +45,8 @@ export type PetRoamingProps = {
   heroY: number;
   stage?: number;
   isHappy?: boolean;
+  /** Opacity override for absence state (e.g. 0.6 when user absent 2+ days). */
+  absenceOpacity?: number;
 };
 
 export function PetRoaming({
@@ -188,6 +190,7 @@ export function PetRoaming({
       { translateY: posY.value },
       { scale: scale.value },
     ],
+    opacity: wrapOpacity.value,
   }));
 
   return (

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { View, Text, StyleSheet, Dimensions, StatusBar } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { supabase } from "@/utils/supabase";
@@ -15,6 +15,7 @@ import Animated, {
   withRepeat,
   withSequence,
   Easing,
+  type SharedValue,
 } from "react-native-reanimated";
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
@@ -34,6 +35,8 @@ type Nav = StackNavigationProp<RootStackParamList, "Splash">;
 
 export function SplashScreen() {
   const navigation = useNavigation<Nav>();
+  const navRef = useRef(navigation);
+  navRef.current = navigation;
 
   // Layer 1 — Background
   const bgOpacity = useSharedValue(0);
@@ -198,9 +201,9 @@ export function SplashScreen() {
 
     // Particles — infinite loop: translateY 0→-85, opacity 0→0.38→0.32→0, optional X drift
     const runParticle = (
-      yVal: Animated.SharedValue<number>,
-      opacityVal: Animated.SharedValue<number>,
-      xVal: Animated.SharedValue<number>,
+      yVal: SharedValue<number>,
+      opacityVal: SharedValue<number>,
+      xVal: SharedValue<number>,
       duration: number,
       delayMs: number,
       dx: number
@@ -244,8 +247,8 @@ export function SplashScreen() {
 
     // Crack sparks — rise along the full crack (top of screen to figures)
     const runSpark = (
-      yVal: Animated.SharedValue<number>,
-      opacityVal: Animated.SharedValue<number>,
+      yVal: SharedValue<number>,
+      opacityVal: SharedValue<number>,
       duration: number,
       delayMs: number
     ) => {
@@ -283,49 +286,100 @@ export function SplashScreen() {
         onboarding_complete?: boolean;
       }>("/api/v1/auth/me");
       if (me.exists && me.onboarding_complete) {
-        navigation.replace("Main");
+        navRef.current.replace("Main");
       } else {
-        navigation.replace("Onboarding");
+        navRef.current.replace("Onboarding");
       }
     };
 
-    const t = setTimeout(async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-      if (!token) {
-        navigation.replace("SignUp");
-        return;
-      }
-      if (token === "guest") {
-        navigation.replace("Onboarding");
-        return;
-      }
-      try {
-        await bootstrapSession();
-      } catch (e) {
-        if (isAuthError(e)) {
-          await supabase.auth.signOut();
-          navigation.replace("SignUp");
-          return;
-        }
-        // One retry for flaky networks (closed beta / travel)
-        try {
-          await new Promise((r) => setTimeout(r, 1000));
-          await bootstrapSession();
-        } catch (e2) {
-          if (isAuthError(e2)) {
-            await supabase.auth.signOut();
+    const SPLASH_NAV_DELAY_MS = 2500;
+    const BOOTSTRAP_TIMEOUT_MS = 25000;
+
+    const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+      return new Promise((resolve, reject) => {
+        const id = setTimeout(() => reject(new Error(`${label}_TIMEOUT`)), ms);
+        promise
+          .then((v) => {
+            clearTimeout(id);
+            resolve(v);
+          })
+          .catch((err) => {
+            clearTimeout(id);
+            reject(err);
+          });
+      });
+    };
+
+    const t = setTimeout(() => {
+      void (async () => {
+        let navigated = false;
+        const go = (name: keyof RootStackParamList) => {
+          if (navigated) return;
+          navigated = true;
+          try {
+            navRef.current.replace(name);
+          } catch {
+            /* navigation may not be ready in edge cases */
           }
-          navigation.replace("SignUp");
+        };
+
+        try {
+          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          if (sessionError) {
+            await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+            go("SignUp");
+            return;
+          }
+          const token = sessionData?.session?.access_token;
+          if (!token) {
+            go("SignUp");
+            return;
+          }
+          if (token === "guest") {
+            go("Onboarding");
+            return;
+          }
+
+          try {
+            await withTimeout(bootstrapSession(), BOOTSTRAP_TIMEOUT_MS, "BOOTSTRAP");
+          } catch (e) {
+            if (isAuthError(e)) {
+              await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+              go("SignUp");
+              return;
+            }
+            if (e instanceof Error && e.message === "BOOTSTRAP_TIMEOUT") {
+              // Backend unreachable — user already has a JWT; let them into the app
+              go("Main");
+              return;
+            }
+            try {
+              await new Promise((r) => setTimeout(r, 1000));
+              await withTimeout(bootstrapSession(), BOOTSTRAP_TIMEOUT_MS, "BOOTSTRAP_RETRY");
+            } catch (e2) {
+              if (isAuthError(e2)) {
+                await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+                go("SignUp");
+                return;
+              }
+              if (e2 instanceof Error && e2.message === "BOOTSTRAP_TIMEOUT") {
+                go("Main");
+                return;
+              }
+              go("SignUp");
+            }
+          }
+        } catch {
+          go("SignUp");
         }
-      }
-    }, 2500);
+      })();
+    }, SPLASH_NAV_DELAY_MS);
 
     return () => {
       clearTimeout(t);
       StatusBar.setHidden(false, "fade");
     };
-  }, [navigation]);
+  }, []);
 
   const bgAnimatedStyle = useAnimatedStyle(() => ({ opacity: bgOpacity.value }));
   const mistAnimatedStyle = useAnimatedStyle(() => ({
@@ -377,32 +431,47 @@ export function SplashScreen() {
     transform: [{ translateY: taglineTranslateY.value }],
   }));
 
-  const particleStyle = (
-    y: Animated.SharedValue<number>,
-    opacity: Animated.SharedValue<number>,
-    x: Animated.SharedValue<number>
-  ) =>
-    useAnimatedStyle(() => ({
-      transform: [{ translateY: y.value }, { translateX: x.value }],
-      opacity: opacity.value,
-    }));
+  const p1Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: p1Y.value }, { translateX: p1X.value }],
+    opacity: p1Opacity.value,
+  }));
+  const p2Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: p2Y.value }, { translateX: p2X.value }],
+    opacity: p2Opacity.value,
+  }));
+  const p3Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: p3Y.value }, { translateX: p3X.value }],
+    opacity: p3Opacity.value,
+  }));
+  const p4Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: p4Y.value }, { translateX: p4X.value }],
+    opacity: p4Opacity.value,
+  }));
+  const p5Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: p5Y.value }, { translateX: p5X.value }],
+    opacity: p5Opacity.value,
+  }));
+  const p6Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: p6Y.value }, { translateX: p6X.value }],
+    opacity: p6Opacity.value,
+  }));
 
-  const p1Style = particleStyle(p1Y, p1Opacity, p1X);
-  const p2Style = particleStyle(p2Y, p2Opacity, p2X);
-  const p3Style = particleStyle(p3Y, p3Opacity, p3X);
-  const p4Style = particleStyle(p4Y, p4Opacity, p4X);
-  const p5Style = particleStyle(p5Y, p5Opacity, p5X);
-  const p6Style = particleStyle(p6Y, p6Opacity, p6X);
-
-  const sparkStyle = (y: Animated.SharedValue<number>, opacity: Animated.SharedValue<number>) =>
-    useAnimatedStyle(() => ({
-      transform: [{ translateY: y.value }],
-      opacity: opacity.value,
-    }));
-  const s1Style = sparkStyle(s1Y, s1Opacity);
-  const s2Style = sparkStyle(s2Y, s2Opacity);
-  const s3Style = sparkStyle(s3Y, s3Opacity);
-  const s4Style = sparkStyle(s4Y, s4Opacity);
+  const s1Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: s1Y.value }],
+    opacity: s1Opacity.value,
+  }));
+  const s2Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: s2Y.value }],
+    opacity: s2Opacity.value,
+  }));
+  const s3Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: s3Y.value }],
+    opacity: s3Opacity.value,
+  }));
+  const s4Style = useAnimatedStyle(() => ({
+    transform: [{ translateY: s4Y.value }],
+    opacity: s4Opacity.value,
+  }));
 
 
   return (

@@ -15,10 +15,12 @@ import { STATS, type AbilityStatKey } from "@/constants/stats";
 
 export interface SpGainToastProps {
   gains: Array<{ statKey: AbilityStatKey; amount: number }>;
+  /** Twin rivalry line after mission complete (optional). */
+  footerNote?: string;
   onFinish: () => void;
 }
 
-export function SpGainToast({ gains, onFinish }: SpGainToastProps) {
+export function SpGainToast({ gains, footerNote, onFinish }: SpGainToastProps) {
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(-10);
 
@@ -28,7 +30,7 @@ export function SpGainToast({ gains, onFinish }: SpGainToastProps) {
   }));
 
   useEffect(() => {
-    if (gains.length === 0) {
+    if (gains.length === 0 && !footerNote) {
       onFinish();
       return;
     }
@@ -51,7 +53,7 @@ export function SpGainToast({ gains, onFinish }: SpGainToastProps) {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [gains, onFinish, opacity, translateY]);
+  }, [gains, footerNote, onFinish, opacity, translateY]);
 
   return (
     <Animated.View pointerEvents="none" style={[styles.wrap, animatedStyle]}>
@@ -78,6 +80,7 @@ export function SpGainToast({ gains, onFinish }: SpGainToastProps) {
             </View>
           );
         })}
+        {footerNote ? <Text style={styles.footerNote}>{footerNote}</Text> : null}
       </View>
     </Animated.View>
   );
@@ -128,5 +131,12 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "500",
     color: "#6B7280",
+  },
+  footerNote: {
+    marginTop: 2,
+    fontSize: 11,
+    color: "rgba(167,139,250,0.7)",
+    fontStyle: "italic",
+    fontFamily: "Inter_400Regular",
   },
 });

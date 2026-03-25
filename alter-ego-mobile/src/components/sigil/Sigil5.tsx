@@ -1,154 +1,123 @@
-/**
- * Level 5 — ALTER_EGO_Sigil_FullPage.html (The Convergence)
- */
 import React from "react";
-import Svg, { Circle, Line, Polygon, Ellipse } from "react-native-svg";
+import Svg, { Circle, Ellipse, G, Line, Polygon } from "react-native-svg";
 import { useAnimatedProps } from "react-native-reanimated";
-import {
-  useRotation,
-  useHtmlSvgPulseS,
-  useHtmlFlickerFo,
-  useHtmlBreatheR,
-} from "./SigilAnimations";
-import { useRotateCenterStyle } from "./rotateCenter";
+import { useHtmlSvgPulseS, useHtmlFlickerFo, useHtmlBreatheR } from "./SigilAnimations";
 import { AnimatedG, AnimatedCircle } from "./sigilSvg";
 import type { SigilProps } from "./sigilTypes";
-import { SIGIL_VB } from "./sigilTypes";
+import { RotatingG } from "./rotateCenter";
 
-const DIAMOND = "170,28 178,42 170,56 162,42";
-const STAR8 = "170,60 200,140 280,170 200,200 170,280 140,200 60,170 140,140";
-
-const ROSE12: { rot: number; fill: string }[] = [
-  { rot: 0, fill: "#8B5CF6" },
-  { rot: 30, fill: "#7C3AED" },
-  { rot: 60, fill: "#A78BFA" },
-  { rot: 90, fill: "#8B5CF6" },
-  { rot: 120, fill: "#7C3AED" },
-  { rot: 150, fill: "#A78BFA" },
-  { rot: 180, fill: "#8B5CF6" },
-  { rot: 210, fill: "#7C3AED" },
-  { rot: 240, fill: "#A78BFA" },
-  { rot: 270, fill: "#8B5CF6" },
-  { rot: 300, fill: "#7C3AED" },
-  { rot: 330, fill: "#A78BFA" },
-];
+const RAY_STEPS = 16;
 
 export function Sigil5({ size = 300 }: SigilProps) {
-  const pulseStyle = useHtmlSvgPulseS(3000);
-  const rotRays = useRotation(45000, false);
-  const rotDiamonds = useRotation(30000, true);
-  const rotStarA = useRotation(60000, false);
-  const rotStarB = useRotation(60000, true);
-  const rotOrbs = useRotation(15000, false);
-  const rotRose = useRotation(11000, false);
+  const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulseS(3000);
+  const flicker = useHtmlFlickerFo(2000, 1, 0);
+  const breatheRing = useHtmlBreatheR(72, 4000, 1.04);
+  const breatheCore = useHtmlBreatheR(32, 2500, 1.06);
 
-  const sr = useRotateCenterStyle(rotRays);
-  const sd = useRotateCenterStyle(rotDiamonds);
-  const ssa = useRotateCenterStyle(rotStarA);
-  const ssb = useRotateCenterStyle(rotStarB);
-  const so = useRotateCenterStyle(rotOrbs);
-  const srz = useRotateCenterStyle(rotRose);
-
-  const ringBreathe = useHtmlBreatheR(72, 4000, 1.06);
-  const ringAp = useAnimatedProps(() => ({ r: ringBreathe.value }));
-  const coreBreathe = useHtmlBreatheR(32, 2500, 1.06);
-  const coreAp = useAnimatedProps(() => ({ r: coreBreathe.value }));
-  const flickOp = useHtmlFlickerFo(2000, 1, 0);
-  const flickAp = useAnimatedProps(() => ({ opacity: flickOp.value }));
-
-  const rayLen = 160;
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: pulseOp.value,
+    transform: [
+      { translateX: 170 },
+      { translateY: 170 },
+      { scale: pulseSc.value },
+      { translateX: -170 },
+      { translateY: -170 },
+    ],
+  }));
+  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
+  const ringAp = useAnimatedProps(() => ({ r: breatheRing.value }));
+  const coreGlowAp = useAnimatedProps(() => ({ r: breatheCore.value }));
 
   return (
-    <Svg width={size} height={size} viewBox={`0 0 ${SIGIL_VB} ${SIGIL_VB}`}>
-      <AnimatedG style={pulseStyle}>
-        <AnimatedG style={sr}>
-          {Array.from({ length: 16 }).map((_, i) => {
-            const deg = i * 22.5;
-            const rad = (deg * Math.PI) / 180;
-            const x2 = 170 + rayLen * Math.sin(rad);
-            const y2 = 170 - rayLen * Math.cos(rad);
-            const thick = i % 2 === 0;
-            return (
-              <Line
-                key={i}
-                x1={170}
-                y1={170}
-                x2={x2}
-                y2={y2}
-                stroke={thick ? "#A78BFA" : "#7C3AED"}
-                strokeWidth={thick ? 1.5 : 1}
-                opacity={0.4}
-              />
-            );
-          })}
-        </AnimatedG>
+    <Svg width={size} height={size} viewBox="0 0 340 340">
+      <AnimatedG animatedProps={pulseAp}>
+        <RotatingG durationMs={45000}>
+          <G opacity={0.4}>
+            {Array.from({ length: RAY_STEPS }, (_, i) => {
+              const deg = i * 22.5;
+              const wide = i % 2 === 0;
+              return (
+                <G key={deg} transform={`rotate(${deg} 170 170)`}>
+                  <Line
+                    x1={170}
+                    y1={170}
+                    x2={170}
+                    y2={10}
+                    stroke={wide ? "#A78BFA" : "#7C3AED"}
+                    strokeWidth={wide ? 1.5 : 1}
+                  />
+                </G>
+              );
+            })}
+          </G>
+        </RotatingG>
 
-        <Circle cx={170} cy={170} r={138} fill="none" stroke="#8B5CF6" strokeWidth={1} opacity={0.25} />
+        <Circle cx={170} cy={170} r={138} stroke="#8B5CF6" strokeWidth={1} fill="none" opacity={0.25} />
 
-        <AnimatedG style={sd}>
-          {[0, 45, 90, 135, 180, 225, 270, 315].map((deg, i) => (
-            <Polygon
-              key={deg}
-              points={DIAMOND}
-              fill={i % 2 === 0 ? "#A78BFA" : "#7C3AED"}
-              transform={`rotate(${deg} 170 170)`}
-              opacity={0.65}
-            />
-          ))}
-        </AnimatedG>
+        <RotatingG durationMs={30000} reverse>
+          <G opacity={0.65}>
+            {[0, 45, 90, 135, 180, 225, 270, 315].map((deg, i) => (
+              <G key={deg} transform={`rotate(${deg} 170 170)`}>
+                <Polygon points="170,28 178,42 170,56 162,42" fill={i % 2 === 0 ? "#A78BFA" : "#7C3AED"} />
+              </G>
+            ))}
+          </G>
+        </RotatingG>
 
-        <AnimatedG style={ssa}>
-          <Polygon points={STAR8} fill="none" stroke="#8B5CF6" strokeWidth={1.5} opacity={0.5} />
-        </AnimatedG>
-        <AnimatedG style={ssb}>
+        <RotatingG durationMs={60000}>
           <Polygon
-            points={STAR8}
+            points="170,60 200,140 280,170 200,200 170,280 140,200 60,170 140,140"
             fill="none"
-            stroke="#A78BFA"
-            strokeWidth={1}
-            opacity={0.4}
-            transform="rotate(22.5 170 170)"
+            stroke="#8B5CF6"
+            strokeWidth={1.5}
+            opacity={0.5}
           />
-        </AnimatedG>
-
-        <AnimatedG style={so}>
-          {[0, 90, 180, 270].map((deg, i) => (
-            <Circle
-              key={deg}
-              cx={170}
-              cy={80}
-              r={7}
-              fill={i % 2 === 0 ? "#8B5CF6" : "#A78BFA"}
-              opacity={i % 2 === 0 ? 0.8 : 0.75}
-              transform={`rotate(${deg} 170 170)`}
+        </RotatingG>
+        <RotatingG durationMs={60000} reverse>
+          <G transform="rotate(22.5 170 170)">
+            <Polygon
+              points="170,60 200,140 280,170 200,200 170,280 140,200 60,170 140,140"
+              fill="none"
+              stroke="#A78BFA"
+              strokeWidth={1}
+              opacity={0.4}
             />
+          </G>
+        </RotatingG>
+
+        <RotatingG durationMs={15000}>
+          {[0, 90, 180, 270].map((deg) => (
+            <G key={deg} transform={`rotate(${deg} 170 170)`}>
+              <Circle cx={170} cy={80} r={7} fill={deg % 180 === 0 ? "#8B5CF6" : "#A78BFA"} opacity={0.78} />
+            </G>
           ))}
-        </AnimatedG>
+        </RotatingG>
 
         <AnimatedCircle
           cx={170}
           cy={170}
-          fill="none"
           stroke="#7C3AED"
           strokeWidth={1.25}
+          fill="none"
           opacity={0.35}
           animatedProps={ringAp}
         />
 
-        <AnimatedG style={srz}>
-          {ROSE12.map(({ rot, fill }) => (
-            <Ellipse
-              key={rot}
-              cx={170}
-              cy={130}
-              rx={8}
-              ry={32}
-              fill={fill}
-              opacity={0.6}
-              transform={`rotate(${rot} 170 170)`}
-            />
-          ))}
-        </AnimatedG>
+        <RotatingG durationMs={11000}>
+          <G opacity={0.6}>
+            {Array.from({ length: 12 }, (_, i) => (
+              <G key={i} transform={`rotate(${i * 30} 170 170)`}>
+                <Ellipse
+                  cx={170}
+                  cy={130}
+                  rx={8}
+                  ry={32}
+                  fill={i % 3 === 0 ? "#8B5CF6" : i % 3 === 1 ? "#7C3AED" : "#A78BFA"}
+                />
+              </G>
+            ))}
+          </G>
+        </RotatingG>
 
         <AnimatedCircle
           cx={170}
@@ -157,12 +126,12 @@ export function Sigil5({ size = 300 }: SigilProps) {
           stroke="#A78BFA"
           strokeWidth={2.5}
           opacity={0.9}
-          animatedProps={coreAp}
+          animatedProps={coreGlowAp}
         />
         <Circle cx={170} cy={170} r={18} fill="#5B21B6" />
         <Circle cx={170} cy={170} r={9} fill="#8B5CF6" />
         <Circle cx={170} cy={170} r={4} fill="#C4B5FD" />
-        <AnimatedCircle cx={170} cy={170} r={1.5} fill="white" animatedProps={flickAp} />
+        <AnimatedCircle cx={170} cy={170} r={1.5} fill="#FFFFFF" animatedProps={flickAp} />
       </AnimatedG>
     </Svg>
   );

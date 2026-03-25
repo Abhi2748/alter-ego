@@ -15,14 +15,117 @@ No artificial rubber-banding. The gap is earned in both directions.
 
 from __future__ import annotations
 
+import json
 import logging
 import random
-from datetime import datetime, timedelta, date as date_type
+from datetime import datetime, timedelta, date as date_type, timezone
 from zoneinfo import ZoneInfo
 
 from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
+
+# Twin “morning person” hours for simulated completion timestamps (6–12 bias).
+_TWIN_LOG_MORNING_HOURS = (6, 7, 8, 9, 9, 10, 10, 11, 11, 12)
+
+
+async def record_twin_mission_log_from_daily_record(
+    user_id: str,
+    today: str,
+    completed_mission_ids: list,
+    timezone_str: str,
+) -> None:
+    """
+    After twin_daily_record is written, resolve completed_mission_ids against `missions`
+    and upsert twin_mission_log (per-title rows). Does not change simulation math.
+    Silent on error — never blocks Twin simulation.
+    """
+    try:
+        tz_name = (timezone_str or "UTC").strip() or "UTC"
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = ZoneInfo("UTC")
+
+        id_list = [str(x) for x in (completed_mission_ids or []) if x is not None]
+        supabase_admin.table("twin_mission_log").delete().eq("user_id", user_id).eq("mission_date", today).execute()
+
+        if not id_list:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "twin_mission_log_recorded",
+                        "user_id": user_id,
+                        "date": today,
+                        "count": 0,
+                    }
+                )
+            )
+            return
+
+        mres = (
+            supabase_admin.table("missions")
+            .select("id, title, type, core_pillar")
+            .eq("user_id", user_id)
+            .in_("id", id_list)
+            .execute()
+        )
+        by_id = {str(r.get("id")): r for r in (mres.data or []) if r.get("id")}
+
+        d = date_type.fromisoformat(today)
+        rows: list[dict] = []
+        for i, mid in enumerate(id_list):
+            r = by_id.get(str(mid))
+            if not r:
+                continue
+            title = (r.get("title") or "").strip()
+            if not title:
+                continue
+            simulated_hour = _TWIN_LOG_MORNING_HOURS[i % len(_TWIN_LOG_MORNING_HOURS)]
+            local_dt = datetime(d.year, d.month, d.day, simulated_hour, 0, 0, tzinfo=tz)
+            completed_at = local_dt.astimezone(timezone.utc).isoformat()
+            mt = r.get("type") or "core"
+            mt = str(mt).lower() if mt else "core"
+
+            rows.append(
+                {
+                    "user_id": user_id,
+                    "mission_date": today,
+                    "mission_title": title,
+                    "core_pillar": r.get("core_pillar"),
+                    "mission_type": mt,
+                    "simulated_hour": simulated_hour,
+                    "completed_at": completed_at,
+                }
+            )
+
+        if rows:
+            supabase_admin.table("twin_mission_log").upsert(
+                rows,
+                on_conflict="user_id,mission_date,mission_title",
+            ).execute()
+
+        logger.info(
+            json.dumps(
+                {
+                    "event": "twin_mission_log_recorded",
+                    "user_id": user_id,
+                    "date": today,
+                    "count": len(rows),
+                }
+            )
+        )
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "twin_mission_log_error",
+                    "user_id": user_id,
+                    "date": today,
+                    "error": str(e),
+                }
+            )
+        )
 
 # Two-phase crossing recovery system
 CROSSING_RECOVERY_DAYS = 6        # Phase 1: boost lasts 6 days after user crosses twin
@@ -356,6 +459,13 @@ async def simulate_twin_day(user_id: str) -> dict:
         on_conflict="user_id,record_date",
     ).execute()
 
+    await record_twin_mission_log_from_daily_record(
+        user_id,
+        today,
+        [m["id"] for m in all_completed],
+        timezone_str,
+    )
+
     from app.services.streak_service import evaluate_streak_requirement
 
     done_ids = {str(m.get("id")) for m in all_completed}
@@ -488,6 +598,221 @@ async def ensure_twin_simulated_for_today(user_id: str) -> None:
     await simulate_twin_day(user_id)
 
 
+async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
+    """
+    Generates and stores the Twin's daily journal entry (one per user per calendar day).
+    Intended to run after twin simulation for that day. Swallows all errors — never raises.
+    Skips if a row already exists for (user_id, today) or if there is no twin_daily_record.
+    """
+    import asyncio
+    import json as _json
+
+    from app.agents.twin_chat_agent import get_relationship_phase
+    from app.agents.twin_journal_agent import generate_twin_journal_entry
+    from app.core.constants import TWIN_JOURNAL_FALLBACKS
+    from app.services.mission_service import get_days_since_registration
+
+    try:
+        existing = (
+            supabase_admin.table("twin_journal")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("entry_date", today)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            return
+
+        rec_res = (
+            supabase_admin.table("twin_daily_record")
+            .select("missions_completed, missions_assigned, missed_mission_titles")
+            .eq("user_id", user_id)
+            .eq("record_date", today)
+            .limit(1)
+            .execute()
+        )
+        rows = rec_res.data or []
+        if not rows:
+            return
+
+        twin_record = rows[0]
+
+        user_res = (
+            supabase_admin.table("users")
+            .select("archetype, registration_date, timezone, total_xp, current_streak")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        journal_user = user_res.data or {}
+
+        twin_res = (
+            supabase_admin.table("twin_state")
+            .select("twin_xp, twin_streak")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+        journal_twin = twin_res.data or {}
+
+        tz = str(journal_user.get("timezone") or "UTC")
+        reg_n = get_days_since_registration(str(journal_user.get("registration_date") or ""), tz)
+        days_active = max(0, int(reg_n) - 1)
+        phase_data = get_relationship_phase(days_active)
+        relationship_phase = str(phase_data.get("phase") or "observer")
+        archetype = str(journal_user.get("archetype") or "structured_climber")
+
+        missions_completed = int(twin_record.get("missions_completed") or 0)
+        missions_total = int(twin_record.get("missions_assigned") or 0)
+        missed_titles = twin_record.get("missed_mission_titles") or []
+        twin_xp = int(journal_twin.get("twin_xp") or 0)
+        user_xp = int(journal_user.get("total_xp") or 0)
+        user_streak = int(journal_user.get("current_streak") or 0)
+
+        skipped_types: list[str] = []
+        if missed_titles:
+            try:
+                titles = [str(t) for t in missed_titles[:10] if t]
+                if titles:
+                    missed_res = (
+                        supabase_admin.table("missions")
+                        .select("type, core_pillar, title")
+                        .eq("user_id", user_id)
+                        .eq("mission_date", today)
+                        .in_("title", titles)
+                        .execute()
+                    )
+                    for m in missed_res.data or []:
+                        t = m.get("core_pillar") or m.get("type") or ""
+                        t = str(t).strip()
+                        if t and t not in skipped_types:
+                            skipped_types.append(t)
+            except Exception:
+                pass
+
+        completion_hour: int | None = None
+        try:
+            um = (
+                supabase_admin.table("missions")
+                .select("completed_at")
+                .eq("user_id", user_id)
+                .eq("mission_date", today)
+                .eq("completed", True)
+                .order("completed_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if um.data and um.data[0].get("completed_at"):
+                raw = um.data[0]["completed_at"]
+                dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                try:
+                    local = dt.astimezone(ZoneInfo(tz))
+                    completion_hour = local.hour
+                except Exception:
+                    completion_hour = dt.hour
+        except Exception:
+            pass
+
+        if completion_hour is None:
+            try:
+                log_res = (
+                    supabase_admin.table("twin_mission_log")
+                    .select("simulated_hour")
+                    .eq("user_id", user_id)
+                    .eq("mission_date", today)
+                    .order("simulated_hour", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if log_res.data:
+                    completion_hour = int(log_res.data[0].get("simulated_hour") or 9)
+            except Exception:
+                pass
+
+        try:
+            content = await asyncio.to_thread(
+                generate_twin_journal_entry,
+                archetype=archetype,
+                relationship_phase=relationship_phase,
+                days_active=days_active,
+                missions_completed=missions_completed,
+                missions_total=missions_total,
+                skipped_types=skipped_types,
+                completion_hour=completion_hour,
+                streak=user_streak,
+                twin_xp=twin_xp,
+                user_xp=user_xp,
+            )
+        except Exception as e:
+            logger.error(
+                _json.dumps(
+                    {
+                        "event": "twin_journal_failed",
+                        "user_id": user_id,
+                        "date": today,
+                        "error": str(e),
+                    }
+                )
+            )
+            fallback_template = TWIN_JOURNAL_FALLBACKS.get(
+                relationship_phase,
+                TWIN_JOURNAL_FALLBACKS["observer"],
+            )
+            gap = abs(twin_xp - user_xp)
+            content = fallback_template.format(
+                N=days_active,
+                done=missions_completed,
+                total=missions_total,
+                gap=f"{gap} XP",
+            )
+            logger.info(
+                _json.dumps(
+                    {
+                        "event": "twin_journal_fallback_used",
+                        "user_id": user_id,
+                        "date": today,
+                    }
+                )
+            )
+
+        supabase_admin.table("twin_journal").upsert(
+            {
+                "user_id": user_id,
+                "entry_date": today,
+                "content": content,
+                "relationship_phase": relationship_phase,
+                "missions_completed": missions_completed,
+                "missions_total": missions_total,
+                "archetype": archetype,
+            },
+            on_conflict="user_id,entry_date",
+        ).execute()
+
+        logger.info(
+            _json.dumps(
+                {
+                    "event": "twin_journal_generated",
+                    "user_id": user_id,
+                    "date": today,
+                    "phase": relationship_phase,
+                }
+            )
+        )
+
+    except Exception as e:
+        logger.error(
+            _json.dumps(
+                {
+                    "event": "twin_journal_error",
+                    "user_id": user_id,
+                    "date": today,
+                    "error": str(e),
+                }
+            )
+        )
+
+
 def build_twin_day_timeline(
     user_id: str,
     today: str,
@@ -574,6 +899,48 @@ def build_twin_day_timeline(
     return timeline
 
 
+def get_twin_xp_comparison(user_id: str, today: str) -> dict:
+    """
+    Returns user's XP earned today vs Twin's XP earned today.
+    Uses xp_log for user XP and twin_daily_record for Twin XP.
+    Returns {"user_xp_today": int, "twin_xp_today": int} or
+    {"user_xp_today": None, "twin_xp_today": None} on error.
+    """
+    try:
+        user_result = (
+            supabase_admin.table("xp_log")
+            .select("amount")
+            .eq("user_id", user_id)
+            .eq("log_date", today)
+            .execute()
+        )
+        user_xp = sum(int(r.get("amount") or 0) for r in (user_result.data or []))
+
+        twin_result = (
+            supabase_admin.table("twin_daily_record")
+            .select("xp_earned")
+            .eq("user_id", user_id)
+            .eq("record_date", today)
+            .execute()
+        )
+        twin_rows = twin_result.data or []
+        twin_xp = int(twin_rows[0].get("xp_earned") or 0) if twin_rows else 0
+
+        return {"user_xp_today": user_xp, "twin_xp_today": twin_xp}
+
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "twin_strip_xp_error",
+                    "user_id": user_id,
+                    "error": str(e),
+                }
+            )
+        )
+        return {"user_xp_today": None, "twin_xp_today": None}
+
+
 async def get_home_strip_context(user_id: str) -> dict:
     """
     Returns twin strip data for the home screen.
@@ -626,7 +993,7 @@ async def recalibrate_twin(user_id: str) -> dict:
     """
     from datetime import date as date_type, timedelta
 
-    from app.core.constants import TWIN_RECALIBRATION_INTERVAL_DAYS
+    from app.core.constants import RECALIBRATION_INTERVAL_DAYS
 
     user_result = (
         supabase_admin.table("users")
@@ -642,6 +1009,42 @@ async def recalibrate_twin(user_id: str) -> dict:
     )
     dna = dna_result.data or {}
 
+    unrated_calibrations = (
+        supabase_admin.table("twin_messages")
+        .select("id, message_rating")
+        .eq("user_id", user_id)
+        .not_.is_("message_rating", "null")
+        .eq("rating_used_in_calibration", False)
+        .execute()
+        .data
+        or []
+    )
+    if unrated_calibrations:
+        current_signal = float(dna.get("tone_preference_signal") or 0.5)
+        total_adjustment = sum(int(r["message_rating"]) * 0.05 for r in unrated_calibrations)
+        new_signal = max(0.0, min(1.0, current_signal + total_adjustment))
+        supabase_admin.table("discipline_dna").update(
+            {
+                "tone_preference_signal": new_signal,
+                "chat_rating_count": int(dna.get("chat_rating_count") or 0) + len(unrated_calibrations),
+                "last_rating_calibration_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("user_id", user_id).execute()
+        ids = [r["id"] for r in unrated_calibrations]
+        if ids:
+            supabase_admin.table("twin_messages").update({"rating_used_in_calibration": True}).in_(
+                "id", ids
+            ).execute()
+        dna["tone_preference_signal"] = new_signal
+        dna["chat_rating_count"] = int(dna.get("chat_rating_count") or 0) + len(unrated_calibrations)
+        logger.info(
+            "Twin recalibration %s: tone_preference_signal %.2f → %.2f (%s ratings processed)",
+            user_id,
+            current_signal,
+            new_signal,
+            len(unrated_calibrations),
+        )
+
     twin_result = (
         supabase_admin.table("twin_state")
         .select("consistency_ceiling, last_passed_at, current_gap_state, twin_xp")
@@ -652,7 +1055,7 @@ async def recalibrate_twin(user_id: str) -> dict:
     twin = twin_result.data or {}
 
     today = date_type.today()
-    lookback = TWIN_RECALIBRATION_INTERVAL_DAYS
+    lookback = RECALIBRATION_INTERVAL_DAYS
     window_start = str(today - timedelta(days=lookback))
     thirty_days_ago = str(today - timedelta(days=30))
 
@@ -775,6 +1178,13 @@ async def recalibrate_twin(user_id: str) -> dict:
     if new_base != current_base:
         supabase_admin.table("twin_state").update({"consistency_ceiling": new_base}).eq("user_id", user_id).execute()
 
+    from app.services.mission_service import recalibrate_core_pillar_difficulties
+
+    try:
+        await recalibrate_core_pillar_difficulties(user_id)
+    except Exception as e:
+        logger.error("recalibrate_core_pillar_difficulties failed user=%s: %s", user_id, e)
+
     return {
         "recalibrated": True,
         "calibration_count": updates["calibration_count"],
@@ -789,3 +1199,290 @@ async def recalibrate_twin(user_id: str) -> dict:
         },
     }
 
+
+async def send_twin_message(user_id: str, message: str) -> dict:
+    """
+    Handle a user message to their Twin: context, safety check, structured twin reply, persistence.
+    """
+    from app.agents.twin_chat_agent import (
+        SAFETY_RESPONSES,
+        classify_message_safety,
+        generate_twin_response,
+    )
+    from app.services.mission_service import get_days_since_registration, get_user_date
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    user_res = (
+        supabase_admin.table("users")
+        .select(
+            "username, archetype, registration_date, timezone, "
+            "twin_tone_override, twin_tone_override_until"
+        )
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    user = (user_res.data or [None])[0]
+    if not user:
+        raise ValueError("User not found")
+
+    tz = user.get("timezone", "UTC") or "UTC"
+    today = get_user_date(tz)
+
+    twin_result = supabase_admin.table("twin_state").select("*").eq("user_id", user_id).execute()
+    twin = twin_result.data[0] if twin_result.data else {
+        "twin_xp": 0,
+        "current_gap_state": "neck_and_neck",
+        "twin_character_stage": 1,
+        "twin_pet_stage": 0,
+    }
+
+    char_res = (
+        supabase_admin.table("users")
+        .select("total_xp, current_streak")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    char = (char_res.data or [None])[0] or {"total_xp": 0, "current_streak": 0}
+
+    dna_result = supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id).execute()
+    dna = dna_result.data[0] if dna_result.data else {
+        "twin_tone_type": "rival",
+        "twin_intensity": 2,
+        "twin_gap_behavior": "rubber_band",
+        "tone_preference_signal": 0.5,
+        "chat_rating_count": 0,
+    }
+
+    reg_day_n = get_days_since_registration(user.get("registration_date", ""), tz)
+    days_active = max(0, int(reg_day_n) - 1)
+    if days_active < 3 and int(dna.get("twin_intensity") or 3) > 2:
+        dna = {**dna, "twin_intensity": 2}
+
+    twin_tone_override_active: str | None = None
+    try:
+        raw_until = user.get("twin_tone_override_until")
+        if raw_until:
+            from datetime import datetime as dt_module, timezone as tz_module
+
+            until_dt = dt_module.fromisoformat(str(raw_until).replace("Z", "+00:00"))
+            if until_dt.tzinfo is None:
+                until_dt = until_dt.replace(tzinfo=tz_module.utc)
+            if dt_module.now(tz_module.utc) < until_dt:
+                raw_ov = user.get("twin_tone_override")
+                if raw_ov:
+                    twin_tone_override_active = str(raw_ov).strip() or None
+    except Exception:
+        twin_tone_override_active = None
+
+    interests_rows = (
+        supabase_admin.table("interests")
+        .select("normalised_name")
+        .eq("user_id", user_id)
+        .eq("is_active", True)
+        .execute()
+        .data
+        or []
+    )
+    interests = [r["normalised_name"] for r in interests_rows if r.get("normalised_name")]
+
+    if not interests:
+        onboarding = (
+            supabase_admin.table("onboarding_answers")
+            .select("answer_json")
+            .eq("user_id", user_id)
+            .eq("question_key", "q11_interests")
+            .limit(1)
+            .execute()
+            .data
+        )
+        if onboarding:
+            raw = (onboarding[0].get("answer_json") or {}) if isinstance(onboarding[0], dict) else {}
+            items = raw.get("interests") if isinstance(raw, dict) else []
+            if isinstance(items, list):
+                for it in items:
+                    if isinstance(it, dict):
+                        nm = (it.get("normalised_name") or it.get("raw_text") or "").strip()
+                        if nm:
+                            interests.append(nm)
+
+    history = (
+        supabase_admin.table("twin_messages")
+        .select("role, content, created_at")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(12)
+        .execute()
+        .data
+        or []
+    )
+    history = list(reversed(history))
+
+    today_missions = (
+        supabase_admin.table("missions")
+        .select("title, type, completed")
+        .eq("user_id", user_id)
+        .eq("mission_date", today)
+        .execute()
+        .data
+        or []
+    )
+
+    completed_count = sum(1 for m in today_missions if m.get("completed"))
+    total_count = len(today_missions)
+    missed_types = [str(m["type"]) for m in today_missions if not m.get("completed")]
+    last_missed = missed_types[-1] if missed_types else "none"
+
+    if total_count > 0:
+        missions_summary = (
+            f"Completed {completed_count}/{total_count} today."
+            + (
+                f" Missed types: {', '.join(missed_types[:3])}."
+                if missed_types
+                else " All complete."
+            )
+        )
+    else:
+        missions_summary = "No missions generated yet today."
+
+    seven_start = (date_type.fromisoformat(today) - timedelta(days=7)).isoformat()
+    recent_missions = (
+        supabase_admin.table("missions")
+        .select("completed")
+        .eq("user_id", user_id)
+        .gte("mission_date", seven_start)
+        .execute()
+        .data
+        or []
+    )
+    completion_rate_7d = (
+        sum(1 for m in recent_missions if m.get("completed")) / len(recent_missions)
+        if recent_missions
+        else 0.5
+    )
+
+    safety = await classify_message_safety(
+        user_message=message,
+        username=str(user.get("username") or "you"),
+    )
+    logger.info(
+        "SafetyValidator: category=%s confidence=%.2f user=%s",
+        safety.category,
+        safety.confidence,
+        user_id,
+    )
+
+    block_response = None
+    if safety.category == "crisis":
+        severity = safety.crisis_severity or "passive"
+        if severity not in ("passive", "active"):
+            severity = "passive"
+        block_response = SAFETY_RESPONSES[f"crisis_{severity}"]
+        logger.warning(
+            "CRISIS DETECTED for user %s: severity=%s message=%s",
+            user_id,
+            severity,
+            message[:80],
+        )
+    elif safety.category == "harmful_content":
+        block_response = SAFETY_RESPONSES["harmful_content"]
+        logger.warning("HARMFUL CONTENT for user %s: %s", user_id, message[:80])
+    elif safety.category == "dependency" and safety.confidence > 0.8:
+        block_response = SAFETY_RESPONSES["dependency"]
+
+    chat_history = [
+        {"sender": "user" if m.get("role") == "user" else "twin", "message": m.get("content") or ""}
+        for m in history
+    ]
+
+    if block_response is not None:
+        supabase_admin.table("twin_messages").insert(
+            {"user_id": user_id, "role": "user", "content": message, "created_at": now}
+        ).execute()
+        supabase_admin.table("twin_messages").insert(
+            {
+                "user_id": user_id,
+                "role": "twin",
+                "content": block_response,
+                "emotional_register": f"safety_block_{safety.category}",
+                "created_at": now,
+            }
+        ).execute()
+        return {
+            "response": block_response,
+            "message": block_response,
+            "message_id": None,
+            "twin_message_id": None,
+            "user_message_id": None,
+            "emotional_register": f"safety_block_{safety.category}",
+            "is_safety_response": True,
+            "safety_category": safety.category,
+        }
+
+    twin_response = await generate_twin_response(
+        username=str(user.get("username") or "you"),
+        user_message=message,
+        chat_history=chat_history,
+        twin_xp=int(twin.get("twin_xp") or 0),
+        user_xp=int(char.get("total_xp") or 0),
+        gap_state=str(twin.get("current_gap_state") or "neck_and_neck"),
+        user_streak=int(char.get("current_streak") or 0),
+        tone_type=str(dna.get("twin_tone_type") or "rival"),
+        intensity=int(dna.get("twin_intensity") or 3),
+        archetype=str(user.get("archetype") or "structured_climber"),
+        interests=interests,
+        recent_missions_summary=missions_summary,
+        tone_preference_signal=float(dna.get("tone_preference_signal") or 0.5),
+        last_missed_type=last_missed,
+        days_active=days_active,
+        user_completion_rate_7d=completion_rate_7d,
+        twin_tone_override=twin_tone_override_active,
+    )
+
+    user_ins = (
+        supabase_admin.table("twin_messages")
+        .insert(
+            {
+                "user_id": user_id,
+                "role": "user",
+                "content": message,
+                "created_at": now,
+            }
+        )
+        .execute()
+    )
+    user_row = (user_ins.data or [None])[0] or {}
+    user_message_id = user_row.get("id")
+
+    twin_ins = (
+        supabase_admin.table("twin_messages")
+        .insert(
+            {
+                "user_id": user_id,
+                "role": "twin",
+                "content": twin_response.response,
+                "emotional_register": twin_response.emotional_register,
+                "conversation_note": twin_response.conversation_note,
+                "created_at": now,
+            }
+        )
+        .execute()
+    )
+    twin_row = (twin_ins.data or [None])[0] or {}
+    twin_msg_id = twin_row.get("id")
+
+    tid = str(twin_msg_id) if twin_msg_id else None
+    uid = str(user_message_id) if user_message_id else None
+
+    return {
+        "response": twin_response.response,
+        "message": twin_response.response,
+        "message_id": tid,
+        "twin_message_id": tid,
+        "user_message_id": uid,
+        "emotional_register": twin_response.emotional_register,
+        "is_safety_response": False,
+        "safety_category": None,
+    }

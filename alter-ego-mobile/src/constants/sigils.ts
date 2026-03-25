@@ -81,7 +81,7 @@ export const SIGIL_LEVELS = [
     glowColor: "rgba(232,121,249,0.30)",
     glowColor2: "rgba(232,121,249,0.12)",
     description:
-      "A supernova frozen at its most beautiful instant. Five shockwave rings. 12 lightning spikes. Two layers of petals. Six plasma orbs in orbit.",
+      "A supernova frozen at its most beautiful instant. Five shockwave rings. 12 lightning spikes. Two layers of petals spinning in opposite directions. Six plasma orbs in orbit.",
   },
   {
     level: 8,
@@ -121,31 +121,4 @@ export const SIGIL_LEVELS = [
   },
 ] as const;
 
-export function getSigilLevel(aether: number): number {
-  let level = 1;
-  for (let i = 0; i < SIGIL_LEVELS.length; i++) {
-    if (aether >= SIGIL_LEVELS[i].aetherRequired) level = i + 1;
-    else break;
-  }
-  return Math.min(level, 10);
-}
-
-export function getAetherProgress(aether: number) {
-  const level = getSigilLevel(aether);
-  if (level >= 10) {
-    return {
-      currentLevel: 10,
-      nextLevelAether: 70000,
-      progressPercent: 100,
-      aetherNeeded: 0,
-    };
-  }
-  const curr = SIGIL_LEVELS[level - 1].aetherRequired;
-  const next = SIGIL_LEVELS[level].aetherRequired;
-  return {
-    currentLevel: level,
-    nextLevelAether: next,
-    progressPercent: Math.round(((aether - curr) / (next - curr)) * 100),
-    aetherNeeded: next - aether,
-  };
-}
+export type SigilLevelMeta = (typeof SIGIL_LEVELS)[number];

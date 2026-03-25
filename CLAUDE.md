@@ -1,7 +1,7 @@
 # ALTER EGO — CLAUDE.md
 # Cursor reads this file automatically every session.
 # Never ask me to re-explain the project. Everything is here.
-# v2.0 — Updated March 2026
+# v2.2 — Updated March 2026 (synced to repo)
 
 ---
 
@@ -14,7 +14,7 @@
 - **Core mechanic:** Shadow Twin — an AI rival always exactly one week of consistent behaviour ahead
 - **Primary emotion:** Pride. Never guilt.
 - **Target user:** 18–28. Pain point: "I know what I need to do, I just can't make myself do it consistently."
-- **Revenue:** 14-day full free trial → $9/month. No credit card at signup. No permanent free tier.
+- **Revenue:** Paid subscription after trial; no credit card at signup (product). **Trial length in code:** `FREE_TRIAL_DAYS` in `constants.py` (currently 7) — see §9 Monetisation.
 
 ### 1.1 Theme & Factor (source of truth for copy and positioning)
 
@@ -50,8 +50,9 @@
 | Backend | FastAPI (Python 3.11.9) — Render free tier |
 | Database | Supabase (PostgreSQL) — Auth, Storage, Realtime |
 | Authentication | Supabase Auth — Google OAuth + Apple + Email |
-| AI Agents | LangGraph + GPT-4o-mini (all 5 agents) |
-| Agent memory | Supabase pgvector |
+| AI / LLM | GPT-4o-mini via LangGraph-style agent modules (Twin chat, reports, nudges, planners, etc.) |
+| Agent memory | Supabase pgvector (Twin chat) |
+| Background jobs | APScheduler (`app/core/scheduler.py`) — hourly tick, per-user local timezone windows |
 | Analytics | PostHog free tier |
 | Character animation | Pika Labs (MP4 clips from Midjourney art) — per-state loops |
 | Pet animation | Pika Labs (MP4 clips) — 6 states: idle/walk/happy/sad/react/sleep |
@@ -79,18 +80,17 @@ alter-ego/
 │   ├── babel.config.js
 │   ├── global.d.ts
 │   ├── src/
-│   │   ├── services/         # api.ts (base client), auth.ts
+│   │   ├── services/         # api.ts, auth.ts, missions.ts, profile.ts, quits.ts, …
 │   │   ├── store/            # authStore.ts, userStore.ts (Zustand)
 │   │   ├── providers/        # AppProviders.tsx (React Query + auth init)
-│   │   ├── utils/            # supabase.ts (single Supabase client: SecureStore + guest mode + fetchWithRetry)
+│   │   ├── utils/            # supabase.ts, onboarding helpers, etc.
 │   │   ├── screens/
-│   │   ├── components/
-│   │   ├── hooks/
-│   │   ├── utils/
-│   │   ├── navigation/
-│   │   ├── constants/
-│   │   │   └── theme.ts
-│   │   └── agents/
+│   │   ├── components/       # includes profile/, onboarding/, …
+│   │   ├── hooks/            # useMissions, useTwin, useQuits, useInterests, …
+│   │   ├── navigation/       # RootStack, MainStack, MainTabNavigator, ProfileStack, OnboardingStack, types.ts
+│   │   ├── constants/       # theme.ts, characterProgression.ts (must match backend XP_THRESHOLDS)
+│   │   ├── context/          # OnboardingAnswersContext, …
+│   │   └── types/
 │   └── assets/
 │       ├── images/
 │       │   ├── characters/   # character_1_male.png … character_6_female.png
@@ -103,14 +103,13 @@ alter-ego/
 │   ├── main.py
 │   ├── requirements.txt
 │   ├── .env
-│   ├── migrations/           # 001_initial_schema.sql, 002_add_intervention_hour.sql
+│   ├── migrations/           # 001 … 020 (see folder; sigil, quit_paths, discipline_dna pillars, twin_mission_log, …)
 │   └── app/
-│       ├── api/              # auth, mail, missions, onboarding, profile, reports, settings, twin, leaderboard
-│       ├── core/             # constants, supabase_client, scheduler, archetype
-│       ├── services/         # mission_service, mail_service, onboarding_service, audit_service, etc.
-│       └── agents/           # planner_agent, nudge_agent, twin_chat_agent, report_agent, etc.
-├── CLAUDE.md                 ← this file
-└── progress.md               ← one sentence: what to build tomorrow
+│       ├── api/              # auth, missions, twin, leaderboard, reports, mail, profile, settings, stats, quits, sigil, onboarding
+│       ├── core/             # constants, supabase_client, scheduler, journal_rules, subscription, archetype, …
+│       ├── services/         # mission, streak, twin, quit, sigil, stat, interest_path, power_score, mail, onboarding, report, …
+│       └── agents/           # core_mission_agent, interest_planner_agent, personal_mission_agent, quit_* agents, nudge, twin_chat, report, interest_normaliser, …
+└── CLAUDE.md                 ← this file
 ```
 
 ---
@@ -143,8 +142,10 @@ All services and screens should use the shared API client and stores. Do not cal
   - Screens read auth from this store; do not call `supabase.auth` directly from screens.
 - **User store** — `src/store/userStore.ts` (Zustand)
   - `UserProfile` type matches `/api/v1/profile/overview`. State: `profile`, `isLoading`, `error`.
+  - Includes optional Twin voice hints from server: `twin_tone_type`, `twin_intensity`; optional `profile_photo_url`.
   - `fetchProfile()` — called when user becomes authenticated (from AppProviders).
-  - Optimistic updates: `updateXP`, `updatePF`, `updateStreak`, `updateStage`, `updatePetStage`, `incrementUnreadMail`, `clearProfile`.
+  - Optimistic updates: `updateXP`, `updatePF`, `updateStreak`, `updatePowerScore`, `updateStage`, `updatePetStage`, `incrementUnreadMail`, `clearProfile`.
+  - Character XP bar math must match backend: use `src/constants/characterProgression.ts` (`CHARACTER_XP_THRESHOLDS` aligned with `app/core/constants.py` `XP_THRESHOLDS`).
 - **AppProviders** — `src/providers/AppProviders.tsx`
   - Wraps app with `QueryClientProvider` (staleTime 5m, gcTime 10m, retry 2, no refetchOnWindowFocus).
   - On mount: `useAuthStore.initialize()`. When `isAuthenticated`: `useUserStore.fetchProfile()`.
@@ -400,11 +401,11 @@ export const ANIMATIONS = {
 | ID | Name | Trigger | Key detail |
 |---|---|---|---|
 | H1 | Character Evolution | XP threshold crossed | 7-phase, unskippable, 3900ms total |
-| H2 | Pet Unlock (Cub) | Day 7 streak | Soft overlay, particles converge, Cub fades in |
+| H2 | Pet Unlock (Cub) | Day 6 since registration (`PET_UNLOCK_DAY`) | Soft overlay, particles converge, Cub fades in |
 | H3 | Pet Evolution | Pet stage threshold | White flash + Runway crossfade |
 | H4 | Streak Milestone | 3/7/14/30/60/100/180/365 day streaks | 3 intensity tiers. 365 = ONLY gold in app |
 | H5 | Twin Chat Unlock | Stage 2 reached | Strip expands, "SPEAK WITH YOUR TWIN" |
-| H6 | Leaderboard Unlock | 10-day streak | Tab pulse + banner drop |
+| H6 | Leaderboard Unlock | 3-day streak (`LEADERBOARD_UNLOCK_STREAK`) | Tab pulse + banner drop |
 
 ### 6.3 Pet Roaming System
 
@@ -438,32 +439,53 @@ const ROAM = {
 
 ## 7. NAVIGATION STRUCTURE
 
-```
-Root Stack
-├── SplashScreen           (auto-advances after 2500ms)
-├── SignUpScreen
-├── OnboardingStack
-│   ├── OnboardingFramingScreen   ("We don't count perfect days. We count the ones you showed up.")
-│   ├── OnboardingQuestionScreen  (reusable, used for Q1–Q10)
-│   ├── ArchetypeRevealScreen     (includes Twin first line at 2400ms — first Twin voice encounter)
-│   └── TwinIntroductionScreen    (resets stack on Enter → MainTabNavigator)
-└── MainTabNavigator
-    ├── Tab 1: HomeScreen
-    ├── Tab 2: LeaderboardScreen
-    ├── Tab 3: TwinComparisonScreen  ← center tab, raised button
-    ├── Tab 4: WeeklyReportScreen
-    └── Tab 5: ProfileScreen
-        └── SettingsScreen (pushed from Profile header)
+**Source files:** `src/navigation/RootStack.tsx` (root), `OnboardingStack.tsx`, `MainStack.tsx`, `MainTabNavigator.tsx`, `ProfileStack.tsx`, `types.ts` (`*ParamList` types).
 
-Modal screens (pushed over tabs):
-├── TwinChatScreen              (unlocks at Stage 2 — The Focused)
-├── CharacterEvolutionOverlay   (Modal, triggered on XP threshold crossing)
-├── PetUnlockOverlay            (Modal, triggered on Day 7 streak)
-├── MilestoneAchievementCard    (Modal, triggered on interest milestones)
-├── JournalEditorScreen         (pushed from Core mission "Daily Journal" tap)
-├── PaywallScreen               (Modal, non-dismissable, shown at Day 14+)
-└── RankCardScreen              (pushed from Profile or Leaderboard)
 ```
+RootStack (Stack)
+├── Splash
+├── SignUp
+├── Onboarding   → OnboardingStack (wrapped in OnboardingAnswersProvider)
+└── Main         → MainStack
+
+OnboardingStack
+├── OnboardingFraming
+├── OnboardingQuestion        # multi-step flow (many question keys; see OnboardingQuestionScreen)
+├── ArchetypeReveal
+├── Onboarding7Day
+├── TwinIntroduction
+└── NotificationPermission
+
+MainStack (Stack; BottomSheetModalProvider at root)
+├── MainTabs                  → MainTabNavigator (bottom tabs + CustomTabBar)
+├── SigilScreen
+├── Paywall
+├── Settings, SettingsProfile, AccountSettings, ContactUs, SettingsFaq
+├── MailInbox, ToneHistory
+├── TwinChat
+├── RankCard, ShareableCardsPreview
+├── PastReportDetail, DayDetail
+├── JournalList, JournalEditor, JournalCalendar
+└── MissionDetail
+
+MainTabNavigator
+├── Home
+├── Leaderboard
+├── Twin          (TwinComparisonScreen — center raised tab)
+├── Report        (WeeklyReportScreen)
+└── Profile       → ProfileStack
+
+ProfileStack
+├── ProfileMain
+├── ProfileAbilities
+├── ProfileStreak
+├── ProfileInterests
+├── ProfileIdentity
+├── ProfileCompanion
+└── ProfileQuits
+```
+
+Overlays / modals used inside screens (evolution, pet unlock, milestones, etc.) are not all separate stack routes — implement as components where the codebase attaches them.
 
 **React Navigation theme — REQUIRED:**
 ```javascript
@@ -495,9 +517,9 @@ All components live in `src/components/`. Props interfaces must stay stable.
 |---|---|---|
 | PrimaryButton | label, onPress, disabled, loading, icon | F1 press animation always applied |
 | OnboardingOptionCard | label, selected, onSelect | |
-| MissionCard | title, category, difficulty, xpValue, petFoodValue, status, onComplete, missionType, missionStreak | missionStreak: shows 🔥N below title for Core+Interest only when ≥2 |
+| MissionCard | title, category, difficulty, xpValue, petFoodValue, status, onComplete, missionType, missionStreak | missionStreak: 🔥N for Core + Interest (+ Resistance if wired); not Personal. Today list can include `twin_completed` / `twin_completed_at_hour` from `twin_mission_log`. |
 | LeaderboardRowCard | rank, username, stageTitle, characterStage, petStage, streak, powerScore, isOwnRow | petStage icon visible in row |
-| TypeChip | type ('core'\|'interest'\|'personal'\|'recovery') | |
+| TypeChip | type ('core'\|'interest'\|'resistance'\|'personal'\|'recovery') | `resistance` = quit-path / escaper missions from `quit_paths` |
 | DifficultyChip | level ('Easy'\|'Medium'\|'Hard') | |
 | TextInput | value, onChange, placeholder, maxLength | |
 | Slider | value, onChange, min, max, step | |
@@ -508,7 +530,7 @@ All components live in `src/components/`. Props interfaces must stay stable.
 | BottomSheet | visible, onClose, children | |
 | TwinAlertStrip | message, hasNewMessage, onPress, twinThumbnailUri | v1.1: 40px character thumbnail left |
 | StreakHeatmap | data (365 day array) | Profile Streak tab only. 14×14px cells. |
-| OnboardingProgressBar | questionNumber (1-10) | 3px, no counter |
+| OnboardingProgressBar | questionNumber | 3px bar; onboarding has many steps (not limited to 10) |
 | SkeletonLoader | width, height, radius | |
 | EmptyState | type, message | |
 | PetAnimation | stage (1-8), petState, size, roaming | petState: 'idle'\|'walk'\|'happy'\|'sad'\|'react'\|'sleep'. roaming=true on Home only. |
@@ -518,20 +540,23 @@ All components live in `src/components/`. Props interfaces must stay stable.
 
 ---
 
-## 9. PRODUCT DECISIONS — ALL LOCKED
+## 9. PRODUCT DECISIONS & SYSTEM RULES
+
+**Numeric truth:** `alter-ego-backend/app/core/constants.py` + mobile `src/constants/characterProgression.ts` (XP). This section mixes locked product intent with **current** backend behaviour — if they diverge, fix code or copy deliberately.
 
 ### Character System
 - **6 stages:** The Awakened → The Focused → The Burning → The Relentless → The Formidable → The Sovereign
-- **XP thresholds (exact):** S1=0 / S2=800 / S3=5,000 / S4=20,000 / S5=60,000 / S6=200,000
+- **XP thresholds (exact — `app/core/constants.py` `XP_THRESHOLDS`, mirrored in mobile `src/constants/characterProgression.ts`):** cumulative total XP to *reach* each stage: **0 / 800 / 9,800 / 36,800 / 108,800 / 375,200**
 - Art: dark cinematic realism, God of War / Hades / Black Myth aesthetic
 - 2 genders selectable in onboarding. 12 illustrations total (6 stages × 2 genders).
 - 12 idle clips (Pika MP4, 4s loop each). Intensity scales S1 (barely moves) → S6 (constant energy aura).
 - Evolution: unskippable H1 cinematic, 7 phases, 3900ms total.
 
 ### Pet System
-- **8 stages:** Cub (Day 7) → Cat → Fox → Wolf → Snow Leopard → Panther → Griffin → Dragon
-- **Pet Food thresholds (exact):** auto Day 7 / Cat=400 / Fox=2,000 / Wolf=7,000 / Snow Leopard=18,000 / Panther=40,000 / Griffin=80,000 / Dragon=150,000
-- Pet unlocks at Day 7. No pet visible during first 6 days.
+- **8 stages:** Cub → Cat → Fox → Wolf → Snow Leopard → Panther → Griffin → Dragon
+- **Pet Food thresholds (exact — `PF_THRESHOLDS` in `constants.py`):** Cub unlock **0** / Cat **400** / Fox **2,800** / Wolf **10,000** / Snow Leopard **26,800** / Panther **62,000** / Griffin **113,200** / Dragon **242,800**
+- **Pet unlock:** `PET_UNLOCK_DAY = 6` — day **6** since `registration_date` (user timezone), via `pet_unlock_check_job` in scheduler; not tied to streak length.
+- Before unlock: treat as no pet in UI (`pet_unlocked` / stage 0).
 - **6 clip states per pet:** idle / walk / happy / sad / react / sleep (48 total MP4 clips, Pika-generated)
 - Pet roams freely across Home screen (Section 6.3 above). Not confined to hero zone.
 - **State priority:** sad > sleep > happy > idle/walk
@@ -539,28 +564,32 @@ All components live in `src/components/`. Props interfaces must stay stable.
 
 ### Shadow Twin System
 - Twin starts at exact same point as user on Day 1. The gap is created entirely by the user's behaviour.
-- Twin simulates near-perfect consistency. Gap calculated dynamically every 3 days.
-- **4 gap states:** AHEAD / CLOSING / MATCHED / PASSED (user overtook Twin = most memorable moment)
-- **3 tone types:** RIVAL (competitive, direct) / PHILOSOPHER (reflective, wistful) / SILENT FORCE (minimal, factual)
-- **4 adaptation parameters in discipline_dna:** tone_type / intensity (1–5) / gap_behavior / challenge_level
-- Recalibration: initial at onboarding, first behaviour calibration on **day 7**, then every **7** days. Never jumps >1 intensity point per cycle.
+- Twin simulates near-perfect consistency. **4 gap states:** AHEAD / CLOSING / MATCHED / PASSED (user overtook Twin = most memorable moment).
+- **3 tone types:** RIVAL (competitive, direct) / PHILOSOPHER (reflective, wistful) / SILENT FORCE (minimal, factual).
+- **`discipline_dna` table** (per `user_id`): Twin voice, gap behaviour, **per-pillar core difficulties** (`core_*_difficulty`, clean-week counters), telemetry. Onboarding upserts a row; missions and jobs read/update it.
+- **Jobs:** `twin_recalibration_job` — first run **day 7**, then **every 7 days** (`twin_service.recalibrate_twin`). **Core pillar** auto difficulty changes use a **14-day** evidence window (`MIN_DAYS_BETWEEN_AUTO_CORE_CHANGES` in `mission_service`).
 - Twin strip messages are rule-based (no LLM cost). LLM only invoked when user opens Twin Chat.
+- **Twin simulation (`twin_service.simulate_twin_day`):** archetype rhythm profiles (`ARCHETYPE_RHYTHMS`), daily completion simulation, **`twin_mission_log`** writes for Home parity. **Crossing recovery:** when user passes Twin, **phase 1** ~**6 days** (`CROSSING_RECOVERY_DAYS`) with boosted twin rate (`CROSSING_RECOVERY_BOOST`); **phase 2** after **14** days ahead (`DORMANT_GAP_TRIGGER_DAYS`) twin tracks user average + small offset (`DORMANT_GAP_OFFSET`) — see `twin_service.py` for exact logic.
+- **Twin Chat API:** `POST /chat`, `GET /chat/history`, **`POST /chat/{message_id}/rate`** (quality signal); tone feedback: **`POST /tone-rating`**, **`GET /tone-history`** (`015` migration era).
 - Twin Chat scope: discipline, motivation, growth, reflection ONLY. "That won't make you stronger." for off-topic.
 - **Twin Chat unlocks at Stage 2 (The Focused).** Not available Day 1.
 
-### Mission System — v2.0
-- **3 mission types:** Core (3/day, universal pillars) / Interest (1–3/day, Planner-generated) / Personal (user-created)
-- **5 Core pillars:** Sleep / Movement / Hydration / Mindfulness / No-Phone Window
-- **Streak definition:** day counts if ALL 3 Core missions complete. Interest+Personal are bonus.
-- **Escaper framework:** never "don't do X" — always replacement behaviour. Planner identifies underlying need (boredom/dopamine, stress/anxiety, social/ritual, impulsivity, avoidance, comfort/oral) then generates replacement.
-- **Difficulty adaptation:** increases after 5+ days full completion. Decreases after 3+ days <40% completion. Never on a timer — only on evidence.
-- **XP values (exact):** Core Easy=15, Medium=25, Hard=40 / Interest Easy=10, Medium=20, Hard=30 / Personal Easy=8, Medium=15, Hard=22
-- **Pet Food values (exact):** Core Easy=12, Medium=20, Hard=32 / Interest Easy=8, Medium=16, Hard=24 / Personal Easy=6, Medium=11, Hard=17
-- **Daily XP cap by stage:** S1=200 / S2=300 / S3=450 / S4=600 / S5=800 / S6=1000
-- Recovery missions: triggered after 2+ missed Core days. Scale with previous streak length.
-- Multi-day missions: unlock after day 31 with 60%+ 30-day completion. XP=10/day + 25 completion bonus.
-- **Adaptability copy:** Home section header reads "Start anywhere" when 0 missions done today. Switches to "Today's Missions" after first completion.
-- Personal goal XP assignment: user writes in free text, system assigns XP tier via GPT-4o-mini estimation. User sees and can adjust tier.
+### Mission System — code alignment
+- **Mission `type` values in API/lists:** `core`, `interest`, `resistance`, `personal` (grouped on GET today). `recovery` may still exist for legacy/special flows — see `MISSION_PF` / ordering in `mission_service`.
+- **Core:** five pillars (sleep, movement, hydration, mindfulness, no_phone) **plus a separate Daily Journal core mission** (`is_journal_mission`). Journal completion requires a saved `journal_entries` row for that `mission_date` (`journal_rules.py`). Core set size can vary (e.g. 3–5 pillars + journal) from `generate_core_missions_for_user` / `core_mission_agent`.
+- **Interest:** rows in `interests` table; missions keyed by `interest_id`. Generated/synced by `interest_planner_agent`; `GET /missions/today` calls `sync_today_planner_missions` so mid-day profile changes apply.
+- **Resistance:** quit / escaper missions tied to **`quit_paths`** (`quit_path_id` on mission). Synced in `sync_today_planner_missions` via `quit_service`. Same XP/PF curve as interest in `MISSION_XP_BY_TYPE` / `MISSION_PF`.
+- **Personal:** user-created; tier estimated by `personal_mission_agent` (`PERSONAL_MISSION_XP_BY_TIER` + `MISSION_PF["personal"]`).
+- **Difficulty:** pillars use easy/medium/hard/**elite** (`discipline_dna` per-pillar fields). Recalibration / clean-week logic in `mission_service.recalibrate_core_pillar_difficulties` and scheduler `twin_recalibration_job`.
+- **XP (system missions):** Core 15/25/40/**60** (elite); Interest & Resistance 10/20/30/**40**; Personal tiers 8/15/22 — see `MISSION_XP_BY_TYPE` and `PERSONAL_MISSION_XP_BY_TIER`.
+- **PF:** `MISSION_PF` in `constants.py` (includes elite rows).
+- **Daily caps (`DAILY_XP_CAPS` / `DAILY_PF_CAPS` by character stage 1–6):** XP **100 / 150 / 200 / 280 / 380 / 500**; PF **160 / 240 / 360 / 480 / 640 / 800**.
+- **Streak (progressive tiers — `streak_service.py` + `STREAK_TIER_REQUIREMENTS`):** Resistance missions **do not** count toward the streak requirement. Journal core does **not** count. **tier_1:** 2+ core (non-journal) *or* 1+ interest *or* 3+ combined core+interest. **tier_2** (after character stage ≥ 2): 4 core + 1 interest. **tier_3** (after first 30-day streak): all 5 non-journal core. **tier_4** (after first 60-day streak): 5 core + 1 interest + 1 personal. Tier stored on user as `streak_requirement_tier`.
+- **Streak break:** `handle_streak_break` (scheduler, local hour 1) sets `current_streak` **0**, pet sad, optional XP freeze / penalty (`STREAK_FREEZE_DAYS = 29`). Same window runs `pet_unlock_check_job`.
+- **Twin vs user missions:** `twin_mission_log` stores simulated completions; `missions` API merges `twin_completed` + `twin_completed_at_hour` by title.
+- **Mission rating:** `POST /api/v1/missions/{mission_id}/rate` — feeds difficulty adaptation signals (`DIFFICULTY_*` in `constants.py`) when wired from Mission detail.
+- **Mission complete response:** `complete_mission` returns XP/PF, streak block, `power_score`, **`stat_gains`** / **`willpower_progress`** (`stat_service`), **`sigil`** (`sigil_service` aether / surge), stage/pet evolution flags — mobile should handle this shape.
+- **Adaptability copy:** Home uses "Start anywhere" when nothing completed today (see `HomeScreen` day-band helpers); switches to "Today's Missions" after first completion.
 
 ### Gamification — Power Score + Rank Cards
 
@@ -575,9 +604,9 @@ All components live in `src/components/`. Props interfaces must stay stable.
 | Trigger | Unlocks |
 |---|---|
 | Day 1 complete | Character revealed, Twin appears on strip |
-| 7-day streak | Pet (Cub) unlocks |
-| Stage 2 — The Focused | Twin Chat unlocks |
-| 10-day streak | Leaderboard + Rank Card |
+| Day 6 since registration | Pet unlocked (`pet_unlocked`, Cub) — scheduler |
+| Stage 2 — The Focused | Twin Chat unlocks (product rule) |
+| **3-day streak** | **Leaderboard** (`LEADERBOARD_UNLOCK_STREAK` in `constants.py`) + Rank Card access |
 | 60-day streak | Weekly Report All-Time section |
 
 **Streak milestone bonuses:**
@@ -590,22 +619,22 @@ All components live in `src/components/`. Props interfaces must stay stable.
 - Auto-regenerates on stage change, pet evolution, 365-day streak.
 - Year badge (golden ring) at 365-day streak — only gold element on the card.
 
-**Interest Levels (per interest, L1–L10):**
-- Each interest has its own XP counter. L10 = genuine long-term achievement.
-- Thresholds: L1=0 / L2=200 / L3=600 / L4=1,400 / L5=3,000 / L6=6,000 / L7=11,000 / L8=18,000 / L9=28,000 / L10=42,000
-- Shown in Profile → Interests tab. User level badge beside Twin level badge (always 1 ahead).
-- L10 badge gets golden ring.
+**Interest progression (Profile → Interests):**
+- Interests are rows in **`interests`** with path/phase state (`interest_path_service`, migrations `013`+). UI may show levels, quests, schedules — **exact thresholds** are whatever `/api/v1/profile/...` returns and `interest_path_service` encodes; do not assume the old fixed L1–L10 XP ladder unless you confirm it still matches the API.
+- Twin level badge in UI remains **one ahead** of the user’s displayed interest level (product rule).
+- L10 golden ring (or top-tier equivalent) remains a rare “mastery” affordance if still in UI.
 
 ### Nudge System
 - **5 nudge types (priority order):** Streak Warning > Re-engagement > Pet Nudge > Milestone Approaching > Momentum
 - **Frequency caps:** Low=1/day (streak warning only) / Medium=2/day / High=3/day
 - Hard rules: never if app opened today. Never after 10pm local. Never guilt. One topic per nudge.
-- Copy generation: GPT-4o-mini per nudge. Anti-repetition: last 3 nudge texts injected into every call.
+- Copy generation: GPT-4o-mini per nudge (`nudge_agent`). Anti-repetition: last 3 nudge texts injected into every call.
+- **Delivery:** `nudge_check_job` in **APScheduler** (hourly), not Celery.
 - Adaptation: every 7 days, low open rate on type → deprioritise. Consistent opens → upgrade frequency.
 - User controls frequency in Settings (Low / Medium / High).
 
 ### Weekly Report
-- Every Sunday, 3am server time. Available all day. Replaces previous week's report.
+- Generated per user local timezone: **Sunday 03:00** in `weekly_report_local_job` (hourly scheduler tick). Replaces previous week's report for that user.
 - **5 sections:** This Week (pure data, no LLM) / Your Wins (2–3 specific, never invented) / Where You Slipped (1–2 factual, no blame) / Your Twin This Week (Twin voice) / Next Week (Twin voice, one sentence)
 - **All-Time section** unlocks at 60-day streak. Pure data assembly, no extra LLM call.
 - **Day-of-week chart** in streak block: Mon–Sun bars showing average completion rate per day. Title: "Your Best Days."
@@ -613,180 +642,100 @@ All components live in `src/components/`. Props interfaces must stay stable.
 
 ### Leaderboard
 - Power Score ranking (formula above).
-- Visible after 7 consecutive active days.
+- **Unlock:** `leaderboard_unlocked` on user after streak ≥ `LEADERBOARD_UNLOCK_STREAK` (**3** in current `constants.py`). API may also allow `subscription_tier == beta_free` or env-based beta pool — see `leaderboard.py`.
 - Global only for MVP. No friends system.
 - Each row: username, character thumbnail, pet icon (now prominent — petStage prop), streak, Power Score.
 - Top 3: gold/silver/bronze rank number tint.
 - User's own row: sticky above nav bar, violet border, F8 pulse on load.
 
 ### Monetisation
-- 14-day full free trial. No credit card at signup. No permanent free tier.
-- $9/month after Day 14. Full features from Day 1.
-- Trial banner: amber strip below TopBar ("X days left in trial") — dismissable once per day.
-- RevenueCat. Product ID: 'alter_ego_monthly'.
-- Rating prompt: random Day 4–12, once only → App Store review for chance at extra free week.
+- **Product intent:** full free trial → paid subscription; no credit card at signup. **Backend trial length** is `FREE_TRIAL_DAYS` in `app/core/constants.py` (currently **7** — used by `app/core/subscription.py`). If marketing copy says 14 days, align constants + paywall with the real SKU policy.
+- $9/month after trial. Full features from Day 1 (product).
+- Trial banner / paywall: `PaywallScreen` on `MainStack`; wire to RevenueCat as implemented in app.
+- RevenueCat. Product ID: `alter_ego_monthly` (verify in RevenueCat dashboard).
+- Rating prompt: product choice (e.g. random early week) — implement where wired in mobile.
 
 ---
 
-## 10. DATABASE SCHEMA — v2.0
+## 10. DATABASE SCHEMA — source of truth
 
-All tables use Row Level Security. Policy: `auth.uid() = user_id`.
+**Authoritative DDL:** `alter-ego-backend/migrations/` (`001` … `020` and beyond). Below is a **conceptual** map of what the running app expects — always verify columns against the latest migration before assuming types.
 
-```sql
--- users
-id uuid PRIMARY KEY, email text, created_at timestamptz,
-archetype text,
-discipline_dna jsonb,  -- {tone_type, intensity, gap_behavior, challenge_level, nudge_weights}
-available_hours_per_day numeric,
-interests text[], quit_targets text[], gender text,
-trial_start_date timestamptz, subscription_status text,
-rating_prompted_at timestamptz, push_token text,
-nudge_frequency text DEFAULT 'medium'  -- 'low'|'medium'|'high' (user-set in Settings)
+- **`users`** — identity, `total_xp`, `total_pf`, `character_stage`, `pet_stage`, `pet_unlocked`, streak fields (`current_streak`, `longest_streak`, `last_streak_date`, `streak_requirement_tier`), `power_score`, `timezone`, `leaderboard_unlocked`, subscription/trial fields, `nudge_frequency`, onboarding flags, pet mood (`pet_state`), XP freeze flags, etc.
+- **`discipline_dna`** — one row per user: Twin tone, gap behaviour, behavioural telemetry, **per-pillar core difficulty** + clean-week counters (`016`), pending difficulty hints, etc.
+- **`missions`** — `type` includes `core`, `interest`, `resistance`, `personal` (and possibly `recovery`); links `interest_id`, `quit_path_id`; `core_pillar`, `is_journal_mission`, `mission_date`, `xp_value` / `pf_value`, completion, rationale/metadata for agents, `stat_tag`, ratings, etc. (see `008`, `004`, …)
+- **`interests`** — active interests, scheduling, path/progress JSON (`013` interest path), normalised names for UI.
+- **`quit_paths` / quit-path tables** — `014`+ : structured quit journeys; API under `/api/v1/quits`.
+- **`journal_entries`** — daily journal text for journal mission gate (`006`).
+- **`xp_log` / `pf_log`** — ledger per day with `source_mission_id`, `total_after`, `log_date`.
+- **`streak_log`** — daily streak audit row (upsert from `process_streak`).
+- **`twin_state` / twin comparison fields** — gap, simulated progress (see twin service + migrations).
+- **`twin_chat` / `twin_mission_log`** — chat history (`015`); per-day simulated mission completions for Home comparison (`020`).
+- **`weekly_reports`**, **`nudge_log`**, **`app_mails`**, **`milestone_log`**, **`leaderboard_scores`**
+- **`character_stats` / stat tables** — SP, abilities (`007`+); served via `/api/v1/stats`.
+- **Sigil / aether** — `009`–`012`, `019` rebuild; state read via `/api/v1/sigil`.
 
--- missions
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-type text CHECK (type IN ('core','interest','personal','recovery')),
-pillar text,  -- for core missions: sleep/movement/hydration/mindfulness/no-phone
-interest text,  -- for interest missions: the interest name
-title text, difficulty text CHECK (difficulty IN ('Easy','Medium','Hard')),
-xp_value int, pet_food_value int,
-mission_streak int DEFAULT 0,  -- consecutive days this mission completed
-completed_at timestamptz, expires_at timestamptz, created_at timestamptz
-
--- character_state
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-stage int DEFAULT 1, total_xp int DEFAULT 0,
-gender text, last_updated timestamptz
-
--- pet_state
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-stage int DEFAULT 0,  -- 0 = no pet (Days 1-6)
-pet_health_state text DEFAULT 'idle',  -- 'idle'|'happy'|'sad'|'sleep'
-total_pet_food int DEFAULT 0,
-consistency_days int DEFAULT 0, last_updated timestamptz
-
--- twin_state
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-xp int, pet_stage int, streak int,
-gap_state text,  -- 'AHEAD'|'CLOSING'|'MATCHED'|'PASSED'
-personality_weights jsonb, last_updated timestamptz
-
--- twin_chat
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-role text CHECK (role IN ('user','twin')),
-content text, created_at timestamptz
-
--- streak_log
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-date date,
-core_completed int DEFAULT 0,  -- 0-3 core missions done that day
-completion_level int CHECK (completion_level BETWEEN 0 AND 4),
-xp_earned int, pet_food_earned int
-
--- leaderboard_scores
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-power_score numeric, streak int, pet_stage int,
-character_stage int, updated_at timestamptz
-
--- weekly_reports
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-week_start date,
-wins jsonb, slipped jsonb, keep_watching text,
-twin_paragraph text, twin_closing text, next_week text,
-power_score_delta int, created_at timestamptz
-
--- nudge_log
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-type text, content text, sent_at timestamptz,
-tone_used text, opened_at timestamptz  -- null if not opened
-
--- interest_progress
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-interest text,  -- e.g. 'guitar', 'running'
-level int DEFAULT 1,
-total_xp int DEFAULT 0,
-session_count int DEFAULT 0,
-last_session_at timestamptz
-
--- milestone_log
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-milestone_type text, earned_at timestamptz,
-interest_id uuid REFERENCES interests(id), quit_target_id uuid REFERENCES quit_targets(id)
-
--- app_mails (in-app inbox; welcome mail, Category C nudges)
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-subject text, body_text text, mail_type text,
-sent_at timestamptz, read_at timestamptz
-
--- feedback_submissions (Settings → Contact; optional Zapier webhook)
-id uuid PRIMARY KEY, user_id uuid REFERENCES users,
-type text CHECK (type IN ('bug','concern','suggestion','other')),
-content text, app_version text, created_at timestamptz
-
--- quit_targets: intervention_hour (0-23) added in 002 — when urge typically hits (Category B nudges)
--- nudge_log: nudge_category ('A'|'B'|'C') added in 002 — for analytics
--- xp_log, streak_log, twin_daily_record: used by profile/streak and related endpoints
-```
+RLS: tables are Supabase-backed; policies typically `auth.uid() = user_id` (confirm per migration).
 
 ---
 
 ## 11. FASTAPI BACKEND STRUCTURE
 
-```python
-# main.py — entry point
-# All routes prefixed with /api/v1
-# Import from app.core.constants, app.core.supabase_client where applicable.
+```text
+main.py
+  Registers routers (all under /api/v1 unless noted):
+  - app.api.auth
+  - app.api.onboarding
+  - app.api.missions        # today list, complete, personal mission create, pillar difficulty, journal, generate-resistance, …
+  - app.api.twin            # state, chat, tone rating, …
+  - app.api.leaderboard
+  - app.api.reports
+  - app.api.mail
+  - app.api.profile         # overview, streak, identity, companion, interests + interest-path actions, quits summary, …
+  - app.api.settings        # faq, username, notifications, feedback, account delete, …
+  - app.api.stats           # GET /stats — character stats / SP (stat_service)
+  - app.api.quits           # CRUD-ish quit paths, frequency, advance-phase, schedule (quit_service)
+  - app.api.sigil           # GET /sigil — aether / sigil UI state
 
-# Route modules (app.api.*):
-# auth.py        — /auth/callback (Supabase webhook), link-google
-# onboarding.py — POST /onboarding, check-username
-# missions.py   — GET /missions, POST /missions, PATCH /missions/{id}
-# twin.py       — POST /twin/chat, GET /twin/state
-# leaderboard.py — GET /leaderboard
-# reports.py    — GET /reports (weekly report)
-# mail.py       — GET /mail (inbox), PATCH /mail/read
-# profile.py    — GET /profile/overview, /profile/streak,
-#                  /profile/identity, /profile/companion, /profile/interests, /profile/quits
-# settings.py   — GET /settings/faq, POST /settings/username, /settings/notifications,
-#                  POST /settings/feedback, DELETE /settings/account
-# user/me       — GET /user/me, PATCH /user/me (push_token, timezone, last_opened_at)
+Startup: APScheduler from app.core.scheduler (daily reset, pet unlock + streak break, twin simulation,
+  user_local_maintenance, weekly report, twin recalibration, nudge_check — all hourly with timezone filters).
 
-# Core (app.core.*): constants, supabase_client, scheduler, archetype
-# Services (app.services.*): mission_service, mail_service, onboarding_service,
-#   progression_service, streak_service, twin_service, power_score_service,
-#   strip_message_service, audit_service
+Core: app.core.constants (ALL numeric product rules), supabase_client, scheduler, journal_rules, subscription, …
+Services: mission, streak, twin, quit, sigil, stat, interest_path, power_score, mail, onboarding, report,
+  strip_message, progression_service, audit, …
+Agents: under app/agents — see §12.
 
-# XP/PF audit script (B35) — run manually before beta:
-#   cd alter-ego-backend && python -m app.services.audit_service
+Health: GET /health
 
-# Environment variables (.env):
-SUPABASE_URL=
-SUPABASE_SERVICE_KEY=        # service role key — never expose to client
-OPENAI_API_KEY=
-POSTHOG_API_KEY=
-ZAPIER_WEBHOOK_URL=          # optional; feedback webhook (Formspree URL works here too)
-FEEDBACK_WEBHOOK_URL=        # optional; same — JSON POST, or Formspree form-encoded if URL is formspree.io
-FORMSPREE_FEEDBACK_URL=      # optional; alias for the same webhook slot
-RESEND_API_KEY=              # optional; team email via Resend
-FEEDBACK_NOTIFY_EMAIL=       # optional; recipient when using Resend
-RESEND_FROM_EMAIL=           # optional; sender (must be verified in Resend)
+**Full route list:** §18 (REST API surface).
+
+Manual audit: cd alter-ego-backend && python -m app.services.audit_service
+
+.env (typical): SUPABASE_URL, SUPABASE_SERVICE_KEY, OPENAI_API_KEY, POSTHOG_API_KEY,
+  feedback/webhook + Resend vars as in previous docs
 ```
 
 ---
 
-## 12. AI AGENTS — ALL 5 (v2.0)
+## 12. AI AGENTS & GENERATORS
 
-**Model:** GPT-4o-mini for all agents.
-**Framework:** LangGraph.
-**Memory:** Supabase pgvector for Twin chat history.
+**Model:** GPT-4o-mini (OpenAI) for LLM-backed modules unless a file specifies otherwise.  
+**Orchestration:** LangGraph-style graphs where implemented (e.g. Twin chat, report); other agents are plain service modules invoking the API.  
+**Memory:** Twin chat uses pgvector-backed history where wired in `twin_chat_agent` / twin service.  
+**Scheduling:** Nudges and planners are driven by **APScheduler** jobs + mission reset — not Celery in this repo.
 
-| Agent | Trigger | Input | Output |
-|---|---|---|---|
-| Profiler (J1) | Onboarding + every 7 days | Onboarding answers + behavioural signals | discipline_dna JSON → users table |
-| Planner (J2) | Midnight per user timezone | discipline_dna + interests + quit_targets + daily_hours + interest_levels | Full day's missions (Core + Interest + Escaper) |
-| Nudge (J3) | Celery 2× daily per user | streak_log + pet_state + nudge_log (last 3) + discipline_dna | Push notification copy in Twin's tone |
-| Shadow Twin (J4) | Each chat message | Conversation history (last 20) + discipline_dna + gap_state | Twin response in character, max 2 sentences |
-| Weekly Report (J5) | Sunday 3am server time | Week's data + previous 2 weeks' sections (anti-repetition) | {wins[], slipped[], keep_watching, twin_paragraph, twin_closing, next_week} |
+| Module | Role | When it runs |
+|---|---|---|
+| `core_mission_agent` | Core pillar + journal mission copy / generation | Mission generation / reset path |
+| `interest_planner_agent` | Interest mission for a day | `sync_today_planner_missions`, planner hooks |
+| `personal_mission_agent` | Tier estimation for personal missions | POST personal mission |
+| `quit_mission_agent` / `quit_profile_agent` / `quit_insight_agent` | Quit path missions + profile/insight copy | Quit path sync / quits API |
+| `interest_normaliser` | Normalise interest text for storage | Onboarding / interest create |
+| `nudge_agent` | Push / mail category C copy | `nudge_check_job` + milestone sends from `complete_mission` |
+| `twin_chat_agent` | Shadow Twin chat replies | `POST /twin/chat` |
+| `report_agent` | Weekly report sections | `weekly_report_local_job` |
+
+**Profiler / discipline DNA:** Onboarding and `twin_recalibration` + mission recalibration update the **`discipline_dna`** table (and related user fields). There is no single file named `planner_agent.py` in the current tree — planning is split across `mission_service`, `core_mission_agent`, `interest_planner_agent`, and `quit_service`.
 
 **Shadow Twin system prompt structure (v2.0):**
 ```
@@ -816,32 +765,24 @@ Conversation history: {history}
 
 ---
 
-## 14. SCREEN REFERENCE — QUICK LOOKUP (v2.0)
+## 14. SCREEN REFERENCE — QUICK LOOKUP
 
-| Screen | File name | Build item | Spec |
-|---|---|---|---|
-| Splash | SplashScreen.tsx | 1.04 | Part 3A Screen 01 |
-| Sign-Up | SignUpScreen.tsx | 1.05 | Part 3A Screen 02 |
-| Onboarding Framing | OnboardingFramingScreen.tsx | 1.06 + 1.42 | Part 3A Screen 03 |
-| Onboarding Questions | OnboardingQuestionScreen.tsx | 1.07–1.08 | Part 3A Screen 04–13 |
-| Archetype Reveal | ArchetypeRevealScreen.tsx | 1.09 + 1.39 | Part 3A Screen 14 |
-| Twin Introduction | TwinIntroductionScreen.tsx | 1.10 | Part 3A Screen 15 |
-| Home | HomeScreen.tsx | 1.18 + 1.32 + 1.37 + 1.38 + 1.42 | Part 3B Screen 16 |
-| Twin Comparison | TwinComparisonScreen.tsx | 1.20 + 1.34 | Part 3B Screen 17 |
-| Twin Chat | TwinChatScreen.tsx | 1.21 | Part 3B Screen 18 |
-| Leaderboard | LeaderboardScreen.tsx | 1.22 | Part 3B Screen 19 |
-| Weekly Report | WeeklyReportScreen.tsx | 1.23 + 1.36 | Part 3B Screen 20 |
-| Profile (shell) | ProfileScreen.tsx | 1.24 | Part 3B Screen 21 |
-| Profile: Abilities | AbilitiesTab.tsx + ProfileAbilitiesScreen | — | Character stat system UI (placeholders) |
-| Profile: Streak | ProfileStreakTab.tsx | 1.26 | Part 3B Screen 21 Streak |
-| Profile: Titles | ProfileTitlesTab.tsx | 1.27 | Part 3B Screen 21 Titles |
-| Profile: Interests | ProfileInterestsTab.tsx | 1.35 | Part 3B Screen 21 Interests |
-| Settings | SettingsScreen.tsx | 1.28 + 1.43 | Part 3B Screen 22 |
-| Evolution Overlay | CharacterEvolutionOverlay.tsx | 1.31 (simplified) → 3.10 (full) | Part 3B Screen 23 |
-| Paywall | PaywallScreen.tsx | 1.29 | Part 3B Screen 24 |
-| Rank Card | RankCardScreen.tsx | 1.30 | Part 3B Screen 25 |
-| Journal Editor | JournalEditorScreen.tsx | 1.41 | Part 3B Screen 26 |
-| Milestone Card | MilestoneAchievementCard.tsx | 1.40 | Part 3B Screen 27 |
+| Area | File(s) | Notes |
+|---|---|---|
+| Root flow | `SplashScreen`, `SignUpScreen` | RootStack |
+| Onboarding | `OnboardingFramingScreen`, `OnboardingQuestionScreen`, `ArchetypeRevealScreen`, `Onboarding7DayScreen`, `TwinIntroductionScreen`, `NotificationPermissionScreen` | OnboardingStack; long questionnaire + API `question_key` per step |
+| Main tabs | `HomeScreen`, `LeaderboardScreen`, `TwinComparisonScreen`, `WeeklyReportScreen` | MainTabNavigator |
+| Profile | `ProfileScreen`, `ProfileAbilitiesScreen`, `ProfileStreakScreen`, `ProfileInterestsScreen`, `ProfileIdentityScreen`, `ProfileCompanionScreen`, `ProfileQuitsScreen` | ProfileStack; tabs live under `components/profile/` |
+| Settings / account | `SettingsScreen`, `ProfileEditScreen`, `AccountScreen`, `ContactUsScreen`, `SettingsFaqScreen` | MainStack |
+| Twin | `TwinChatScreen`, `ToneHistoryScreen` | MainStack |
+| Mail | `MailInboxScreen` | MainStack |
+| Reports | `WeeklyReportScreen`, `PastReportDetailScreen`, `DayDetailScreen` | Tabs + stack |
+| Journal | `JournalListScreen`, `JournalEditorScreen`, `JournalCalendarScreen` | MainStack |
+| Missions | `MissionDetailScreen` | MainStack |
+| Sigil | `SigilScreen` | MainStack |
+| Paywall / subs | `PaywallScreen` | MainStack; `SubscriptionManagement` may exist in `MainStackParamList` — confirm `MainStack.tsx` registers it |
+| Share / rank | `RankCardScreen`, `ShareableCardsPreviewScreen` | MainStack |
+| Overlays | `CharacterEvolutionOverlay`, `PetUnlockOverlay`, `StreakAchievementOverlay`, `SigilLevelUpOverlay`, milestone modals, etc. | Used from Home / mission flow — search `components/` |
 
 ---
 
@@ -852,10 +793,10 @@ I am building ALTER EGO.
 Stack: React Native + Expo + NativeWind v4 + TypeScript + Zustand + React Query + FastAPI (Python 3.11.9) + Supabase.
 Animation: No Rive. Characters and pets use Pika-generated MP4 clips via expo-av. UI animations use Reanimated 3.
 Frontend: API client (src/services/api.ts), auth store and user store (src/store), AppProviders. Screens use these; do not call Supabase auth or raw fetch from screens.
-Backend: Import from app.core.constants, app.core.supabase_client. Routes in app.api.*; profile + settings + mail routers registered in main.py.
-CLAUDE.md in project root contains all design tokens, colours, spacing, and decisions.
-Today I am building: [ITEM NAME FROM PART 4 v2.0].
-Refer to CLAUDE.md for all exact values. Do not approximate any colour, size, or spacing.
+Backend: Import from app.core.constants, app.core.supabase_client. Routers registered in main.py (missions, twin, profile, quits, sigil, stats, …).
+CLAUDE.md in project root: product voice + design tokens + navigation map + pointers to constants.py for numbers.
+Today I am building: [FEATURE].
+Refer to CLAUDE.md for colours/spacing; refer to app/core/constants.py for XP/PF/streak/trial values — they change in code first.
 ```
 
 ---
@@ -874,13 +815,14 @@ Refer to CLAUDE.md for all exact values. Do not approximate any colour, size, or
 | Hardcoding padding as `15` or `17` | All spacing must be 4, 8, 12, 16, 24, 32, 40, or 48 |
 | Using `fontSize: 13` not in the scale | Stick to: 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32 |
 | Touch targets under 44px | All tappable elements minimum 44×44px |
-| Using coins or any third currency | Two reward types only: XP and Pet Food |
-| Showing pet before Day 7 | Pet unlocks at Day 7 as first milestone. Stage 0 = no pet. |
+| Using coins or any third currency | Primary mission rewards: **XP + Pet Food**. **Aether/sigil** is metaprogression (§21), not a spendable coin economy. |
+| Using PATCH for mail read | Use **POST** `/api/v1/mail/{id}/read` and **POST** `/mail/read-all` |
+| Showing pet before unlock day | Pet unlocks day **6** since registration (`PET_UNLOCK_DAY`); `pet_unlocked` false until then. |
 | Any guilt-based language in UI copy | Pride only. Never guilt. |
 | Using Rive for pet or character animation | No Rive. Use Pika MP4 clips via expo-av. |
 | Gold (#F59E0B) anywhere except 365-day streak | Gold is reserved exclusively for the 365-day milestone. |
 | Hardcoding "Today's Missions" before any mission is done | Use "Start anywhere" when daily_completed_count = 0 |
-| Showing per-mission streak on Personal missions | Mission streak (🔥N) shows on Core + Interest only, never Personal |
+| Showing per-mission streak on Personal missions | Mission streak (🔥N) shows on Core + Interest (+ Resistance if used); not Personal |
 | Twin level badge same as user level | Twin level badge always = user_level + 1 (capped at L10) |
 | Guilt-based nudge copy | Nudges are factual + in-character. No pleading. No "you're letting yourself down." |
 | Calling supabase.auth or fetch directly from screens | Use useAuthStore / useUserStore and apiClient from @/services/api |
@@ -890,10 +832,106 @@ Refer to CLAUDE.md for all exact values. Do not approximate any colour, size, or
 
 ## 17. NUDGE & MAIL SYSTEM (BACKEND)
 
-- **Nudge categories:** A (streak warning), B (intervention-hour–based for quit targets), C (general; can send as in-app mail).
-- **Intervention hour:** On quit_targets, `intervention_hour` (0–23) from onboarding urge_timing; used for Category B nudge timing. Migration: `002_add_intervention_hour.sql` (also adds `nudge_category` to nudge_log).
-- **In-app mail:** Table `app_mails`; welcome mail and Category C content. Mail API: GET inbox, PATCH read. Mail service + scheduler jobs in backend; profile overview returns `unread_mail_count`.
+- **Nudge categories:** A (streak warning), B (intervention-hour–based for quit / urge timing), C (general; can send as in-app mail).
+- **Intervention hour:** Historically on `quit_targets` (`002_add_intervention_hour.sql`). Quit journeys now centre on **`quit_paths`** — Category B logic should use whatever column the current schema exposes for “urge window” (check migrations `014`+ and `nudge_agent`).
+- **In-app mail:** `app_mails`; welcome + Category C. Mail API: GET inbox, PATCH read. `user_local_maintenance_job` / mail service send scheduled mail; profile overview returns `unread_mail_count`.
+- **Milestone pushes:** `complete_mission` calls `send_category_c_notification` for streak / stage / pet milestones.
+- **Mail HTTP verbs:** Read endpoints are **`POST`** (`/mail/{id}/read`, `/mail/read-all`), not PATCH.
 
 ---
 
-*ALTER EGO · CLAUDE.md · v2.0 · March 2026 · Keep this file in project root always*
+## 18. REST API SURFACE (`/api/v1/…`)
+
+Authoritative list from `app/api/*.py`. Mobile should call these via `src/services/api.ts` wrappers where they exist.
+
+| Prefix | Methods | Paths / purpose |
+|---|---|---|
+| **`/auth`** | POST | `/verify-token`, `/link-google` |
+| | GET | `/me` — session user + flags |
+| **`/`** (onboarding router) | POST | `/onboarding/step`, `/onboarding/complete`, `/users/create-profile` |
+| | GET | `/onboarding/progress`, `/users/check-username` |
+| **`/missions`** | GET | `/today`, `/date/{date_str}`, `/journal`, `/journal/{entry_id}`, `/{mission_id}` (detail) |
+| | POST | `/{mission_id}/complete`, `/{mission_id}/rate`, `/journal/save`, `/personal/estimate`, `/personal/create`, `/core/difficulty`, `/generate-interest`, `/generate-resistance` |
+| | DELETE | `/personal/{mission_id}` |
+| **`/twin`** | POST | `/chat`, `/chat/{message_id}/rate`, `/tone-rating` |
+| | GET | `/chat/history`, `/tone-history`, `/strip`, `/state` |
+| **`/leaderboard`** | GET | `/`, `/rank` |
+| **`/reports`** | GET | `/weekly`, `/weekly/detail/{report_id}`, `/weekly/previous`, `/day/{date_str}` |
+| **`/mail`** | GET | `/` — inbox + unread count |
+| | POST | `/{mail_id}/read`, `/read-all` |
+| **`/profile`** | GET | `/overview`, `/streak`, `/identity`, `/companion`, `/interests`, `/quits` |
+| | PATCH | `/interests/{interest_id}/quest/criterion` |
+| | POST | `/interests/{interest_id}/quests/{quest_id}/complete` |
+| | PUT | `/interests/{interest_id}/difficulty`, `/schedule`, `/goal` |
+| | DELETE | `/interests/{interest_id}` |
+| **`/settings`** | GET | `/faq` (no auth) |
+| | POST | `/username`, `/notifications`, `/feedback` |
+| | DELETE | `/account` |
+| **`/stats`** | GET | `/` — character stats / SP (`stat_service`) |
+| **`/quits`** | GET | `/` — list quit paths |
+| | POST | `/`, `/{path_id}/frequency`, `/{path_id}/advance-phase` |
+| | PATCH | `/{path_id}/trigger-profile` |
+| | DELETE | `/{path_id}` |
+| **`/sigil`** | GET | `/` — sigil / aether UI state (`sigil_service.get_sigil_data`) |
+
+---
+
+## 19. MOBILE API CLIENT LAYER
+
+**Base client:** `src/services/api.ts` — all paths relative to `EXPO_PUBLIC_API_URL` (e.g. `/api/v1/...`).
+
+**Service modules** (thin wrappers + types; prefer these from hooks/screens):
+
+| File | Typical responsibility |
+|---|---|
+| `auth.ts` | Sign-in helpers used with `authStore` |
+| `onboarding.ts` | Step/progress/complete/check-username/create-profile |
+| `missions.ts` | Today, complete, rate, journal, personal estimate/create, core difficulty, generate-interest/resistance |
+| `profile.ts` | Overview, streak, identity, companion, interests CRUD + quests, quits summary |
+| `twin.ts` | Chat, history, ratings, strip, state |
+| `leaderboard.ts` | List + rank |
+| `reports.ts` | Weekly, detail, previous, day |
+| `mail.ts` | Inbox, mark read, read-all |
+| `quits.ts` | Quit paths API parity with backend |
+| `stats.ts` | GET stats / abilities |
+| `sigil.ts` | GET sigil state |
+
+**Hooks** (`src/hooks/`): `useMissions`, `useTwin`, `useTwinStrip`, `useJournal`, `useProfile`, `useOnboarding`, `useQuits`, `useInterests`, `useStats`, `useSigil` — use for React Query–backed data; keep screens on hooks + stores, not raw `fetch`.
+
+---
+
+## 20. SCHEDULER JOBS (APScheduler)
+
+All registered in `app/core/scheduler.py`. The worker runs an **hourly** tick; each job filters users by **`users.timezone`** and usually **local hour == 1** (1:00–1:59), except nudges.
+
+| Job ID | Function | When / what |
+|---|---|---|
+| `daily_mission_reset` | `daily_mission_reset_job` | Local **hour 1**: ensure core missions exist for today; `sync_today_planner_missions`; `ensure_sp_day_aligned` + `set_total_missions_for_day` (stats); **`reset_daily_surge`** (sigil). On-demand: `GET /missions/today` still creates rows between midnight and 1:00 if user opens app. |
+| `pet_unlock_check` | `pet_unlock_check_job` | Local **hour 1**: pet unlock from `PET_UNLOCK_DAY`; **`handle_streak_break`** when `last_streak_date` is before today. |
+| `twin_simulation` | `twin_simulation_job` | Local **hour 1**: `simulate_twin_day`; **`update_strip_message`** (strip_message_service). |
+| `user_local_maintenance` | `user_local_maintenance_job` | Local **hour 1**: yesterday day summary, **`calculate_power_score`**, scheduled **`send_app_mail`** (day_7, twin_guide, etc.). |
+| `weekly_report` | `weekly_report_local_job` | Local **Sunday, hour 3** (03:00–03:59); batches `generate_weekly_report` (50 users parallel). |
+| `twin_recalibration` | `twin_recalibration_job` | Local **hour 1**: first calibration when `days_since_registration >= FIRST_RECALIBRATION_DAY` (**7**), then every **`RECALIBRATION_INTERVAL_DAYS` (7)** from `last_calibration_at`; calls `recalibrate_twin` + optional `send_app_mail` (`twin_recalibration_note`). |
+| `nudge_check` | `nudge_check_job` | Hourly (Category A/B timing inside `nudge_agent`). |
+
+Constants: `FIRST_RECALIBRATION_DAY`, `RECALIBRATION_INTERVAL_DAYS` in `app/core/constants.py`.
+
+---
+
+## 21. SIGIL / AETHER SYSTEM
+
+- **Persistence:** `sigil_state` (and related tables per migrations `009`–`012`, **`019` rebuild**). **`aether_log`** for history where enabled.
+- **Logic:** `app/services/sigil_service.py` — `check_and_award_aether` runs from **`complete_mission`**; compares **daily XP** to **`DAILY_XP_CAPS`** for **surge** (crossing cap activates surge); awards **aether** per rules (`AETHER_PER_MISSION`, `AETHER_ALL_COMPLETE_BONUS`, level names from constants).
+- **Daily reset:** `reset_daily_surge` in **`daily_mission_reset_job`**.
+- **API:** `GET /api/v1/sigil` → `get_sigil_data`. Mobile: `services/sigil.ts`, `useSigil`, **`SigilScreen`**, overlays (e.g. `SigilLevelUpOverlay`).
+- **Product note:** Aether/sigil is **metaprogession / flair**, not a third spendable currency like “coins.” Primary rewards remain **XP + Pet Food**; sigil rides on top of mission completion and caps.
+
+---
+
+## 22. SETTINGS FAQ vs CONSTANTS
+
+Static FAQ copy lives in **`app/api/settings.py`** (`FAQ_ITEMS`). It can **drift** from `constants.py` (e.g. streak rules, XP caps). When changing product numbers, **update FAQ strings** in the same PR or add a ticket — users see FAQ as truth.
+
+---
+
+*ALTER EGO · CLAUDE.md · v2.2 · March 2026 · Keep in project root; sync with `constants.py` + migrations + `settings.py` FAQ when behaviour changes.*

@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-query";
 import {
   missionsService,
+  fetchMissionDetail,
   type CompleteMissionResponse,
   type Mission,
   type TodayMissionsResponse,
@@ -24,6 +25,7 @@ import { SIGIL_KEYS } from "@/hooks/useSigil";
 export const MISSION_KEYS = {
   today: ["missions", "today"] as const,
   byDate: (date: string) => ["missions", "date", date] as const,
+  detail: (missionId: string) => ["missions", "detail", missionId] as const,
 };
 
 function findMissionById(
@@ -48,6 +50,15 @@ export function useTodayMissions() {
   });
 }
 
+export function useMissionDetail(missionId: string) {
+  return useQuery({
+    queryKey: MISSION_KEYS.detail(missionId),
+    queryFn: () => fetchMissionDetail(missionId),
+    enabled: !!missionId,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
 /**
  * Prefetch today's missions (e.g. during Archetype Reveal / 7-day screen) so Home loads from cache.
  */
@@ -59,15 +70,62 @@ export function prefetchTodayMissions(queryClient: QueryClient) {
   });
 }
 
+/** Profile + cache updates after a successful mission completion (swipe, journal save, etc.). */
+export function applyMissionCompletionSideEffects(
+  queryClient: QueryClient,
+  result: CompleteMissionResponse
+) {
+  if (result.already_completed) return;
+
+  const {
+    updateXP,
+    updatePF,
+    updateStreak,
+    updatePowerScore,
+    updatePetStage,
+  } = useUserStore.getState();
+
+  updateXP(
+    result.xp_earned,
+    result.new_total_xp,
+    result.stage_evolved
+      ? {
+          stage: result.stage_evolved.new_stage,
+          name: result.stage_evolved.new_stage_name,
+        }
+      : undefined
+  );
+  updatePF(result.pf_earned, result.new_total_pf);
+
+  if (result.streak_updated && result.current_streak != null) {
+    updateStreak(result.current_streak);
+  }
+
+  if (result.pet_evolved) {
+    updatePetStage(
+      result.pet_evolved.new_stage,
+      result.pet_evolved.new_pet_name
+    );
+  }
+
+  if (result.power_score != null && typeof result.power_score === "number") {
+    updatePowerScore(result.power_score);
+  }
+
+  queryClient.invalidateQueries({ queryKey: MISSION_KEYS.today });
+  queryClient.invalidateQueries({ queryKey: ["missions", "detail"] });
+  queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
+  queryClient.invalidateQueries({ queryKey: ["twin", "state"] });
+  queryClient.invalidateQueries({ queryKey: ["twin", "strip"] });
+  queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
+  queryClient.invalidateQueries({ queryKey: STATS_KEYS.all });
+  queryClient.invalidateQueries({ queryKey: SIGIL_KEYS.all });
+}
+
 // ── Complete a mission ─────────────────────────────────────────────────────
 
 export function useCompleteMission() {
   const queryClient = useQueryClient();
-  const updateXP = useUserStore((state) => state.updateXP);
-  const updatePF = useUserStore((state) => state.updatePF);
-  const updateStreak = useUserStore((state) => state.updateStreak);
-  const updatePowerScore = useUserStore((state) => state.updatePowerScore);
-  const updatePetStage = useUserStore((state) => state.updatePetStage);
 
   return useMutation({
     mutationFn: (missionId: string) =>
@@ -118,40 +176,7 @@ export function useCompleteMission() {
     },
 
     onSuccess: (result: CompleteMissionResponse) => {
-      if (result.already_completed) return;
-
-      updateXP(
-        result.xp_earned,
-        result.new_total_xp,
-        result.stage_evolved
-          ? {
-              stage: result.stage_evolved.new_stage,
-              name: result.stage_evolved.new_stage_name,
-            }
-          : undefined
-      );
-      updatePF(result.pf_earned, result.new_total_pf);
-
-      if (result.streak_updated && result.current_streak != null) {
-        updateStreak(result.current_streak);
-      }
-
-      if (result.pet_evolved) {
-        updatePetStage(
-          result.pet_evolved.new_stage,
-          result.pet_evolved.new_pet_name
-        );
-      }
-
-      queryClient.invalidateQueries({ queryKey: MISSION_KEYS.today });
-      // Home streak dots depend on /profile/streak heatmap; invalidate on completion.
-      queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
-      // Twin comparison + strip read twin_daily_record / missions for today.
-      queryClient.invalidateQueries({ queryKey: ["twin", "state"] });
-      queryClient.invalidateQueries({ queryKey: ["twin", "strip"] });
-      queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
-      queryClient.invalidateQueries({ queryKey: STATS_KEYS.all });
-      queryClient.invalidateQueries({ queryKey: SIGIL_KEYS.all });
+      applyMissionCompletionSideEffects(queryClient, result);
     },
 
     onError: (_error, _missionId, context) => {

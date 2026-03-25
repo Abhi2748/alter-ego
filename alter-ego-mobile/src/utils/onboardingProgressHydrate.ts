@@ -10,6 +10,7 @@ import type {
   OnboardingInterest,
   OnboardingQuitTarget,
 } from "@/context/OnboardingAnswersContext";
+import type { AwarenessLevel, QuitGoal } from "@/types/quits";
 
 /** Backend question_key per step (Q15 timezone saved with Q14 submit). */
 const QUESTION_KEYS: Record<number, string> = {
@@ -158,7 +159,12 @@ function mapInterestFromApi(raw: unknown): OnboardingInterest | null {
       .map((d) => (typeof d === "number" ? d - 1 : NaN))
       .filter((d) => !Number.isNaN(d) && d >= 0 && d <= 6);
   }
-  return { name, level, goal, schedule: schedule?.length ? schedule : undefined };
+  return {
+    name,
+    level,
+    goal,
+    schedule: schedule?.length ? schedule : [0, 1, 2, 3, 4, 5, 6],
+  };
 }
 
 function mapQuitFromApi(raw: unknown): OnboardingQuitTarget | null {
@@ -166,10 +172,25 @@ function mapQuitFromApi(raw: unknown): OnboardingQuitTarget | null {
   const o = raw as Record<string, unknown>;
   const name = typeof o.raw_text === "string" ? o.raw_text : null;
   if (!name) return null;
+  const ctxRaw = o.contexts;
+  const contexts = Array.isArray(ctxRaw)
+    ? ctxRaw.filter((x): x is string => typeof x === "string")
+    : [];
+  const aw = o.awareness;
+  const awareness: AwarenessLevel =
+    aw === "subconscious" || aw === "semi_conscious" || aw === "conscious" ? aw : "semi_conscious";
+  const g = o.quit_goal;
+  const quit_goal: QuitGoal =
+    g === "stop_completely" || g === "reduce_significantly" || g === "make_conscious"
+      ? g
+      : "stop_completely";
   return {
     name,
     description: typeof o.description === "string" ? o.description : "",
     trigger: typeof o.trigger === "string" ? o.trigger : "",
+    contexts,
+    awareness,
+    quit_goal,
   };
 }
 

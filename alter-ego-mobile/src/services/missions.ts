@@ -20,16 +20,34 @@ export interface Mission {
   core_pillar?: string | null;
   interest_id?: string | null;
   quit_target_id?: string | null;
+  quit_path_id?: string | null;
+  mission_category?: string | null;
+  underlying_need?: string | null;
+  description?: string | null;
+  stat_tag?: string | null;
   /** Resolved from interests.normalised_name (API enrich) */
   interest_name?: string | null;
-  /** Resolved from quit_targets.normalised_name (API enrich) */
+  /** Resolved from quit_paths.habit_name (API enrich) */
   quit_target_name?: string | null;
+  is_quit_mission?: boolean;
   rationale?: string | null;
   phase_principle?: string | null;
   domain_knowledge?: string | null;
   estimated_minutes?: number | null;
   mission_date?: string;
+  /** Present when twin_mission_log + inject succeeded */
+  twin_completed?: boolean;
+  twin_completed_at_hour?: number | null;
 }
+
+/** Full row from GET /api/v1/missions/{uuid} */
+export type MissionDetailApi = Mission & {
+  quit_habit_name?: string | null;
+  quit_phase?: string | null;
+  quit_need_description?: string | null;
+  /** 1 = too hard, 3 = just right, 5 = too easy — from mission_ratings */
+  difficulty_rating?: number | null;
+};
 
 export interface TodayMissionsResponse {
   date: string;
@@ -91,8 +109,9 @@ export interface CompleteMissionResponse {
     level_up: boolean;
     new_level: number | null;
     new_level_name: string | null;
-    total_aether: number;
   };
+  /** Server-selected micro-copy for SpGainToast footer */
+  completion_copy?: string | null;
 }
 
 export interface MissionRatingRequest {
@@ -134,6 +153,8 @@ export type JournalSaveResponse = {
   saved: boolean;
   mission_completed: boolean;
   word_count: number;
+  /** Present when this save triggered `complete_mission` for today's journal core mission. */
+  completion?: CompleteMissionResponse | null;
 };
 
 export type JournalListApiResponse = { entries: JournalApiEntry[] };
@@ -162,6 +183,10 @@ export function normalizeTodayMissionsResponse(
 }
 
 // ── API calls ──────────────────────────────────────────────────────────────
+
+export function fetchMissionDetail(missionId: string) {
+  return apiClient.get<MissionDetailApi>(`/api/v1/missions/${missionId}`);
+}
 
 export const missionsService = {
   getTodayMissions: async () => {

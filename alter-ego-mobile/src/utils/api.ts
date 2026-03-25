@@ -300,6 +300,30 @@ export async function createMission(
   return res.json();
 }
 
+/** GET /api/v1/twin/state — 7-day discipline heatmap row */
+export type DayComparison = {
+  date: string;
+  day_label: string;
+  is_today: boolean;
+  user_completion_rate: number;
+  twin_completion_rate: number;
+  user_missions_done: number;
+  user_missions_total: number;
+  twin_missions_done: number;
+  twin_missions_total: number;
+};
+
+/** GET /api/v1/twin/state — per-pillar 7-day rates */
+export type PillarDNA = {
+  pillar: string;
+  pillar_label: string;
+  user_rate: number;
+  twin_rate: number;
+  user_count: number;
+  twin_count: number;
+  total_possible: number;
+};
+
 // Twin comparison (Twin Design §5.1, §5.2, 1.34)
 export type TwinActivity = {
   mission_title: string;
@@ -326,6 +350,8 @@ export type TwinComparisonOut = {
   gap_days: number | null;
   username?: string | null;
   twin_today_activities?: TwinActivity[];
+  week_heatmap?: DayComparison[];
+  pillar_dna?: PillarDNA[];
 };
 
 export async function getTwinComparison(
@@ -383,6 +409,8 @@ export async function getTwinComparison(
     gap_days: Number(gap?.days_user_ahead ?? 0),
     username: user?.username ?? null,
     twin_today_activities: twinActs,
+    week_heatmap: Array.isArray(raw?.week_heatmap) ? raw.week_heatmap : undefined,
+    pillar_dna: Array.isArray(raw?.pillar_dna) ? raw.pillar_dna : undefined,
   };
 }
 

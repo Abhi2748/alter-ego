@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import logging
+from uuid import UUID
+
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -15,22 +19,64 @@ from app.services.mission_service import (
     get_today_missions,
     get_user_date,
     sync_today_planner_missions,
+    update_pillar_difficulty,
 )
 
 router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
+logger = logging.getLogger(__name__)
+
+
+async def _inject_twin_completions(user_id: str, today: str, grouped: dict) -> None:
+    """
+    One batch read of twin_mission_log; match missions by title (case-insensitive).
+    Sets twin_completed and twin_completed_at_hour on each mission dict.
+    On error, leaves grouped unchanged (no twin fields).
+    """
+    try:
+        result = (
+            supabase_admin.table("twin_mission_log")
+            .select("mission_title, simulated_hour")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .execute()
+        )
+        twin_by_title: dict[str, int] = {}
+        for row in result.data or []:
+            raw = (row.get("mission_title") or "").strip().lower()
+            if raw:
+                sh = row.get("simulated_hour")
+                twin_by_title[raw] = int(sh) if sh is not None else 9
+
+        for missions in grouped.values():
+            for mission in missions:
+                title_key = (mission.get("title") or "").strip().lower()
+                if title_key in twin_by_title:
+                    mission["twin_completed"] = True
+                    mission["twin_completed_at_hour"] = twin_by_title[title_key]
+                else:
+                    mission["twin_completed"] = False
+                    mission["twin_completed_at_hour"] = None
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "twin_mission_fetch_error",
+                    "user_id": user_id,
+                    "date": today,
+                    "error": str(e),
+                }
+            )
+        )
 
 
 def _enrich_mission_rows(rows: list[dict]) -> None:
-    """
-    Attach interest_name / quit_target_name for list UIs (Home chips).
-    Missions only store interest_id / quit_target_id.
-    """
+    """Attach interest_name and quit habit label for list UIs."""
     if not rows:
         return
     i_ids = list({str(r["interest_id"]) for r in rows if r.get("interest_id")})
-    q_ids = list({str(r["quit_target_id"]) for r in rows if r.get("quit_target_id")})
+    qp_ids = list({str(r["quit_path_id"]) for r in rows if r.get("quit_path_id")})
     i_map: dict[str, str] = {}
-    q_map: dict[str, str] = {}
+    qp_map: dict[str, str] = {}
     if i_ids:
         ir = (
             supabase_admin.table("interests")
@@ -41,23 +87,26 @@ def _enrich_mission_rows(rows: list[dict]) -> None:
         for x in ir.data or []:
             label = (x.get("normalised_name") or x.get("raw_text") or "").strip() or "Interest"
             i_map[str(x["id"])] = label
-    if q_ids:
+    if qp_ids:
         qr = (
-            supabase_admin.table("quit_targets")
-            .select("id, normalised_name, raw_text")
-            .in_("id", q_ids)
+            supabase_admin.table("quit_paths")
+            .select("id, habit_name")
+            .in_("id", qp_ids)
             .execute()
         )
         for x in qr.data or []:
-            label = (x.get("normalised_name") or x.get("raw_text") or "").strip() or "Resistance"
-            q_map[str(x["id"])] = label
+            label = (x.get("habit_name") or "").strip() or "Resistance"
+            qp_map[str(x["id"])] = label
     for r in rows:
         iid = r.get("interest_id")
         if iid:
             r["interest_name"] = i_map.get(str(iid))
-        qid = r.get("quit_target_id")
-        if qid:
-            r["quit_target_name"] = q_map.get(str(qid))
+        qpid = r.get("quit_path_id")
+        if qpid:
+            r["quit_target_name"] = qp_map.get(str(qpid))
+            r["is_quit_mission"] = True
+        else:
+            r["is_quit_mission"] = False
 
 
 def _group_missions(rows: list[dict]) -> dict:
@@ -74,6 +123,7 @@ def _group_missions(rows: list[dict]) -> dict:
                     "xp_value": r.get("xp_value"),
                     "pf_value": r.get("pf_value"),
                     "completed": r.get("completed", False),
+                    "completed_at": r.get("completed_at"),
                     "is_journal_mission": r.get("is_journal_mission", False),
                     "core_pillar": r.get("core_pillar"),
                     "rationale": r.get("rationale"),
@@ -81,8 +131,16 @@ def _group_missions(rows: list[dict]) -> dict:
                     "phase_principle": r.get("phase_principle"),
                     "interest_id": r.get("interest_id"),
                     "quit_target_id": r.get("quit_target_id"),
+                    "quit_path_id": r.get("quit_path_id"),
+                    "mission_category": r.get("mission_category"),
+                    "underlying_need": r.get("underlying_need"),
+                    "description": r.get("description"),
                     "estimated_minutes": r.get("estimated_minutes"),
                     "mission_date": r.get("mission_date"),
+                    "stat_tag": r.get("stat_tag"),
+                    "interest_name": r.get("interest_name"),
+                    "quit_target_name": r.get("quit_target_name"),
+                    "is_quit_mission": bool(r.get("quit_path_id")),
                 }
             )
     return grouped
@@ -136,6 +194,15 @@ class WillpowerProgressOut(BaseModel):
     total_missions_today: int = 0
 
 
+class SigilCompletionOut(BaseModel):
+    aether_awarded: int = 0
+    surge_activated: bool = False
+    surge_active: bool = False
+    level_up: bool = False
+    new_level: int | None = None
+    new_level_name: str | None = None
+
+
 class CompleteMissionResponse(BaseModel):
     success: bool
     already_completed: bool | None = None
@@ -162,6 +229,9 @@ class CompleteMissionResponse(BaseModel):
 
     stat_gains: StatGainsOut | None = None
     willpower_progress: WillpowerProgressOut | None = None
+    sigil: SigilCompletionOut | None = None
+
+    completion_copy: str | None = None
 
 
 class PersonalMissionEstimateRequest(BaseModel):
@@ -208,10 +278,13 @@ async def get_missions_today(authorization: str = Header(None)):
     await ensure_sp_day_aligned(user_id, mission_date)
     await set_total_missions_for_day(user_id, len(rows))
 
+    grouped = _group_missions(rows)
+    await _inject_twin_completions(user_id, mission_date, grouped)
+
     return {
         "date": mission_date,
         "day_number": get_days_since_registration(str(registration_date), str(timezone_str)),
-        "missions": _group_missions(rows),
+        "missions": grouped,
         "summary": _summary(rows),
     }
 
@@ -274,6 +347,24 @@ async def generate_resistance_missions_today(authorization: str = Header(None)):
     return {"sync": sync, "generated": len(res_only), "missions": res_only}
 
 
+def _attach_quit_path_detail(row: dict) -> None:
+    qpid = row.get("quit_path_id")
+    if not qpid:
+        return
+    qr = (
+        supabase_admin.table("quit_paths")
+        .select("habit_name, current_phase, need_description")
+        .eq("id", qpid)
+        .single()
+        .execute()
+        .data
+    )
+    if qr:
+        row["quit_habit_name"] = qr.get("habit_name")
+        row["quit_phase"] = qr.get("current_phase")
+        row["quit_need_description"] = qr.get("need_description")
+
+
 @router.post("/{mission_id}/complete", response_model=CompleteMissionResponse)
 async def complete_mission_endpoint(mission_id: str, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
@@ -289,7 +380,7 @@ async def rate_mission(mission_id: str, body: RateMissionRequest, authorization:
 
     mission_result = (
         supabase_admin.table("missions")
-        .select("id, user_id, interest_id, quit_target_id")
+        .select("id, user_id, interest_id, quit_path_id")
         .eq("id", mission_id)
         .eq("user_id", user_id)
         .single()
@@ -312,7 +403,7 @@ async def rate_mission(mission_id: str, body: RateMissionRequest, authorization:
         "user_id": user_id,
         "mission_id": mission_id,
         "interest_id": mission.get("interest_id"),
-        "quit_target_id": mission.get("quit_target_id"),
+        "quit_path_id": mission.get("quit_path_id"),
         "rating": body.rating,
         "feedback_text": body.feedback_text,
     }
@@ -432,12 +523,14 @@ async def save_journal(body: JournalSaveRequest, authorization: str = Header(Non
         )
         rows = jm.data or []
         mission_row = rows[0] if rows else None
+        completion = None
         if mission_row and not mission_row.get("completed"):
-            await complete_mission(user_id, str(mission_row["id"]))
+            completion = await complete_mission(user_id, str(mission_row["id"]))
         return {
             "saved": True,
             "mission_completed": bool(mission_row),
             "word_count": wc,
+            "completion": completion,
         }
 
     return {"saved": True, "mission_completed": False, "word_count": wc}
@@ -493,6 +586,22 @@ async def personal_create(body: PersonalMissionCreateRequest, authorization: str
     return created.data[0] if created.data else row
 
 
+class UpdatePillarDifficultyRequest(BaseModel):
+    pillar: str = Field(..., description="sleep | movement | hydration | mindfulness | no_phone")
+    direction: str = Field(..., description="up | down")
+
+
+@router.post("/core/difficulty", response_model=dict)
+async def post_core_pillar_difficulty(
+    body: UpdatePillarDifficultyRequest,
+    authorization: str = Header(None),
+):
+    user_id = get_user_id_from_token(authorization)
+    return await update_pillar_difficulty(
+        user_id, body.pillar.strip().lower(), body.direction.strip().lower()
+    )
+
+
 @router.delete("/personal/{mission_id}", response_model=dict)
 async def personal_delete(mission_id: str, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
@@ -516,3 +625,33 @@ async def personal_delete(mission_id: str, authorization: str = Header(None)):
     supabase_admin.table("missions").delete().eq("id", mission_id).execute()
     return {"deleted": True}
 
+
+@router.get("/{mission_id:uuid}", response_model=dict)
+async def get_mission_detail(mission_id: UUID, authorization: str = Header(None)):
+    user_id = get_user_id_from_token(authorization)
+    mid = str(mission_id)
+    result = (
+        supabase_admin.table("missions")
+        .select("*")
+        .eq("id", mid)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    row = dict(result.data)
+    _enrich_mission_rows([row])
+    _attach_quit_path_detail(row)
+    rating_existing = (
+        supabase_admin.table("mission_ratings")
+        .select("rating")
+        .eq("mission_id", mid)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    row["difficulty_rating"] = int(rating_existing[0]["rating"]) if rating_existing else None
+    return row

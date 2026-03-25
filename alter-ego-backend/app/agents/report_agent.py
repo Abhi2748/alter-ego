@@ -1,144 +1,553 @@
 """
 Weekly report and day summary agents.
-B29: Weekly report — Sunday 03:00 in the user's timezone (scheduler), GPT-4o-mini, weekly_reports.
+
+B29: Weekly report — Sunday 03:00 in the user's timezone (scheduler), GPT-4o-mini,
+    weekly_reports. Two instructor-backed calls: system voice (wins/slipped) and
+    twin voice (twin paragraph / next week). Section 1 from report_service only.
+
 B30: Day summary — ~01:00 local with other nightly maintenance, daily_summaries.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import re
-from collections import Counter
-from datetime import date
+from datetime import date, datetime, timezone
+from typing import List, Optional
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.core.constants import PET_NAMES, STAGE_NAMES
+from app.agents.base import run_agent
 from app.core.supabase_client import supabase_admin
 from app.services.mission_service import local_completed_week_bounds
+from app.services.report_service import assemble_weekly_data
 
 logger = logging.getLogger(__name__)
 
-# ── Weekly report system prompt ────────────────────────────────────────────
 
-WEEKLY_REPORT_SYSTEM_PROMPT = """
-You are generating a personal weekly discipline report for {username}.
+# ── System Voice Output Schema ─────────────────────────────────────────────
 
-This report is the only moment in the app that steps back and looks at
-the whole week. It is not a dashboard refresh. It is a mirror — showing
-the user exactly what happened, without softening and without guilt.
 
-─────────────────────────────────────────────────────────
-THIS WEEK'S DATA
-─────────────────────────────────────────────────────────
-Period:                  {week_start} to {week_end}
-Days active:             {days_active}/7
-Missions completed:      {missions_completed}/{missions_total}
-Core complete days:      {core_complete_days}/7
-XP earned:               {weekly_xp}
-Pet Food earned:         {weekly_pf}
-Current streak:          {current_streak} days
-Streak events:           {streak_events}
-Character stage:         {stage_name} (Stage {character_stage})
-Stage evolved this week: {stage_evolved}
-Pet stage:               {pet_name}
-Pet evolved this week:   {pet_evolved}
-Twin gap (start→end):    {gap_start_xp} XP → {gap_end_xp} XP ({gap_direction})
-Most skipped mission:    {most_skipped} (skipped {skip_count}/7 days)
-Interests worked:        {interests_worked}
-Quit targets maintained: {quit_clean_days} clean days
-Best day:                {best_day} ({best_day_count} missions)
-Hardest day:             {hardest_day} ({hardest_day_count} missions)
-Mission ratings given:   {ratings_given} (avg: {avg_rating}/5)
-Personal missions:       {personal_count} created
+class SystemVoiceReport(BaseModel):
+    wins: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=3,
+        description=(
+            "1-3 specific, factual wins from this week's data. "
+            "Each is one sentence. System voice: no adjectives of quality, "
+            "no motivational language. Specific data only. "
+            "Even a bad week has at least one real win — find it. "
+            "Never invent a win not in the data. "
+            "Good: 'You completed all core missions on Monday, Wednesday, and Friday.' "
+            "Bad: 'You tried hard this week and showed great effort.' "
+            "Bad: 'You opened the app.' (too vague)"
+        ),
+    )
+    slipped: Optional[List[str]] = Field(
+        default=None,
+        max_length=2,
+        description=(
+            "1-2 factual observations about what was missed. "
+            "System voice: no blame, no 'unfortunately', no 'you failed'. "
+            "Just the observation. "
+            "Set to null if it was a perfect week (use keep_watching instead). "
+            "Good: 'Movement was your most skipped mission — missed 4 of 7 days.' "
+            "Bad: 'You failed to complete your movement missions this week.'"
+        ),
+    )
+    keep_watching: Optional[str] = Field(
+        default=None,
+        description=(
+            "One forward-looking observation for a perfect or near-perfect week. "
+            "Only set if slipped is null or empty. "
+            "References what the system will actually do next week, or what to watch. "
+            "Good: 'Your completion rate has been above 90% for 3 weeks. Difficulty increases next week.' "
+            "Bad: 'Keep up the great work!'"
+        ),
+    )
+    theme: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description="One word label for this report angle, e.g. momentum, recovery, consistency.",
+    )
 
-─────────────────────────────────────────────────────────
-ANTI-REPETITION (do NOT use these angles or openings)
-─────────────────────────────────────────────────────────
-Previous week wins opening:   {prev_wins_opening}
-Previous week twin opening:   {prev_twin_opening}
-Theme used 2 weeks ago:       {prev2_theme}
+    @field_validator("wins")
+    @classmethod
+    def wins_must_be_specific(cls, v: List[str]) -> List[str]:
+        banned = [
+            "tried hard",
+            "great effort",
+            "showed up",
+            "did your best",
+            "important thing",
+            "proud",
+            "amazing",
+            "fantastic",
+            "wonderful",
+        ]
+        for win in v:
+            low = win.lower()
+            for word in banned:
+                if word in low:
+                    raise ValueError(f"Win contains forbidden phrase '{word}': {win}")
+        return v
 
-─────────────────────────────────────────────────────────
-USER CONTEXT
-─────────────────────────────────────────────────────────
-Archetype:    {archetype}
-Tone type:    {tone_type}
-Intensity:    {intensity}/5
+    @model_validator(mode="after")
+    def slipped_vs_keep_watching(self) -> SystemVoiceReport:
+        slipped_nonempty = bool(self.slipped and len(self.slipped) > 0)
+        if slipped_nonempty:
+            self.keep_watching = None
+        return self
 
-─────────────────────────────────────────────────────────
-YOUR JOB
-─────────────────────────────────────────────────────────
-Generate 4 sections. Each must feel written specifically for THIS user
-in THIS week — not a template with numbers filled in.
 
-A user who reads 10 consecutive reports should feel each one noticed
-something genuinely different about them.
+SYSTEM_VOICE_PROMPT = """You write the 'Your Wins' and 'Where You Slipped' sections of a weekly discipline report.
 
-SECTION 2 — YOUR WINS
-Rules:
-- 2-3 wins maximum. Factual. Never invented. Never inflated.
-- Find what is specifically and actually true — even in a bad week.
-- 1 real win is better than 3 hollow ones.
-- NEVER: "you tried hard", "the important thing is showing up"
-- ALWAYS: specific data. "You completed core missions on 5 of 7 days."
-- In a genuinely bad week, wins may be small but they must be real.
+VOICE: System voice. Neutral. Factual. No editorial.
+- Direct and specific. Numbers are your friends.
+- No adjectives of quality: not "great", "impressive", "poor", "unfortunately"
+- No motivational language: not "you've got this", "keep going", "the important thing is"
+- No blame language: not "you failed", "you struggled", "you let yourself down"
 
-SECTION 3 — WHERE YOU SLIPPED
-Rules:
-- 1-2 factual observations. No blame language.
-- Perfect week: replace with "Keep Watching" — one forward observation.
-- NEVER: "Unfortunately" / "You failed to" / "You should have"
-- ALWAYS: "Movement was your most skipped mission — 3 of 7 days."
-- key: "slipped" or "keep_watching" in JSON depending on which applies
+WINS — find what is specifically and actually true:
+Even a terrible week has a real win. Find the smallest specific truth.
+"You completed all core missions on Monday." is better than 3 hollow ones.
+1 real win beats 3 inflated ones.
 
-SECTION 4 — YOUR TWIN THIS WEEK
-Rules:
-- Match {tone_type} exactly.
-- The twin responds to what the gap data MEANS — not a summary.
-- 1 paragraph (2-3 sentences) + 1 closing line (shorter and sharper).
-- The closing line must hit harder than the paragraph.
-- Reference specific gap numbers. Never generic.
-- Occasionally (not every week) when genuinely relevant to THIS user's
-  data: reference the Bhagavad Gita principle of action without attachment
-  to outcome (§2.47). Never preachy. Only when the data calls for it.
+SLIPPED — state the fact:
+"Movement was your most skipped — 3 of 7 days missed." Just the observation.
+Never tell the user WHY they slipped or what they should have done.
 
-SECTION 5 — NEXT WEEK
-Rules:
-- Twin voice. 1 sentence only.
-- State an actual fact about next week: difficulty change, approaching
-  milestone, gap situation, system adjustment.
-- NOTHING motivational. Just what is actually true.
-- Example: "Your guitar missions shift to Medium difficulty next week."
-- Example: "Day 30 lands on Wednesday — your streak bonus fires then."
-- Example: "No changes to your plan next week. The pattern is stable."
+PERFECT WEEK: If completion was 100% (or very close), set slipped=null and write keep_watching instead.
+keep_watching is ONE forward observation about next week — a difficulty change, an approaching milestone.
 
-─────────────────────────────────────────────────────────
-NOVELTY RULES
-─────────────────────────────────────────────────────────
-Your output must NOT:
-- Start Section 2 with the same word or phrase as prev_wins_opening
-- Use the same angle as the previous 2 weeks
-- Open Section 4 the same way as prev_twin_opening
-- Use "impressive", "amazing", "great" if used in previous reports
-
-─────────────────────────────────────────────────────────
-OUTPUT — return ONLY valid JSON, no preamble, no markdown fences
-─────────────────────────────────────────────────────────
-{{
-  "wins": ["Win statement 1", "Win statement 2"],
-  "slipped": ["Observation 1"] OR omit if perfect week,
-  "keep_watching": ["Forward observation"] OR omit if not perfect week,
-  "twin_paragraph": "2-3 sentence twin response in correct tone",
-  "twin_closing": "Shorter, sharper closing line",
-  "next_week": "One sentence forward-looking fact",
-  "wins_opening": "First 3 words of wins[0] — for anti-repetition next week",
-  "twin_opening": "First 3 words of twin_paragraph — for anti-repetition",
-  "theme": "One word describing the angle of this report e.g. consistency/recovery/momentum"
-}}
+ANTI-REPETITION: You are given the previous 2 weeks' wins and slips.
+Do not open any item with the same first word as those weeks.
+Do not make the same core observation (find a different angle even if the pattern is the same).
 """
+
+
+async def generate_system_voice_sections(
+    weekly_data: dict,
+    previous_wins_w1: list[str],
+    previous_wins_w2: list[str],
+    previous_slipped_w1: list[str],
+    previous_slipped_w2: list[str],
+) -> SystemVoiceReport:
+    prev = ""
+    if previous_wins_w1:
+        prev += "\nLast week wins:\n" + "\n".join(f"  - {w}" for w in previous_wins_w1)
+    if previous_wins_w2:
+        prev += "\nTwo weeks ago wins:\n" + "\n".join(f"  - {w}" for w in previous_wins_w2)
+    if previous_slipped_w1:
+        prev += "\nLast week slipped:\n" + "\n".join(f"  - {s}" for s in previous_slipped_w1)
+    if previous_slipped_w2:
+        prev += "\nTwo weeks ago slipped:\n" + "\n".join(f"  - {s}" for s in previous_slipped_w2)
+
+    d = weekly_data
+    skipped_detail = (
+        f"title '{d['most_skipped_mission_title']}' ({d['most_skipped_mission_count']} incomplete)"
+        if d.get("most_skipped_mission_title")
+        else f"type {d['most_skipped_type'] or 'none'} ({d['most_skipped_count']} incomplete)"
+    )
+
+    user_message = f"""Write the Wins and Slipped sections for this user's weekly report.
+
+WEEK DATA:
+- Missions: {d['missions_completed']} of {d['missions_total']} completed ({int(d['completion_rate'] * 100)}%)
+- Days active (streak_log): {d['days_active']}/7
+- Core-complete days (all assigned core done): {d['days_all_core']} / 7
+- XP earned: {d['xp_earned']:,}
+- Pet Food earned: {d['pf_earned']:,}
+- Streak: {d['current_streak']} days {'(broken this week)' if d.get('streak_broken_this_week') else '(intact)'}
+- Most skipped: {skipped_detail}
+- Interests with at least one completion: {d['interests_worked']}
+- Personal missions assigned: {d['personal_count']}
+- Mission ratings: {d['ratings_given']} (avg {d['avg_rating']}/5)
+- Best day: {d['best_day']} ({d['best_day_count']} missions) / Hardest: {d['hardest_day']} ({d['hardest_day_count']})
+- Character stage: {d['character_stage_name']} {'(milestone this week)' if d.get('stage_changed_to') else ''}
+- Pet: {d['pet_name']} {'(evolution milestone this week)' if d.get('pet_evolved_to') else ''}
+- Twin gap: {d['gap_xp']} XP, state {d['gap_state']} {'(gap GREW vs last week)' if d.get('gap_change', 0) > 0 else '(gap CLOSED vs last week)' if d.get('gap_change', 0) < 0 else '(gap vs last week: unchanged)'}
+- Quit paths tracked: {d['quit_paths_count']}
+- Streak events: {', '.join(d['streak_events']) if d['streak_events'] else 'none'}
+
+{prev if prev else 'No previous weeks available.'}
+
+Find what is specifically and actually true. 1 real win beats 3 hollow ones."""
+
+    return await run_agent(
+        system_prompt=SYSTEM_VOICE_PROMPT,
+        user_message=user_message,
+        response_model=SystemVoiceReport,
+        temperature=0.6,
+        max_tokens=500,
+        context_label="Report:SystemVoice",
+    )
+
+
+# ── Twin Voice Output Schema ───────────────────────────────────────────────
+
+
+class TwinVoiceReport(BaseModel):
+    twin_paragraph: str = Field(
+        ...,
+        description=(
+            "2-3 sentences in Twin voice matching the assigned tone_type. "
+            "The Twin RESPONDS to the week — does not recap it. "
+            "References the gap, the streak, or what the data means for the rivalry. "
+            "rival: competitive, cold, gap-focused. "
+            "philosopher: reflective, principled, references compounding or process. "
+            "silent_force: maximum 2 sentences, often 1. Sparse. "
+            "Never generic. Never warm. Never coaching. "
+            "Do not open with the same word as the previous two weeks' openings."
+        ),
+    )
+    twin_closing: str = Field(
+        ...,
+        description=(
+            "One closing line. Always shorter and sharper than the paragraph. "
+            "This lands harder because it's brief. "
+            "Max 50 characters. Often 3-8 words. "
+            "Examples: 'Still behind. Keep going.' / 'Next week.' / 'The gap is real.'"
+        ),
+    )
+    next_week: str = Field(
+        ...,
+        description=(
+            "One sentence in Twin voice. States a fact about next week — "
+            "a difficulty change, an approaching milestone, or a gap observation. "
+            "Forward only. Not motivational. Just the fact. "
+            "Good: 'Your Interest missions move to Medium difficulty next week.' "
+            "Good: 'Day 30 lands on Wednesday. That is the first major milestone.' "
+            "Bad: 'Keep working hard next week and you will see results!'"
+        ),
+    )
+
+    @field_validator("twin_closing")
+    @classmethod
+    def closing_must_be_short(cls, v: str) -> str:
+        if len(v) > 60:
+            raise ValueError(f"Twin closing too long: {len(v)} chars. Max 60.")
+        return v
+
+
+TWIN_VOICE_PROMPT = """You write the Twin sections of a weekly discipline report.
+
+The Twin is a version of the user that has been more consistent.
+The Twin does NOT recap the week. It RESPONDS to what the data means for the gap.
+
+## THE THREE TONE TYPES
+
+RIVAL: Competitive, cold, declarative. Short sentences. References gap as a fact.
+Twin paragraph example: "You closed 47 XP of gap this week. I closed 62. The gap grew. That is the situation."
+Twin closing example: "Still behind. Keep going."
+
+PHILOSOPHER: Reflective, principled. References compounding, process, what the work means.
+Twin paragraph example: "The work you did this week compounded quietly. You will not feel it yet. That is how it works."
+Twin closing example: "Keep going. The evidence is accumulating."
+
+SILENT_FORCE: Sparse. Maximum 2 sentences in paragraph. 1 sentence closing. Often just facts.
+Twin paragraph example: "Gap: 340 XP. Your move."
+Twin closing example: "Next week."
+
+## HARD RULES
+1. Twin does NOT recap missions or data — it RESPONDS to what they mean
+2. Never warm, never congratulatory — rival respects through challenge, not applause
+3. Never coaching — no "you should", no "try to", no "make sure"
+4. Never guilt — no "you let me down", no "disappointing"
+5. twin_closing must always be shorter than twin_paragraph — it is the landing
+6. Do not open twin_paragraph with the same word as the previous two weeks' openings
+"""
+
+
+def _as_str_list(val) -> list[str]:
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(x) for x in val if x is not None and str(x).strip()]
+    s = str(val).strip()
+    return [s] if s else []
+
+
+def _opening_words(text: str, max_words: int = 3) -> str:
+    parts = (text or "").strip().split()
+    return " ".join(parts[:max_words]) if parts else ""
+
+
+def _first_word(text: str) -> str:
+    parts = (text or "").strip().split()
+    return parts[0] if parts else ""
+
+
+async def generate_twin_voice_sections(
+    weekly_data: dict,
+    tone_type: str,
+    intensity: int,
+    previous_twin_openings: list[str],
+    pending_difficulty_note: Optional[str] = None,
+) -> TwinVoiceReport:
+    tone_key = tone_type.lower().replace("-", "_").replace(" ", "_")
+    tone_header = {
+        "rival": "RIVAL",
+        "philosopher": "PHILOSOPHER",
+        "silent_force": "SILENT_FORCE",
+    }.get(tone_key, tone_key.upper())
+
+    d = weekly_data
+    gap_dir = (
+        "grew"
+        if d.get("gap_change", 0) > 0
+        else "closed"
+        if d.get("gap_change", 0) < 0
+        else "unchanged"
+    )
+    gap_change_xp = abs(int(d.get("gap_change") or 0))
+
+    intensity_note = {
+        1: "Quiet, minimal. Presence without edge.",
+        2: "Gentle. Observations without sharpness.",
+        3: "Balanced. Clearly present. Neither soft nor sharp.",
+        4: "Sharpened. Every word has edge.",
+        5: "Maximum pressure. Cold. No softening.",
+    }.get(intensity, "Balanced.")
+
+    prev_openings = "\n".join(f'  - "{o}"' for o in previous_twin_openings) or "  None yet"
+
+    nm, dm = d.get("next_milestone"), d.get("days_to_milestone")
+    if nm is not None and dm is not None:
+        milestone_line = f"day {nm} in {dm} days"
+    else:
+        milestone_line = "none imminent"
+
+    pending_block = ""
+    if pending_difficulty_note:
+        pending_block = (
+            "\nCore pillar difficulty signals (mention in next_week only if relevant): "
+            + str(pending_difficulty_note)
+        )
+
+    user_message = (
+        f"""Write the Twin sections for this weekly report.
+
+TONE: {tone_header} (intensity {intensity}/5 — {intensity_note})
+
+WEEK SUMMARY FOR TWIN TO RESPOND TO:
+- Missions: {d['missions_completed']}/{d['missions_total']} completed
+- Streak: {d['current_streak']} days {'(intact)' if not d.get('streak_broken_this_week') else '(broken this week)'}
+- Twin gap: {d['gap_xp']} XP — gap {gap_dir} by {gap_change_xp} XP vs last week's snapshot
+- User ahead of Twin in XP: {d.get('user_is_ahead')}
+- Pet: {d['pet_name']} {'(evolved this week)' if d.get('pet_evolved_to') else ''}
+- Next milestone: {milestone_line}
+- Difficulty change next week: {d.get('difficulty_change_next_week') or 'none'}
+{pending_block}
+
+PREVIOUS TWIN PARAGRAPH OPENINGS (do not start twin_paragraph with the same first word):
+{prev_openings}
+
+The Twin responds to what this week means for the rivalry. It does not recap the data."""
+    )
+
+    return await run_agent(
+        system_prompt=TWIN_VOICE_PROMPT,
+        user_message=user_message,
+        response_model=TwinVoiceReport,
+        temperature=0.75,
+        max_tokens=400,
+        context_label=f"Report:TwinVoice:{tone_key}",
+    )
+
+
+# ── Master weekly report ───────────────────────────────────────────────────
+
+
+async def generate_weekly_report(
+    user_id: str,
+    week_start: Optional[date] = None,
+    week_end: Optional[date] = None,
+) -> dict:
+    """
+    Generates the weekly report for a user (completed Mon–Sun week).
+    Stores result in weekly_reports. Returns a merged dict for callers.
+    """
+    user_result = (
+        supabase_admin.table("users")
+        .select("username, timezone")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    user = user_result.data or {}
+    tz_str = str(user.get("timezone") or "UTC")
+
+    if week_start is None or week_end is None:
+        week_start_d, week_end_d = local_completed_week_bounds(tz_str)
+    else:
+        week_start_d, week_end_d = week_start, week_end
+
+    week_start_str = str(week_start_d)
+    week_end_str = str(week_end_d)
+
+    weekly_data = await assemble_weekly_data(user_id, week_start_d, week_end_d)
+
+    dna_result = (
+        supabase_admin.table("discipline_dna")
+        .select("twin_tone_type, twin_intensity, pending_difficulty_change")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    dna_row = (dna_result.data or [None])[0] or {}
+    tone_type = str(dna_row.get("twin_tone_type") or "rival")
+    intensity = int(dna_row.get("twin_intensity") or 3)
+    pending_note = dna_row.get("pending_difficulty_change")
+
+    prev_reports = (
+        supabase_admin.table("weekly_reports")
+        .select("wins, slipped, twin_paragraph")
+        .eq("user_id", user_id)
+        .lt("week_start", week_start_str)
+        .order("week_start", desc=True)
+        .limit(2)
+        .execute()
+        .data
+        or []
+    )
+
+    prev_wins_w1 = _as_str_list(prev_reports[0].get("wins")) if len(prev_reports) > 0 else []
+    prev_wins_w2 = _as_str_list(prev_reports[1].get("wins")) if len(prev_reports) > 1 else []
+    prev_slipped_w1 = _as_str_list(prev_reports[0].get("slipped")) if len(prev_reports) > 0 else []
+    prev_slipped_w2 = _as_str_list(prev_reports[1].get("slipped")) if len(prev_reports) > 1 else []
+    prev_twin_openings: list[str] = []
+    for r in prev_reports:
+        tw = r.get("twin_paragraph")
+        if tw:
+            w = _first_word(str(tw))
+            if w:
+                prev_twin_openings.append(w)
+
+    try:
+        system_sections = await generate_system_voice_sections(
+            weekly_data=weekly_data,
+            previous_wins_w1=prev_wins_w1,
+            previous_wins_w2=prev_wins_w2,
+            previous_slipped_w1=prev_slipped_w1,
+            previous_slipped_w2=prev_slipped_w2,
+        )
+    except Exception as e:
+        logger.error("Report SystemVoiceAgent failed for %s: %s", user_id, e)
+        system_sections = None
+
+    try:
+        twin_sections = await generate_twin_voice_sections(
+            weekly_data=weekly_data,
+            tone_type=tone_type,
+            intensity=intensity,
+            previous_twin_openings=prev_twin_openings,
+            pending_difficulty_note=pending_note,
+        )
+    except Exception as e:
+        logger.error("Report TwinVoiceAgent failed for %s: %s", user_id, e)
+        twin_sections = None
+
+    d = weekly_data
+    wins = (
+        system_sections.wins
+        if system_sections
+        else [f"You completed {d['missions_completed']} of {d['missions_total']} missions this week."]
+    )
+    slipped_list: list[str] = (
+        list(system_sections.slipped)
+        if system_sections and system_sections.slipped
+        else []
+    )
+    keep_lines: list[str] = []
+    if system_sections and system_sections.keep_watching:
+        keep_lines = [system_sections.keep_watching]
+
+    twin_paragraph = (
+        twin_sections.twin_paragraph if twin_sections else "The week is done. The data is honest."
+    )
+    twin_closing = twin_sections.twin_closing if twin_sections else "Next week begins now."
+    next_week = twin_sections.next_week if twin_sections else "The plan continues."
+
+    wins_opening = _opening_words(wins[0]) if wins else ""
+    twin_opening = _opening_words(twin_paragraph)
+    theme_used = (system_sections.theme if system_sections and system_sections.theme else "").strip()
+    if not theme_used:
+        theme_used = "momentum" if d["completion_rate"] >= 0.7 else "recovery"
+
+    this_week_data = {
+        "missions": f"{d['missions_completed']}/{d['missions_total']}",
+        "missions_completed": d["missions_completed"],
+        "missions_total": d["missions_total"],
+        "core_days": f"{d['days_all_core']}/7",
+        "core_days_complete": d["days_all_core"],
+        "core_days_total": 7,
+        "xp_earned": d["xp_earned"],
+        "pf_earned": d["pf_earned"],
+        "pet_food_earned": d["pf_earned"],
+        "streak": d["current_streak"],
+        "current_streak": d["current_streak"],
+        "streak_events": d["streak_events"],
+        "stage": d["character_stage_name"],
+        "stage_evolved": d["stage_changed_to"],
+        "pet": d["pet_name"],
+        "pet_name": d["pet_name"],
+        "pet_stage": d["pet_stage"],
+        "pet_evolved": d["pet_evolved_to"],
+        "gap_xp": d["gap_xp"],
+        "user_is_ahead": d["user_is_ahead"],
+        "display_lines": d["this_week_display"],
+    }
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+
+    supabase_admin.table("weekly_reports").upsert(
+        {
+            "user_id": user_id,
+            "week_start": week_start_str,
+            "week_end": week_end_str,
+            "this_week_data": this_week_data,
+            "wins": wins,
+            "slipped": slipped_list,
+            "keep_watching": keep_lines,
+            "twin_paragraph": twin_paragraph,
+            "twin_closing": twin_closing,
+            "next_week": next_week,
+            "wins_opening": wins_opening,
+            "twin_opening": twin_opening,
+            "theme_used": theme_used,
+            "gap_xp_end": d["gap_xp"],
+            "generated_at": generated_at,
+        },
+        on_conflict="user_id,week_start",
+    ).execute()
+
+    try:
+        supabase_admin.table("discipline_dna").update({"pending_difficulty_change": None}).eq(
+            "user_id", user_id
+        ).execute()
+    except Exception:
+        logger.debug("clear pending_difficulty_change skipped for %s", user_id)
+
+    return {
+        **this_week_data,
+        "wins": wins,
+        "slipped": slipped_list,
+        "keep_watching": keep_lines,
+        "twin_paragraph": twin_paragraph,
+        "twin_closing": twin_closing,
+        "next_week": next_week,
+        "wins_opening": wins_opening,
+        "twin_opening": twin_opening,
+        "theme_used": theme_used,
+        "gap_xp_end": d["gap_xp"],
+    }
+
+
+# ── Day summary (LangChain, unchanged contract) ─────────────────────────────
 
 DAY_SUMMARY_SYSTEM_PROMPT = """
 Generate a 1-2 sentence archive entry for this user's day.
@@ -163,346 +572,6 @@ RULES:
 - Plain text only — no JSON, no markdown, no quotes.
 - Write in second person past tense: "You completed..." not "The user..."
 """
-
-
-def _safe_parse_report_json(raw: str) -> dict:
-    """Strip markdown fences and parse JSON from LLM output."""
-    text = raw.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    return json.loads(text)
-
-
-async def generate_weekly_report(user_id: str) -> dict:
-    """
-    Generates the weekly report for a user.
-    Stores result in weekly_reports table.
-    Returns the full report dict.
-    """
-    user_result = (
-        supabase_admin.table("users")
-        .select(
-            "username, archetype, character_stage, pet_stage, "
-            "pet_unlocked, current_streak, total_xp, timezone"
-        )
-        .eq("id", user_id)
-        .single()
-        .execute()
-    )
-    user = user_result.data or {}
-
-    tz_str = str(user.get("timezone") or "UTC")
-    week_start_d, week_end_d = local_completed_week_bounds(tz_str)
-    week_start_str = str(week_start_d)
-    week_end_str = str(week_end_d)
-
-    dna_result = (
-        supabase_admin.table("discipline_dna")
-        .select("twin_tone_type, twin_intensity")
-        .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
-    dna = dna_result.data or {}
-
-    twin_result = (
-        supabase_admin.table("twin_state")
-        .select("twin_xp, current_gap_state")
-        .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
-    twin = twin_result.data or {}
-
-    streak_rows = (
-        supabase_admin.table("streak_log")
-        .select("*")
-        .eq("user_id", user_id)
-        .gte("log_date", week_start_str)
-        .lte("log_date", week_end_str)
-        .execute()
-        .data
-        or []
-    )
-
-    missions_rows = (
-        supabase_admin.table("missions")
-        .select("title, type, completed, difficulty, mission_date")
-        .eq("user_id", user_id)
-        .gte("mission_date", week_start_str)
-        .lte("mission_date", week_end_str)
-        .execute()
-        .data
-        or []
-    )
-
-    xp_rows = (
-        supabase_admin.table("xp_log")
-        .select("amount")
-        .eq("user_id", user_id)
-        .gte("log_date", week_start_str)
-        .lte("log_date", week_end_str)
-        .execute()
-        .data
-        or []
-    )
-
-    pf_rows = (
-        supabase_admin.table("pf_log")
-        .select("amount")
-        .eq("user_id", user_id)
-        .gte("log_date", week_start_str)
-        .lte("log_date", week_end_str)
-        .execute()
-        .data
-        or []
-    )
-
-    ratings_rows = (
-        supabase_admin.table("mission_ratings")
-        .select("rating")
-        .eq("user_id", user_id)
-        .gte("created_at", f"{week_start_str}T00:00:00")
-        .lte("created_at", f"{week_end_str}T23:59:59.999")
-        .execute()
-        .data
-        or []
-    )
-
-    days_active = len(set(r["log_date"] for r in streak_rows)) if streak_rows else 0
-    missions_completed = sum(1 for m in missions_rows if m.get("completed"))
-    missions_total = len(missions_rows)
-    core_complete_days = sum(
-        1 for r in streak_rows if (r.get("core_completed_count") or 0) >= 5
-    )
-    weekly_xp = sum(r.get("amount", 0) for r in xp_rows)
-    weekly_pf = sum(r.get("amount", 0) for r in pf_rows)
-    ratings_given = len(ratings_rows)
-    avg_rating = (
-        round(sum(r["rating"] for r in ratings_rows) / ratings_given, 1)
-        if ratings_given > 0
-        else 0
-    )
-
-    skipped = [
-        m["title"]
-        for m in missions_rows
-        if not m.get("completed") and m.get("type") == "core"
-    ]
-    most_skipped_data = Counter(skipped).most_common(1)
-    most_skipped = most_skipped_data[0][0] if most_skipped_data else "None"
-    skip_count = most_skipped_data[0][1] if most_skipped_data else 0
-
-    day_counts = {}
-    for m in missions_rows:
-        d = m["mission_date"]
-        if d not in day_counts:
-            day_counts[d] = {"done": 0, "total": 0}
-        day_counts[d]["total"] += 1
-        if m.get("completed"):
-            day_counts[d]["done"] += 1
-
-    if day_counts:
-        best_day_entry = max(
-            day_counts.items(), key=lambda x: x[1]["done"]
-        )
-        hardest_day_entry = min(
-            day_counts.items(), key=lambda x: x[1]["done"]
-        )
-    else:
-        best_day_entry = (None, {"done": 0, "total": 0})
-        hardest_day_entry = (None, {"done": 0, "total": 0})
-
-    best_day = best_day_entry[0] or "N/A"
-    best_day_count = best_day_entry[1]["done"]
-    hardest_day = hardest_day_entry[0] or "N/A"
-    hardest_day_count = hardest_day_entry[1]["done"]
-
-    interests_worked = list(
-        set(
-            str(m.get("interest_id", ""))
-            for m in missions_rows
-            if m.get("type") == "interest"
-            and m.get("completed")
-            and m.get("interest_id")
-        )
-    )
-
-    streak_events = []
-    for r in streak_rows:
-        if not r.get("streak_maintained") and (r.get("streak_count") or 0) == 0:
-            streak_events.append(f"Streak reset on {r['log_date']}")
-        for milestone in (30, 60, 100, 200, 365):
-            if r.get("streak_count") == milestone:
-                streak_events.append(
-                    f"Streak milestone: {r['streak_count']} days on {r['log_date']}"
-                )
-                break
-
-    milestones_week = (
-        supabase_admin.table("milestone_log")
-        .select("milestone_type, earned_at")
-        .eq("user_id", user_id)
-        .gte("earned_at", f"{week_start_str}T00:00:00")
-        .lte("earned_at", f"{week_end_str}T23:59:59.999")
-        .execute()
-        .data
-        or []
-    )
-
-    stage_evolved = next(
-        (m["milestone_type"] for m in milestones_week if (m.get("milestone_type") or "").startswith("stage_")),
-        None,
-    )
-    pet_evolved = next(
-        (m["milestone_type"] for m in milestones_week if (m.get("milestone_type") or "").startswith("pet_stage_")),
-        None,
-    )
-
-    personal_count = sum(1 for m in missions_rows if m.get("type") == "personal")
-
-    quit_rows = (
-        supabase_admin.table("quit_targets")
-        .select("clean_days")
-        .eq("user_id", user_id)
-        .eq("is_active", True)
-        .execute()
-        .data
-        or []
-    )
-    quit_clean_days = sum(q.get("clean_days", 0) for q in quit_rows)
-
-    user_xp_now = user.get("total_xp", 0) or 0
-    twin_xp_now = twin.get("twin_xp", 0) or 0
-    gap_end_xp = abs(user_xp_now - twin_xp_now)
-    user_is_ahead = user_xp_now > twin_xp_now
-    gap_direction = "user ahead" if user_is_ahead else "twin ahead"
-
-    prev_reports = (
-        supabase_admin.table("weekly_reports")
-        .select("wins_opening, twin_opening, theme_used")
-        .eq("user_id", user_id)
-        .order("week_start", desc=True)
-        .limit(2)
-        .execute()
-        .data
-        or []
-    )
-
-    prev_wins_opening = prev_reports[0].get("wins_opening", "None") if prev_reports else "None"
-    prev_twin_opening = prev_reports[0].get("twin_opening", "None") if prev_reports else "None"
-    prev2_theme = prev_reports[1].get("theme_used", "None") if len(prev_reports) > 1 else "None"
-
-    stage_name = STAGE_NAMES[(user.get("character_stage") or 1) - 1]
-    pet_stage = user.get("pet_stage") or 0
-    pet_name = (
-        PET_NAMES[pet_stage - 1]
-        if pet_stage > 0 and user.get("pet_unlocked")
-        else "No pet yet"
-    )
-
-    prompt = WEEKLY_REPORT_SYSTEM_PROMPT.format(
-        username=user.get("username", "you"),
-        week_start=week_start_str,
-        week_end=week_end_str,
-        days_active=days_active,
-        missions_completed=missions_completed,
-        missions_total=missions_total,
-        core_complete_days=core_complete_days,
-        weekly_xp=weekly_xp,
-        weekly_pf=weekly_pf,
-        current_streak=user.get("current_streak", 0),
-        streak_events=", ".join(streak_events) if streak_events else "None",
-        character_stage=user.get("character_stage", 1),
-        stage_name=stage_name,
-        stage_evolved=stage_evolved or "No",
-        pet_name=pet_name,
-        pet_evolved=pet_evolved or "No",
-        gap_start_xp="N/A",
-        gap_end_xp=gap_end_xp,
-        gap_direction=gap_direction,
-        most_skipped=most_skipped,
-        skip_count=skip_count,
-        interests_worked=len(interests_worked),
-        quit_clean_days=quit_clean_days,
-        best_day=best_day,
-        best_day_count=best_day_count,
-        hardest_day=hardest_day,
-        hardest_day_count=hardest_day_count,
-        ratings_given=ratings_given,
-        avg_rating=avg_rating,
-        personal_count=personal_count,
-        prev_wins_opening=prev_wins_opening,
-        prev_twin_opening=prev_twin_opening,
-        prev2_theme=prev2_theme,
-        archetype=user.get("archetype", "structured_climber"),
-        tone_type=dna.get("twin_tone_type", "rival"),
-        intensity=dna.get("twin_intensity", 3),
-    )
-
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.6,
-        max_tokens=800,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
-    )
-
-    try:
-        response = await llm.ainvoke([
-            SystemMessage(content=prompt),
-            HumanMessage(content="Generate this user's weekly report."),
-        ])
-        report_data = _safe_parse_report_json(response.content)
-    except Exception as e:
-        logger.warning("Weekly report LLM failed for user %s: %s", user_id, e)
-        report_data = {
-            "wins": [f"You completed {missions_completed} of {missions_total} missions this week."],
-            "slipped": [],
-            "keep_watching": [],
-            "twin_paragraph": "The week is done. The data is honest.",
-            "twin_closing": "Next week begins now.",
-            "next_week": "Keep going.",
-            "wins_opening": "You completed",
-            "twin_opening": "The week",
-            "theme": "recovery",
-        }
-
-    this_week_data = {
-        "missions": f"{missions_completed}/{missions_total}",
-        "core_days": f"{core_complete_days}/7",
-        "xp_earned": weekly_xp,
-        "pf_earned": weekly_pf,
-        "streak": user.get("current_streak", 0),
-        "streak_events": streak_events,
-        "stage": stage_name,
-        "stage_evolved": stage_evolved,
-        "pet": pet_name,
-        "pet_evolved": pet_evolved,
-        "gap_xp": gap_end_xp,
-        "user_is_ahead": user_is_ahead,
-    }
-
-    supabase_admin.table("weekly_reports").upsert(
-        {
-            "user_id": user_id,
-            "week_start": week_start_str,
-            "week_end": week_end_str,
-            "this_week_data": this_week_data,
-            "wins": report_data.get("wins", []),
-            "slipped": report_data.get("slipped", []),
-            "keep_watching": report_data.get("keep_watching", []),
-            "twin_paragraph": report_data.get("twin_paragraph", ""),
-            "twin_closing": report_data.get("twin_closing", ""),
-            "next_week": report_data.get("next_week", ""),
-            "wins_opening": report_data.get("wins_opening", ""),
-            "twin_opening": report_data.get("twin_opening", ""),
-            "theme_used": report_data.get("theme", ""),
-        },
-        on_conflict="user_id,week_start",
-    ).execute()
-
-    return {**this_week_data, **report_data}
 
 
 async def generate_day_summary(user_id: str, target_date: str) -> str:
@@ -616,10 +685,12 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
     )
 
     try:
-        response = await llm.ainvoke([
-            SystemMessage(content=prompt),
-            HumanMessage(content="Generate the day summary."),
-        ])
+        response = await llm.ainvoke(
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content="Generate the day summary."),
+            ]
+        )
         summary = (response.content or "").strip()
     except Exception:
         summary = f"You completed {completed} of {total} missions."

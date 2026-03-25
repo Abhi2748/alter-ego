@@ -5,6 +5,7 @@
 
 import React, { createContext, useContext, useCallback, useState } from "react";
 import type { ArchetypeContent } from "../utils/api";
+import type { AwarenessLevel, QuitGoal } from "@/types/quits";
 
 /** One interest from Q11 — full object for Planner. */
 export type OnboardingInterest = {
@@ -17,8 +18,12 @@ export type OnboardingInterest = {
 /** One quit target from Q12 — full object for Planner. */
 export type OnboardingQuitTarget = {
   name: string;
-  description: string;
-  trigger: string;
+  /** Legacy wizard fields; optional when using trigger profile sheet. */
+  description?: string;
+  trigger?: string;
+  contexts: string[];
+  awareness: AwarenessLevel;
+  quit_goal: QuitGoal;
 };
 
 /** @deprecated Use OnboardingInterest. Kept for type compatibility during migration. */

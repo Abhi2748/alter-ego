@@ -1,94 +1,127 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
   ScrollView,
-  KeyboardAvoidingView,
   Pressable,
-  TextInput,
   StyleSheet,
   Platform,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
-import Svg, { Path, Circle } from "react-native-svg";
+import Svg, { Path } from "react-native-svg";
+import { useQueryClient } from "@tanstack/react-query";
 import type { MainStackParamList } from "@/navigation/types";
-import { useCompleteMission, useRateMission } from "@/hooks/useMissions";
+import { useCompleteMission, useMissionDetail, useRateMission, MISSION_KEYS } from "@/hooks/useMissions";
+import { getErrorMessage } from "@/services/api";
+import type { MissionDetailApi } from "@/services/missions";
 
 type MissionDetailRoute = RouteProp<MainStackParamList, "MissionDetail">;
 
 const BG_GRADIENT = ["#0D0F1A", "#07080F"] as const;
 
-/** Match HomeMissionCard / Home — types, difficulty text, XP·PF meta */
 const TEXT_PRIMARY = "#E5E7EB";
 const TEXT_DIM = "#4B5563";
 const TEXT_MUTED = "#6B7280";
 const TEXT_SECONDARY = "#9CA3AF";
 
-const TYPE_BADGE_STYLES: Record<
-  "core" | "interest" | "resistance",
-  { bg: string; border: string; dot: string; text: string; label: string }
-> = {
-  core: {
-    bg: "rgba(239,68,68,0.10)",
-    border: "rgba(239,68,68,0.18)",
-    dot: "#F87171",
-    text: "#F87171",
-    label: "CORE MISSION",
-  },
-  interest: {
-    bg: "rgba(139,92,246,0.10)",
-    border: "rgba(139,92,246,0.2)",
-    dot: "#8B5CF6",
-    text: "#A78BFA",
-    label: "INTEREST MISSION",
-  },
-  resistance: {
-    bg: "rgba(194,65,12,0.12)",
-    border: "rgba(249,115,22,0.30)",
-    dot: "#F97316",
-    text: "#FB923C",
-    label: "RESISTANCE MISSION",
-  },
-};
+function normDifficulty(d: string | undefined): "easy" | "medium" | "hard" | "elite" {
+  const x = String(d ?? "easy").toLowerCase();
+  if (x === "medium") return "medium";
+  if (x === "hard") return "hard";
+  if (x === "elite") return "elite";
+  return "easy";
+}
 
-const DIFFICULTY_TEXT: Record<"easy" | "medium" | "hard" | "elite", string> = {
-  easy: "#10B981",
-  medium: "#F97316",
-  hard: "#EF4444",
-  elite: "#EF4444",
-};
+function phaseLabel(p: string | null | undefined): string {
+  if (!p) return "—";
+  if (p === "mapping") return "Mapping";
+  if (p === "disruption") return "Disruption";
+  return "Consolidation";
+}
 
-const DIFFICULTY_PILL_BG = "rgba(139,92,246,0.09)";
-const DIFFICULTY_PILL_BORDER = "rgba(139,92,246,0.18)";
+function headerTypeLabel(m: MissionDetailApi): string {
+  const t = m.type ?? "core";
+  if (t === "core") return "Core Mission";
+  if (t === "interest") {
+    const pillar = m.interest_name?.trim() || "Interest";
+    return `Interest Mission · ${pillar}`;
+  }
+  if (t === "resistance") {
+    const habit = m.quit_habit_name?.trim() || m.quit_target_name?.trim() || "Quit";
+    return `Resistance Mission · ${habit}`;
+  }
+  if (t === "personal") return "Personal Mission";
+  return "Mission";
+}
 
-const RESEARCH_FALLBACK_INTEREST =
-  "Skill research favours short, focused practice you can repeat — not occasional marathon sessions. Your planner uses that idea so missions stay completable while still pushing the skill.";
-
-const RESEARCH_FALLBACK_RESISTANCE =
-  "Evidence on habit change shows replacements work when they satisfy the same underlying need as the old pattern. This mission is built around that mechanism instead of asking you to white-knuckle every urge.";
+function difficultyPill(diff: "easy" | "medium" | "hard" | "elite") {
+  if (diff === "easy")
+    return { bg: "rgba(139,92,246,0.12)", border: "rgba(139,92,246,0.30)", text: "#8B5CF6", label: "EASY" };
+  if (diff === "medium")
+    return { bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.30)", text: "#F59E0B", label: "MEDIUM" };
+  if (diff === "hard")
+    return { bg: "rgba(239,68,68,0.12)", border: "rgba(239,68,68,0.30)", text: "#EF4444", label: "HARD" };
+  return { bg: "rgba(167,139,250,0.12)", border: "rgba(167,139,250,0.30)", text: "#A78BFA", label: "ELITE" };
+}
 
 export function MissionDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<MissionDetailRoute>();
-  const { mission } = route.params;
+  const missionId = route.params.missionId;
+  const queryClient = useQueryClient();
 
-  const [selectedRating, setSelectedRating] = useState<1 | 3 | 5 | null>(null);
-  const [feedbackText, setFeedbackText] = useState("");
-  const [ratingSubmitted, setRatingSubmitted] = useState(false);
-  const [isCompleted, setIsCompleted] = useState(mission.completed);
+  const { data: mission, isLoading, isError, refetch, isFetching } = useMissionDetail(missionId);
+  const { mutate: completeMission, isPending: completing } = useCompleteMission();
+  const { mutate: rateMission, isPending: ratingPending } = useRateMission();
 
-  const { mutate: completeMission } = useCompleteMission();
-  const { mutate: submitRating, isPending: isSubmittingRating } = useRateMission();
+  const [localRating, setLocalRating] = useState<1 | 3 | 5 | null>(null);
 
-  const handleComplete = (missionId: string) => {
+  const serverRating = mission?.difficulty_rating;
+  const effectiveRating =
+    serverRating === 1 || serverRating === 3 || serverRating === 5 ? serverRating : localRating;
+
+  useEffect(() => {
+    if (serverRating === 1 || serverRating === 3 || serverRating === 5) {
+      setLocalRating(serverRating);
+    }
+  }, [serverRating]);
+
+  const isCompleted = mission?.completed === true;
+  const ratedLocked = serverRating === 1 || serverRating === 3 || serverRating === 5;
+
+  const diffKey = useMemo(() => normDifficulty(mission?.difficulty), [mission?.difficulty]);
+  const pill = useMemo(() => difficultyPill(diffKey), [diffKey]);
+
+  const submitRating = useCallback(
+    (rating: 1 | 3 | 5) => {
+      if (!missionId || ratedLocked || !isCompleted) return;
+      setLocalRating(rating);
+      rateMission(
+        { missionId, rating },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: MISSION_KEYS.detail(missionId) });
+          },
+          onError: (e) => {
+            Alert.alert("Could not save rating", getErrorMessage(e));
+            setLocalRating(null);
+          },
+        }
+      );
+    },
+    [missionId, ratedLocked, isCompleted, rateMission, queryClient]
+  );
+
+  const handleComplete = () => {
+    if (!missionId) return;
     completeMission(missionId, {
       onSuccess: () => {
-        setIsCompleted(true);
-        setTimeout(() => navigation.goBack(), 600);
+        queryClient.invalidateQueries({ queryKey: MISSION_KEYS.detail(missionId) });
       },
       onError: (e) => {
         Alert.alert("Can't mark done", getErrorMessage(e));
@@ -96,444 +129,213 @@ export function MissionDetailScreen() {
     });
   };
 
-  const handleRatingSelect = (rating: 1 | 3 | 5) => {
-    setSelectedRating(rating);
-    setRatingSubmitted(false);
-  };
-
-  const handleSendFeedback = () => {
-    if (selectedRating == null) return;
-    submitRating(
-      {
-        missionId: mission.id,
-        rating: selectedRating,
-        feedback: feedbackText.trim().length > 0 ? feedbackText : undefined,
-      },
-      {
-        onSuccess: () => setRatingSubmitted(true),
-        onError: () => {},
-      }
+  if (isLoading && !mission) {
+    return (
+      <LinearGradient colors={BG_GRADIENT} style={styles.container}>
+        <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
+          <View style={styles.headerBar}>
+            <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={10}>
+              <Ionicons name="chevron-back" size={24} color={TEXT_PRIMARY} />
+            </Pressable>
+            <View style={{ flex: 1 }} />
+            <View style={{ width: 44 }} />
+          </View>
+          <View style={styles.skeletonPad}>
+            <View style={styles.skelLine} />
+            <View style={[styles.skelLine, { width: "90%" }]} />
+            <View style={[styles.skelLine, { width: "70%", marginTop: 20 }]} />
+            <View style={[styles.skelLine, { width: "100%", height: 80, marginTop: 16 }]} />
+            <ActivityIndicator color="#8B5CF6" style={{ marginTop: 32 }} />
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
     );
-  };
+  }
 
-  const typeBadge = (() => {
-    if (mission.type === "core")
-      return {
-        bg: "rgba(127,29,29,0.15)",
-        border: "rgba(127,29,29,0.35)",
-        dot: "#7F1D1D",
-        label: "CORE MISSION",
-      };
-    if (mission.type === "interest")
-      return {
-        bg: "rgba(139,92,246,0.15)",
-        border: "rgba(139,92,246,0.30)",
-        dot: "#8B5CF6",
-        label: "INTEREST MISSION",
-      };
-    return {
-      bg: "rgba(127,29,29,0.15)",
-      border: "rgba(127,29,29,0.35)",
-      dot: "#7F1D1D",
-      label: "RESISTANCE MISSION",
-    };
-  })();
+  if (isError || !mission) {
+    return (
+      <LinearGradient colors={BG_GRADIENT} style={styles.container}>
+        <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
+          <View style={styles.headerBar}>
+            <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={10}>
+              <Ionicons name="chevron-back" size={24} color={TEXT_PRIMARY} />
+            </Pressable>
+            <View style={{ flex: 1 }} />
+            <View style={{ width: 44 }} />
+          </View>
+          <View style={styles.errorWrap}>
+            <Text style={styles.errorTxt}>Could not load this mission</Text>
+            <Pressable style={styles.retryBtn} onPress={() => refetch()} disabled={isFetching}>
+              <Text style={styles.retryTxt}>{isFetching ? "Retrying…" : "Retry"}</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
 
-  const difficultyChip = (() => {
-    if (mission.difficulty === "easy")
-      return {
-        bg: "rgba(139,92,246,0.12)",
-        border: "rgba(139,92,246,0.30)",
-        text: "#8B5CF6",
-        label: "EASY",
-      };
-    if (mission.difficulty === "medium")
-      return {
-        bg: "rgba(245,158,11,0.12)",
-        border: "rgba(245,158,11,0.30)",
-        text: "#F59E0B",
-        label: "MEDIUM",
-      };
-    if (mission.difficulty === "hard")
-      return {
-        bg: "rgba(239,68,68,0.12)",
-        border: "rgba(239,68,68,0.30)",
-        text: "#EF4444",
-        label: "HARD",
-      };
-    return {
-      bg: "rgba(167,139,250,0.12)",
-      border: "rgba(167,139,250,0.30)",
-      text: "#A78BFA",
-      label: "ELITE",
-    };
-  })();
-
-  const rationaleText =
-    mission.rationale != null
-      ? mission.rationale
-      : mission.type === "core"
-        ? "This is a core discipline mission — the biological\nfoundation of every other habit. Sleep, movement, hydration,\nmindfulness, and focused attention are the non-negotiable\nsubstrate that makes every other goal possible."
-        : "Mission rationale is being generated.";
-
-  const showResearchSection = mission.type === "interest" || mission.type === "resistance";
-  const researchBodyRaw = mission.domain_knowledge?.trim() ?? "";
-  const researchBody =
-    researchBodyRaw.length > 0
-      ? researchBodyRaw
-      : showResearchSection
-        ? mission.type === "interest"
-          ? RESEARCH_FALLBACK_INTEREST
-          : RESEARCH_FALLBACK_RESISTANCE
-        : "";
+  const typeHdr = headerTypeLabel(mission);
+  const minutes = mission.estimated_minutes ?? null;
+  const desc = (mission.description ?? "").trim();
+  const rationale = (mission.rationale ?? "").trim();
+  const showResistance =
+    Boolean(mission.quit_path_id) || mission.type === "resistance";
 
   return (
     <LinearGradient colors={BG_GRADIENT} style={styles.container}>
       <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={0}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
         >
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 32 }}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* ZONE 1 — HEADER BAR */}
-            <View style={styles.headerBar}>
-              <Pressable
-                onPress={() => navigation.goBack()}
-                style={styles.backBtn}
-                hitSlop={10}
-              >
-                <Ionicons name="chevron-back" size={24} color={TEXT_PRIMARY} />
-              </Pressable>
-              <Text style={styles.headerTitle}>MISSION</Text>
-              <View style={{ width: 44 }} />
-            </View>
+          <View style={styles.headerBar}>
+            <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={10}>
+              <Ionicons name="chevron-back" size={24} color={TEXT_PRIMARY} />
+            </Pressable>
+            <Text style={styles.headerType} numberOfLines={2}>
+              {typeHdr}
+            </Text>
+            <View style={{ width: 44 }} />
+          </View>
 
-          {/* ZONE 2 — TYPE BADGE + TITLE + CHIPS */}
-          <View style={styles.zone2}>
-            <View
-              style={[
-                styles.typeBadge,
-                { backgroundColor: typeBadge.bg, borderColor: typeBadge.border },
-              ]}
-            >
-              <View style={[styles.typeDot, { backgroundColor: typeBadge.dot }]} />
-              <Text style={[styles.typeText, { color: typeBadge.dot }]}>
-                {typeBadge.label}
-              </Text>
-            </View>
-
-            <Text style={styles.missionTitle}>{mission.title}</Text>
-
-            <View style={styles.chipsRow}>
-              <View style={styles.rewardMetaChip}>
-                <Text style={styles.rewardMetaText}>{`★ ${mission.xp_value}`}</Text>
+          <View style={styles.padH}>
+            <View style={styles.diffRow}>
+              <View style={[styles.diffChip, { backgroundColor: pill.bg, borderColor: pill.border }]}>
+                <Text style={[styles.diffChipTxt, { color: pill.text }]}>{pill.label}</Text>
               </View>
-              <View style={styles.rewardMetaChip}>
-                <Text style={styles.rewardMetaText}>{`🌿 ${mission.pf_value}`}</Text>
-              </View>
-              <View
-                style={[
-                  styles.diffChip,
-                  { backgroundColor: difficultyChip.bg, borderColor: difficultyChip.border },
-                ]}
-              >
-                <Text style={[styles.diffChipText, { color: difficultyChip.text }]}>
-                  {difficultyChip.label}
-                </Text>
-              </View>
-              {mission.estimated_minutes != null ? (
-                <View style={styles.durationChip}>
-                  <Text
-                    style={styles.durationChipText}
-                  >{`~${mission.estimated_minutes} min`}</Text>
+              {minutes != null ? (
+                <View style={styles.timeRow}>
+                  <Ionicons name="time-outline" size={14} color={TEXT_MUTED} />
+                  <Text style={styles.timeTxt}>{minutes} min</Text>
                 </View>
               ) : null}
             </View>
-          </View>
 
-          {/* DIVIDER */}
-          <View style={{ paddingHorizontal: 20 }}>
-            <LinearGradient
-              colors={["transparent", "#1E2333", "transparent"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.divider}
-            />
-          </View>
+            <Text style={styles.title}>{mission.title}</Text>
 
-          {/* ZONE 3 — WHY THIS MISSION */}
-          <View style={styles.zone3}>
-            <View style={styles.sectionHeaderRow}>
-              <LinearGradient
-                colors={["#8B5CF6", "#6D28D9"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-                style={styles.accentBar}
-              />
-              <Text style={styles.sectionLabel}>WHY THIS MISSION</Text>
-            </View>
-            <Text style={styles.rationaleBody}>{rationaleText}</Text>
-          </View>
-
-          {/* ZONE 4 — THE RESEARCH (interest + resistance; API domain_knowledge or fallback) */}
-          {showResearchSection ? (
-            <View style={styles.zone4}>
-              <View style={styles.sectionHeaderRow}>
-                {mission.type === "interest" ? (
-                  <LinearGradient
-                    colors={["#8B5CF6", "#6D28D9"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0, y: 1 }}
-                    style={styles.accentBar}
-                  />
-                ) : (
-                  <LinearGradient
-                    colors={["#FB923C", "#EA580C"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0, y: 1 }}
-                    style={styles.accentBar}
-                  />
-                )}
-                <Text style={styles.researchLabel}>THE RESEARCH</Text>
+            {desc.length > 0 ? (
+              <View style={styles.block}>
+                <Text style={styles.subHdr}>MISSION</Text>
+                <Text style={styles.bodyMuted}>{desc}</Text>
               </View>
-              <Text style={styles.researchBody}>{researchBody}</Text>
-            </View>
-          ) : null}
+            ) : null}
 
-          {/* DIVIDER */}
-          <View style={{ paddingHorizontal: 20, marginTop: showResearchSection ? 16 : 0 }}>
-            <LinearGradient
-              colors={["transparent", "#1E2333", "transparent"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.divider}
-            />
-          </View>
+            {rationale.length > 0 ? (
+              <View style={[styles.block, styles.blockDivider]}>
+                <Text style={styles.subHdr}>WHY THIS TODAY</Text>
+                <Text style={styles.rationaleBody}>{rationale}</Text>
+              </View>
+            ) : null}
 
-          {/* ZONE 5 — RATE THIS MISSION */}
-          <View style={styles.zone5}>
-            <View style={styles.sectionHeaderRow}>
-              <LinearGradient
-                colors={["#FBBF24", "#D97706"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-                style={styles.accentBar}
-              />
-              <Text style={styles.sectionLabel}>RATE THIS MISSION</Text>
-            </View>
-
-            <View style={styles.ratingRow}>
-              <Pressable
-                onPress={() => handleRatingSelect(1)}
-                style={[
-                  styles.ratingCard,
-                  selectedRating === 1
-                    ? styles.ratingCardHardSelected
-                    : styles.ratingCardUnselected,
-                ]}
-              >
-                {selectedRating === 1 ? (
-                  <View style={[styles.ratingCheck, { backgroundColor: "#EF4444" }]}>
-                    <Text style={styles.ratingCheckText}>✓</Text>
-                  </View>
-                ) : null}
-                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <Path
-                    d="M12 6 L12 12"
-                    stroke="#EF4444"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <Circle cx="12" cy="16.5" r="1.5" fill="#EF4444" />
-                  <Circle
-                    cx="12"
-                    cy="12"
-                    r="9"
-                    stroke="#EF4444"
-                    strokeWidth="1.5"
-                    opacity={0.4}
-                  />
-                </Svg>
-                <Text
-                  style={[
-                    styles.ratingLabel,
-                    { color: selectedRating === 1 ? "#EF4444" : "#9CA3AF" },
-                  ]}
-                >
-                  Too Hard
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => handleRatingSelect(3)}
-                style={[
-                  styles.ratingCard,
-                  selectedRating === 3
-                    ? styles.ratingCardRightSelected
-                    : styles.ratingCardUnselected,
-                ]}
-              >
-                {selectedRating === 3 ? (
-                  <View style={[styles.ratingCheck, { backgroundColor: "#8B5CF6" }]}>
-                    <Text style={styles.ratingCheckText}>✓</Text>
-                  </View>
-                ) : null}
-                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <Path
-                    d="M7 13 L11 17 L17 9"
-                    stroke="#8B5CF6"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <Circle
-                    cx="12"
-                    cy="12"
-                    r="9"
-                    stroke="#8B5CF6"
-                    strokeWidth="1.5"
-                    opacity={0.4}
-                  />
-                </Svg>
-                <Text
-                  style={[
-                    styles.ratingLabel,
-                    { color: selectedRating === 3 ? "#8B5CF6" : "#9CA3AF" },
-                  ]}
-                >
-                  Just Right
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => handleRatingSelect(5)}
-                style={[
-                  styles.ratingCard,
-                  selectedRating === 5
-                    ? styles.ratingCardEasySelected
-                    : styles.ratingCardUnselected,
-                ]}
-              >
-                {selectedRating === 5 ? (
-                  <View style={[styles.ratingCheck, { backgroundColor: "#6B7280" }]}>
-                    <Text style={styles.ratingCheckText}>✓</Text>
-                  </View>
-                ) : null}
-                <Svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <Path
-                    d="M9 14 L12 11 L15 14"
-                    stroke="#6B7280"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <Path
-                    d="M9 17.5 L12 14.5 L15 17.5"
-                    stroke="#6B7280"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    opacity={0.5}
-                  />
-                  <Circle
-                    cx="12"
-                    cy="12"
-                    r="9"
-                    stroke="#6B7280"
-                    strokeWidth="1.5"
-                    opacity={0.3}
-                  />
-                </Svg>
-                <Text
-                  style={[
-                    styles.ratingLabel,
-                    { color: selectedRating === 5 ? "#9CA3AF" : "#9CA3AF" },
-                  ]}
-                >
-                  Too Easy
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.feedbackInputWrap}>
-              <TextInput
-                placeholder="Tell us more (optional)..."
-                placeholderTextColor="#4B5563"
-                value={feedbackText}
-                onChangeText={setFeedbackText}
-                style={styles.feedbackInput}
-                multiline
-                numberOfLines={2}
-                maxLength={500}
-              />
-            </View>
-
-            {!ratingSubmitted ? (
-              <Pressable
-                onPress={handleSendFeedback}
-                disabled={selectedRating == null || isSubmittingRating}
-                style={({ pressed }) => [
-                  styles.sendFeedbackBtn,
-                  selectedRating == null || isSubmittingRating ? styles.sendFeedbackBtnDisabled : null,
-                  pressed && selectedRating != null && !isSubmittingRating ? { transform: [{ scale: 0.98 }] } : null,
-                ]}
-              >
-                <LinearGradient
-                  colors={["#6D28D9", "#8B5CF6"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.sendFeedbackBtnGradient}
-                >
-                  <Text style={styles.sendFeedbackBtnText}>
-                    {isSubmittingRating ? "Sending..." : "Send feedback"}
+            {showResistance ? (
+              <View style={[styles.block, styles.blockDivider]}>
+                <View style={styles.resistCard}>
+                  <Text style={styles.subHdr}>RESISTANCE CONTEXT</Text>
+                  <Text style={styles.resistPhase}>{phaseLabel(mission.quit_phase)}</Text>
+                  <Text style={styles.resistNeed}>
+                    {(mission.quit_need_description ?? "").trim() || "Your plan is built around how this habit shows up for you."}
                   </Text>
-                </LinearGradient>
-              </Pressable>
+                </View>
+              </View>
             ) : null}
 
-            {ratingSubmitted ? (
-              <View style={styles.ratingConfirmRow}>
-                <Ionicons name="checkmark-circle" size={14} color="#8B5CF6" />
-                <Text style={styles.ratingConfirmText}>
-                  Feedback saved. Your missions will adapt.
-                </Text>
+            {isCompleted ? (
+              <View style={[styles.block, styles.blockDivider]}>
+                <Text style={styles.rateLbl}>How hard was this?</Text>
+                <View style={styles.ratingRow}>
+                  <Pressable
+                    disabled={ratedLocked || ratingPending}
+                    onPress={() => submitRating(1)}
+                    style={[
+                      styles.rateCell,
+                      effectiveRating === 1 ? styles.rateCellHardOn : styles.rateCellOff,
+                    ]}
+                  >
+                    <Svg width={28} height={22} viewBox="0 0 28 22">
+                      <Path
+                        d="M4 18 L10 6 L14 14 L18 4 L24 18 Z"
+                        stroke="#EF4444"
+                        strokeWidth={1.8}
+                        fill="none"
+                        strokeLinejoin="round"
+                      />
+                    </Svg>
+                    <Text style={[styles.rateCellLbl, { color: "#EF4444" }]}>Too Hard</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={ratedLocked || ratingPending}
+                    onPress={() => submitRating(3)}
+                    style={[
+                      styles.rateCell,
+                      effectiveRating === 3 ? styles.rateCellMidOn : styles.rateCellOff,
+                    ]}
+                  >
+                    <Svg width={28} height={22} viewBox="0 0 28 22">
+                      <Path
+                        d="M3 14 Q14 6 25 14"
+                        stroke="#8B5CF6"
+                        strokeWidth={2}
+                        fill="none"
+                        strokeLinecap="round"
+                      />
+                    </Svg>
+                    <Text style={[styles.rateCellLbl, { color: "#8B5CF6" }]}>Just Right</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={ratedLocked || ratingPending}
+                    onPress={() => submitRating(5)}
+                    style={[
+                      styles.rateCell,
+                      effectiveRating === 5 ? styles.rateCellEasyOn : styles.rateCellOff,
+                    ]}
+                  >
+                    <Svg width={28} height={22} viewBox="0 0 28 22">
+                      <Path
+                        d="M6 14 Q14 10 22 14"
+                        stroke="#A78BFA"
+                        strokeWidth={2}
+                        fill="none"
+                        strokeLinecap="round"
+                      />
+                    </Svg>
+                    <Text style={[styles.rateCellLbl, { color: "#A78BFA" }]}>Too Easy</Text>
+                  </Pressable>
+                </View>
+                {ratingPending ? (
+                  <ActivityIndicator color="#8B5CF6" style={{ marginTop: 12 }} />
+                ) : null}
               </View>
             ) : null}
           </View>
 
-          {/* ZONE 6 — COMPLETE BUTTON */}
-          <View style={styles.zone6}>
+          <View style={styles.footer}>
             {!isCompleted ? (
               <Pressable
-                onPress={() => handleComplete(mission.id)}
-                style={({ pressed }) => [pressed && { transform: [{ scale: 0.98 }] }]}
+                onPress={handleComplete}
+                disabled={completing}
+                style={({ pressed }) => [pressed && !completing ? { transform: [{ scale: 0.98 }] } : null]}
               >
                 <LinearGradient
                   colors={["#6D28D9", "#8B5CF6"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={styles.completeBtn}
+                  style={[styles.completeBtn, completing && { opacity: 0.7 }]}
                 >
-                  <View style={styles.completeBtnRow}>
-                    <Text style={styles.completeBtnText}>Complete Mission</Text>
-                    <Text style={styles.completeBtnSub}>{`★ ${mission.xp_value} XP`}</Text>
-                  </View>
+                  {completing ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.completeBtnTxt}>Complete Mission</Text>
+                  )}
                 </LinearGradient>
               </Pressable>
             ) : (
-              <View style={styles.completedBtn}>
-                <Ionicons name="checkmark-circle" size={18} color="#6B7280" />
-                <Text style={styles.completedBtnText}>Already Completed</Text>
+              <View style={styles.doneBtn}>
+                <Text style={styles.doneBtnTxt}>Completed ✓</Text>
               </View>
             )}
           </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
+        </ScrollView>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -542,13 +344,14 @@ export function MissionDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safe: { flex: 1 },
-
+  scrollContent: { paddingBottom: 40 },
+  padH: { paddingHorizontal: 20 },
   headerBar: {
-    height: 56,
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 8,
   },
@@ -560,59 +363,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: {
-    fontSize: 12,
-    fontWeight: "600",
+  headerType: {
+    flex: 1,
+    marginHorizontal: 8,
+    textAlign: "center",
+    fontSize: 11,
+    fontWeight: "700",
     color: TEXT_MUTED,
-    letterSpacing: 2,
+    letterSpacing: 1.2,
     textTransform: "uppercase",
   },
-
-  zone2: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  typeBadge: {
+  diffRow: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderRadius: 20,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    marginBottom: 14,
     gap: 8,
-  },
-  typeDot: { width: 6, height: 6, borderRadius: 3 },
-  typeText: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  missionTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: TEXT_PRIMARY,
-    lineHeight: 30,
     marginBottom: 16,
-  },
-  chipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  /** Home card meta: ★ XP / 🌿 PF at ~9px dim — slightly larger here for readability */
-  rewardMetaChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    justifyContent: "center",
-  },
-  rewardMetaText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: TEXT_DIM,
-    letterSpacing: 0.2,
   },
   diffChip: {
     borderWidth: 1,
@@ -620,170 +385,75 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
   },
-  diffChipText: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-  },
-  durationChip: {
-    backgroundColor: "rgba(30,35,51,0.6)",
-    borderWidth: 1,
-    borderColor: "#1E2333",
-    borderRadius: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  durationChipText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: TEXT_MUTED,
-  },
-
-  divider: { height: 1, marginHorizontal: 0 },
-
-  zone3: { paddingHorizontal: 20, paddingTop: 20 },
-  zone4: { paddingHorizontal: 20, paddingTop: 16 },
-  zone5: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20 },
-  zone6: { paddingHorizontal: 20, paddingBottom: 32 },
-
-  sectionHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
-  },
-  accentBar: { width: 3, height: 16, borderRadius: 2 },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 3,
-    textTransform: "uppercase",
-    color: TEXT_MUTED,
-  },
-  rationaleBody: {
+  diffChipTxt: { fontSize: 11, fontWeight: "700", letterSpacing: 1 },
+  timeRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  timeTxt: { fontSize: 10, color: TEXT_MUTED },
+  title: {
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: -0.6,
     color: TEXT_PRIMARY,
-    fontSize: 14,
-    lineHeight: 24,
-  },
-
-  researchLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 3,
-    textTransform: "uppercase",
-    color: TEXT_MUTED,
-  },
-  researchBody: {
-    color: TEXT_SECONDARY,
-    fontSize: 13,
-    lineHeight: 22,
-  },
-
-  ratingRow: {
-    flexDirection: "row",
-    gap: 10,
+    lineHeight: 30,
     marginBottom: 12,
   },
-  ratingCard: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    alignItems: "center",
-    position: "relative",
+  block: { marginBottom: 4 },
+  blockDivider: {
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#1E2333",
   },
-  ratingCardUnselected: {
-    backgroundColor: "rgba(30,35,51,0.8)",
-    borderWidth: 1,
-    borderColor: "#1E2333",
-  },
-  ratingCardHardSelected: {
-    backgroundColor: "rgba(239,68,68,0.10)",
-    borderWidth: 1.5,
-    borderColor: "rgba(239,68,68,0.40)",
-  },
-  ratingCardRightSelected: {
-    backgroundColor: "rgba(139,92,246,0.10)",
-    borderWidth: 1.5,
-    borderColor: "rgba(139,92,246,0.40)",
-  },
-  ratingCardEasySelected: {
-    backgroundColor: "rgba(107,114,128,0.10)",
-    borderWidth: 1.5,
-    borderColor: "rgba(107,114,128,0.35)",
-  },
-  ratingCheck: {
-    position: "absolute",
-    top: -5,
-    right: -5,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ratingCheckText: { fontSize: 9, color: "#FFFFFF", fontWeight: "700" },
-  ratingLabel: {
-    marginTop: 8,
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.5,
-  },
-
-  feedbackInputWrap: {
-    marginTop: 12,
-    backgroundColor: "rgba(30,35,51,0.6)",
-    borderWidth: 1,
-    borderColor: "#1E2333",
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  sendFeedbackBtn: {
-    marginTop: 10,
-    height: 48,
-    borderRadius: 16,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendFeedbackBtnDisabled: {
-    opacity: 0.5,
-  },
-  sendFeedbackBtnGradient: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sendFeedbackBtnText: {
-    fontSize: 15,
+  subHdr: {
+    fontSize: 9,
     fontWeight: "700",
-    color: "#E5E7EB",
-    letterSpacing: 0.2,
+    color: TEXT_DIM,
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    marginBottom: 8,
   },
-  feedbackInput: {
-    color: "#E5E7EB",
-    fontSize: 13,
-    lineHeight: 18,
-    padding: 0,
-    margin: 0,
-    textAlignVertical: "top",
+  bodyMuted: { fontSize: 14, color: TEXT_SECONDARY, lineHeight: 25 },
+  rationaleBody: { fontSize: 13, color: TEXT_MUTED, lineHeight: 22 },
+  resistCard: {
+    backgroundColor: "#140C0C",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(239,68,68,0.12)",
   },
-  ratingConfirmRow: {
-    marginTop: 10,
-    flexDirection: "row",
+  resistPhase: { fontSize: 13, fontWeight: "700", color: "#EF4444", marginBottom: 6 },
+  resistNeed: { fontSize: 12, color: TEXT_MUTED, lineHeight: 18 },
+  rateLbl: { fontSize: 12, fontWeight: "700", color: TEXT_SECONDARY, marginBottom: 12 },
+  ratingRow: { flexDirection: "row", gap: 8 },
+  rateCell: {
+    width: 80,
+    height: 72,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    paddingTop: 6,
   },
-  ratingConfirmText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#8B5CF6",
+  rateCellOff: {
+    backgroundColor: "#141824",
+    borderWidth: 1,
+    borderColor: "#1E2333",
   },
-
+  rateCellHardOn: {
+    backgroundColor: "rgba(239,68,68,0.08)",
+    borderWidth: 1.5,
+    borderColor: "#EF4444",
+  },
+  rateCellMidOn: {
+    backgroundColor: "rgba(139,92,246,0.08)",
+    borderWidth: 1.5,
+    borderColor: "#8B5CF6",
+  },
+  rateCellEasyOn: {
+    backgroundColor: "rgba(167,139,250,0.08)",
+    borderWidth: 1.5,
+    borderColor: "#A78BFA",
+  },
+  rateCellLbl: { marginTop: 6, fontSize: 10, fontWeight: "600" },
+  footer: { paddingHorizontal: 16, marginTop: 24 },
   completeBtn: {
     height: 56,
     borderRadius: 16,
@@ -793,39 +463,40 @@ const styles = StyleSheet.create({
       ? {
           shadowColor: "#8B5CF6",
           shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.4,
+          shadowOpacity: 0.35,
           shadowRadius: 12,
         }
       : { elevation: 8 }),
   },
-  completeBtnRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  completeBtnText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    letterSpacing: 0.5,
-  },
-  completeBtnSub: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "rgba(255,255,255,0.7)",
-  },
-  completedBtn: {
+  completeBtnTxt: { fontSize: 15, fontWeight: "800", color: "#FFFFFF" },
+  doneBtn: {
     height: 56,
     borderRadius: 16,
-    backgroundColor: "#1E2333",
+    backgroundColor: "#141824",
     borderWidth: 1,
-    borderColor: "#2A3050",
-    flexDirection: "row",
+    borderColor: "#1E2333",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
   },
-  completedBtnText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: TEXT_DIM,
-    letterSpacing: 0.5,
+  doneBtnTxt: { fontSize: 15, fontWeight: "700", color: TEXT_MUTED },
+  skeletonPad: { paddingHorizontal: 20, paddingTop: 16 },
+  skelLine: {
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#1E2333",
+    width: "60%",
+    marginBottom: 10,
   },
+  errorWrap: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
+  errorTxt: { color: TEXT_SECONDARY, textAlign: "center", marginBottom: 16 },
+  retryBtn: {
+    alignSelf: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    backgroundColor: "#141824",
+    borderWidth: 1,
+    borderColor: "#2A3050",
+  },
+  retryTxt: { color: TEXT_PRIMARY, fontWeight: "700" },
 });
-

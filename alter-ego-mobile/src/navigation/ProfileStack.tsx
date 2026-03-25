@@ -1,5 +1,5 @@
 /**
- * Profile stack: main profile → Abilities | Streak | Journey | Interests | Quits.
+ * Profile stack: main profile → Abilities | Streak | Interests | Journey | Quits.
  */
 
 import React from "react";
@@ -8,9 +8,9 @@ import type { ProfileStackParamList } from "./types";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { ProfileAbilitiesScreen } from "../screens/ProfileAbilitiesScreen";
 import { ProfileStreakScreen } from "../screens/ProfileStreakScreen";
+import { ProfileInterestsScreen } from "../screens/ProfileInterestsScreen";
 import { ProfileIdentityScreen } from "../screens/ProfileIdentityScreen";
 import { ProfileCompanionScreen } from "../screens/ProfileCompanionScreen";
-import { ProfileInterestsScreen } from "../screens/ProfileInterestsScreen";
 import { ProfileQuitsScreen } from "../screens/ProfileQuitsScreen";
 import { COLORS } from "../constants/theme";
 
@@ -27,9 +27,9 @@ export function ProfileStack() {
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
       <Stack.Screen name="ProfileAbilities" component={ProfileAbilitiesScreen} />
       <Stack.Screen name="ProfileStreak" component={ProfileStreakScreen} />
+      <Stack.Screen name="ProfileInterests" component={ProfileInterestsScreen} />
       <Stack.Screen name="ProfileIdentity" component={ProfileIdentityScreen} />
       <Stack.Screen name="ProfileCompanion" component={ProfileCompanionScreen} />
-      <Stack.Screen name="ProfileInterests" component={ProfileInterestsScreen} />
       <Stack.Screen name="ProfileQuits" component={ProfileQuitsScreen} />
     </Stack.Navigator>
   );

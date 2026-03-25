@@ -1,9 +1,9 @@
 /**
- * Twin Comparison Screen — Redesign. Tab 3.
- * Header + Arena (230) + Stats row + Gap description + Twin dialogue + Twin's Day timeline + Chat FAB.
+ * Twin Comparison Screen — Tab 3. Today + Journal tabs.
+ * Arena, lifetime XP strip, verdict, 7-day heatmap, pillar DNA; Twin journal when API exists.
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,37 +11,48 @@ import {
   Pressable,
   Platform,
   ScrollView,
-  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
 import { useTwinState, useTwinStrip } from "@/hooks/useTwin";
-import type { TwinActivity, TwinComparisonOut } from "../utils/api";
+import type { DayComparison, PillarDNA, TwinActivity, TwinComparisonOut } from "../utils/api";
+import { apiClient, isApiError } from "@/services/api";
 import { TwinComparisonShareCard } from "../components/TwinComparisonShareCard";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
 import { useUserStore } from "@/store/userStore";
+import { CHARACTER_STAGE_NAMES } from "@/constants/characterProgression";
 
-const ARENA_HEIGHT = 230;
-const CHAR_CARD_W = 96;
-const CHAR_CARD_H = 140;
-const PET_CIRCLE = 30;
-const STATS_ROW_HEIGHT = 56;
 const CHAT_FAB_BOTTOM = 8;
 const CHAT_FAB_RIGHT = 16;
 const CHAT_FAB_SIZE = 56;
 
-/** When strip_message is still empty (legacy rows), keep the screen from feeling broken. */
-const DEFAULT_TWIN_DIALOGUE =
-  "Your rival is you — one week ahead. Same starting line. Different choices. Show up and the gap tells the truth.";
+const DEFAULT_TWIN_VERDICT =
+  "The mirror is level. The next choice tips it.";
 
-function formatTime(iso: string): string {
+export type TwinJournalEntry = {
+  id: string;
+  entry_date: string;
+  content: string;
+  relationship_phase: string;
+  missions_completed: number;
+  missions_total: number;
+};
+
+function formatJournalDateLabel(entryDate: string, idx: number): string {
+  if (idx === 0) return "Today";
+  if (idx === 1) return "Yesterday";
   try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const d = new Date(entryDate + "T12:00:00");
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
   } catch {
-    return "";
+    return entryDate;
   }
 }
 
@@ -49,6 +60,7 @@ export function TwinComparisonScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const [shareVisible, setShareVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<"today" | "journal">("today");
 
   const {
     data: twinData,
@@ -110,21 +122,253 @@ export function TwinComparisonScreen() {
       gap_days: inferredGapDays,
       username: user.username,
       twin_today_activities: activities,
+      week_heatmap: twinData.week_heatmap,
+      pillar_dna: twinData.pillar_dna,
     };
   }, [stripData?.strip_message, twinData, profile?.current_streak, profile?.power_score]);
+
+  const { data: journalData } = useQuery({
+    queryKey: ["twin", "journal"],
+    queryFn: async () => {
+      try {
+        return await apiClient.get<TwinJournalEntry[]>("/api/v1/twin/journal");
+      } catch (e) {
+        if (isApiError(e) && (e.status === 404 || e.status === 405)) {
+          return [];
+        }
+        return [];
+      }
+    },
+    enabled: activeTab === "journal" && !!twinData,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
 
   const openTwinChat = () => {
     (navigation as any).navigate("TwinChat");
   };
 
-  const activities: TwinActivity[] = comparison?.twin_today_activities ?? [];
-  const completedCount =
-    twinData?.twin.missions_completed_today ??
-    activities.filter((a) => a.completed_at != null).length;
-  const totalXp =
-    twinData?.twin.xp_earned_today ?? activities.reduce((s, a) => s + a.xp_earned, 0);
-  const gapDays = comparison?.gap_days ?? null;
-  const gapLabel = gapDays != null ? `${gapDays} Day${Math.abs(gapDays) !== 1 ? "s" : ""}` : "—";
+  const userXpTotal = twinData?.user.total_xp ?? 0;
+  const twinXpTotal = twinData?.twin.twin_xp ?? 0;
+
+  const weekHeatmap: DayComparison[] = twinData?.week_heatmap ?? [];
+  const pillarDna: PillarDNA[] = twinData?.pillar_dna ?? [];
+
+  const twinVerdict =
+    twinData?.strip_message?.trim() ||
+    stripData?.strip_message?.trim() ||
+    DEFAULT_TWIN_VERDICT;
+
+  const xpMax = Math.max(userXpTotal, twinXpTotal, 1);
+  const userXpPct = Math.min((userXpTotal / xpMax) * 100, 100);
+  const twinXpPct = Math.min((twinXpTotal / xpMax) * 100, 100);
+
+  const userStage = Math.min(Math.max(twinData?.user.character_stage ?? 1, 1), 6);
+  const twinStage = Math.min(Math.max(twinData?.twin.character_stage ?? 1, 1), 6);
+  const userStageName =
+    twinData?.user.character_stage_name ??
+    CHARACTER_STAGE_NAMES[userStage - 1] ??
+    "The Awakened";
+  const twinStageName =
+    twinData?.twin.character_stage_name ??
+    CHARACTER_STAGE_NAMES[twinStage - 1] ??
+    "The Awakened";
+  const userStageLbl = (CHARACTER_STAGE_NAMES[userStage - 1] ?? "Awakened").toUpperCase();
+  const twinStageLbl = (CHARACTER_STAGE_NAMES[twinStage - 1] ?? "Awakened").toUpperCase();
+
+  const todayTab = (
+    <>
+      <View style={styles.arena}>
+        <LinearGradient
+          colors={["transparent", "rgba(109,40,217,0.08)", "transparent"]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+
+        <View style={styles.arenaSide}>
+          <Text style={styles.arenaSideLabel}>YOU</Text>
+          <View style={styles.charCard}>
+            <Text style={styles.charStageLbl}>{userStageLbl}</Text>
+          </View>
+          <Text style={styles.charName}>{comparison?.username ?? "You"}</Text>
+          <Text style={styles.charStageName}>{userStageName}</Text>
+        </View>
+
+        <View style={styles.fractureWrap}>
+          <LinearGradient
+            colors={["transparent", "rgba(192,132,252,0.85)", "transparent"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.fractureLine}
+          />
+        </View>
+
+        <View style={styles.arenaSide}>
+          <Text style={[styles.arenaSideLabel, styles.arenaSideLabelTwin]}>TWIN</Text>
+          <View style={[styles.charCard, styles.charCardTwin]}>
+            <Text style={[styles.charStageLbl, styles.charStageLblTwin]}>{twinStageLbl}</Text>
+          </View>
+          <Text style={[styles.charName, styles.charNameTwin]}>Shadow</Text>
+          <Text style={[styles.charStageName, styles.charStageNameTwin]}>{twinStageName}</Text>
+        </View>
+      </View>
+
+      <View style={styles.xpStrip}>
+        <Text style={styles.xpYouLbl}>{userXpTotal.toLocaleString()} XP</Text>
+        <View style={styles.xpTrack}>
+          <View style={[styles.xpFillTwin, { width: `${twinXpPct}%` }]} />
+          <View style={[styles.xpFillUser, { width: `${userXpPct}%` }]} />
+          <View
+            style={[
+              styles.xpMarker,
+              styles.xpMarkerUser,
+              { left: `${Math.max(0, userXpPct - 1.5)}%` },
+            ]}
+          />
+          <View
+            style={[
+              styles.xpMarker,
+              styles.xpMarkerTwin,
+              { left: `${Math.max(0, twinXpPct - 1.5)}%` },
+            ]}
+          />
+        </View>
+        <Text style={styles.xpTwinLbl}>{twinXpTotal.toLocaleString()} XP</Text>
+      </View>
+
+      <View style={styles.verdictCard}>
+        <Text style={styles.verdictEyebrow}>YOUR TWIN</Text>
+        <Text style={styles.verdictText}>&ldquo;{twinVerdict}&rdquo;</Text>
+      </View>
+
+      {weekHeatmap.length > 0 ? (
+        <View style={styles.heatmapSection}>
+          <View style={styles.sectionHdr}>
+            <Text style={styles.sectionTitle}>7-Day Discipline</Text>
+            <View style={styles.legend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, styles.legendDotUser]} />
+                <Text style={styles.legendTxt}>You</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, styles.legendDotTwin]} />
+                <Text style={styles.legendTxt}>Twin</Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.heatmapGrid}>
+            {weekHeatmap.map((day) => {
+              const maxBarH = 44;
+              const twinH = Math.max(3, day.twin_completion_rate * maxBarH);
+              const userH = Math.max(3, day.user_completion_rate * maxBarH);
+              return (
+                <View key={day.date} style={styles.heatmapDay}>
+                  <View style={styles.heatmapBarWrap}>
+                    <View
+                      style={[
+                        styles.heatmapBarTwin,
+                        { height: twinH },
+                        day.is_today && { opacity: 0.6 },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.heatmapBarUser,
+                        { height: userH },
+                        day.is_today && { opacity: 0.5 },
+                      ]}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.heatmapDayLbl,
+                      day.is_today && styles.heatmapDayLblToday,
+                    ]}
+                  >
+                    {day.day_label[0]}
+                    {day.is_today ? "·" : ""}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {pillarDna.length > 0 ? (
+        <View style={styles.dnaSection}>
+          <View style={styles.sectionHdr}>
+            <Text style={styles.sectionTitle}>Discipline DNA</Text>
+            <Text style={styles.sectionSubtitle}>7-day avg · You vs Twin</Text>
+          </View>
+          {pillarDna.map((row) => (
+            <View key={row.pillar} style={styles.dnaRow}>
+              <Text style={styles.dnaPillarLbl}>{row.pillar_label}</Text>
+              <View style={styles.dnaBars}>
+                <View style={styles.dnaBarTrack}>
+                  <View
+                    style={[styles.dnaBarFillUser, { width: `${Math.round(row.user_rate * 100)}%` }]}
+                  />
+                </View>
+                <View style={styles.dnaBarTrack}>
+                  <View
+                    style={[styles.dnaBarFillTwin, { width: `${Math.round(row.twin_rate * 100)}%` }]}
+                  />
+                </View>
+              </View>
+              <View style={styles.dnaPcts}>
+                <Text style={styles.dnaPctUser}>{Math.round(row.user_rate * 100)}%</Text>
+                <Text style={styles.dnaPctTwin}>{Math.round(row.twin_rate * 100)}%</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </>
+  );
+
+  const journalTab = (
+    <>
+      <View style={styles.journalHdr}>
+        <Text style={styles.journalEyebrow}>TWIN&apos;S JOURNAL</Text>
+        <Text style={styles.journalSub}>&ldquo;What I observed. What I know.&rdquo;</Text>
+      </View>
+
+      {!journalData || journalData.length === 0 ? (
+        <View style={styles.journalEmpty}>
+          <Text style={styles.journalEmptyTxt}>
+            &ldquo;The journal grows as the Twin learns. Come back tomorrow.&rdquo;
+          </Text>
+        </View>
+      ) : (
+        journalData.map((entry, idx) => (
+          <View
+            key={entry.id}
+            style={[styles.journalEntry, idx === 0 && styles.journalEntryToday]}
+          >
+            <View style={styles.journalAccent} />
+            <Text style={styles.journalDate}>
+              {formatJournalDateLabel(entry.entry_date, idx)}
+              {entry.missions_total > 0
+                ? ` · ${entry.missions_completed}/${entry.missions_total}`
+                : ""}
+            </Text>
+            <Text style={styles.journalText}>&ldquo;{entry.content}&rdquo;</Text>
+            {entry.relationship_phase ? (
+              <View style={styles.journalMeta}>
+                <Text style={styles.journalTag}>
+                  {entry.relationship_phase.charAt(0).toUpperCase() +
+                    entry.relationship_phase.slice(1)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ))
+      )}
+    </>
+  );
 
   if (loading && !comparison) {
     return (
@@ -141,10 +385,7 @@ export function TwinComparisonScreen() {
           ]}
         >
           <View
-            style={[
-              styles.headerTitleWrap,
-              { top: insets.top + 10, bottom: 14 },
-            ]}
+            style={[styles.headerTitleWrap, { top: insets.top + 10, bottom: 14 }]}
             pointerEvents="none"
           >
             <Text style={styles.headerTitle}>Shadow Twin</Text>
@@ -152,84 +393,49 @@ export function TwinComparisonScreen() {
           <View style={styles.shareBtn} />
         </View>
 
-        {/* Skeleton layout — approximate comparison screen */}
+        <View style={styles.sectionTabs}>
+          <View style={[styles.sectionTab, styles.sectionTabActive]}>
+            <Text style={[styles.sectionTabText, styles.sectionTabTextActive]}>Today</Text>
+          </View>
+          <View style={styles.sectionTab}>
+            <Text style={styles.sectionTabText}>Journal</Text>
+          </View>
+        </View>
+
         <View style={{ flex: 1, width: "100%" }}>
-          {/* Top bar area — approximate */}
           <View
             style={{
-              height: 56,
+              height: 218,
+              flexDirection: "row",
               paddingHorizontal: 16,
-              flexDirection: "row",
-              alignItems: "center",
+              alignItems: "flex-end",
               justifyContent: "space-between",
+              paddingBottom: 16,
             }}
           >
-            <SkeletonBlock width={80} height={14} />
-            <SkeletonBlock width={60} height={14} />
-          </View>
-
-          {/* Character zone — two columns */}
-          <View
-            style={{
-              flex: 1,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 32,
-              paddingHorizontal: 24,
-            }}
-          >
-            {/* User side */}
-            <View style={{ alignItems: "center", gap: 12, flex: 1 }}>
-              <SkeletonBlock width={80} height={120} borderRadius={12} />
-              <SkeletonBlock width={70} height={12} delay={100} />
-              <SkeletonBlock width={50} height={10} delay={150} />
-              <SkeletonBlock width={60} height={14} borderRadius={10} delay={200} />
+            <View style={{ alignItems: "center", gap: 8, flex: 1 }}>
+              <SkeletonBlock width={72} height={120} borderRadius={14} />
+              <SkeletonBlock width={56} height={10} delay={80} />
             </View>
-
-            {/* Center fracture line — keep it simple */}
-            <View
-              style={{
-                width: 2,
-                height: 120,
-                backgroundColor: "#1E2333",
-                opacity: 0.5,
-              }}
-            />
-
-            {/* Twin side */}
-            <View style={{ alignItems: "center", gap: 12, flex: 1 }}>
-              <SkeletonBlock width={80} height={120} borderRadius={12} delay={50} />
-              <SkeletonBlock width={70} height={12} delay={150} />
-              <SkeletonBlock width={50} height={10} delay={200} />
-              <SkeletonBlock width={60} height={14} borderRadius={10} delay={250} />
+            <View style={{ width: 2, height: 100, backgroundColor: "#1E2333", opacity: 0.5 }} />
+            <View style={{ alignItems: "center", gap: 8, flex: 1 }}>
+              <SkeletonBlock width={72} height={120} borderRadius={14} delay={40} />
+              <SkeletonBlock width={56} height={10} delay={120} />
             </View>
           </View>
-
-          {/* Stats row */}
-          <View style={{ paddingHorizontal: 24, gap: 12 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <SkeletonBlock width={80} height={12} delay={100} />
-              <SkeletonBlock width={80} height={12} delay={150} />
-            </View>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <SkeletonBlock width={64} height={12} delay={200} />
-              <SkeletonBlock width={64} height={12} delay={250} />
-            </View>
-            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-              <SkeletonBlock width={72} height={12} delay={300} />
-              <SkeletonBlock width={72} height={12} delay={350} />
-            </View>
+          <View style={{ paddingHorizontal: 18, paddingVertical: 12 }}>
+            <SkeletonBlock width="100%" height={8} borderRadius={4} delay={100} />
           </View>
-
-          {/* Gap indicator area */}
-          <View style={{ paddingHorizontal: 24, marginTop: 16 }}>
-            <SkeletonBlock width="100%" height={48} borderRadius={12} delay={200} />
+          <View style={{ paddingHorizontal: 14, marginTop: 8 }}>
+            <SkeletonBlock width="100%" height={64} borderRadius={12} delay={150} />
           </View>
-
-          {/* Chat button area */}
-          <View style={{ paddingHorizontal: 24, marginTop: 16 }}>
-            <SkeletonBlock width="100%" height={56} borderRadius={16} delay={300} />
+          <View style={{ paddingHorizontal: 14, marginTop: 16 }}>
+            <SkeletonBlock width="60%" height={10} delay={200} />
+            <View style={{ flexDirection: "row", gap: 4, marginTop: 12 }}>
+              {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                <SkeletonBlock key={i} width={32} height={48} borderRadius={4} delay={200 + i * 20} />
+              ))}
+            </View>
           </View>
         </View>
       </LinearGradient>
@@ -244,7 +450,7 @@ export function TwinComparisonScreen() {
         end={{ x: 0, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      {/* Header — title absolutely centred over full header; share button right */}
+
       <View
         style={[
           styles.header,
@@ -256,10 +462,7 @@ export function TwinComparisonScreen() {
         ]}
       >
         <View
-          style={[
-            styles.headerTitleWrap,
-            { top: insets.top + 10, bottom: 14 },
-          ]}
+          style={[styles.headerTitleWrap, { top: insets.top + 10, bottom: 14 }]}
           pointerEvents="none"
         >
           <Text style={styles.headerTitle}>Shadow Twin</Text>
@@ -274,222 +477,56 @@ export function TwinComparisonScreen() {
         </Pressable>
       </View>
 
+      <View style={styles.sectionTabs}>
+        <Pressable
+          style={[styles.sectionTab, activeTab === "today" && styles.sectionTabActive]}
+          onPress={() => setActiveTab("today")}
+        >
+          <Text
+            style={[
+              styles.sectionTabText,
+              activeTab === "today" && styles.sectionTabTextActive,
+            ]}
+          >
+            Today
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.sectionTab, activeTab === "journal" && styles.sectionTabActive]}
+          onPress={() => setActiveTab("journal")}
+        >
+          <Text
+            style={[
+              styles.sectionTabText,
+              activeTab === "journal" && styles.sectionTabTextActive,
+            ]}
+          >
+            Journal
+          </Text>
+        </Pressable>
+      </View>
+
       {error && !comparison ? (
         <View style={styles.errorWrap}>
           <Text style={styles.errorText}>
             {error instanceof Error ? error.message : "Could not load comparison"}
           </Text>
-          <Pressable
-            onPress={() => {
-              refetch();
-            }}
-            style={styles.retryButton}
-          >
+          <Pressable onPress={() => refetch()} style={styles.retryButton}>
             <Text style={styles.retryLabel}>Retry</Text>
           </Pressable>
         </View>
-      ) : null}
+      ) : (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingBottom: CHAT_FAB_BOTTOM + CHAT_FAB_SIZE + insets.bottom + 24,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          {activeTab === "today" ? todayTab : journalTab}
+        </ScrollView>
+      )}
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: CHAT_FAB_BOTTOM + CHAT_FAB_SIZE + insets.bottom + 24 },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Arena zone — 230px */}
-        <View style={[styles.arena, { height: ARENA_HEIGHT }]}>
-          {/* Atmosphere glows */}
-          <View style={styles.glowLeft} pointerEvents="none" />
-          <View style={styles.glowRight} pointerEvents="none" />
-
-          {/* User side */}
-          <View style={[styles.arenaHalf, styles.arenaUser]}>
-            <Text style={[styles.arenaLabel, styles.arenaLabelYou]}>YOU</Text>
-            <View style={styles.charCardWrap}>
-              <LinearGradient
-                colors={["rgba(40,20,80,0.4)", "rgba(8,8,18,0.85)"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={[styles.charCard, styles.charCardUser]}
-              />
-              <View style={[styles.petCircle, styles.petCircleUser]}>
-                <LinearGradient
-                  colors={["#E8E8ED", "#FFFFFF"]}
-                  style={styles.petCircleInner}
-                />
-              </View>
-            </View>
-            <Text style={styles.charNameUser}>
-              {comparison?.username ?? "You"}
-            </Text>
-            <Text style={styles.charStageUser}>
-              {twinData?.user.character_stage_name ?? "—"}
-            </Text>
-          </View>
-
-          {/* Fracture line with gap pill in the middle — line behind pill so it doesn't show on text */}
-          <View style={styles.fractureWrap} pointerEvents="none">
-            <LinearGradient
-              colors={[
-                "transparent",
-                "rgba(192,132,252,0.8)",
-                "rgba(220,180,255,1)",
-                "rgba(192,132,252,0.8)",
-                "transparent",
-              ]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.fractureLine}
-            />
-            <View style={styles.gapPill} pointerEvents="none">
-              <Ionicons name="time-outline" size={11} color="#C084FC" />
-              <Text style={styles.gapPillText}>{gapLabel}</Text>
-            </View>
-          </View>
-
-          {/* Twin side */}
-          <View style={[styles.arenaHalf, styles.arenaTwin]}>
-            <Text style={[styles.arenaLabel, styles.arenaLabelTwin]}>TWIN</Text>
-            <View style={styles.charCardWrap}>
-              <LinearGradient
-                colors={["rgba(80,30,160,0.5)", "rgba(10,8,25,0.88)"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={[styles.charCard, styles.charCardTwin]}
-              />
-              <View style={[styles.petCircle, styles.petCircleTwin]}>
-                <LinearGradient
-                  colors={["rgba(100,40,200,0.8)", "rgba(25,15,50,0.95)"]}
-                  style={styles.petCircleInner}
-                />
-              </View>
-            </View>
-            <Text style={styles.charNameTwin}>Twin</Text>
-            <Text style={styles.charStageTwin}>
-              {twinData?.twin.character_stage_name ?? "—"}
-            </Text>
-          </View>
-        </View>
-
-        {/* Stats row */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCol}>
-            <Text style={styles.statValueUser}>{comparison?.user_streak ?? 0}</Text>
-            <Text style={styles.statValueTwin}>{comparison?.twin_streak ?? 0}</Text>
-            <Text style={styles.statLabel}>STREAK</Text>
-          </View>
-          <View style={[styles.statCol, styles.statColCenter]}>
-            <Text style={styles.statPowerUser}>
-              {comparison?.user_power_score != null
-                ? Math.round(comparison.user_power_score).toLocaleString()
-                : "—"}
-            </Text>
-            <Text style={styles.statValueTwin}>
-              {comparison?.twin_power_score != null
-                ? Math.round(comparison.twin_power_score).toLocaleString()
-                : "—"}
-            </Text>
-            <Text style={styles.statLabel}>POWER SCORE</Text>
-          </View>
-          <View style={styles.statCol}>
-            <Text style={styles.statCompanionUser}>{comparison?.user_pet_stage_name ?? "—"}</Text>
-            <Text style={styles.statCompanionTwin}>{comparison?.twin_pet_stage_name ?? "—"}</Text>
-            <Text style={styles.statLabel}>COMPANION</Text>
-          </View>
-        </View>
-
-        {/* Gap description */}
-        <Text style={styles.gapDesc}>
-          {twinData
-            ? `Twin has ${twinData.twin.pet_name ?? "no companion"} and ${Math.round(
-                twinData.twin.twin_xp
-              ).toLocaleString()} XP. You have ${
-                twinData.user.pet_name ?? "no companion"
-              } and ${Math.round(twinData.user.total_xp).toLocaleString()} XP.`
-            : "—"}
-        </Text>
-
-        {/* Twin dialogue card */}
-        <View style={styles.dialogueCard}>
-          <Text style={styles.dialogueLabel}>YOUR TWIN</Text>
-          <Text style={styles.dialogueMessage}>
-            {comparison?.strip_message?.trim() ? comparison.strip_message : DEFAULT_TWIN_DIALOGUE}
-          </Text>
-        </View>
-
-        {/* Twin's Day activity timeline */}
-        <View style={styles.timelineSection}>
-          <View style={styles.timelineHeader}>
-            <View style={styles.timelineHeaderLeft}>
-              <View style={styles.timelineDotPulse} />
-              <Text style={styles.timelineTitle}>TWIN'S DAY</Text>
-            </View>
-            <Text style={styles.timelineDate}>
-              {new Date().toLocaleDateString(undefined, {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              })}
-            </Text>
-          </View>
-          <View style={styles.timelineContainer}>
-            <LinearGradient
-              colors={["rgba(139,92,246,0.5)", "rgba(139,92,246,0.15)", "transparent"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.timelineLine}
-            />
-            {activities.length === 0 ? (
-              <Text style={styles.timelineEmpty}>
-                {
-                  "Your Twin runs through the same mission set you see today. After today's plan is synced, you'll see their pace here — usually within your first open. A full refresh also runs overnight in your timezone."
-                }
-              </Text>
-            ) : null}
-            {activities.map((item, i) => {
-              const completed = item.completed_at != null;
-              return (
-                <View key={`${item.mission_title}-${i}`} style={styles.timelineItem}>
-                  <View
-                    style={[
-                      styles.timelineItemDot,
-                      completed ? styles.timelineItemDotDone : styles.timelineItemDotPending,
-                    ]}
-                  />
-                  <Text
-                    style={[styles.timelineItemTitle, completed ? styles.timelineItemTitleDone : styles.timelineItemTitlePending]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {item.mission_title}
-                  </Text>
-                  <View style={styles.timelineItemRight}>
-                    {completed ? (
-                      <>
-                        <Text style={styles.timelineItemXp}>+{item.xp_earned} XP</Text>
-                        <Text style={styles.timelineItemTime}>{formatTime(item.completed_at!)}</Text>
-                      </>
-                    ) : (
-                      <Text style={styles.timelineItemPending}>pending</Text>
-                    )}
-                  </View>
-                </View>
-              );
-            })}
-            <View style={styles.timelineSummary}>
-              <Text style={styles.timelineSummaryText}>
-                <Text style={styles.timelineSummaryHighlight}>{completedCount} done</Text>
-                {" · "}
-                <Text style={styles.timelineSummaryHighlight}>+{totalXp} XP</Text>
-              </Text>
-            </View>
-          </View>
-        </View>
-      </ScrollView>
-
-      {/* Chat FAB — same position as Home journal (right 16, bottom 8) */}
       <Pressable
         style={({ pressed }) => [
           styles.chatFab,
@@ -508,7 +545,6 @@ export function TwinComparisonScreen() {
         </LinearGradient>
       </Pressable>
 
-      {/* Share card modal */}
       <TwinComparisonShareCard
         visible={shareVisible}
         onClose={() => setShareVisible(false)}
@@ -520,14 +556,16 @@ export function TwinComparisonScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  centered: { justifyContent: "center", alignItems: "center" },
-  loader: { marginTop: 24 },
-  errorWrap: { padding: 16, alignItems: "center", justifyContent: "center" },
-  errorText: { fontFamily: "Inter_400Regular", fontSize: 14, color: "#9CA3AF", textAlign: "center" },
+  centered: { justifyContent: "flex-start", alignItems: "stretch" },
+  errorWrap: { padding: 16, alignItems: "center", justifyContent: "center", flex: 1 },
+  errorText: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 14,
+    color: "#9CA3AF",
+    textAlign: "center",
+  },
   retryButton: { marginTop: 8, paddingVertical: 8, paddingHorizontal: 16 },
   retryLabel: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "#8B5CF6" },
-  scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 0 },
 
   header: {
     position: "relative",
@@ -561,351 +599,385 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  arena: {
+  sectionTabs: {
     flexDirection: "row",
-    position: "relative",
+    padding: 10,
+    paddingHorizontal: 16,
+    gap: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(42,48,80,0.2)",
   },
-  glowLeft: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    width: "55%",
-    height: 300,
-    backgroundColor: "transparent",
-    ...(Platform.OS === "ios" && {
-      // radial-gradient approximated with opacity overlay
-    }),
-  },
-  glowRight: {
-    position: "absolute",
-    right: 0,
-    top: 0,
-    width: "55%",
-    height: 300,
-    backgroundColor: "transparent",
-  },
-  arenaHalf: {
+  sectionTab: {
     flex: 1,
-    flexDirection: "column",
+    paddingVertical: 7,
+    borderRadius: 8,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  sectionTabActive: {
+    backgroundColor: "rgba(139,92,246,0.08)",
+    borderColor: "rgba(139,92,246,0.18)",
+  },
+  sectionTabText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: "#4B5563",
+    letterSpacing: 0.3,
+  },
+  sectionTabTextActive: { color: "#A78BFA" },
+
+  arena: {
+    height: 218,
+    flexDirection: "row",
+    alignItems: "stretch",
+    position: "relative",
+    overflow: "hidden",
+  },
+  arenaSide: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "flex-end",
-    paddingBottom: 12,
-    gap: 5,
-  },
-  arenaUser: { paddingRight: 20 },
-  arenaTwin: { paddingLeft: 20 },
-  arenaLabel: {
-    position: "absolute",
-    top: 14,
-    fontSize: 8,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 2.5,
-  },
-  arenaLabelYou: { color: "#4B5563" },
-  arenaLabelTwin: { color: "rgba(139,92,246,0.5)" },
-  charCardWrap: {
-    width: CHAR_CARD_W,
-    height: CHAR_CARD_H,
-    borderRadius: 12,
-    overflow: "visible",
+    paddingBottom: 18,
+    gap: 6,
     position: "relative",
   },
-  charCard: {
-    width: CHAR_CARD_W,
-    height: CHAR_CARD_H,
-    borderRadius: 12,
-    borderWidth: 1,
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(0,0,0,0.4)", shadowRadius: 24, shadowOffset: { width: 0, height: 0 } }
-      : { elevation: 8 }),
+  arenaSideLabel: {
+    position: "absolute",
+    top: 18,
+    left: 0,
+    right: 0,
+    textAlign: "center",
+    fontSize: 8,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 3,
+    textTransform: "uppercase",
+    color: "rgba(229,231,235,0.22)",
   },
-  charCardUser: {
-    borderColor: "rgba(139,92,246,0.12)",
+  arenaSideLabelTwin: { color: "rgba(167,139,250,0.28)" },
+  charCard: {
+    width: 92,
+    height: 136,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.45)",
+    backgroundColor: "rgba(20,15,48,0.7)",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingBottom: 9,
+    overflow: "hidden",
   },
   charCardTwin: {
-    borderColor: "rgba(139,92,246,0.25)",
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(100,30,200,0.18)", shadowRadius: 30, shadowOffset: { width: 0, height: 0 } }
-      : {}),
+    borderColor: "rgba(139,92,246,0.22)",
+    backgroundColor: "rgba(35,15,68,0.75)",
   },
-  petCircle: {
-    position: "absolute",
-    bottom: -12,
-    width: PET_CIRCLE,
-    height: PET_CIRCLE,
-    borderRadius: PET_CIRCLE / 2,
-    borderWidth: 2,
-    borderColor: "#09091A",
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
+  charStageLbl: {
+    fontSize: 7,
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "rgba(107,114,128,0.35)",
+    fontFamily: "Inter_600SemiBold",
   },
-  petCircleUser: { left: 6 },
-  petCircleTwin: {
-    right: 6,
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(139,92,246,0.2)", shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }
-      : {}),
-  },
-  petCircleInner: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-  },
-  charNameUser: {
-    fontSize: 10,
+  charStageLblTwin: { color: "rgba(139,92,246,0.32)" },
+  charName: {
+    fontSize: 11,
     fontFamily: "Inter_600SemiBold",
     color: "#9CA3AF",
-    marginTop: 6,
   },
-  charStageUser: { fontSize: 9, color: "#4B5563" },
-  charNameTwin: {
-    fontSize: 10,
-    fontFamily: "Inter_600SemiBold",
-    color: "#A78BFA",
-    marginTop: 6,
-  },
-  charStageTwin: { fontSize: 9, color: "#6D28D9" },
+  charNameTwin: { color: "#A78BFA" },
+  charStageName: { fontSize: 9, color: "#4B5563" },
+  charStageNameTwin: { color: "rgba(139,92,246,0.45)" },
 
   fractureWrap: {
     position: "absolute",
     left: "50%",
     top: 0,
     bottom: 0,
-    width: 80,
-    marginLeft: -40,
+    width: 72,
+    marginLeft: -36,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
   },
   fractureLine: {
     position: "absolute",
-    left: 39,
+    width: 2,
+    top: 12,
+    bottom: 12,
+  },
+
+  xpStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    backgroundColor: "rgba(9,9,26,0.55)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(42,48,80,0.2)",
+    gap: 10,
+  },
+  xpYouLbl: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    color: "rgba(229,231,235,0.5)",
+    minWidth: 52,
+  },
+  xpTwinLbl: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    color: "rgba(167,139,250,0.6)",
+    minWidth: 52,
+    textAlign: "right",
+  },
+  xpTrack: {
+    flex: 1,
+    height: 3,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 3,
+    position: "relative",
+    overflow: "visible",
+  },
+  xpFillTwin: {
+    position: "absolute",
+    left: 0,
     top: 0,
     bottom: 0,
-    width: 1.5,
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "#C084FC", shadowOpacity: 0.5, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }
-      : { elevation: 6 }),
+    backgroundColor: "rgba(167,139,250,0.65)",
+    borderRadius: 3,
   },
-  gapPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#09091A",
-    borderWidth: 1,
-    borderColor: "rgba(192,132,252,0.35)",
-    borderRadius: 14,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    position: "relative",
-    zIndex: 4,
+  xpFillUser: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: "rgba(229,231,235,0.4)",
+    borderRadius: 3,
+    zIndex: 1,
   },
-  gapPillText: {
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-    color: "#C084FC",
+  xpMarker: {
+    position: "absolute",
+    top: -3,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    borderWidth: 1.5,
+    borderColor: "#06070E",
+    zIndex: 2,
   },
-
-  statsRow: {
-    flexDirection: "row",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    backgroundColor: "rgba(12,12,26,0.6)",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(42,48,80,0.3)",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(42,48,80,0.3)",
-  },
-  statCol: {
-    flex: 1,
-    alignItems: "center",
-    gap: 1,
-  },
-  statColCenter: {
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderLeftColor: "rgba(42,48,80,0.5)",
-    borderRightColor: "rgba(42,48,80,0.5)",
-  },
-  statValueUser: {
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    color: "#F97316",
-  },
-  statPowerUser: {
-    fontSize: 18,
-    fontFamily: "Inter_700Bold",
-    color: "#8B5CF6",
-  },
-  statValueTwin: { fontSize: 10, color: "#4B5563" },
-  statCompanionUser: {
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    color: "#E5E7EB",
-  },
-  statCompanionTwin: { fontSize: 10, color: "#4B5563" },
-  statLabel: {
-    fontSize: 8,
-    fontFamily: "Inter_600SemiBold",
-    letterSpacing: 1,
-    color: "#374151",
-    marginTop: 1,
+  xpMarkerUser: { backgroundColor: "rgba(229,231,235,0.65)" },
+  xpMarkerTwin: {
+    backgroundColor: "rgba(167,139,250,0.9)",
+    ...Platform.select({
+      ios: {
+        shadowColor: "rgba(167,139,250,0.5)",
+        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 1,
+      },
+    }),
   },
 
-  gapDesc: {
-    fontSize: 10,
-    color: "#4B5563",
-    textAlign: "center",
-    paddingHorizontal: 20,
-    paddingTop: 6,
-    lineHeight: 15,
-  },
-
-  dialogueCard: {
+  verdictCard: {
     marginHorizontal: 14,
-    marginTop: 8,
-    backgroundColor: "rgba(14,12,28,0.7)",
+    marginTop: 10,
+    backgroundColor: "rgba(14,12,28,0.75)",
     borderWidth: 1,
-    borderColor: "rgba(42,48,80,0.4)",
-    borderLeftWidth: 3,
+    borderColor: "rgba(42,48,80,0.35)",
+    borderLeftWidth: 2,
     borderLeftColor: "#8B5CF6",
-    borderRadius: 10,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 13,
   },
-  dialogueLabel: {
-    fontSize: 9,
-    fontFamily: "Inter_600SemiBold",
+  verdictEyebrow: {
+    fontSize: 8,
+    fontFamily: "Inter_700Bold",
     color: "#8B5CF6",
-    letterSpacing: 1,
-    marginBottom: 3,
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    marginBottom: 5,
   },
-  dialogueMessage: {
-    fontSize: 11.5,
-    color: "#C4B5FD",
+  verdictText: {
+    fontSize: 12,
+    color: "rgba(196,181,253,0.85)",
     fontStyle: "italic",
-    lineHeight: 16,
+    lineHeight: 17,
+    fontFamily: "Inter_400Regular",
   },
 
-  timelineSection: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    flex: 1,
-    minHeight: 120,
-  },
-  timelineHeader: {
+  sectionHdr: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  timelineHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
-  timelineDotPulse: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: "#8B5CF6",
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "#8B5CF6", shadowOpacity: 0.6, shadowRadius: 4, shadowOffset: { width: 0, height: 0 } }
-      : {}),
-  },
-  timelineTitle: {
+  sectionTitle: {
     fontSize: 9,
     fontFamily: "Inter_700Bold",
     letterSpacing: 1.8,
     color: "#6B7280",
+    textTransform: "uppercase",
   },
-  timelineDate: { fontSize: 9, color: "#374151" },
-  timelineEmpty: {
-    fontSize: 11,
-    lineHeight: 17,
-    color: "#9CA3AF",
-    marginBottom: 10,
-    paddingRight: 8,
+  sectionSubtitle: { fontSize: 9, color: "#374151" },
+  legend: { flexDirection: "row", alignItems: "center", gap: 10 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  legendDot: { width: 6, height: 6, borderRadius: 3 },
+  legendDotUser: { backgroundColor: "rgba(229,231,235,0.45)" },
+  legendDotTwin: { backgroundColor: "rgba(139,92,246,0.7)" },
+  legendTxt: { fontSize: 8, color: "#4B5563" },
+
+  heatmapSection: { marginHorizontal: 14, marginTop: 14 },
+  heatmapGrid: {
+    flexDirection: "row",
+    gap: 4,
+    alignItems: "flex-end",
   },
-  timelineContainer: {
-    flex: 1,
-    position: "relative",
-    paddingLeft: 16,
+  heatmapDay: { flex: 1, alignItems: "center", gap: 3 },
+  heatmapBarWrap: {
+    width: "100%",
+    minHeight: 48,
+    flexDirection: "column",
+    justifyContent: "flex-end",
+    gap: 2,
+    alignItems: "stretch",
   },
-  timelineLine: {
-    position: "absolute",
-    left: 4,
-    top: 7,
-    bottom: 16,
-    width: 1,
+  heatmapBarTwin: {
+    width: "100%",
+    borderRadius: 3,
+    backgroundColor: "rgba(139,92,246,0.65)",
   },
-  timelineItem: {
+  heatmapBarUser: {
+    width: "100%",
+    borderRadius: 3,
+    backgroundColor: "rgba(229,231,235,0.35)",
+  },
+  heatmapDayLbl: { fontSize: 8, color: "#374151", textAlign: "center" },
+  heatmapDayLblToday: { color: "rgba(167,139,250,0.55)" },
+
+  dnaSection: { marginHorizontal: 14, marginTop: 14, marginBottom: 4 },
+  dnaRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingVertical: 5,
-    position: "relative",
+    marginBottom: 9,
   },
-  timelineItemDot: {
-    position: "absolute",
-    left: -13,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  timelineItemDotDone: {
-    backgroundColor: "#8B5CF6",
-    borderWidth: 2,
-    borderColor: "#09091A",
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(139,92,246,0.6)", shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }
-      : {}),
-  },
-  timelineItemDotPending: {
-    backgroundColor: "#0F1020",
-    borderWidth: 2,
-    borderColor: "rgba(42,48,80,0.6)",
-  },
-  timelineItemTitle: {
-    flex: 1,
-    fontSize: 11,
-    fontFamily: "Inter_500Medium",
-  },
-  timelineItemTitleDone: { color: "rgba(167,139,250,0.78)" },
-  timelineItemTitlePending: { color: "#2D3146" },
-  timelineItemRight: {
-    flexDirection: "row",
-    gap: 6,
+  dnaPillarLbl: {
+    fontSize: 10,
+    color: "#4B5563",
+    width: 68,
     flexShrink: 0,
   },
-  timelineItemXp: {
-    fontSize: 9,
-    fontFamily: "Inter_600SemiBold",
-    color: "rgba(139,92,246,0.5)",
+  dnaBars: { flex: 1, gap: 2 },
+  dnaBarTrack: {
+    width: "100%",
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 4,
+    overflow: "hidden",
   },
-  timelineItemTime: { fontSize: 9, color: "#2D3146" },
-  timelineItemPending: {
+  dnaBarFillUser: {
+    height: "100%",
+    borderRadius: 4,
+    backgroundColor: "rgba(229,231,235,0.38)",
+  },
+  dnaBarFillTwin: {
+    height: "100%",
+    borderRadius: 4,
+    backgroundColor: "rgba(139,92,246,0.58)",
+  },
+  dnaPcts: {
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: 2,
+    width: 32,
+    flexShrink: 0,
+  },
+  dnaPctUser: { fontSize: 9, color: "rgba(229,231,235,0.35)" },
+  dnaPctTwin: { fontSize: 9, color: "rgba(139,92,246,0.55)" },
+
+  journalHdr: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 },
+  journalEyebrow: {
     fontSize: 9,
-    color: "#2D3146",
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2,
+    color: "#4B5563",
+    textTransform: "uppercase",
+    marginBottom: 3,
+  },
+  journalSub: {
+    fontSize: 11,
+    color: "rgba(167,139,250,0.32)",
     fontStyle: "italic",
   },
-  timelineSummary: {
-    marginTop: 5,
-    alignSelf: "flex-start",
+  journalEntry: {
+    marginHorizontal: 14,
+    marginBottom: 9,
+    backgroundColor: "rgba(255,255,255,0.018)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.09)",
+    borderRadius: 14,
+    padding: 14,
+    position: "relative",
+    overflow: "hidden",
+  },
+  journalEntryToday: {
+    borderColor: "rgba(139,92,246,0.2)",
+    backgroundColor: "rgba(139,92,246,0.028)",
+  },
+  journalAccent: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: "rgba(139,92,246,0.4)",
+    borderRadius: 2,
+  },
+  journalDate: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2,
+    color: "rgba(139,92,246,0.38)",
+    textTransform: "uppercase",
+    marginBottom: 7,
+  },
+  journalText: {
+    fontSize: 12.5,
+    color: "rgba(229,231,235,0.75)",
+    lineHeight: 21,
+    fontStyle: "italic",
+    fontFamily: "Inter_400Regular",
+  },
+  journalMeta: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(139,92,246,0.06)",
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.12)",
-    borderRadius: 7,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    gap: 5,
+    marginTop: 9,
+    flexWrap: "wrap",
   },
-  timelineSummaryText: {
+  journalTag: {
     fontSize: 9,
-    color: "#6B7280",
-  },
-  timelineSummaryHighlight: {
+    color: "rgba(139,92,246,0.35)",
     fontFamily: "Inter_600SemiBold",
-    color: "#A78BFA",
+    letterSpacing: 0.3,
+  },
+  journalEmpty: {
+    marginHorizontal: 14,
+    marginTop: 20,
+    padding: 24,
+    backgroundColor: "rgba(255,255,255,0.01)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.15)",
+    borderRadius: 14,
+    alignItems: "center",
+  },
+  journalEmptyTxt: {
+    fontSize: 12,
+    color: "#2D3146",
+    lineHeight: 19,
+    fontStyle: "italic",
+    textAlign: "center",
+    fontFamily: "Inter_400Regular",
   },
 
   chatFab: {
@@ -916,7 +988,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     zIndex: 10,
     ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(139,92,246,0.45)", shadowRadius: 16, shadowOffset: { width: 0, height: 4 } }
+      ? {
+          shadowColor: "rgba(139,92,246,0.45)",
+          shadowRadius: 16,
+          shadowOffset: { width: 0, height: 4 },
+        }
       : { elevation: 10 }),
   },
   chatFabPressed: { transform: [{ scale: 0.93 }] },

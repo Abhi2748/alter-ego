@@ -1,17 +1,15 @@
 import { useEffect } from "react";
 import {
   useSharedValue,
-  useAnimatedStyle,
   withRepeat,
   withTiming,
   withSequence,
   Easing,
 } from "react-native-reanimated";
 
-const CX = 170;
-const CY = 170;
+export const HTML_SVG_PULSE_CX = 170;
+export const HTML_SVG_PULSE_CY = 170;
 
-/** Linear spin; optional delay matches CSS `animation-delay` start. */
 export function useRotation(durationMs: number, reverse = false, delayMs = 0) {
   const r = useSharedValue(0);
   useEffect(() => {
@@ -27,11 +25,11 @@ export function useRotation(durationMs: number, reverse = false, delayMs = 0) {
       return () => clearTimeout(t);
     }
     run();
+    return undefined;
   }, [durationMs, reverse, delayMs]);
   return r;
 }
 
-/** CSS `pulse` on root SVG: opacity 0.55↔1, scale 1↔1.05, ease-in-out. */
 export function useHtmlSvgPulse(durationMs: number) {
   const op = useSharedValue(0.55);
   const sc = useSharedValue(1);
@@ -54,19 +52,9 @@ export function useHtmlSvgPulse(durationMs: number) {
       false
     );
   }, [durationMs]);
-  return useAnimatedStyle(() => ({
-    opacity: op.value,
-    transform: [
-      { translateX: CX },
-      { translateY: CY },
-      { scale: sc.value },
-      { translateX: -CX },
-      { translateY: -CY },
-    ],
-  }));
+  return { op, sc };
 }
 
-/** CSS `pulse-s`: opacity 0.7↔1, scale 1↔1.04. */
 export function useHtmlSvgPulseS(durationMs: number) {
   const op = useSharedValue(0.7);
   const sc = useSharedValue(1);
@@ -89,21 +77,9 @@ export function useHtmlSvgPulseS(durationMs: number) {
       false
     );
   }, [durationMs]);
-  return useAnimatedStyle(() => ({
-    opacity: op.value,
-    transform: [
-      { translateX: CX },
-      { translateY: CY },
-      { scale: sc.value },
-      { translateX: -CX },
-      { translateY: -CY },
-    ],
-  }));
+  return { op, sc };
 }
 
-/**
- * CSS `@keyframes flicker` with `--fo`: 0%/100% fo, 35% 1, 72% fo*0.45
- */
 export function useHtmlFlickerFo(durationMs: number, fo: number, delayMs = 0) {
   const op = useSharedValue(fo);
   useEffect(() => {
@@ -123,11 +99,11 @@ export function useHtmlFlickerFo(durationMs: number, fo: number, delayMs = 0) {
       return () => clearTimeout(t);
     }
     run();
+    return undefined;
   }, [durationMs, fo, delayMs]);
   return op;
 }
 
-/** CSS `breathe-s`: scale 1 → 1.06 → 1 on radius. */
 export function useHtmlBreatheR(baseR: number, durationMs: number, factor = 1.06) {
   const rv = useSharedValue(baseR);
   useEffect(() => {
@@ -140,54 +116,11 @@ export function useHtmlBreatheR(baseR: number, durationMs: number, factor = 1.06
       -1,
       false
     );
-  }, [baseR, durationMs, factor]);
+  }, [baseR, durationMs, factor, rv]);
   return rv;
 }
 
-export function usePulse(durationMs: number, min = 0.97, max = 1.06) {
-  const s = useSharedValue(min);
-  useEffect(() => {
-    s.value = withRepeat(
-      withSequence(
-        withTiming(max, { duration: durationMs / 2, easing: Easing.inOut(Easing.ease) }),
-        withTiming(min, { duration: durationMs / 2, easing: Easing.inOut(Easing.ease) })
-      ),
-      -1,
-      false
-    );
-  }, []);
-  return s;
-}
-
-export function useFlicker(durationMs: number, minOp: number, maxOp: number, delayMs = 0) {
-  const op = useSharedValue(minOp);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      op.value = withRepeat(
-        withSequence(
-          withTiming(maxOp, { duration: durationMs * 0.35 }),
-          withTiming(minOp * 0.45, { duration: durationMs * 0.37 }),
-          withTiming(minOp, { duration: durationMs * 0.28 })
-        ),
-        -1,
-        false
-      );
-    }, delayMs);
-    return () => clearTimeout(t);
-  }, []);
-  return op;
-}
-
-export function useBreathe(durationMs: number) {
-  return usePulse(durationMs, 1.0, 1.1);
-}
-
-export function useGlowPulse(
-  durationMs: number,
-  minOp = 0.6,
-  maxOp = 1.0,
-  delayMs = 0
-) {
+export function useGlowPulse(durationMs: number, minOp = 0.6, maxOp = 1.0, delayMs = 0) {
   const opacity = useSharedValue(minOp);
   const scale = useSharedValue(1.0);
   useEffect(() => {
@@ -214,6 +147,7 @@ export function useGlowPulse(
       return () => clearTimeout(t);
     }
     start();
-  }, []);
+    return undefined;
+  }, [durationMs, minOp, maxOp, delayMs]);
   return { opacity, scale };
 }

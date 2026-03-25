@@ -3,6 +3,7 @@
  * Used when EXPO_PUBLIC_USE_MOCK_API=true. Revert by setting it to false.
  */
 
+import type { SigilData } from "@/services/sigil";
 import type {
   OnboardingResponse,
   OnboardingPayload,
@@ -400,6 +401,8 @@ export async function getTwinComparison(_accessToken: string): Promise<TwinCompa
       { mission_title: "Run 2 miles", mission_type: "focus", difficulty: "Medium", xp_earned: MOCK_INTEREST_XP_PF.Medium.xp, completed_at: `${today}T09:10:00Z` },
       { mission_title: "Read for 20 minutes", mission_type: "personal", difficulty: "Easy", xp_earned: MOCK_PERSONAL_XP_PF.Easy.xp, completed_at: null },
     ],
+    week_heatmap: [],
+    pillar_dna: [],
   };
 }
 
@@ -822,4 +825,26 @@ export async function deleteQuitTarget(
   await delay(MOCK_DELAY);
   mockQuitTargetsList = mockQuitTargetsList.filter((t) => t.id !== targetId);
   return { success: true };
+}
+
+/** Matches GET /api/v1/sigil — used when EXPO_PUBLIC_USE_MOCK_API is true. */
+export async function getProfileSigilMock(): Promise<SigilData> {
+  await delay(MOCK_DELAY);
+  return {
+    sigil_level: 2,
+    level_name: "The Fracture",
+    total_aether: 400,
+    aether_today: 50,
+    surge_active: true,
+    progress: {
+      level: 2,
+      name: "The Fracture",
+      aether_total: 400,
+      aether_in_level: 100,
+      aether_for_next: 900,
+      aether_needed: 500,
+      progress_percent: 16.7,
+    },
+    aether_history: [],
+  };
 }

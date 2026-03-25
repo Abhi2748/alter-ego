@@ -1,125 +1,87 @@
-/**
- * Level 4 — ALTER_EGO_Sigil_FullPage.html (The Vortex)
- */
 import React from "react";
-import Svg, { Circle, Ellipse, Line } from "react-native-svg";
+import Svg, { Circle, Ellipse, G, Line } from "react-native-svg";
 import { useAnimatedProps } from "react-native-reanimated";
-import { useRotation, useHtmlSvgPulseS, useHtmlBreatheR, useHtmlFlickerFo } from "./SigilAnimations";
-import { useRotateCenterStyle } from "./rotateCenter";
+import { useHtmlSvgPulseS, useHtmlFlickerFo, useHtmlBreatheR } from "./SigilAnimations";
 import { AnimatedG, AnimatedCircle } from "./sigilSvg";
 import type { SigilProps } from "./sigilTypes";
-import { SIGIL_VB } from "./sigilTypes";
+import { RotatingG } from "./rotateCenter";
 
-const LAYERS: {
-  dur: number;
-  rev: boolean;
-  delay: number;
-  rx: number;
-  ry: number;
-  sw: number;
-  op: number;
-  stroke: string;
-}[] = [
-  { dur: 35000, rev: false, delay: 0, rx: 155, ry: 55, sw: 1, op: 0.28, stroke: "#818CF8" },
-  { dur: 24000, rev: false, delay: 3000, rx: 130, ry: 46, sw: 1.25, op: 0.32, stroke: "#6366F1" },
-  { dur: 18000, rev: true, delay: 0, rx: 105, ry: 38, sw: 1.5, op: 0.38, stroke: "#818CF8" },
-  { dur: 13000, rev: false, delay: 1500, rx: 78, ry: 28, sw: 2, op: 0.45, stroke: "#A5B4FC" },
-  { dur: 9000, rev: true, delay: 0, rx: 52, ry: 18, sw: 2, op: 0.5, stroke: "#C7D2FE" },
-];
+const SPOKE_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
 
-export function Sigil4({ size = 300 }: SigilProps) {
-  const pulseStyle = useHtmlSvgPulseS(3500);
-  const r0 = useRotation(LAYERS[0].dur, LAYERS[0].rev, LAYERS[0].delay);
-  const r1 = useRotation(LAYERS[1].dur, LAYERS[1].rev, LAYERS[1].delay);
-  const r2 = useRotation(LAYERS[2].dur, LAYERS[2].rev, LAYERS[2].delay);
-  const r3 = useRotation(LAYERS[3].dur, LAYERS[3].rev, LAYERS[3].delay);
-  const r4 = useRotation(LAYERS[4].dur, LAYERS[4].rev, LAYERS[4].delay);
-  const rSpokes = useRotation(22000, false);
-  const rNodes = useRotation(35000, false);
-
-  const s = [
-    useRotateCenterStyle(r0),
-    useRotateCenterStyle(r1),
-    useRotateCenterStyle(r2),
-    useRotateCenterStyle(r3),
-    useRotateCenterStyle(r4),
-  ];
-  const sSpokes = useRotateCenterStyle(rSpokes);
-  const sNodes = useRotateCenterStyle(rNodes);
-
+export function Sigil4({ size = 300, accentColor = "#818CF8", accentColor2 = "#4338CA" }: SigilProps) {
+  const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulseS(3500);
+  const flicker = useHtmlFlickerFo(2000, 1, 0);
   const breatheR = useHtmlBreatheR(38, 2800, 1.06);
-  const breatheAp = useAnimatedProps(() => ({ r: breatheR.value }));
-  const flickOp = useHtmlFlickerFo(2000, 1, 0);
-  const flickAp = useAnimatedProps(() => ({ opacity: flickOp.value }));
 
-  const spokeLen = 152;
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: pulseOp.value,
+    transform: [
+      { translateX: 170 },
+      { translateY: 170 },
+      { scale: pulseSc.value },
+      { translateX: -170 },
+      { translateY: -170 },
+    ],
+  }));
+  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
+  const coreAp = useAnimatedProps(() => ({ r: breatheR.value }));
 
   return (
-    <Svg width={size} height={size} viewBox={`0 0 ${SIGIL_VB} ${SIGIL_VB}`}>
-      <AnimatedG style={pulseStyle}>
-        {LAYERS.map((layer, i) => (
-          <AnimatedG key={i} style={s[i]}>
-            <Ellipse
-              cx={170}
-              cy={170}
-              rx={layer.rx}
-              ry={layer.ry}
-              fill="none"
-              stroke={layer.stroke}
-              strokeWidth={layer.sw}
-              opacity={layer.op}
-            />
-          </AnimatedG>
-        ))}
-        <AnimatedG style={sSpokes}>
-          {[0, 45, 90, 135, 180, 225, 270, 315].map((deg, i) => {
-            const rad = (deg * Math.PI) / 180;
-            const x2 = 170 + spokeLen * Math.sin(rad);
-            const y2 = 170 - spokeLen * Math.cos(rad);
-            return (
-              <Line
-                key={deg}
-                x1={170}
-                y1={170}
-                x2={x2}
-                y2={y2}
-                stroke={i % 2 === 0 ? "#818CF8" : "#6366F1"}
-                strokeWidth={1}
-                opacity={0.3}
-              />
-            );
-          })}
-        </AnimatedG>
-        <AnimatedG style={sNodes}>
-          {[0, 90, 180, 270].map((deg, i) => {
-            const rad = (deg * Math.PI) / 180;
-            const nr = 155;
-            const nx = 170 + nr * Math.sin(rad);
-            const ny = 170 - nr * Math.cos(rad);
-            return (
-              <Circle
-                key={deg}
-                cx={nx}
-                cy={ny}
-                r={5}
-                fill={i % 2 === 0 ? "#818CF8" : "#A5B4FC"}
-                opacity={i % 2 === 0 ? 0.7 : 0.6}
-              />
-            );
-          })}
-        </AnimatedG>
+    <Svg width={size} height={size} viewBox="0 0 340 340">
+      <AnimatedG animatedProps={pulseAp}>
+        <RotatingG durationMs={35000}>
+          <Ellipse cx={170} cy={170} rx={155} ry={55} stroke={accentColor} strokeWidth={1} fill="none" opacity={0.28} />
+        </RotatingG>
+        <RotatingG durationMs={24000} delayMs={3000}>
+          <Ellipse cx={170} cy={170} rx={130} ry={46} stroke="#6366F1" strokeWidth={1.25} fill="none" opacity={0.32} />
+        </RotatingG>
+        <RotatingG durationMs={18000} reverse>
+          <Ellipse cx={170} cy={170} rx={105} ry={38} stroke={accentColor} strokeWidth={1.5} fill="none" opacity={0.38} />
+        </RotatingG>
+        <RotatingG durationMs={13000} delayMs={1500}>
+          <Ellipse cx={170} cy={170} rx={78} ry={28} stroke="#A5B4FC" strokeWidth={2} fill="none" opacity={0.45} />
+        </RotatingG>
+        <RotatingG durationMs={9000} reverse>
+          <Ellipse cx={170} cy={170} rx={52} ry={18} stroke="#C7D2FE" strokeWidth={2} fill="none" opacity={0.5} />
+        </RotatingG>
+
+        <RotatingG durationMs={22000}>
+          <G opacity={0.3}>
+            {SPOKE_ANGLES.map((deg, i) => (
+              <G key={deg} transform={`rotate(${deg} 170 170)`}>
+                <Line
+                  x1={170}
+                  y1={170}
+                  x2={170}
+                  y2={18}
+                  stroke={i % 2 === 0 ? accentColor : accentColor2}
+                  strokeWidth={1}
+                />
+              </G>
+            ))}
+          </G>
+        </RotatingG>
+
+        <RotatingG durationMs={35000}>
+          {[0, 90, 180, 270].map((deg) => (
+            <G key={deg} transform={`rotate(${deg} 170 170)`}>
+              <Circle cx={170} cy={15} r={5} fill={deg % 180 === 0 ? accentColor : "#A5B4FC"} opacity={0.65} />
+            </G>
+          ))}
+        </RotatingG>
+
         <AnimatedCircle
           cx={170}
           cy={170}
           fill="rgba(99,102,241,0.16)"
-          stroke="#818CF8"
+          stroke={accentColor}
           strokeWidth={2}
           opacity={0.65}
-          animatedProps={breatheAp}
+          animatedProps={coreAp}
         />
         <Circle cx={170} cy={170} r={22} fill="rgba(99,102,241,0.35)" />
-        <Circle cx={170} cy={170} r={12} fill="#4338CA" />
-        <Circle cx={170} cy={170} r={6} fill="#818CF8" />
+        <Circle cx={170} cy={170} r={12} fill={accentColor2} />
+        <Circle cx={170} cy={170} r={6} fill={accentColor} />
         <AnimatedCircle cx={170} cy={170} r={2.5} fill="#E0E7FF" animatedProps={flickAp} />
       </AnimatedG>
     </Svg>

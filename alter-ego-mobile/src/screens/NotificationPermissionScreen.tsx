@@ -16,6 +16,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, CommonActions } from "@react-navigation/native";
+import { dispatchResetToMain } from "../navigation/resetToMain";
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
@@ -70,7 +71,7 @@ export function NotificationPermissionScreen() {
     }
     await AsyncStorage.setItem(NOTIF_PERMISSION_ASKED_KEY, "true");
     setRequesting(false);
-    goToMain(navigation);
+    dispatchResetToMain(navigation);
   };
 
   const handleAllow = () => {

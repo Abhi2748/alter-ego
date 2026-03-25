@@ -152,6 +152,9 @@ supabase.auth.getSession = async () => {
       await supabase.auth.signOut({ scope: "local" }).catch(() => {});
       return { data: { session: null }, error: null };
     }
-    throw e;
+    // Network / storage / transient Supabase errors must not reject cold start —
+    // otherwise Splash never navigates (unhandled rejection in setTimeout).
+    console.warn("[supabase] getSession failed; treating as signed out", e);
+    return { data: { session: null }, error: null };
   }
 };

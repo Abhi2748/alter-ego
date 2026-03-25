@@ -25,9 +25,7 @@ import type { MainStackParamList } from "../navigation/types";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTwinChatHistory, useSendTwinMessage, TWIN_KEYS } from "@/hooks/useTwin";
-import { twinService } from "@/services/twin";
+import { useTwinChatHistory, useSendTwinMessage, useRateTwinMessage } from "@/hooks/useTwin";
 import { useUserStore } from "@/store/userStore";
 import Animated, {
   type SharedValue,
@@ -216,10 +214,9 @@ export function TwinChatScreen() {
   const initialMessageSentRef = useRef(false);
 
   const profile = useUserStore((state) => state.profile);
-  const queryClient = useQueryClient();
-
   const { data: chatData, isLoading: historyLoading } = useTwinChatHistory(50);
   const { mutate: sendTwinMessage, isPending: isSending } = useSendTwinMessage();
+  const { mutate: rateTwinMessageMutate } = useRateTwinMessage();
 
   const messages: ChatMessage[] = useMemo(() => {
     const raw = chatData?.messages ?? [];
@@ -238,26 +235,26 @@ export function TwinChatScreen() {
   const listDataReversed = useMemo(() => [...listData].reverse(), [listData]);
   const handleClose = () => navigation.goBack();
 
-  const sendToneRating = useCallback(
-    async (messageId: string, rating: "positive" | "neutral" | "negative") => {
-      try {
-        await twinService.submitToneRating(messageId, rating);
-        await queryClient.invalidateQueries({ queryKey: TWIN_KEYS.toneHistory });
-        await queryClient.invalidateQueries({ queryKey: TWIN_KEYS.chat });
-      } catch {
-        // Non-fatal; user still sees local "rated" state
-      }
-    },
-    [queryClient]
-  );
-
   // No Reanimated — immediate state update to avoid iOS crash when rating
   const rateTone = useCallback(
     (messageId: string, rating: "positive" | "neutral" | "negative") => {
       setRatedMessageIds((prev) => ({ ...prev, [messageId]: true }));
-      sendToneRating(messageId, rating);
+      const numeric: -1 | 0 | 1 =
+        rating === "positive" ? 1 : rating === "negative" ? -1 : 0;
+      rateTwinMessageMutate(
+        { messageId, rating: numeric },
+        {
+          onError: () => {
+            setRatedMessageIds((prev) => {
+              const next = { ...prev };
+              delete next[messageId];
+              return next;
+            });
+          },
+        }
+      );
     },
-    [sendToneRating]
+    [rateTwinMessageMutate]
   );
 
   const sendMessage = useCallback(

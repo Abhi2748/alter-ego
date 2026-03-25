@@ -12,7 +12,7 @@ from app.core.constants import (
     INTEREST_LEVEL_MAP,
     TWIN_INITIAL_CONSISTENCY,
 )
-from app.agents.interest_normaliser import normalise_interest, normalise_quit_target
+from app.agents.interest_normaliser import normalise_interest
 
 
 ADJECTIVES = [
@@ -415,7 +415,7 @@ async def complete_onboarding(user_id: str) -> dict:
                 notes.append(f"interest_failed: {str(e)}")
                 continue
 
-    # Step 4 — Normalise quit targets and insert into quit_targets table
+    # Step 4 — Quit paths (HRT) via QuitProfileAgent
     quit_targets_created: list[str] = []
     quit_items: list[dict] = []
     q12 = answers.get("q12_quits")
@@ -424,48 +424,30 @@ async def complete_onboarding(user_id: str) -> dict:
     if not isinstance(quit_items, list):
         quit_items = []
 
-    quit_inputs: list[tuple[str, str | None, str | None]] = []
+    from app.services.quit_service import create_quit_path
+
     for item in quit_items:
-        raw_text = str((item or {}).get("raw_text") or "").strip()
-        description = (item or {}).get("description")
-        trigger = (item or {}).get("trigger")
-        description = str(description).strip() if isinstance(description, str) else None
-        trigger = str(trigger).strip() if isinstance(trigger, str) else None
-        quit_inputs.append((raw_text, description, trigger))
-
-    if quit_inputs:
-        coros_quit = [
-            normalise_quit_target(raw, description, trigger)
-            for (raw, description, trigger) in quit_inputs
-        ]
-        quit_normalised = await asyncio.gather(*coros_quit, return_exceptions=True)
-
-        for (raw_text, description, trigger), normalised in zip(
-            quit_inputs, quit_normalised, strict=False
-        ):
-            try:
-                if isinstance(normalised, Exception):
-                    raise normalised
-                normalised = normalised or {}
-                row = {
-                    "user_id": user_id,
-                    "raw_text": raw_text,
-                    "user_description": description,
-                    "trigger_text": trigger,
-                    "normalised_name": normalised.get("normalised_name") or raw_text.title(),
-                    "need_category": normalised.get("primary_need_category"),
-                    "current_phase": "days_1_10",
-                    "current_difficulty_tier": "easy",
-                    "is_active": True,
-                    "conquered": False,
-                    "intervention_hour": normalised.get("intervention_hour"),
-                }
-                ins = supabase_admin.table("quit_targets").insert(row).execute()
-                if ins.data and isinstance(ins.data, list) and ins.data[0].get("id"):
-                    quit_targets_created.append(str(ins.data[0]["id"]))
-            except Exception as e:
-                notes.append(f"quit_target_failed: {str(e)}")
-                continue
+        it = item or {}
+        name = str(it.get("name") or it.get("raw_text") or "").strip()
+        if not name:
+            continue
+        contexts = it.get("contexts") if isinstance(it.get("contexts"), list) else []
+        awareness = str(it.get("awareness") or "semi_conscious")
+        quit_goal = str(it.get("quit_goal") or "stop_completely")
+        try:
+            created = await create_quit_path(
+                user_id=user_id,
+                habit_name=name,
+                trigger_contexts=[str(c) for c in contexts if c is not None],
+                awareness_level=awareness,
+                quit_goal=quit_goal,
+            )
+            pid = str(created.get("path_id") or "")
+            if pid:
+                quit_targets_created.append(pid)
+        except Exception as e:
+            notes.append(f"quit_path_failed: {str(e)}")
+            continue
 
     # Step 5 — Update users table
     try:

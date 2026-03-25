@@ -5,11 +5,14 @@ All jobs that run on a schedule are registered here.
 Per-user local time (users.timezone / IANA name):
 - daily_mission_reset, pet_unlock_check, twin_simulation, twin_recalibration: local hour 1
 - day_summary + power_score + scheduled mail: local hour 1 (batched in user_local_maintenance_job)
+- onboarding echo + contradiction (C1/C2): local Sunday hour 2 (same job loop)
 - weekly_report: local Sunday 03:00
 
 Nudge checks remain hourly (Category A/B timing is handled inside the agent).
 """
 
+import asyncio
+import json
 from datetime import timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -224,10 +227,7 @@ async def daily_mission_reset_job():
             rows = await get_today_missions(user["id"], today)
             await set_total_missions_for_day(user["id"], len(rows))
 
-            try:
-                await reset_daily_surge(user["id"], today)
-            except Exception as e:
-                logger.error("Sigil daily reset failed for user %s: %s", user.get("id"), e)
+            reset_daily_surge(user["id"])
 
         except Exception as e:
             logger.error("daily_mission_reset_job: failed for user %s: %s", user.get("id"), e)
@@ -244,7 +244,7 @@ async def twin_simulation_job():
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    from app.services.twin_service import simulate_twin_day
+    from app.services.twin_service import generate_and_store_twin_journal, simulate_twin_day
     from app.services.strip_message_service import update_strip_message
     from app.core.supabase_client import supabase_admin
     from app.services.mission_service import get_user_date
@@ -269,11 +269,13 @@ async def twin_simulation_job():
             if local_hour != 1:
                 continue
 
-            # Keep parity with daily_mission_reset_job: ensure date lookup uses same helper.
-            _ = get_user_date(timezone)
+            today_str = get_user_date(timezone)
 
             await simulate_twin_day(user["id"])
-            # Update strip message after simulation (no event context here)
+
+            # Twin daily journal — fire-and-forget; must not block strip update or other users.
+            asyncio.create_task(generate_and_store_twin_journal(str(user["id"]), today_str))
+
             await update_strip_message(user["id"])
             success_count += 1
         except Exception as e:
@@ -292,10 +294,7 @@ async def twin_recalibration_job():
     from zoneinfo import ZoneInfo
 
     from app.core.supabase_client import supabase_admin
-    from app.core.constants import (
-        TWIN_FIRST_CALIBRATION_DAY,
-        TWIN_RECALIBRATION_INTERVAL_DAYS,
-    )
+    from app.core.constants import FIRST_RECALIBRATION_DAY, RECALIBRATION_INTERVAL_DAYS
     from app.services.mail_service import send_app_mail
     from app.services.mission_service import get_days_since_registration
     from app.services.twin_service import recalibrate_twin
@@ -336,14 +335,14 @@ async def twin_recalibration_job():
 
             should_recalibrate = False
 
-            if calibration_count == 0 and days >= TWIN_FIRST_CALIBRATION_DAY:
+            if calibration_count == 0 and days >= FIRST_RECALIBRATION_DAY:
                 should_recalibrate = True
             elif last_cal:
                 from datetime import datetime as dt, timedelta
 
                 last_cal_date = dt.fromisoformat(str(last_cal))
                 days_since_cal = (dt.utcnow() - last_cal_date).days
-                if days_since_cal >= TWIN_RECALIBRATION_INTERVAL_DAYS:
+                if days_since_cal >= RECALIBRATION_INTERVAL_DAYS:
                     should_recalibrate = True
 
             if should_recalibrate:
@@ -361,16 +360,22 @@ async def twin_recalibration_job():
 
 async def user_local_maintenance_job():
     """
-    Runs every hour. For each onboarded user in local hour 1:
-    1) Generate yesterday's day summary (idempotent if already stored)
-    2) Recalculate Power Score
-    3) Send any due scheduled in-app mails (twin_guide, day_7, etc.)
+    Runs every hour. For each onboarded user:
+    - Local hour 1: yesterday summary, power score, scheduled mail.
+    - Local Sunday hour 2: onboarding echo (C1) + contradiction journal (C2).
     """
     from datetime import datetime, timezone as dt_timezone
 
     from app.agents.report_agent import generate_day_summary
     from app.core.supabase_client import supabase_admin
+    from app.services.echo_service import (
+        fire_contradiction_for_user,
+        fire_echo_for_user,
+        should_fire_contradiction,
+        should_fire_echo,
+    )
     from app.services.mail_service import check_and_send_scheduled_mails
+    from app.services.mission_service import get_days_since_registration
     from app.services.power_score_service import calculate_power_score
     from zoneinfo import ZoneInfo
 
@@ -378,13 +383,18 @@ async def user_local_maintenance_job():
 
     users_result = (
         supabase_admin.table("users")
-        .select("id, timezone")
+        .select(
+            "id, timezone, archetype, registration_date, "
+            "last_echo_fired_at, last_echo_question_key, "
+            "last_contradiction_fired_at, echoes_fired_count"
+        )
         .eq("onboarding_complete", True)
         .execute()
     )
 
     processed = 0
     for user in users_result.data or []:
+        user_id = user.get("id")
         try:
             tz_str = user.get("timezone") or "UTC"
             try:
@@ -392,16 +402,43 @@ async def user_local_maintenance_job():
             except Exception:
                 tz = dt_timezone.utc
             local_now = datetime.now(tz)
-            if local_now.hour != 1:
-                continue
+            local_hour = local_now.hour
 
-            yesterday = (local_now.date() - timedelta(days=1)).isoformat()
-            await generate_day_summary(user["id"], yesterday)
-            await calculate_power_score(user["id"])
-            await check_and_send_scheduled_mails(user["id"])
-            processed += 1
+            if local_hour == 1:
+                yesterday = (local_now.date() - timedelta(days=1)).isoformat()
+                await generate_day_summary(user_id, yesterday)
+                await calculate_power_score(user_id)
+                await check_and_send_scheduled_mails(user_id)
+                processed += 1
+
+            # C1 + C2: Sunday 02:00 local (after mission reset hour)
+            if local_now.weekday() == 6 and local_hour == 2:
+                try:
+                    reg_date = str(user.get("registration_date") or "")
+                    echo_day_number = get_days_since_registration(reg_date, tz_str)
+                    days_active = max(0, echo_day_number - 1)
+
+                    if days_active >= 7:
+                        if should_fire_echo(user):
+                            await fire_echo_for_user(
+                                supabase_admin, user_id, user, echo_day_number
+                            )
+                        if should_fire_contradiction(user):
+                            await fire_contradiction_for_user(
+                                supabase_admin, user_id, user, echo_day_number
+                            )
+                except Exception as e:
+                    logger.error(
+                        json.dumps(
+                            {
+                                "event": "echo_scheduler_error",
+                                "user_id": str(user_id),
+                                "error": str(e),
+                            }
+                        )
+                    )
         except Exception as e:
-            logger.error("user_local_maintenance_job: failed for user %s: %s", user.get("id"), e)
+            logger.error("user_local_maintenance_job: failed for user %s: %s", user_id, e)
             continue
 
     logger.info("user_local_maintenance_job: done. Processed %s users (local hour 1).", processed)
@@ -409,6 +446,7 @@ async def user_local_maintenance_job():
 
 async def weekly_report_local_job():
     """Runs every hour; generates the weekly report when user local time is Sunday 03:00–03:59."""
+    import asyncio
     from datetime import datetime, timezone as dt_timezone
 
     from app.agents.report_agent import generate_weekly_report
@@ -424,7 +462,7 @@ async def weekly_report_local_job():
         .execute()
     )
 
-    count = 0
+    due_ids: list[str] = []
     for user in users_result.data or []:
         try:
             tz_str = user.get("timezone") or "UTC"
@@ -438,21 +476,40 @@ async def weekly_report_local_job():
                 continue
             if local_now.hour != 3:
                 continue
-            await generate_weekly_report(user["id"])
-            count += 1
+            due_ids.append(user["id"])
         except Exception as e:
-            logger.error("weekly_report_local_job: failed for user %s: %s", user.get("id"), e)
-            continue
+            logger.error("weekly_report_local_job: skip user %s: %s", user.get("id"), e)
+
+    BATCH_SIZE = 50
+    count = 0
+
+    async def _one(uid: str) -> None:
+        await generate_weekly_report(uid)
+
+    for i in range(0, len(due_ids), BATCH_SIZE):
+        batch = due_ids[i : i + BATCH_SIZE]
+        results = await asyncio.gather(*[_one(uid) for uid in batch], return_exceptions=True)
+        for uid, res in zip(batch, results):
+            if isinstance(res, Exception):
+                logger.error("weekly_report_local_job: failed for user %s: %s", uid, res)
+            else:
+                count += 1
+                logger.info("weekly_report_local_job: generated report for %s", uid)
 
     logger.info("weekly_report_local_job: done. Generated %s reports.", count)
 
 
 async def nudge_check_job():
-    """Runs every hour. Checks Category A and B nudges."""
+    """Runs every hour. Checks Category A and B nudges + absence escalation pushes (B3)."""
     from app.agents.nudge_agent import check_and_send_nudges
+    from app.services.absence_service import process_absence_escalation_notifications
 
     logger.info("nudge_check_job: starting")
     result = await check_and_send_nudges()
     logger.info("nudge_check_job: %s", result)
+    try:
+        await process_absence_escalation_notifications()
+    except Exception as e:
+        logger.error("nudge_check_job: absence escalation failed: %s", e)
 
 

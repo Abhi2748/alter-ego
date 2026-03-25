@@ -18,8 +18,9 @@ export function useTwinState() {
   return useQuery({
     queryKey: TWIN_KEYS.state,
     queryFn: async () => twinService.getState(),
-    staleTime: 60 * 1000,
+    staleTime: 30 * 1000,
     refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -33,6 +34,32 @@ export function useTwinChatHistory(limit = 50) {
     queryFn: async () => twinService.getChatHistory(limit),
     staleTime: 30 * 1000,
     refetchOnMount: true,
+  });
+}
+
+export function useTwinToneHistory() {
+  return useQuery({
+    queryKey: TWIN_KEYS.toneHistory,
+    queryFn: async () => twinService.getToneHistory(),
+    staleTime: 30 * 1000,
+    refetchOnMount: true,
+  });
+}
+
+export function useRateTwinMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      messageId,
+      rating,
+    }: {
+      messageId: string;
+      rating: -1 | 0 | 1;
+    }) => twinService.rateTwinMessage(messageId, rating),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: TWIN_KEYS.toneHistory });
+      await queryClient.invalidateQueries({ queryKey: TWIN_KEYS.chat });
+    },
   });
 }
 

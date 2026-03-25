@@ -39,9 +39,16 @@ export interface UserProfile {
   /** From discipline_dna — Twin voice */
   twin_tone_type?: string;
   twin_intensity?: number;
+  /** Last answered return reason after 7+ day absence (users.return_reason) */
+  return_reason?: string | null;
 }
 
 interface UserState {
+  /**
+   * Null until `fetchProfile()` succeeds (or user signed out).
+   * Screens must use optional access (`profile?.field ?? fallback`);
+   * never assume `profile` is defined on first paint after navigation.
+   */
   profile: UserProfile | null;
   isLoading: boolean;
   error: string | null;

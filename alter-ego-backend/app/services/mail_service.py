@@ -246,7 +246,7 @@ async def check_and_send_scheduled_mails(user_id: str) -> None:
 
     if days >= 2 and "twin_guide" not in sent_types:
         await send_app_mail(user_id, "twin_guide")
-    # twin_recalibration_note is sent from twin_recalibration_job after each recalibration (day 7, 14, …).
+    # twin_recalibration_note is sent from twin_recalibration_job after each recalibration (day 7 first, then every 7 days).
     # day_7_checkin template kept for optional manual sends; not auto-sent (would duplicate day-7 recalibration mail).
     if days >= 28 and "week_4_encouragement" not in sent_types:
         await send_app_mail(user_id, "week_4_encouragement")

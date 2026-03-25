@@ -48,7 +48,8 @@ import { OnboardingProgressBar } from "../components/OnboardingProgressBar";
 import { OnboardingOptionCard } from "../components/OnboardingOptionCard";
 import { OnboardingSlider } from "../components/OnboardingSlider";
 import { InterestWizardSheet } from "../components/InterestWizardSheet";
-import { QuitWizardSheet } from "../components/QuitWizardSheet";
+import { QuitTargetProfileSheet } from "@/components/onboarding/QuitTargetProfileSheet";
+import type { QuitTargetInput } from "@/types/quits";
 import { onboardingService } from "@/services/onboarding";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { OnboardingCompletionOverlay } from "@/components/OnboardingCompletionOverlay";
@@ -220,9 +221,13 @@ function buildStepPayload(
   }
   if (questionNum === 12) {
     const quits = (a.quitTargets ?? []).map((q) => ({
+      name: q.name,
       raw_text: q.name,
-      description: q.description || null,
-      trigger: q.trigger || null,
+      contexts: q.contexts ?? [],
+      awareness: q.awareness ?? null,
+      quit_goal: q.quit_goal ?? null,
+      description: q.description ?? null,
+      trigger: q.trigger ?? null,
     }));
     return { quit_targets: quits };
   }
@@ -716,12 +721,13 @@ export function OnboardingQuestionScreen() {
     (option: string) => {
       if (!config) return;
       const key = config.answerKey as keyof OnboardingAnswers;
-      const current = (getAnswer(key) as string[]) ?? [];
+      if (key === "quitTargets" || key === "interests") return;
+      const current = (getAnswer(key) as string[] | undefined) ?? [];
 
       const next = current.includes(option)
         ? current.filter((x) => x !== option)
         : [...current, option];
-      updateAnswer(key, next);
+      updateAnswer(key, next as OnboardingAnswers[typeof key]);
       if (config.answerKey === "interests" && option === "Something else" && next.indexOf("Something else") === -1) {
         updateAnswer("interestOther", "");
       }
@@ -771,6 +777,20 @@ export function OnboardingQuestionScreen() {
       setQuitSheetVisible(false);
     },
     [getAnswer, updateAnswer]
+  );
+
+  const handleQuitProfileComplete = useCallback(
+    (profile: QuitTargetInput) => {
+      handleAddQuit({
+        name: profile.name,
+        contexts: profile.contexts,
+        awareness: profile.awareness,
+        quit_goal: profile.quit_goal,
+        description: "",
+        trigger: "",
+      });
+    },
+    [handleAddQuit]
   );
 
   const openQuitWizard = useCallback((name: string) => {
@@ -1109,8 +1129,22 @@ export function OnboardingQuestionScreen() {
                 const quits: OnboardingQuitTarget[] = Array.isArray(raw)
                   ? raw.map((q) =>
                       typeof q === "string"
-                        ? { name: q, description: "", trigger: "" }
-                        : (q as OnboardingQuitTarget)
+                        ? {
+                            name: q,
+                            description: "",
+                            trigger: "",
+                            contexts: [],
+                            awareness: "semi_conscious",
+                            quit_goal: "stop_completely",
+                          }
+                        : {
+                            ...(q as OnboardingQuitTarget),
+                            contexts: (q as OnboardingQuitTarget).contexts ?? [],
+                            awareness:
+                              (q as OnboardingQuitTarget).awareness ?? "semi_conscious",
+                            quit_goal:
+                              (q as OnboardingQuitTarget).quit_goal ?? "stop_completely",
+                          }
                     )
                   : [];
                 return (
@@ -1177,11 +1211,14 @@ export function OnboardingQuestionScreen() {
                         <Text style={styles.q12OptionalNote}>This question is optional — tap Next to skip</Text>
                       </>
                     )}
-                    <QuitWizardSheet
+                    <QuitTargetProfileSheet
+                      habitName={wizardQuitName || quitInputText.trim() || "Quit"}
                       visible={quitSheetVisible}
-                      onClose={() => { setQuitSheetVisible(false); setWizardQuitName(""); }}
-                      onAdd={handleAddQuit}
-                      quitName={wizardQuitName || quitInputText.trim() || "Quit"}
+                      onDismiss={() => {
+                        setQuitSheetVisible(false);
+                        setWizardQuitName("");
+                      }}
+                      onComplete={handleQuitProfileComplete}
                     />
                   </>
                 );
@@ -1376,6 +1413,7 @@ export function OnboardingQuestionScreen() {
       handleAddInterest,
       handleRemoveInterest,
       handleAddQuit,
+      handleQuitProfileComplete,
       handleRemoveQuit,
       openInterestWizard,
       openQuitWizard,

@@ -103,13 +103,9 @@ function CoreStatCard({ stat }: { stat: StatProgress }) {
   );
 }
 
-function AbilitiesLoadingSkeleton() {
-  return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
+function AbilitiesLoadingSkeleton({ embedded }: { embedded?: boolean }) {
+  const Inner = (
+    <>
       <SkeletonBlock width="100%" height={100} borderRadius={20} />
       <View style={{ height: 16 }} />
       <View style={styles.coreGrid}>
@@ -118,11 +114,23 @@ function AbilitiesLoadingSkeleton() {
         ))}
       </View>
       <SkeletonBlock width="100%" height={90} borderRadius={16} delay={160} />
+    </>
+  );
+  if (embedded) {
+    return <View style={[styles.scroll, styles.scrollContent]}>{Inner}</View>;
+  }
+  return (
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
+      {Inner}
     </ScrollView>
   );
 }
 
-export function AbilitiesTab() {
+export function AbilitiesTab({ embedded = false }: { embedded?: boolean }) {
   const { data: stats, isLoading, isError, refetch, isFetching } = useCharacterStats();
   const { data: streakData } = useProfileStreak();
 
@@ -149,7 +157,7 @@ export function AbilitiesTab() {
   }, [streakData?.heatmap]);
 
   if (isLoading && !stats) {
-    return <AbilitiesLoadingSkeleton />;
+    return <AbilitiesLoadingSkeleton embedded={embedded} />;
   }
 
   if (isError || !stats) {
@@ -175,12 +183,8 @@ export function AbilitiesTab() {
   const wp = stats.willpower;
   const wpBar = Math.min(1, wp.progress_percent / 100);
 
-  return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
+  const main = (
+    <>
       <View style={styles.auraCard}>
         <LinearGradient
           colors={["transparent", "rgba(192,132,252,0.6)", "transparent"]}
@@ -332,6 +336,20 @@ export function AbilitiesTab() {
           </View>
         </View>
       </View>
+    </>
+  );
+
+  if (embedded) {
+    return <View style={[styles.scroll, styles.scrollContent]}>{main}</View>;
+  }
+
+  return (
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
+      {main}
     </ScrollView>
   );
 }

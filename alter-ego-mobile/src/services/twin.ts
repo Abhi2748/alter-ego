@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from '@/services/api';
+import type { DayComparison, PillarDNA } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -73,7 +74,46 @@ export interface TwinStateResponse {
   user: TwinUserState;
   twin: TwinRivalState;
   gap: TwinGapState;
+  week_heatmap?: DayComparison[];
+  pillar_dna?: PillarDNA[];
 }
+
+/** GET /api/v1/twin/feed — Shadow Feed timeline */
+export interface FeedEntry {
+  entry_type: 'twin_completion' | 'user_completion' | 'observation' | 'day_summary';
+  timestamp_iso: string;
+  display_time: string;
+  entry_date: string;
+  mission_title?: string | null;
+  mission_type?: string | null;
+  core_pillar?: string | null;
+  xp_earned?: number | null;
+  twin_note?: string | null;
+  is_twin: boolean;
+  is_user: boolean;
+  observation_text?: string | null;
+  summary_date_label?: string | null;
+  summary_missions_done?: number | null;
+  summary_missions_total?: number | null;
+  summary_xp?: number | null;
+  summary_twin_quote?: string | null;
+}
+
+export interface ShadowFeedResponse {
+  entries: FeedEntry[];
+  today_twin_xp: number;
+  today_user_xp: number;
+  today_twin_done: number;
+  today_user_done: number;
+  has_more_today: boolean;
+  pending_count: number;
+}
+
+export async function fetchShadowFeed(daysBack = 3): Promise<ShadowFeedResponse> {
+  return apiClient.get<ShadowFeedResponse>(`/api/v1/twin/feed?days_back=${daysBack}`);
+}
+
+export type { DayComparison, PillarDNA };
 
 export interface TwinMessage {
   id: string;
@@ -82,6 +122,8 @@ export interface TwinMessage {
   created_at: string;
   /** Present for role=twin when user rated this line */
   tone_rating?: 'positive' | 'neutral' | 'negative' | null;
+  /** -1 / 0 / 1 from twin_messages (preferred when set) */
+  message_rating?: number | null;
 }
 
 export interface TwinChatHistoryResponse {
@@ -90,8 +132,13 @@ export interface TwinChatHistoryResponse {
 
 export interface TwinChatResponse {
   response: string;
+  message?: string | null;
+  message_id?: string | null;
   user_message_id?: string | null;
   twin_message_id?: string | null;
+  emotional_register?: string | null;
+  is_safety_response?: boolean;
+  safety_category?: string | null;
 }
 
 export interface TwinToneHistoryResponse {
@@ -122,6 +169,15 @@ export interface TwinStripData {
   twin_pet_unlocked?: boolean;
   strip_message: string | null;
   last_updated?: string | null;
+  status_line?: string | null;
+  user_xp_today?: number | null;
+  twin_xp_today?: number | null;
+  absence_days?: number | null;
+  absence_strip_message?: string | null;
+  absence_interstitial_message?: string | null;
+  twin_accomplishments?: Array<{ text: string; time_label: string }> | null;
+  /** Twin relationship arc phase (observer | challenger | mirror | rival | partner) */
+  relationship_phase?: string | null;
 }
 
 // ── API calls ──────────────────────────────────────────────────────────────
@@ -147,6 +203,53 @@ export const twinService = {
         typeof raw?.twin_pet_unlocked === 'boolean' ? raw.twin_pet_unlocked : undefined,
       strip_message: (raw?.strip_message as string) ?? null,
       last_updated: (raw?.last_updated as string) ?? null,
+      status_line:
+        raw?.status_line === undefined
+          ? undefined
+          : raw?.status_line === null
+            ? null
+            : String(raw.status_line),
+      user_xp_today:
+        raw?.user_xp_today === null
+          ? null
+          : typeof raw?.user_xp_today === 'number'
+            ? raw.user_xp_today
+            : undefined,
+      twin_xp_today:
+        raw?.twin_xp_today === null
+          ? null
+          : typeof raw?.twin_xp_today === 'number'
+            ? raw.twin_xp_today
+            : undefined,
+      absence_days:
+        raw?.absence_days === null
+          ? null
+          : typeof raw?.absence_days === 'number'
+            ? raw.absence_days
+            : undefined,
+      absence_strip_message:
+        raw?.absence_strip_message === undefined
+          ? undefined
+          : raw?.absence_strip_message === null
+            ? null
+            : String(raw.absence_strip_message),
+      absence_interstitial_message:
+        raw?.absence_interstitial_message === undefined
+          ? undefined
+          : raw?.absence_interstitial_message === null
+            ? null
+            : String(raw.absence_interstitial_message),
+      twin_accomplishments: Array.isArray(raw?.twin_accomplishments)
+        ? (raw.twin_accomplishments as TwinStripData['twin_accomplishments'])
+        : raw?.twin_accomplishments === null
+          ? null
+          : undefined,
+      relationship_phase:
+        raw?.relationship_phase === undefined
+          ? undefined
+          : raw?.relationship_phase === null
+            ? null
+            : String(raw.relationship_phase),
     };
   },
 
@@ -166,7 +269,13 @@ export const twinService = {
       rating,
     }),
 
+  rateTwinMessage: (messageId: string, rating: -1 | 0 | 1) =>
+    apiClient.post<{ rated: boolean }>(`/api/v1/twin/chat/${messageId}/rate`, { rating }),
+
   getToneHistory: () =>
     apiClient.get<TwinToneHistoryResponse>('/api/v1/twin/tone-history'),
+
+  getShadowFeed: (daysBack = 3) =>
+    apiClient.get<ShadowFeedResponse>(`/api/v1/twin/feed?days_back=${daysBack}`),
 };
 

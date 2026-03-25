@@ -1,32 +1,18 @@
 """
 Three-category notification system.
 
-Category A — Re-engagement: brings user back when absent.
-  Gates: outside 7am-10pm local → skip.
-         missions already complete today → skip.
-         outside ±2 hour activity window (day 8+) → skip.
-         daily cap reached → skip.
-
-Category B — Quit target intervention: fires at urge time.
-  Gates: local hour doesn't match quit_target.intervention_hour → skip.
-         today's quit target mission already completed → skip.
-         after 11:30pm local → skip.
-         category B already sent for this quit target today → skip.
-
-Category C — Milestone: immediate event-driven reward.
-  Gates: none. Called directly from complete_mission().
-  Pre-written content. No LLM.
+Category A — Re-engagement: rule-based gates in this module; copy via generate_nudge (instructor).
+Category B — Quit-path intervention: generate_quit_intervention_nudge (instructor).
+Category C — Milestones: pre-written; no LLM.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.constants import (
     NUDGE_DAILY_CAPS,
@@ -37,10 +23,10 @@ from app.core.constants import (
     STREAK_MILESTONES,
 )
 from app.core.supabase_client import supabase_admin
+from app.agents.base import run_agent
 
 logger = logging.getLogger(__name__)
 
-# Used when activity_time_of_day is not yet established (first 7 days)
 ARCHETYPE_DEFAULT_NUDGE_HOURS = {
     "structured_climber": 7,
     "lone_wolf": 21,
@@ -49,93 +35,6 @@ ARCHETYPE_DEFAULT_NUDGE_HOURS = {
     "social_performer": 18,
 }
 DEFAULT_NUDGE_HOUR = 20
-
-# ── PROMPTS ──────────────────────────────────────────────────────────────
-
-NUDGE_CATEGORY_A_PROMPT = """
-You are writing a push notification for ALTER EGO.
-This notification is sent by the Shadow Twin — another version of the user.
-
-CONTEXT:
-→ Trigger type:          {trigger_type}
-→ Twin tone:             {tone_type}
-→ User streak:           {streak} days
-→ Pet stage name:        {pet_name}
-→ Character stage:       {stage_name}
-→ XP gap behind twin:    {gap_xp} XP
-→ Hours until midnight:  {hours_until_midnight}
-→ Milestone approaching: {milestone_approaching}
-
-LAST 3 NUDGES SENT:
-→ {nudge_1}
-→ {nudge_2}
-→ {nudge_3}
-
-TRIGGER RULES:
-streak_warning:        User hasn't opened app. Streak ends at midnight. Factual urgency.
-re_engagement:         Missed exactly 1 day. Streak still intact. Soft. References pet or gap.
-pet_nudge:             Pet is in Sad state. States the fact. No manipulation.
-milestone_approaching: 1-2 days from a streak milestone. Creates anticipation.
-momentum:              7+ day streak, all missions done yesterday. Acknowledge quietly.
-
-TONE RULES:
-rival:        Competitive. Cold. Short declarative sentences. Max 2 sentences.
-philosopher:  Reflective. Principled. References process. Max 2 sentences.
-silent_force: 1 sentence MAXIMUM. Often 3-7 words.
-
-HARD RULES:
-- NEVER use guilt. Never mention days missed or failure.
-- NEVER be generic. "Keep going!" is not acceptable.
-- NEVER repeat the opening word or core observation from the last 3 nudges.
-- NEVER break character — this is the Twin speaking.
-- Use actual data — streak number, pet name, stage name.
-
-OUTPUT: Return ONLY the nudge text. No preamble. No quotes.
-"""
-
-NUDGE_CATEGORY_B_PROMPT = """
-You are writing a push notification for ALTER EGO.
-This is a quit target intervention — sent at the exact moment the user
-typically experiences their urge.
-
-CONTEXT:
-→ Quit target:        {quit_target_name}
-→ User's trigger:     {trigger_text}
-→ Urge timing:        {urge_timing}
-→ Underlying need:    {need_category}
-→ Replacement direction: {replacement_directions}
-→ Clean days:         {clean_days}
-→ Current phase:      {current_phase}
-→ Twin tone:          {tone_type}
-
-LAST 3 CATEGORY B NUDGES FOR THIS QUIT TARGET:
-→ {nudge_1}
-→ {nudge_2}
-→ {nudge_3}
-
-YOUR JOB:
-Write one push notification that arrives exactly when the urge is likely to hit.
-It should feel like the system anticipated the moment — not like a generic reminder.
-
-PHASE RULES:
-days_1_10:   Awareness. "Notice the urge. You know what to do instead."
-days_11_30:  Replacement. Reference the specific replacement behavior.
-days_31_60:  Environmental. Reference a friction strategy already in place.
-days_61_90:  Identity. "You are someone who doesn't do this."
-days_90_plus: Consolidation. Quiet acknowledgment of the identity formed.
-
-CONTENT RULES:
-- ALWAYS positive action — never "don't", "avoid", "resist"
-- Reference the urge timing specifically if possible ("Right now..." / "It's that time...")
-- Reference the replacement behavior or underlying need
-- 1-2 sentences maximum
-- NEVER mention the quit target habit negatively in the title or body
-- NEVER repeat the core observation from the last 3 nudges for this target
-
-OUTPUT: Return ONLY the notification text. No preamble. No quotes.
-"""
-
-# ── CATEGORY C — PRE-WRITTEN MILESTONE MESSAGES ──────────────────────────
 
 MILESTONE_MESSAGES = {
     "stage_2": {"title": "ALTER EGO", "body": "The Focused. You reached Stage 2."},
@@ -161,13 +60,166 @@ MILESTONE_MESSAGES = {
     "streak_365": {"title": "ALTER EGO", "body": "A full year. Every day you could have stopped. You didn't."},
 }
 
+NUDGE_A_SYSTEM_PROMPT = """You write push notification text for ALTER EGO.
+
+The notification is the Twin speaking — a version of the user that has been more consistent.
+Match the assigned tone exactly.
+
+## TONES
+
+RIVAL: Competitive, cold, declarative. Short. Facts about the gap. Never warm.
+
+PHILOSOPHER: Reflective, principled. Process or compounding. Never preachy.
+
+SILENT FORCE: Minimal. Often 3–8 words. Restraint is the message.
+
+## TRIGGERS
+
+streak_warning: Streak at risk, user has not opened app. Hours until midnight given.
+re_engagement: Missed yesterday, streak intact. Soft return. Pet or gap, not the miss.
+pet_nudge: Pet is sad. State the fact.
+milestone_approaching: 1–2 days from streak milestone. Anticipation, not pressure.
+momentum: Strong streak, all missions done yesterday. Acknowledge without congratulating.
+
+## RULES
+1. Max 90 characters
+2. No exclamation marks
+3. No emojis
+4. Never "you should", "you need to", "make sure to"
+5. Do not start with the same first word as any of the last 3 nudges listed
+6. Use real data from the user message — no placeholders
+"""
+
+
+class NudgeText(BaseModel):
+    notification_body: str = Field(..., max_length=90)
+
+    @field_validator("notification_body")
+    @classmethod
+    def body_rules(cls, v: str) -> str:
+        t = (v or "").strip()
+        if "!" in t:
+            raise ValueError("exclamation marks not allowed")
+        if len(t) > 90:
+            raise ValueError("notification too long")
+        return t
+
+
+QUIT_NUDGE_SYSTEM = """You write one quit-target intervention push for ALTER EGO.
+
+Arrive at urge time. Positive replacement action only — never "don't", "avoid", "resist".
+Reference replacement or need. 1–2 sentences. Max 110 characters. No exclamation marks. No emojis.
+Do not repeat the core observation from the last 3 lines listed.
+"""
+
+
+class QuitNudgeText(BaseModel):
+    notification_body: str = Field(..., max_length=110)
+
+    @field_validator("notification_body")
+    @classmethod
+    def quit_body_rules(cls, v: str) -> str:
+        t = (v or "").strip()
+        if "!" in t:
+            raise ValueError("exclamation marks not allowed")
+        if len(t) > 110:
+            raise ValueError("notification too long")
+        return t
+
+
+def _normalize_tone(raw: str | None) -> str:
+    t = str(raw or "rival").lower().replace(" ", "_").replace("-", "_")
+    if t == "silentforce":
+        t = "silent_force"
+    if t not in ("rival", "philosopher", "silent_force"):
+        return "rival"
+    return t
+
+
+def _get_fallback_nudge(trigger: str, tone: str, streak: int, pet_name: str) -> str:
+    tone = _normalize_tone(tone)
+    pet_short = pet_name or "Companion"
+    fallbacks: dict[tuple[str, str], str] = {
+        ("streak_warning", "rival"): f"{streak} days. Tonight.",
+        ("streak_warning", "philosopher"): f"{streak} days of showing up. Tonight decides.",
+        ("streak_warning", "silent_force"): f"{streak} days. Now.",
+        ("re_engagement", "rival"): "The gap grew. Close it today.",
+        ("re_engagement", "philosopher"): "Come back. The streak holds.",
+        ("re_engagement", "silent_force"): "Today.",
+        ("pet_nudge", "rival"): f"Your {pet_short} is sad. Mine is not.",
+        ("pet_nudge", "philosopher"): f"Your {pet_short} reflects what you've given.",
+        ("pet_nudge", "silent_force"): f"{pet_short}. Sad.",
+        ("milestone_approaching", "rival"): f"{streak} days. Almost there.",
+        ("milestone_approaching", "philosopher"): "The next number is close. Show up.",
+        ("milestone_approaching", "silent_force"): "Almost.",
+        ("momentum", "rival"): f"{streak} days. Keep it.",
+        ("momentum", "philosopher"): f"{streak} days. The work is compounding.",
+        ("momentum", "silent_force"): f"{streak} days. Still moving.",
+    }
+    body = fallbacks.get((trigger, tone), f"{streak} days. Show up.")
+    return body[:90] if len(body) > 90 else body
+
+
+async def generate_nudge(
+    *,
+    trigger: str,
+    tone_type: str,
+    streak: int,
+    pet_name: str,
+    character_stage_name: str,
+    gap_xp: int,
+    hours_until_midnight: int | None,
+    milestone_days: int | None,
+    milestone_name: str | None,
+    last_3_nudges: list[str],
+) -> NudgeText:
+    tone = _normalize_tone(tone_type)
+    last_nudges_str = "\n".join(f'  - "{n}"' for n in last_3_nudges) if last_3_nudges else "  None"
+
+    trigger_context = {
+        "streak_warning": (
+            f"Streak: {streak} days. Hours until midnight (streak end): {hours_until_midnight}h. "
+            f"User has NOT opened app today."
+        ),
+        "re_engagement": (
+            f"Streak: {streak} days (still intact). User missed yesterday. "
+            f"Pet: {pet_name}. Twin gap: {gap_xp} XP."
+        ),
+        "pet_nudge": (f"Pet '{pet_name}' is in Sad state. User has not opened app today."),
+        "milestone_approaching": (
+            f"Current streak: {streak} days. Milestone: {milestone_name or 'streak milestone'} "
+            f"in {milestone_days if milestone_days is not None else '?'} day(s)."
+        ),
+        "momentum": (
+            f"Streak: {streak} days. User completed ALL missions yesterday. Twin gap: {gap_xp} XP."
+        ),
+    }.get(trigger, f"Trigger: {trigger}. Streak: {streak}.")
+
+    user_message = f"""Write ONE push notification for this user.
+
+TRIGGER: {trigger}
+TONE: {tone}
+CHARACTER STAGE: {character_stage_name}
+
+USER DATA:
+{trigger_context}
+
+LAST 3 NUDGES SENT (do not repeat structure or opening word):
+{last_nudges_str}
+
+Max 90 characters. No exclamation marks."""
+
+    return await run_agent(
+        system_prompt=NUDGE_A_SYSTEM_PROMPT,
+        user_message=user_message,
+        response_model=NudgeText,
+        temperature=0.85,
+        max_tokens=120,
+        context_label=f"Nudge:{trigger}:{tone}",
+    )
+
 
 async def send_category_c_notification(user_id: str, milestone_type: str) -> None:
-    """
-    Sends an immediate milestone notification.
-    Called directly from complete_mission() and progression.
-    No gates. No LLM. Pre-written content.
-    """
     content = MILESTONE_MESSAGES.get(milestone_type)
     if not content:
         return
@@ -197,10 +249,7 @@ async def send_category_c_notification(user_id: str, milestone_type: str) -> Non
     ).execute()
 
 
-# ── CATEGORY A — RE-ENGAGEMENT ────────────────────────────────────────────
-
 async def check_category_a(users: list) -> int:
-    """Checks and sends Category A (re-engagement) nudges. Returns count sent."""
     sent = 0
     for user in users:
         try:
@@ -285,7 +334,7 @@ async def _process_category_a_user(user: dict) -> int:
         {
             "user_id": user_id,
             "nudge_type": trigger,
-            "tone_used": dna.get("twin_tone_type", "rival"),
+            "tone_used": _normalize_tone(dna.get("twin_tone_type")),
             "nudge_text": nudge_text,
             "nudge_category": "A",
         }
@@ -347,16 +396,12 @@ async def _generate_category_a_nudge(
         .data
         or []
     )
-    last_texts = [n.get("nudge_text", "None") for n in last_nudges]
+    last_texts = [str(n.get("nudge_text") or "") for n in last_nudges if n.get("nudge_text")]
     while len(last_texts) < 3:
         last_texts.append("None")
 
     twin_result = (
-        supabase_admin.table("twin_state")
-        .select("twin_xp")
-        .eq("user_id", user_id)
-        .single()
-        .execute()
+        supabase_admin.table("twin_state").select("twin_xp").eq("user_id", user_id).single().execute()
     )
     twin = twin_result.data or {}
     stage = user.get("character_stage", 1) or 1
@@ -364,53 +409,86 @@ async def _generate_category_a_nudge(
     streak = user.get("current_streak", 0) or 0
     gap_xp = abs((twin.get("twin_xp") or 0) - (user.get("total_xp") or 0))
 
-    milestone_approaching = "None"
+    milestone_days: int | None = None
+    milestone_name: str | None = None
     for m in STREAK_MILESTONES:
         if streak in (m - 1, m - 2):
-            milestone_approaching = f"{m}-day streak in {m - streak} day(s)"
+            milestone_days = m - streak
+            milestone_name = f"{m}-day streak"
             break
 
-    prompt = NUDGE_CATEGORY_A_PROMPT.format(
-        trigger_type=trigger,
-        tone_type=dna.get("twin_tone_type", "rival"),
-        streak=streak,
-        pet_name=PET_NAMES[pet_stage - 1] if pet_stage > 0 else "your companion",
-        stage_name=STAGE_NAMES[stage - 1],
-        gap_xp=gap_xp,
-        hours_until_midnight=24 - local_hour if local_hour < 24 else 0,
-        milestone_approaching=milestone_approaching,
-        nudge_1=last_texts[0],
-        nudge_2=last_texts[1],
-        nudge_3=last_texts[2],
-    )
+    hours_left = max(0, 23 - local_hour)
+    pet_name = PET_NAMES[pet_stage - 1] if pet_stage > 0 else "Cub"
+    tone = dna.get("twin_tone_type", "rival")
 
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.7,
-        max_tokens=60,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
-    )
     try:
-        response = await llm.ainvoke([
-            SystemMessage(content=prompt),
-            HumanMessage(content="Write the nudge notification."),
-        ])
-        return (response.content or "").strip()
+        nudge = await generate_nudge(
+            trigger=trigger,
+            tone_type=str(tone),
+            streak=int(streak),
+            pet_name=pet_name,
+            character_stage_name=STAGE_NAMES[int(stage) - 1] if 1 <= stage <= len(STAGE_NAMES) else "The Awakened",
+            gap_xp=int(gap_xp),
+            hours_until_midnight=hours_left if trigger == "streak_warning" else None,
+            milestone_days=milestone_days if trigger == "milestone_approaching" else None,
+            milestone_name=milestone_name if trigger == "milestone_approaching" else None,
+            last_3_nudges=last_texts[:3],
+        )
+        return nudge.notification_body
+    except Exception as e:
+        logger.error("Nudge agent failed for %s: %s", user_id, e)
+        return _get_fallback_nudge(trigger, str(tone), int(streak), pet_name)
+
+
+async def generate_quit_intervention_nudge(
+    *,
+    user_id: str,
+    tone_type: str,
+    quit_target: dict,
+    last_texts: list[str],
+) -> str:
+    ctx = quit_target.get("trigger_contexts") or []
+    if isinstance(ctx, list):
+        replacement_str = quit_target.get("competing_response") or ", ".join(str(x) for x in ctx[:4])
+    else:
+        replacement_str = str(quit_target.get("competing_response") or ctx)
+
+    ih = quit_target.get("intervention_hour")
+    urge_timing = f"around {ih}:00" if ih is not None else "your usual window"
+
+    anti = "\n".join(f'  - "{t}"' for t in last_texts) if last_texts else "  None"
+
+    user_message = f"""Write one intervention notification.
+
+Quit habit label: {quit_target.get("habit_name", "habit")}
+Trigger cues: {", ".join(str(x) for x in ctx[:3]) if isinstance(ctx, list) and ctx else "your trigger"}
+Urge timing: {urge_timing}
+Underlying need: {quit_target.get("underlying_need", "unknown")}
+Replacement: {replacement_str or "Take a walk, drink water, one slow breath"}
+Frequency today: {quit_target.get("frequency_today", 0)}
+Phase: {quit_target.get("current_phase", "mapping")}
+Tone: {_normalize_tone(tone_type)}
+
+Last 3 for this target (vary):
+{anti}
+"""
+
+    try:
+        out = await run_agent(
+            system_prompt=QUIT_NUDGE_SYSTEM,
+            user_message=user_message,
+            response_model=QuitNudgeText,
+            temperature=0.65,
+            max_tokens=100,
+            context_label="Nudge:quit",
+        )
+        return out.notification_body
     except Exception:
-        fallbacks = {
-            "streak_warning": f"{streak}-day streak. Tonight.",
-            "re_engagement": f"Your {PET_NAMES[pet_stage - 1] if pet_stage > 0 else 'companion'} is waiting.",
-            "pet_nudge": "Your companion needs you today.",
-            "milestone_approaching": f"Almost at {streak + 1} days.",
-            "momentum": f"{streak} days straight.",
-        }
-        return fallbacks.get(trigger, "Your missions are waiting.")
+        logger.exception("generate_quit_intervention_nudge failed user=%s", user_id)
+        return "Right now — your replacement is ready. One action."
 
-
-# ── CATEGORY B — QUIT TARGET INTERVENTION ────────────────────────────────
 
 async def check_category_b(users: list) -> int:
-    """Checks and sends Category B (quit target intervention) nudges. Returns count sent."""
     sent = 0
     for user in users:
         try:
@@ -436,11 +514,10 @@ async def _process_category_b_user(user: dict) -> int:
         return 0
 
     quit_result = (
-        supabase_admin.table("quit_targets")
+        supabase_admin.table("quit_paths")
         .select("*")
         .eq("user_id", user_id)
-        .eq("is_active", True)
-        .eq("conquered", False)
+        .in_("status", ["active", "referral_only"])
         .execute()
     )
     quit_targets = quit_result.data or []
@@ -468,7 +545,7 @@ async def _process_category_b_user(user: dict) -> int:
             supabase_admin.table("missions")
             .select("id")
             .eq("user_id", user_id)
-            .eq("quit_target_id", qt["id"])
+            .eq("quit_path_id", qt["id"])
             .eq("mission_date", today)
             .eq("completed", True)
             .limit(1)
@@ -493,14 +570,35 @@ async def _process_category_b_user(user: dict) -> int:
         if already_sent > 0:
             continue
 
-        nudge_text = await _generate_category_b_nudge(user_id, user, dna, qt)
+        last_nudges = (
+            supabase_admin.table("nudge_log")
+            .select("nudge_text")
+            .eq("user_id", user_id)
+            .eq("nudge_category", "B")
+            .eq("nudge_type", f"quit_{qt['id']}")
+            .order("sent_at", desc=True)
+            .limit(3)
+            .execute()
+            .data
+            or []
+        )
+        last_texts = [str(n.get("nudge_text") or "") for n in last_nudges if n.get("nudge_text")]
+        while len(last_texts) < 3:
+            last_texts.append("None")
+
+        nudge_text = await generate_quit_intervention_nudge(
+            user_id=user_id,
+            tone_type=str(dna.get("twin_tone_type", "rival")),
+            quit_target=qt,
+            last_texts=last_texts[:3],
+        )
         if nudge_text and user.get("push_token"):
             await _send_push_notification(user["push_token"], "ALTER EGO", nudge_text)
             supabase_admin.table("nudge_log").insert(
                 {
                     "user_id": user_id,
                     "nudge_type": f"quit_{qt['id']}",
-                    "tone_used": dna.get("twin_tone_type", "rival"),
+                    "tone_used": _normalize_tone(dna.get("twin_tone_type")),
                     "nudge_text": nudge_text,
                     "nudge_category": "B",
                 }
@@ -510,68 +608,7 @@ async def _process_category_b_user(user: dict) -> int:
     return sent
 
 
-async def _generate_category_b_nudge(
-    user_id: str, user: dict, dna: dict, quit_target: dict
-) -> str:
-    last_nudges = (
-        supabase_admin.table("nudge_log")
-        .select("nudge_text")
-        .eq("user_id", user_id)
-        .eq("nudge_category", "B")
-        .eq("nudge_type", f"quit_{quit_target['id']}")
-        .order("sent_at", desc=True)
-        .limit(3)
-        .execute()
-        .data
-        or []
-    )
-    last_texts = [n.get("nudge_text", "None") for n in last_nudges]
-    while len(last_texts) < 3:
-        last_texts.append("None")
-
-    replacement = quit_target.get("replacement_directions") or []
-    if isinstance(replacement, list):
-        replacement_str = ", ".join(str(x) for x in replacement[:3])
-    else:
-        replacement_str = str(replacement)
-
-    prompt = NUDGE_CATEGORY_B_PROMPT.format(
-        quit_target_name=quit_target.get("normalised_name", "your habit"),
-        trigger_text=quit_target.get("trigger_text", "your trigger"),
-        urge_timing=quit_target.get("urge_timing", "now"),
-        need_category=quit_target.get("need_category", "unknown"),
-        replacement_directions=replacement_str or "Take a walk, drink water, do one breath exercise",
-        clean_days=quit_target.get("clean_days", 0),
-        current_phase=quit_target.get("current_phase", "days_1_10"),
-        tone_type=dna.get("twin_tone_type", "rival"),
-        nudge_1=last_texts[0],
-        nudge_2=last_texts[1],
-        nudge_3=last_texts[2],
-    )
-
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.65,
-        max_tokens=60,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
-    )
-    try:
-        response = await llm.ainvoke([
-            SystemMessage(content=prompt),
-            HumanMessage(content="Write the quit target intervention notification."),
-        ])
-        return (response.content or "").strip()
-    except Exception:
-        return "Right now — your replacement is ready. One action."
-
-
-# ── MAIN ENTRY POINT ──────────────────────────────────────────────────────
-
 async def check_and_send_nudges() -> dict:
-    """
-    Runs every hour via cron.
-    Returns counts per category (Category C is event-driven, not run here).
-    """
     users_result = (
         supabase_admin.table("users")
         .select(
@@ -590,8 +627,6 @@ async def check_and_send_nudges() -> dict:
 
     return {"category_a": a_sent, "category_b": b_sent, "category_c": 0}
 
-
-# ── SHARED HELPERS ────────────────────────────────────────────────────────
 
 async def _send_push_notification(push_token: str, title: str, body: str) -> None:
     try:

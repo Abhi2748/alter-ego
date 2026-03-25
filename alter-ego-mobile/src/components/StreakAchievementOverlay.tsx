@@ -108,6 +108,16 @@ function SealRing({
 export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Props) {
   const { width: winW, height: winH } = useWindowDimensions();
   const tier = useMemo(() => getStreakVisualTier(streakCount), [streakCount]);
+  const { streakStr, numW, numH } = useMemo(() => {
+    const str = String(streakCount);
+    const ns = tier.numSize;
+    const len = str.length;
+    return {
+      streakStr: str,
+      numW: Math.max(ns * 0.72 * len + ns * 0.28, ns * 1.1),
+      numH: ns * 1.1,
+    };
+  }, [streakCount, tier.numSize]);
   const innerSealGradId = useMemo(() => `seal_inner_${streakCount}`, [streakCount]);
   const numLinearGradId = useMemo(() => `streak_num_grad_${streakCount}`, [streakCount]);
   const glowRgb = useMemo(() => parseRgba(tier.glowColor), [tier.glowColor]);
@@ -131,6 +141,8 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
   const spinRev = useSharedValue(0);
 
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeAnimatedRef = useRef(closeAnimated);
+  closeAnimatedRef.current = closeAnimated;
 
   const startSpin = useCallback(() => {
     spin.value = withRepeat(
@@ -250,6 +262,8 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
     });
   }, [overlayOpacity, onDismiss]);
 
+  closeAnimatedRef.current = closeAnimated;
+
   useEffect(() => {
     if (!visible) {
       if (autoTimer.current) {
@@ -260,7 +274,7 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
     }
     resetAndPlay();
     autoTimer.current = setTimeout(() => {
-      closeAnimated();
+      closeAnimatedRef.current();
     }, AUTO_DISMISS_MS);
     return () => {
       if (autoTimer.current) {
@@ -268,7 +282,9 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
         autoTimer.current = null;
       }
     };
-  }, [visible, streakCount, resetAndPlay, closeAnimated]);
+    // closeAnimated omitted on purpose — stable ref; resetAndPlay is stable for a given streakCount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, streakCount, resetAndPlay]);
 
   const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayOpacity.value }));
   const bloomStyle = useAnimatedStyle(() => ({
@@ -289,7 +305,8 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
   const heroStyle = useAnimatedStyle(() => {
     const t = heroStamp.value;
     const y = (1 - t) * -22 + (t < 0.55 ? 3 * (t / 0.55) : 0);
-    const s = t < 0.55 ? 1.06 - 0.075 * (t / 0.55) : 1.004;
+    // Subtle scale only — large scale + shadows on SVG caused iOS glyph ghosting.
+    const s = t < 0.55 ? 1.03 - 0.03 * (t / 0.55) : 1;
     return {
       opacity: t,
       transform: [{ translateY: y }, { scale: s }],
@@ -302,14 +319,12 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
   const badgeStyle = useAnimatedStyle(() => ({ opacity: badgeOp.value }));
   const labelsStyle = useAnimatedStyle(() => ({ opacity: labelOp.value }));
   const dismissStyle = useAnimatedStyle(() => ({ opacity: dismissOp.value }));
-  const numGlowStyle = useAnimatedStyle(() => {
+  /** Soft halo behind the digit — opacity only (no shadowRadius on SVG parent). */
+  const numHaloStyle = useAnimatedStyle(() => {
     const t = numGlowPulse.value;
     return {
-      shadowColor: `rgb(${glowRgb.r},${glowRgb.g},${glowRgb.b})`,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.4 + t * 0.42,
-      shadowRadius: 12 + t * 22,
-      elevation: 8 + Math.round(t * 10),
+      opacity: 0.14 + t * 0.22,
+      transform: [{ scale: 1 + t * 0.06 }],
     };
   });
   const spinOuterStyle = useAnimatedStyle(() => ({
@@ -328,6 +343,9 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
   const s2Size = 180;
   const ringSize = 160;
   const halfBloom = tier.bloomSize / 2;
+  const haloSize = Math.min(numW, numH) * 0.92;
+  const haloLeft = (numW - haloSize) / 2;
+  const haloTop = (numH - haloSize) / 2;
 
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent>
@@ -466,14 +484,31 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
                     <Animated.Text style={[styles.flame, { fontSize: tier.flameSize }, flameStyle]}>
                       🔥
                     </Animated.Text>
-                    <Animated.View
-                      style={[
-                        styles.numHeroOuter,
-                        { width: numW, height: numH },
-                        numGlowStyle,
-                      ]}
+                    <View
+                      style={[styles.numHeroOuter, { width: numW, height: numH }]}
+                      collapsable={false}
                     >
-                      <Svg width={numW} height={numH} viewBox={`0 0 ${numW} ${numH}`}>
+                      <Animated.View
+                        pointerEvents="none"
+                        style={[
+                          styles.numHalo,
+                          {
+                            width: haloSize,
+                            height: haloSize,
+                            left: haloLeft,
+                            top: haloTop,
+                            borderRadius: haloSize / 2,
+                            backgroundColor: `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.35)`,
+                          },
+                          numHaloStyle,
+                        ]}
+                      />
+                      <Svg
+                        width={numW}
+                        height={numH}
+                        viewBox={`0 0 ${numW} ${numH}`}
+                        style={styles.numSvg}
+                      >
                         <Defs>
                           <SvgLinearGradient id={numLinearGradId} x1="0%" y1="0%" x2="100%" y2="100%">
                             {tier.numGradient.map((col, i, arr) => (
@@ -487,12 +522,12 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
                         </Defs>
                         <SvgText
                           x={numW / 2}
-                          y={numH / 2}
+                          y={numH * 0.54}
                           textAnchor="middle"
                           dominantBaseline="central"
                           fontSize={tier.numSize}
                           fontWeight="800"
-                          letterSpacing={-3}
+                          letterSpacing={streakStr.length <= 2 ? 0 : streakStr.length <= 3 ? -1 : -2}
                           fill={`url(#${numLinearGradId})`}
                           fontFamily={Platform.select({
                             ios: "Inter_800ExtraBold",
@@ -503,7 +538,7 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
                           {streakStr}
                         </SvgText>
                       </Svg>
-                    </Animated.View>
+                    </View>
                   </Animated.View>
 
                   <Animated.View style={[styles.labelBlock, labelsStyle]}>
@@ -647,12 +682,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "visible",
     backgroundColor: "transparent",
+    position: "relative",
+  },
+  numHalo: {
+    position: "absolute",
+    zIndex: 0,
+  },
+  numSvg: {
+    position: "relative",
+    zIndex: 1,
   },
   flame: {
     marginBottom: 2,
-    textShadowColor: "rgba(249,115,22,0.55)",
+    textShadowColor: "rgba(249,115,22,0.35)",
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 8,
+    textShadowRadius: 4,
   },
   badge: {
     paddingVertical: 3,

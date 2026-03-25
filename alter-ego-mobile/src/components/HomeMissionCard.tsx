@@ -102,6 +102,8 @@ export interface HomeMissionCardProps {
   onLongPress?: () => void;
   /** Character stat this mission feeds (symbol in meta row). */
   statKey?: StatKey;
+  /** Twin already completed this mission today (pending cards only). */
+  twinCompleted?: boolean;
 }
 
 export function HomeMissionCard({
@@ -121,6 +123,7 @@ export function HomeMissionCard({
   dayCounter,
   onLongPress,
   statKey,
+  twinCompleted,
 }: HomeMissionCardProps) {
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -186,7 +189,10 @@ export function HomeMissionCard({
 
   const isComplete = status === "complete";
   const isResistance = missionType === "resistance";
-  const edgeColors = LEFT_EDGE_GRADIENTS[missionType][difficulty];
+  const edgeColors =
+    missionType === "resistance"
+      ? (["#EF4444", "#B91C1C"] as const)
+      : LEFT_EDGE_GRADIENTS[missionType][difficulty];
   const chipStyle = CHIP_STYLES[missionType];
   const sectionLabel =
     missionType === "interest" && interestName
@@ -303,6 +309,11 @@ export function HomeMissionCard({
               </>
             )}
           </View>
+          {!isComplete && twinCompleted === true && (
+            <View style={styles.twinShadowMark} pointerEvents="none">
+              <View style={styles.twinShadowDot} />
+            </View>
+          )}
         </Animated.View>
       </Pressable>
     </GestureDetector>
@@ -430,4 +441,28 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   doneText: { fontSize: 14, fontWeight: "600", color: VIOLET },
+  twinShadowMark: {
+    position: "absolute",
+    right: 8,
+    top: 8,
+    width: 6,
+    height: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  twinShadowDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "rgba(167,139,250,0.35)",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#A78BFA",
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.6,
+        shadowRadius: 4,
+      },
+      default: {},
+    }),
+  },
 });

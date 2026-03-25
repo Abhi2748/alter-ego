@@ -4,8 +4,12 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { missionsService, type JournalSaveResponse } from "@/services/missions";
-import { MISSION_KEYS } from "@/hooks/useMissions";
+import {
+  applyMissionCompletionSideEffects,
+  MISSION_KEYS,
+} from "@/hooks/useMissions";
 import { PROFILE_KEYS } from "@/hooks/useProfile";
+import { emitMissionCompletionCelebration } from "@/utils/missionCompletionBridge";
 
 export const JOURNAL_KEYS = {
   all: ["journal"] as const,
@@ -43,8 +47,13 @@ export function useSaveJournal() {
       bookmarked?: boolean;
     }) => missionsService.saveJournal(body),
 
-    onSuccess: (_data: JournalSaveResponse) => {
+    onSuccess: (data: JournalSaveResponse) => {
       queryClient.invalidateQueries({ queryKey: JOURNAL_KEYS.all });
+      const completion = data.completion;
+      if (completion && completion.success && !completion.already_completed) {
+        applyMissionCompletionSideEffects(queryClient, completion);
+        emitMissionCompletionCelebration(completion, {});
+      }
       queryClient.invalidateQueries({ queryKey: MISSION_KEYS.today });
       queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
       queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });

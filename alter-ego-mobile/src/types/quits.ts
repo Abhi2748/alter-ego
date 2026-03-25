@@ -1,104 +1,105 @@
-/**
- * Quit target and milestone types. Spec §8.
- * 5 phases: Awareness (1–10), Replacement (11–30), Reflex (31–60), Rewired (61–90), Free (91+).
- */
+export type QuitPhase = "mapping" | "disruption" | "consolidation";
+export type AwarenessLevel = "subconscious" | "semi_conscious" | "conscious";
+export type QuitGoal = "stop_completely" | "reduce_significantly" | "make_conscious";
 
-export type QuitPhase = "awareness" | "replacement" | "reflex" | "rewired" | "free";
+export const PHASE_CONFIG = {
+  mapping: {
+    name: "Trigger Mapping",
+    label: "Phase 1",
+    color: "#8B5CF6",
+    colorBg: "rgba(139,92,246,0.10)",
+    colorBorder: "rgba(139,92,246,0.20)",
+    description:
+      "No willpower required yet — just observation. We need to understand your pattern before building your strategy.",
+  },
+  disruption: {
+    name: "Competing Response",
+    label: "Phase 2",
+    color: "#EF4444",
+    colorBg: "rgba(239,68,68,0.10)",
+    colorBorder: "rgba(239,68,68,0.20)",
+    description:
+      "Build a physical response that intercepts the habit. Your missions now target your specific triggers.",
+  },
+  consolidation: {
+    name: "Consolidation",
+    label: "Phase 3",
+    color: "#2DD4BF",
+    colorBg: "rgba(45,212,191,0.10)",
+    colorBorder: "rgba(45,212,191,0.20)",
+    description:
+      "The competing response is becoming automatic. Missions now focus on high-risk situations and edge cases.",
+  },
+} as const;
 
-export type QuitMilestoneType =
-  | "day_1"
-  | "day_3"
-  | "day_7"
-  | "day_14"
-  | "day_30"
-  | "day_60"
-  | "day_90"
-  | "day_365"
-  | "comeback"
-  | "conquered";
+export interface TriggerProfile {
+  contexts: string[];
+  awareness: AwarenessLevel;
+  quit_goal: QuitGoal;
+}
 
-export interface QuitMilestone {
+export interface QuitMission {
   id: string;
-  milestone_type: QuitMilestoneType;
-  earned_at: string | null;
-  is_unlocked: boolean;
-  clean_days_at_earn: number | null;
-  cravings_at_earn: number | null;
-  phase_at_earn: string | null;
-  days_away: number | null;
-  quote: string | null;
-  slip_duration_hours: number | null;
-  return_speed: "strong" | "good" | null;
+  title: string;
+  description: string;
+  completed: boolean;
+  /** API field from quit_paths missions list */
+  mission_category?: "observation" | "competing_response" | "consolidation";
+  mission_type?: "observation" | "competing_response" | "consolidation";
+}
+
+export interface FrequencyEntry {
+  log_date?: string;
+  date?: string;
+  count: number;
+  unit: "times" | "minutes";
+}
+
+export interface QuitInsight {
+  title: string;
+  body: string;
+  unlocked_at: string;
 }
 
 export interface QuitTarget {
-  id: string;
-  quit_description: string;
-  quit_name: string;
-  trigger_description: string;
-  underlying_need: string;
-  need_category: string;
-  status: "active" | "conquered" | "paused";
-  started_at: string;
-  current_clean_streak: number;
-  best_clean_streak: number;
-  total_clean_days: number;
-  slip_count: number;
-  cravings_resisted: number;
+  path_id: string;
+  habit_name: string;
+  habit_normalized: string;
+  initials: string;
+  trigger_profile: TriggerProfile;
   current_phase: QuitPhase;
-  days_in_current_phase: number;
-  conquered_at: string | null;
-  milestones: QuitMilestone[];
+  frequency_unit: "times" | "minutes";
+  frequency_today: number;
+  frequency_history: FrequencyEntry[];
+  frequency_reduction_pct: number;
+  days_active: number;
+  missions: QuitMission[];
+  phase_missions_completed: number;
+  total_phase_days: number;
+  insights: QuitInsight[];
+  status: "active" | "completed" | "paused" | "referral_only";
+  underlying_need?: string;
+  need_description?: string;
+  requires_professional_referral?: boolean;
+  referral_message?: string;
 }
 
-export const QUIT_PHASE_RANGES: { phase: QuitPhase; start: number; end: number; label: string }[] = [
-  { phase: "awareness", start: 1, end: 10, label: "Awareness" },
-  { phase: "replacement", start: 11, end: 30, label: "Replacement" },
-  { phase: "reflex", start: 31, end: 60, label: "Reflex" },
-  { phase: "rewired", start: 61, end: 90, label: "Rewired" },
-  { phase: "free", start: 91, end: 9999, label: "Free" },
-];
-
-export const QUIT_MILESTONE_DEFS: {
-  type: QuitMilestoneType;
+/** Q12 profile sheet output + onboarding payload. */
+export interface QuitTargetInput {
   name: string;
-  trigger_days: number;
-  unit: "days";
-}[] = [
-  { type: "day_1", name: "First Day", trigger_days: 1, unit: "days" },
-  { type: "day_3", name: "Three Days", trigger_days: 3, unit: "days" },
-  { type: "day_7", name: "One Week", trigger_days: 7, unit: "days" },
-  { type: "day_14", name: "Two Weeks", trigger_days: 14, unit: "days" },
-  { type: "day_30", name: "One Month", trigger_days: 30, unit: "days" },
-  { type: "day_60", name: "Two Months", trigger_days: 60, unit: "days" },
-  { type: "day_90", name: "Three Months", trigger_days: 90, unit: "days" },
-  { type: "day_365", name: "One Year", trigger_days: 365, unit: "days" },
-];
-
-export function getPhaseForDay(day: number): QuitPhase {
-  for (const r of QUIT_PHASE_RANGES) {
-    if (day >= r.start && day <= r.end) return r.phase;
-  }
-  return "free";
+  contexts: string[];
+  awareness: AwarenessLevel;
+  quit_goal: QuitGoal;
 }
 
-export function getPhaseLabel(phase: QuitPhase): string {
-  return QUIT_PHASE_RANGES.find((r) => r.phase === phase)?.label ?? "Free";
+export function phaseOrder(phase: QuitPhase): number {
+  if (phase === "mapping") return 1;
+  if (phase === "disruption") return 2;
+  return 3;
 }
 
-/** Short label for tight UI (e.g. milestone card) so "Replacement" fits on one line. */
-export function getPhaseShortLabel(phase: QuitPhase): string {
-  const short: Record<QuitPhase, string> = {
-    awareness: "Aware.",
-    replacement: "Replace.",
-    reflex: "Reflex",
-    rewired: "Rewired",
-    free: "Free",
-  };
-  return short[phase] ?? "Free";
-}
-
-export function getPhaseRange(phase: QuitPhase): { start: number; end: number } {
-  const r = QUIT_PHASE_RANGES.find((x) => x.phase === phase);
-  return r ? { start: r.start, end: r.end } : { start: 91, end: 9999 };
+export function awarenessDisplay(a: AwarenessLevel): string {
+  if (a === "subconscious") return "Usually not aware until it's done";
+  if (a === "semi_conscious") return "Aware while doing it";
+  return "Fully conscious choice";
 }

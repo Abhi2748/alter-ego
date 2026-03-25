@@ -17,10 +17,11 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RouteProp } from "@react-navigation/native";
-import type { MainStackParamList, MainTabParamList } from "../navigation/types";
+import type { MainTabParamList } from "../navigation/types";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
@@ -31,6 +32,7 @@ import { HomeMissionCard } from "../components/HomeMissionCard";
 import type { MissionType, MissionStatus } from "../components/MissionCard";
 import { AddMissionModal } from "../components/AddMissionModal";
 import { CharacterEvolutionOverlay } from "../components/CharacterEvolutionOverlay";
+import { StageTwinMessageOverlay } from "@/components/StageTwinMessageOverlay";
 import { MilestoneAchievementCard } from "../components/MilestoneAchievementCard";
 import { HomeMissionSectionsSkeleton } from "@/components/HomeMissionSectionsSkeleton";
 import { useUserStore } from "@/store/userStore";
@@ -38,27 +40,60 @@ import { useTodayMissions, useCompleteMission, useDeletePersonalMission } from "
 import { DeleteMissionSheet } from "@/components/DeleteMissionSheet";
 import { MissionRemovedToast } from "@/components/MissionRemovedToast";
 import { StreakAchievementOverlay } from "@/components/StreakAchievementOverlay";
+import { TwinPulse } from "@/components/TwinPulse";
 import { useTwinStrip } from "@/hooks/useTwinStrip";
-import type { Mission } from "@/services/missions";
+import type { CompleteMissionResponse, Mission } from "@/services/missions";
+import {
+  emitMissionCompletionCelebration,
+  setMissionCompletionCelebrationHandler,
+} from "@/utils/missionCompletionBridge";
+import {
+  runMissionCompletionCelebrationUI,
+  type MissionCompletionCelebrationContext,
+} from "@/utils/missionCompletionCelebration";
 import { missionsService } from "@/services/missions";
-import { getErrorMessage } from "@/services/api";
+import { apiClient, getErrorMessage } from "@/services/api";
 import { useProfileStreak } from "@/hooks/useProfile";
 import { SpGainToast } from "@/components/SpGainToast";
 import { SurgeIndicator } from "@/components/SurgeIndicator";
 import { AetherToast } from "@/components/AetherToast";
+import { SigilLevelUpOverlay, type SigilLevelUpPayload } from "@/components/SigilLevelUpOverlay";
+import { FractureOverlay } from "@/components/FractureOverlay";
+import { SevenDayMirror } from "@/components/SevenDayMirror";
+import { AbsenceInterstitial } from "@/components/AbsenceInterstitial";
+import { RecoveryBanner } from "@/components/RecoveryBanner";
 import {
-  SigilLevelUpOverlay,
-  type SigilLevelUpPayload,
-} from "@/components/SigilLevelUpOverlay";
+  fetchMirrorData,
+  fetchReturnState,
+  type MirrorResponse,
+  type ReturnStateResponse,
+} from "@/services/profile";
+import { useSigilData } from "@/hooks/useSigil";
+import { SIGIL_PLACEHOLDER_DATA } from "@/services/sigil";
 import {
   parseStatTag,
   resolveStatKeyForMission,
   type AbilityStatKey,
 } from "@/constants/stats";
 import { useCharacterStats } from "@/hooks/useStats";
-import { useSigilData, SIGIL_KEYS } from "@/hooks/useSigil";
-import type { StatGains } from "@/services/stats";
+/** AsyncStorage keys for streak-break ceremony (B1 Fracture). */
+const AE_LAST_STREAK_KEY_PREFIX = "ae_last_streak_";
+const AE_FRACTURE_SHOWN_KEY_PREFIX = "ae_fracture_shown_";
 
+/** Calendar days since registration (day 1 = first day), device-local; mirrors backend intent for mirror eligibility. */
+function profileUsageDayCount(registrationDate: string | undefined): number {
+  if (!registrationDate) return 0;
+  const datePart = registrationDate.slice(0, 10);
+  const parts = datePart.split("-").map((x) => parseInt(x, 10));
+  if (parts.length < 3 || parts.some((n) => !Number.isFinite(n))) return 0;
+  const [y, m, d] = parts;
+  const reg = new Date(y, m - 1, d);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const regDay = new Date(reg.getFullYear(), reg.getMonth(), reg.getDate());
+  const diffDays = Math.floor((today.getTime() - regDay.getTime()) / 86400000);
+  return diffDays + 1;
+}
 
 // Design tokens (spec Section 1)
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
@@ -89,6 +124,17 @@ const CONTENT_PADDING_BOTTOM = 96;
 const JOURNAL_FAB_BOTTOM_GAP = 8;
 const SCROLL_PADDING_H = 16;
 
+function asMissionArray(raw: unknown): Mission[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is Mission =>
+      item != null &&
+      typeof item === "object" &&
+      typeof (item as Mission).id === "string" &&
+      (item as Mission).id.length > 0
+  );
+}
+
 type PlaceholderMission = {
   id: string;
   title: string;
@@ -105,19 +151,19 @@ type PlaceholderMission = {
 };
 
 function missionApiToCard(
-  m: Mission,
+  m: Partial<Mission> | null | undefined,
   category: "Core" | "Interest" | "Resistance" | "Personal"
 ): PlaceholderMission {
-  const diff = String(m.difficulty ?? "").toLowerCase();
+  const diff = String(m?.difficulty ?? "").toLowerCase();
   const difficulty = diff === "easy" ? "Easy" : diff === "medium" ? "Medium" : diff === "hard" ? "Hard" : "Medium";
   return {
-    id: m.id,
-    title: m.title,
+    id: typeof m?.id === "string" ? m.id : "",
+    title: m?.title ?? "",
     category,
     difficulty,
-    xpValue: m.xp_value ?? 0,
-    petFoodValue: m.pf_value ?? 0,
-    status: m.completed ? ("complete" as const) : ("pending" as const),
+    xpValue: m?.xp_value ?? 0,
+    petFoodValue: m?.pf_value ?? 0,
+    status: m?.completed ? ("complete" as const) : ("pending" as const),
     missionType: (category === "Core"
       ? "core"
       : category === "Interest"
@@ -126,42 +172,8 @@ function missionApiToCard(
           ? "resistance"
           : "personal") as MissionType,
     missionStreak: 0,
-    interestName: (m.interest_name ?? "").trim() || undefined,
-    quitTargetName: (m.quit_target_name ?? "").trim() || undefined,
-  };
-}
-
-function missionApiToDetailParam(
-  m: Mission,
-  type: "core" | "interest" | "resistance",
-  date: string
-): MainStackParamList["MissionDetail"]["mission"] {
-  const diff = String(m.difficulty ?? "").toLowerCase();
-  const difficulty: MainStackParamList["MissionDetail"]["mission"]["difficulty"] =
-    diff === "easy"
-      ? "easy"
-      : diff === "hard"
-        ? "hard"
-        : diff === "elite"
-          ? "elite"
-          : "medium";
-
-  return {
-    id: m.id,
-    type,
-    title: m.title,
-    difficulty,
-    xp_value: m.xp_value ?? 0,
-    pf_value: m.pf_value ?? 0,
-    completed: !!m.completed,
-    completed_at: m.completed_at ?? null,
-    is_journal_mission: !!m.is_journal_mission,
-    core_pillar: m.core_pillar ?? null,
-    interest_id: m.interest_id ?? null,
-    rationale: m.rationale ?? null,
-    domain_knowledge: m.domain_knowledge ?? null,
-    estimated_minutes: m.estimated_minutes ?? null,
-    mission_date: m.mission_date ?? date,
+    interestName: (m?.interest_name ?? "").trim() || undefined,
+    quitTargetName: (m?.quit_target_name ?? "").trim() || undefined,
   };
 }
 
@@ -174,6 +186,21 @@ function getGreeting(): string {
 }
 
 const PET_NAMES = ["Cub", "Cat", "Fox", "Wolf", "Snow Leopard", "Panther", "Griffin", "Dragon"] as const;
+
+function getTwinCompletionNote(mission: Mission): string | undefined {
+  if (mission.twin_completed === false) return "You got there first.";
+  if (!mission.twin_completed) return undefined;
+  const hour = mission.twin_completed_at_hour;
+  if (hour == null || typeof hour !== "number") {
+    return "Your Twin was done with this before noon.";
+  }
+  const now = new Date().getHours();
+  const hoursAgo = Math.max(0, now - hour);
+  if (hoursAgo === 0) return "Your Twin just finished this.";
+  if (hoursAgo === 1) return "Your Twin finished this an hour ago.";
+  if (hoursAgo < 5) return `Your Twin finished this ${hoursAgo} hours ago.`;
+  return "Your Twin was done with this before noon.";
+}
 
 function buildSpToastGains(
   gains: StatGains | undefined
@@ -269,6 +296,7 @@ const willNudgeStyles = StyleSheet.create({
 
 export function HomeScreen() {
   const navigation = useNavigation();
+  const queryClient = useQueryClient();
   const route = useRoute<RouteProp<MainTabParamList, "Home">>();
   const insets = useSafeAreaInsets();
   const xpBarRef = useRef<XPProgressBarRef>(null);
@@ -278,23 +306,38 @@ export function HomeScreen() {
   const heroX = (windowWidth - (CHARACTER_WIDTH + PET_OFFSET + ROAMING_PET_SIZE)) / 2 + CHARACTER_WIDTH + PET_OFFSET;
   const heroY = 20 + 4 + CHARACTER_HEIGHT / 2 - ROAMING_PET_SIZE / 2;
 
-  const queryClient = useQueryClient();
   const profile = useUserStore((state) => state.profile);
+  const fetchProfile = useUserStore((state) => state.fetchProfile);
   const { data: todayData, isPending, isFetching, error, refetch } = useTodayMissions();
   const { data: characterStats } = useCharacterStats();
-  const { data: sigilSnapshot } = useSigilData();
   /** No cached missions yet — show full mission-area skeleton (top may already render from profile). */
   const showMissionSkeletons = !error && !todayData && (isPending || isFetching);
   const { mutate: completeMission, isPending: isCompleting } = useCompleteMission();
   const { mutate: deletePersonalMission } = useDeletePersonalMission();
   const { data: twinStrip } = useTwinStrip();
   const { data: streakProfile } = useProfileStreak();
+  const { data: sigilSnapshot } = useSigilData();
+  const sigilData = sigilSnapshot ?? SIGIL_PLACEHOLDER_DATA;
+  const surgeActive = sigilData.surge_active === true;
+
+  const [aetherToastVisible, setAetherToastVisible] = useState(false);
+  const [aetherToastAmount, setAetherToastAmount] = useState(0);
+  const [sigilLevelUp, setSigilLevelUp] = useState<SigilLevelUpPayload | null>(null);
+  const [surgeJustActivated, setSurgeJustActivated] = useState(false);
+
+  useEffect(() => {
+    if (!surgeJustActivated) return;
+    const t = setTimeout(() => setSurgeJustActivated(false), 4000);
+    return () => clearTimeout(t);
+  }, [surgeJustActivated]);
 
   const [streakAnimationData, setStreakAnimationData] = useState<{
     show: boolean;
     count: number;
     tier: string;
   } | null>(null);
+  /** Dedupes parallel completes: only one overlay per (anchor day × streak count). */
+  const streakOverlayTokenRef = useRef<string | null>(null);
   const [evolutionData, setEvolutionData] = useState<{
     new_stage: number;
     new_stage_name: string;
@@ -311,7 +354,15 @@ export function HomeScreen() {
     twinCongratulation: string;
   } | null>(null);
   const [evolutionOverlayVisible, setEvolutionOverlayVisible] = useState(false);
+  const [stageTwinMsgVisible, setStageTwinMsgVisible] = useState(false);
+  const [stageTwinMsgStageName, setStageTwinMsgStageName] = useState("");
   const [evolutionStageName, setEvolutionStageName] = useState("The Focused");
+
+  const handleStageTwinMsgComplete = useCallback(() => {
+    setStageTwinMsgVisible(false);
+    setEvolutionOverlayVisible(true);
+  }, []);
+
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
   const [deleteSheetVisible, setDeleteSheetVisible] = useState(false);
   const [missionToDelete, setMissionToDelete] = useState<Mission | null>(null);
@@ -319,19 +370,111 @@ export function HomeScreen() {
   const [removeErrorToast, setRemoveErrorToast] = useState(false);
   const [spToast, setSpToast] = useState<{
     k: number;
-    gains: Array<{ statKey: StatKey; amount: number }>;
+    gains: Array<{ statKey: AbilityStatKey; amount: number }>;
+    footerNote?: string;
   } | null>(null);
-  const [aetherPopup, setAetherPopup] = useState<number | null>(null);
-  const [sigilLevelUp, setSigilLevelUp] = useState<SigilLevelUpPayload | null>(null);
+  const [fractureVisible, setFractureVisible] = useState(false);
+  const [fractureStreakCount, setFractureStreakCount] = useState(0);
+  const fractureMemoryLastPositiveStreakRef = useRef(0);
+  const [mirrorDismissed, setMirrorDismissed] = useState(false);
+  const [absenceInterstitialSessionOpen, setAbsenceInterstitialSessionOpen] = useState(false);
+  const [absenceInterstitialDismissed, setAbsenceInterstitialDismissed] = useState(false);
 
-  const closeSigilLevelUp = useCallback(() => setSigilLevelUp(null), []);
+  const mirrorDayCount = profileUsageDayCount(profile?.registration_date);
+  const shouldFetchMirror =
+    !!profile?.username && !mirrorDismissed && mirrorDayCount >= 7;
 
-  const surgeActive = sigilSnapshot?.surge_active ?? false;
+  const { data: mirrorData } = useQuery<MirrorResponse>({
+    queryKey: ["mirror", profile?.username ?? ""],
+    queryFn: fetchMirrorData,
+    enabled: shouldFetchMirror,
+    staleTime: Infinity,
+    retry: 1,
+    throwOnError: false,
+  });
 
-  const coreMissions = (todayData?.missions?.core ?? []).map((m) => missionApiToCard(m, "Core"));
-  const interestMissions = (todayData?.missions?.interest ?? []).map((m) => missionApiToCard(m, "Interest"));
-  const resistanceMissions = (todayData?.missions?.resistance ?? []).map((m) => missionApiToCard(m, "Resistance"));
-  const personalMissions = (todayData?.missions?.personal ?? []).map((m) => missionApiToCard(m, "Personal"));
+  const { data: returnState } = useQuery<ReturnStateResponse>({
+    queryKey: ["return-state"],
+    queryFn: fetchReturnState,
+    enabled: !!profile,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+    throwOnError: false,
+  });
+
+  const absenceDays = returnState?.absence_days ?? twinStrip?.absence_days ?? 0;
+  const meetsAbsenceInterstitialThreshold = absenceDays >= 3;
+
+  useEffect(() => {
+    if (!profile || absenceInterstitialDismissed) return;
+    if (meetsAbsenceInterstitialThreshold) {
+      setAbsenceInterstitialSessionOpen(true);
+    }
+  }, [profile, meetsAbsenceInterstitialThreshold, absenceInterstitialDismissed]);
+
+  const shouldShowAbsenceInterstitial =
+    !absenceInterstitialDismissed &&
+    absenceInterstitialSessionOpen &&
+    absenceDays >= 3;
+
+  const petAbsenceOpacity = absenceDays >= 2 ? 0.6 : 1;
+
+  const handleLongAbsenceAck = useCallback(async () => {
+    try {
+      await apiClient.post("/api/v1/profile/long-absence-ack", {});
+    } catch {
+      /* non-blocking */
+    }
+    queryClient.invalidateQueries({ queryKey: ["return-state"] });
+    void fetchProfile();
+  }, [queryClient, fetchProfile]);
+
+  // Backend sets mirror_shown on first success and may return already_shown true in the same payload as observations.
+  const mirrorVisible =
+    !mirrorDismissed &&
+    mirrorData?.eligible === true &&
+    (mirrorData?.observations?.length ?? 0) > 0;
+
+  const missionPayload = todayData?.missions;
+  const coreList = asMissionArray(missionPayload?.core);
+  const interestList = asMissionArray(missionPayload?.interest);
+  const resistanceList = asMissionArray(missionPayload?.resistance);
+  const personalList = asMissionArray(missionPayload?.personal);
+
+  const coreMissions = coreList.map((m) => missionApiToCard(m, "Core"));
+  const interestMissions = interestList.map((m) => missionApiToCard(m, "Interest"));
+  const resistanceMissions = resistanceList.map((m) => missionApiToCard(m, "Resistance"));
+  const personalMissions = personalList.map((m) => missionApiToCard(m, "Personal"));
+
+  const missionById = useMemo(() => {
+    const m = new Map<string, Mission>();
+    for (const x of [...coreList, ...interestList, ...resistanceList, ...personalList]) {
+      if (x?.id) m.set(x.id, x);
+    }
+    return m;
+  }, [coreList, interestList, resistanceList, personalList]);
+
+  const celebrationCtxRef = useRef<MissionCompletionCelebrationContext>(
+    {} as MissionCompletionCelebrationContext
+  );
+  celebrationCtxRef.current = {
+    xpBarRef,
+    queryClient,
+    missionById,
+    setStreakAnimationData,
+    setEvolutionStageName,
+    setEvolutionData,
+    setEvolutionOverlayVisible,
+    setStageTwinMessageVisible: setStageTwinMsgVisible,
+    setStageTwinMessageStageName: setStageTwinMsgStageName,
+    setPetEvolutionData,
+    setMilestoneCard,
+    setSpToast,
+    setAetherToastAmount,
+    setAetherToastVisible,
+    setSurgeJustActivated,
+    setSigilLevelUp,
+  };
 
   const dayNumber = todayData?.day_number ?? 1;
   const isDay1To14 = dayNumber >= 1 && dayNumber <= 14;
@@ -339,7 +482,7 @@ export function HomeScreen() {
   const missionsCompletedForNudge =
     characterStats?.missions_completed_today ?? completedToday;
   const totalMissionsForNudge =
-    characterStats?.total_missions_today ?? todayData?.summary.total ?? 0;
+    characterStats?.total_missions_today ?? todayData?.summary?.total ?? 0;
   const showStartAnywhereHelper = completedToday === 0 && isDay1To14;
 
   const username = profile?.username ?? "";
@@ -361,8 +504,16 @@ export function HomeScreen() {
   const anchorDateStr = streakHeatmap.length
     ? streakHeatmap[streakHeatmap.length - 1].date
     : new Date().toISOString().slice(0, 10);
-  const [ay, am, ad] = anchorDateStr.split("-").map((x) => Number(x));
-  const anchorUTCDate = new Date(Date.UTC(ay, am - 1, ad));
+  const anchorParts = anchorDateStr.split("-").map((x) => Number(x));
+  const ay = anchorParts[0];
+  const am = anchorParts[1];
+  const ad = anchorParts[2];
+  let anchorUTCDate = new Date(Date.UTC(ay, am - 1, ad));
+  if (!Number.isFinite(anchorUTCDate.getTime())) {
+    const t = new Date();
+    anchorUTCDate = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()));
+  }
+  const calendarAnchorStr = anchorUTCDate.toISOString().slice(0, 10);
   // Mon–Sun indices: Mon=0 ... Sun=6
   const anchorMonBased = (anchorUTCDate.getUTCDay() + 6) % 7;
   const weekDates = useMemo(() => {
@@ -375,9 +526,77 @@ export function HomeScreen() {
   const weekDotType = weekDates.map((dateStr) => {
     const row = heatmapByDate.get(dateStr);
     if (row?.maintained) return "done" as const;
-    if (dateStr === anchorDateStr) return "today" as const;
+    if (dateStr === calendarAnchorStr) return "today" as const;
     return "pending" as const;
   });
+
+  useEffect(() => {
+    streakOverlayTokenRef.current = null;
+  }, [calendarAnchorStr]);
+
+  useEffect(() => {
+    if (!profile) return;
+
+    const uname = (profile.username || "user").trim() || "user";
+    const currentStreak = profile.current_streak ?? 0;
+
+    if (currentStreak > 0) {
+      fractureMemoryLastPositiveStreakRef.current = Math.max(
+        fractureMemoryLastPositiveStreakRef.current,
+        currentStreak
+      );
+    }
+
+    let cancelled = false;
+    const lastKey = `${AE_LAST_STREAK_KEY_PREFIX}${uname}`;
+    const today = new Date().toISOString().slice(0, 10);
+    const shownKey = `${AE_FRACTURE_SHOWN_KEY_PREFIX}${uname}_${today}`;
+
+    const run = async () => {
+      try {
+        if (currentStreak > 0) {
+          await AsyncStorage.setItem(lastKey, String(currentStreak));
+        }
+
+        const alreadyShown = await AsyncStorage.getItem(shownKey);
+        if (cancelled || alreadyShown === "1") return;
+
+        const lastStr = await AsyncStorage.getItem(lastKey);
+        let lastFromDisk: number | null = null;
+        if (lastStr != null && lastStr !== "") {
+          const n = parseInt(lastStr, 10);
+          lastFromDisk = Number.isFinite(n) ? n : null;
+        }
+
+        let lastPositive: number | null = null;
+        if (lastFromDisk != null && lastFromDisk >= 3) {
+          lastPositive = lastFromDisk;
+        } else if (fractureMemoryLastPositiveStreakRef.current >= 3) {
+          lastPositive = fractureMemoryLastPositiveStreakRef.current;
+        }
+
+        if (currentStreak === 0 && lastPositive != null) {
+          await AsyncStorage.setItem(shownKey, "1");
+          if (!cancelled) {
+            setFractureStreakCount(lastPositive);
+            setFractureVisible(true);
+          }
+        }
+      } catch {
+        if (cancelled) return;
+        const mem = fractureMemoryLastPositiveStreakRef.current;
+        if (currentStreak === 0 && mem >= 3) {
+          setFractureStreakCount(mem);
+          setFractureVisible(true);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile, profile?.current_streak, profile?.username]);
 
   const nextPetName = petStage >= 1 && petStage < 8 ? PET_NAMES[petStage - 1] : null;
   const pfProgress = profile?.pf_progress_pct ?? 0;
@@ -387,62 +606,23 @@ export function HomeScreen() {
     (missionId: string) => {
       completeMission(missionId, {
         onSuccess: (result) => {
-          if (!result.already_completed && !result.stage_evolved) {
-            requestAnimationFrame(() => {
-              xpBarRef.current?.animateXpGain();
-            });
-          }
-          if (result.streak_animation?.show) {
-            setStreakAnimationData({
-              show: true,
-              count: result.streak_animation.streak_count,
-              tier: result.streak_animation.animation_tier,
-            });
-          }
-          if (result.stage_evolved) {
-            setEvolutionStageName(result.stage_evolved.new_stage_name);
-            setEvolutionData(result.stage_evolved);
-            setEvolutionOverlayVisible(true);
-          }
-          if (result.pet_evolved) {
-            setPetEvolutionData(result.pet_evolved);
-          }
-          if (result.milestone_reached != null) {
-            setMilestoneCard({
-              interestName: "",
-              milestoneNumber: result.milestone_reached,
-              milestoneName: `Streak milestone: ${result.milestone_reached} days`,
-              twinCongratulation: "Your Twin noticed.",
-            });
-          }
-          if (!result.already_completed) {
-            const tg = buildSpToastGains(result.stat_gains);
-            if (tg.length > 0) {
-              setSpToast({ k: Date.now(), gains: tg });
-            }
-          }
-
-          const sigil = result.sigil;
-          if (sigil) {
-            void queryClient.invalidateQueries({ queryKey: SIGIL_KEYS.all });
-            if (sigil.aether_awarded > 0) {
-              setAetherPopup(sigil.aether_awarded);
-            }
-            if (sigil.level_up && sigil.new_level != null) {
-              setSigilLevelUp({
-                level: sigil.new_level,
-                name: sigil.new_level_name ?? null,
-              });
-            }
-          }
+          emitMissionCompletionCelebration(result, { missionId });
         },
         onError: (e) => {
           Alert.alert("Can't mark done", getErrorMessage(e));
         },
       });
     },
-    [completeMission, queryClient]
+    [completeMission]
   );
+
+  useEffect(() => {
+    const handler = (result: CompleteMissionResponse, source: { missionId?: string }) => {
+      runMissionCompletionCelebrationUI(result, source, celebrationCtxRef.current);
+    };
+    setMissionCompletionCelebrationHandler(handler);
+    return () => setMissionCompletionCelebrationHandler(null);
+  }, []);
 
   const showTwinStrip = twinStrip?.has_twin && twinStrip?.strip_message;
   const twinStripMessage = twinStrip?.strip_message ?? null;
@@ -452,7 +632,7 @@ export function HomeScreen() {
   useEffect(() => {
     if (
       todayData &&
-      todayData.summary.total === 0 &&
+      (todayData.summary?.total ?? 0) === 0 &&
       coreMissions.length === 0 &&
       interestMissions.length === 0
     ) {
@@ -508,6 +688,14 @@ export function HomeScreen() {
 
   const openTwin = () => navigation.navigate("Twin");
 
+  const dismissStreakOverlay = useCallback(() => {
+    setStreakAnimationData(null);
+  }, []);
+
+  const dismissFractureOverlay = useCallback(() => {
+    setFractureVisible(false);
+  }, []);
+
   const handleConfirmDeletePersonal = useCallback(() => {
     if (!missionToDelete) return;
     const id = missionToDelete.id;
@@ -519,19 +707,19 @@ export function HomeScreen() {
     });
   }, [missionToDelete, deletePersonalMission]);
 
+  const openPersonalDeleteSheet = useCallback((apiMission: Mission) => {
+    setMissionToDelete(apiMission);
+    setDeleteSheetVisible(true);
+  }, []);
+
   const openMissionDetail = useCallback(
-    (apiMission: Mission, type: "core" | "interest" | "resistance" | "personal") => {
+    (apiMission: Mission) => {
+      if (!apiMission?.id) return;
       const parentNav = (navigation as any).getParent?.();
       const target = parentNav ?? navigation;
-      target.navigate("MissionDetail", {
-        mission: missionApiToDetailParam(
-          apiMission,
-          type,
-          todayData?.date ?? new Date().toISOString().slice(0, 10)
-        ),
-      });
+      target.navigate("MissionDetail", { missionId: apiMission.id });
     },
-    [navigation, todayData?.date]
+    [navigation]
   );
 
   const greeting = getGreeting();
@@ -558,19 +746,8 @@ export function HomeScreen() {
             )}
           </View>
           <Text style={styles.greeting} numberOfLines={1}>{greeting}</Text>
+          {surgeActive && <SurgeIndicator visible />}
         </View>
-      </View>
-
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          top: insets.top + 6,
-          right: 16,
-          zIndex: 40,
-        }}
-      >
-        <SurgeIndicator visible={surgeActive} />
       </View>
 
       {/* 2. Streak strip */}
@@ -607,6 +784,17 @@ export function HomeScreen() {
           </Pressable>
         </View>
       ) : null}
+
+      <TwinPulse
+        statusLine={twinStrip?.status_line}
+        message={showTwinStrip ? twinStripMessage : null}
+        userXpToday={twinStrip?.user_xp_today}
+        twinXpToday={twinStrip?.twin_xp_today}
+        hasTwin={twinStrip?.has_twin ?? false}
+        onPress={openTwin}
+        absenceDays={absenceDays}
+        absenceMessage={twinStrip?.absence_strip_message}
+      />
 
       <ScrollView
         style={styles.scroll}
@@ -657,7 +845,9 @@ export function HomeScreen() {
           </View>
           <View style={styles.xpWrap}>
             <View style={styles.xpLabelRow}>
-              <Text style={styles.xpLabelLeft}>✦ {displayXP} XP</Text>
+              <Text style={styles.xpLabelLeft}>
+                {surgeActive ? `✦ ${displayXP} XP · SURGE` : `✦ ${displayXP} XP`}
+              </Text>
               <Text style={styles.xpLabelRight}>→ {nextStageLabel}</Text>
             </View>
             <XPProgressBar
@@ -697,35 +887,29 @@ export function HomeScreen() {
         </View>
 
         {/* Empty state: missions being prepared */}
-        {!isPending && !error && todayData && todayData.summary.total === 0 ? (
+        {!isPending && !error && todayData && (todayData.summary?.total ?? 0) === 0 ? (
           <View style={styles.emptyMissionsWrap}>
             <Text style={styles.emptyMissionsText}>Your missions are being prepared…</Text>
           </View>
         ) : null}
 
-        {/* 4. Twin alert strip — full width */}
-        <Pressable style={styles.twinStrip} onPress={openTwin}>
-          <View style={styles.twinAvatar}>
-            <LinearGradient
-              colors={["rgba(100,35,200,0.62)", "rgba(192,132,252,0.22)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <Text style={styles.twinAvatarLabel}>T</Text>
-          </View>
-          <Text style={styles.twinMessage} numberOfLines={1} ellipsizeMode="tail">
-            {showTwinStrip ? twinStripMessage : "Your rival is you — one week ahead."}
-          </Text>
-          <Ionicons name="chevron-forward" size={14} color="#374151" />
-        </Pressable>
-
         {/* 5–8. Mission sections — skeleton while first fetch (e.g. slow network after onboarding). */}
         {showMissionSkeletons ? <HomeMissionSectionsSkeleton /> : null}
 
         {/* 5–8. Mission sections — only when we have missions */}
-        {todayData && todayData.summary.total > 0 ? (
+        {todayData && (todayData.summary?.total ?? 0) > 0 ? (
         <>
+        {returnState?.recovery_active === true && returnState.recovery_days_remaining > 0 ? (
+          <RecoveryBanner
+            daysRemaining={returnState.recovery_days_remaining}
+            reason={
+              profile?.return_reason &&
+              ["life", "motivation", "forgot", "break", "unsure"].includes(profile.return_reason)
+                ? profile.return_reason
+                : "life"
+            }
+          />
+        ) : null}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderLeft}>
@@ -738,7 +922,7 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {(todayData?.missions?.core ?? []).map((apiMission, i) => {
+            {coreList.map((apiMission, i) => {
                 const m = missionApiToCard(apiMission, "Core");
                 return (
                   <HomeMissionCard
@@ -750,7 +934,7 @@ export function HomeScreen() {
                     petFoodValue={m.petFoodValue}
                     status={m.status}
                     onComplete={() => handleComplete(m.id)}
-                    onPress={() => openMissionDetail(apiMission, "core")}
+                    onPress={() => openMissionDetail(apiMission)}
                     missionType={m.missionType}
                     missionStreak={m.missionStreak ?? 0}
                     appearIndex={i}
@@ -758,6 +942,7 @@ export function HomeScreen() {
                       parseStatTag(apiMission.stat_tag) ??
                       resolveStatKeyForMission("core", apiMission.core_pillar ?? null)
                     }
+                    twinCompleted={apiMission.twin_completed === true}
                   />
                 );
               })}
@@ -769,7 +954,7 @@ export function HomeScreen() {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderLeft}>
               <LinearGradient colors={[VIOLET, VIOLET_DEEP]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.sectionBarFocus} />
-              <Text style={[styles.sectionTitle, { color: VIOLET }]}>INTEREST</Text>
+              <Text style={[styles.sectionTitle, { color: VIOLET }]}>TODAY&apos;S FOCUS</Text>
             </View>
             <Text style={styles.sectionFraction}>
               <Text style={styles.sectionFractionDone}>{interestMissions.filter((m) => m.status === "complete").length}</Text>
@@ -777,7 +962,7 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {(todayData?.missions.interest ?? []).map((apiMission, i) => {
+            {(todayData?.missions?.interest ?? []).map((apiMission, i) => {
                 const m = missionApiToCard(apiMission, "Interest");
                 return (
                   <HomeMissionCard
@@ -789,12 +974,13 @@ export function HomeScreen() {
                     petFoodValue={m.petFoodValue}
                     status={m.status}
                     onComplete={() => handleComplete(m.id)}
-                    onPress={() => openMissionDetail(apiMission, "interest")}
+                    onPress={() => openMissionDetail(apiMission)}
                     missionType={m.missionType}
                     interestName={m.interestName}
                     missionStreak={m.missionStreak ?? 0}
                     appearIndex={i}
                     statKey={resolveStatKeyForMission("interest", apiMission.core_pillar ?? null)}
+                    twinCompleted={apiMission.twin_completed === true}
                   />
                 );
               })}
@@ -806,7 +992,7 @@ export function HomeScreen() {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderLeft}>
               <View style={styles.sectionBarResistance} />
-              <Text style={[styles.sectionTitle, { color: EMBER, fontSize: 13, fontWeight: "600" }]}>RESISTANCE</Text>
+              <Text style={[styles.sectionTitle, { color: RED_CORE, fontSize: 13, fontWeight: "600" }]}>RESISTANCE</Text>
             </View>
             <Text style={styles.sectionFraction}>
               <Text style={styles.sectionFractionDone}>{resistanceMissions.filter((m) => m.status === "complete").length}</Text>
@@ -814,7 +1000,7 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {(todayData?.missions?.resistance ?? []).map((apiMission, i) => {
+            {resistanceList.map((apiMission, i) => {
               const m = missionApiToCard(apiMission, "Resistance");
               return (
                 <HomeMissionCard
@@ -826,7 +1012,7 @@ export function HomeScreen() {
                   petFoodValue={m.petFoodValue}
                   status={m.status}
                   onComplete={() => handleComplete(m.id)}
-                  onPress={() => openMissionDetail(apiMission, "resistance")}
+                  onPress={() => openMissionDetail(apiMission)}
                   missionType="resistance"
                   quitTargetName={m.quitTargetName}
                   dayCounter={m.dayCounter}
@@ -854,7 +1040,7 @@ export function HomeScreen() {
             </Text>
           </View>
           <View style={styles.cards}>
-            {(todayData?.missions?.personal ?? []).map((apiMission, i) => {
+            {personalList.map((apiMission, i) => {
               const m = missionApiToCard(apiMission, "Personal");
               return (
                 <HomeMissionCard
@@ -876,6 +1062,7 @@ export function HomeScreen() {
                     parseStatTag(apiMission.stat_tag) ??
                     resolveStatKeyForMission("personal", apiMission.core_pillar ?? null)
                   }
+                  twinCompleted={apiMission.twin_completed === true}
                 />
               );
             })}
@@ -902,18 +1089,10 @@ export function HomeScreen() {
         <SpGainToast
           key={spToast.k}
           gains={spToast.gains}
+          footerNote={spToast.footerNote}
           onFinish={() => setSpToast(null)}
         />
       ) : null}
-
-      {aetherPopup != null ? (
-        <AetherToast
-          amount={aetherPopup}
-          visible
-          onDismiss={() => setAetherPopup(null)}
-        />
-      ) : null}
-      <SigilLevelUpOverlay payload={sigilLevelUp} onClose={closeSigilLevelUp} />
 
       {/* Pet roaming overlay */}
       {viewportHeight > 0 && windowWidth > 0 && petStage >= 1 && (
@@ -931,6 +1110,7 @@ export function HomeScreen() {
             heroY={heroY}
             stage={petStage}
             isHappy={petHealthState === "happy"}
+            absenceOpacity={petAbsenceOpacity}
           />
         </View>
       )}
@@ -966,6 +1146,11 @@ export function HomeScreen() {
           twinCongratulation={milestoneCard.twinCongratulation}
         />
       )}
+      <StageTwinMessageOverlay
+        visible={stageTwinMsgVisible}
+        stageName={stageTwinMsgStageName}
+        onComplete={handleStageTwinMsgComplete}
+      />
       {evolutionOverlayVisible && (
         <CharacterEvolutionOverlay
           visible={true}
@@ -1000,9 +1185,52 @@ export function HomeScreen() {
         <StreakAchievementOverlay
           visible
           streakCount={streakAnimationData.count}
-          onDismiss={() => setStreakAnimationData(null)}
+          onDismiss={dismissStreakOverlay}
         />
       ) : null}
+
+      <AetherToast
+        amount={aetherToastAmount}
+        visible={aetherToastVisible}
+        onDismiss={() => {
+          setAetherToastVisible(false);
+          setAetherToastAmount(0);
+        }}
+      />
+      <SigilLevelUpOverlay payload={sigilLevelUp} onClose={() => setSigilLevelUp(null)} />
+
+      <FractureOverlay
+        visible={fractureVisible}
+        streakCount={fractureStreakCount}
+        archetype={profile?.archetype ?? ""}
+        onDismiss={dismissFractureOverlay}
+      />
+
+      <SevenDayMirror
+        visible={mirrorVisible}
+        observations={mirrorData?.observations ?? []}
+        closingLine={mirrorData?.closing_line ?? "I'll know more next week."}
+        onDismiss={() => setMirrorDismissed(true)}
+      />
+
+      <AbsenceInterstitial
+        visible={shouldShowAbsenceInterstitial}
+        absenceDays={absenceDays}
+        interstitialMessage={twinStrip?.absence_interstitial_message}
+        accomplishments={twinStrip?.twin_accomplishments ?? []}
+        isLongAbsence={returnState?.is_long_absence ?? absenceDays >= 14}
+        longAbsenceMessage={returnState?.long_absence_message ?? null}
+        shouldAskQuestion={
+          returnState?.should_ask_question ?? absenceDays >= 7
+        }
+        onDismiss={() => setAbsenceInterstitialDismissed(true)}
+        onLongAbsenceDismiss={handleLongAbsenceAck}
+        onReasonSubmitted={() => {
+          queryClient.invalidateQueries({ queryKey: ["twin", "strip"] });
+          queryClient.invalidateQueries({ queryKey: ["return-state"] });
+          void fetchProfile();
+        }}
+      />
     </View>
   );
 }
@@ -1260,33 +1488,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
 
-  twinStrip: {
-    height: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 14,
-    marginHorizontal: -SCROLL_PADDING_H,
-    backgroundColor: "rgba(12,12,28,0.7)",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(42,48,80,0.38)",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(42,48,80,0.38)",
-  },
-  twinAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    overflow: "hidden",
-    borderWidth: 1.5,
-    borderColor: "rgba(192,132,252,0.28)",
-    flexShrink: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  twinAvatarLabel: { fontSize: 10, fontWeight: "700", color: "rgba(192,132,252,0.72)" },
-  twinMessage: { flex: 1, fontSize: 12, fontWeight: "400", color: VIOLET, fontStyle: "italic" },
-
   section: { marginBottom: 0 },
   sectionHeader: {
     flexDirection: "row",
@@ -1303,7 +1504,7 @@ const styles = StyleSheet.create({
     width: 3,
     height: 13,
     borderRadius: 2,
-    backgroundColor: EMBER,
+    backgroundColor: RED_CORE,
   },
   sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.8, textTransform: "uppercase" },
   sectionFraction: { fontSize: 11, fontWeight: "600", color: "#374151" },

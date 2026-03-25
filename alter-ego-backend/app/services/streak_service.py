@@ -150,7 +150,31 @@ async def process_streak(user_id: str) -> dict:
         update_data["streak_requirement_tier"] = new_tier
         tier_upgraded = True
 
-    supabase_admin.table("users").update(update_data).eq("id", user_id).execute()
+    # Single winner per calendar day: concurrent mission completes must not each
+    # return streak_achieved_today / fire duplicate animations or milestone inserts.
+    update_res = (
+        supabase_admin.table("users")
+        .update(update_data)
+        .eq("id", user_id)
+        .or_(f"last_streak_date.is.null,last_streak_date.neq.{today}")
+        .select("current_streak")
+        .execute()
+    )
+    if not (update_res.data or []):
+        user_fresh = (
+            supabase_admin.table("users").select("*").eq("id", user_id).single().execute().data or {}
+        )
+        fr_streak = int(user_fresh.get("current_streak") or 0)
+        return {
+            "streak_maintained": True,
+            "current_streak": fr_streak,
+            "streak_achieved_today": False,
+            "tier_upgraded": False,
+            "new_tier": None,
+            "milestone_reached": None,
+            "animation_tier": get_animation_tier(fr_streak),
+            "leaderboard_just_unlocked": False,
+        }
 
     # streak_log upsert
     xp_today = sum(

@@ -20,8 +20,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ViewShot from "react-native-view-shot";
 import type { QuitMilestoneOut } from "../utils/api";
 import { QuitMilestoneIcon } from "./QuitMilestoneIcons";
-import type { QuitPhase } from "../types/quits";
-import { getPhaseLabel, getPhaseShortLabel } from "../types/quits";
+import type { QuitStreakPhase } from "../types/quitStreakPhases";
+import { getStreakPhaseShortLabel } from "../types/quitStreakPhases";
 
 type QuitTheme = {
   accent: string;
@@ -324,7 +324,7 @@ export function QuitMilestoneModal({ visible, milestone, quitName, onClose }: Qu
                               style={[styles.statValue, styles.statValuePhase, { color: theme.accent }]}
                               numberOfLines={1}
                             >
-                              {milestone.phase_at_earn ? getPhaseShortLabel(milestone.phase_at_earn as QuitPhase) : "—"}
+                              {milestone.phase_at_earn ? getStreakPhaseShortLabel(milestone.phase_at_earn as QuitStreakPhase) : "—"}
                             </Text>
                             <Text style={styles.statLabel}>PHASE</Text>
                           </View>
@@ -359,7 +359,7 @@ export function QuitMilestoneModal({ visible, milestone, quitName, onClose }: Qu
                 ]}
               >
                 <LinearGradient
-                  colors={[...theme.shareColors]}
+                  colors={theme.shareColors as unknown as [string, string]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={StyleSheet.absoluteFill}

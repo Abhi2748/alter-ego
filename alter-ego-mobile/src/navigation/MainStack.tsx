@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { createStackNavigator } from "@react-navigation/stack";
 import { useUserStore } from "@/store/userStore";
 import type { MainStackParamList } from "./types";
@@ -20,6 +21,8 @@ import { JournalEditorScreen } from "../screens/JournalEditorScreen";
 import { JournalCalendarScreen } from "../screens/JournalCalendarScreen";
 import { DayDetailScreen } from "../screens/DayDetailScreen";
 import { MissionDetailScreen } from "../screens/MissionDetailScreen";
+import { SigilScreen } from "../screens/SigilScreen";
+import { LeaderboardScreen } from "../screens/LeaderboardScreen";
 import { COLORS } from "../constants/theme";
 
 const Stack = createStackNavigator<MainStackParamList>();
@@ -33,34 +36,38 @@ export function MainStack() {
   }, []);
 
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: COLORS.bg1 },
-      }}
-    >
-      <Stack.Screen name="MainTabs" component={MainTabNavigator} />
-      <Stack.Screen
-        name="Paywall"
-        component={PaywallScreen}
-        options={{ gestureEnabled: false }}
-      />
-      <Stack.Screen name="Settings" component={SettingsScreen} />
-      <Stack.Screen name="SettingsProfile" component={ProfileEditScreen} />
-      <Stack.Screen name="AccountSettings" component={AccountScreen} />
-      <Stack.Screen name="ContactUs" component={ContactUsScreen} />
-      <Stack.Screen name="SettingsFaq" component={SettingsFaqScreen} />
-      <Stack.Screen name="MailInbox" component={MailInboxScreen} />
-      <Stack.Screen name="ToneHistory" component={ToneHistoryScreen} />
-      <Stack.Screen name="TwinChat" component={TwinChatScreen} />
-      <Stack.Screen name="RankCard" component={RankCardScreen} />
-      <Stack.Screen name="ShareableCardsPreview" component={ShareableCardsPreviewScreen} />
-      <Stack.Screen name="PastReportDetail" component={PastReportDetailScreen} />
-      <Stack.Screen name="JournalList" component={JournalListScreen} />
-      <Stack.Screen name="JournalEditor" component={JournalEditorScreen} />
-      <Stack.Screen name="JournalCalendar" component={JournalCalendarScreen} />
-      <Stack.Screen name="DayDetail" component={DayDetailScreen} />
-      <Stack.Screen name="MissionDetail" component={MissionDetailScreen} />
-    </Stack.Navigator>
+    <BottomSheetModalProvider>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: COLORS.bg1 },
+        }}
+      >
+        <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+        <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
+        <Stack.Screen name="SigilScreen" component={SigilScreen} />
+        <Stack.Screen
+          name="Paywall"
+          component={PaywallScreen}
+          options={{ gestureEnabled: false }}
+        />
+        <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="SettingsProfile" component={ProfileEditScreen} />
+        <Stack.Screen name="AccountSettings" component={AccountScreen} />
+        <Stack.Screen name="ContactUs" component={ContactUsScreen} />
+        <Stack.Screen name="SettingsFaq" component={SettingsFaqScreen} />
+        <Stack.Screen name="MailInbox" component={MailInboxScreen} />
+        <Stack.Screen name="ToneHistory" component={ToneHistoryScreen} />
+        <Stack.Screen name="TwinChat" component={TwinChatScreen} />
+        <Stack.Screen name="RankCard" component={RankCardScreen} />
+        <Stack.Screen name="ShareableCardsPreview" component={ShareableCardsPreviewScreen} />
+        <Stack.Screen name="PastReportDetail" component={PastReportDetailScreen} />
+        <Stack.Screen name="JournalList" component={JournalListScreen} />
+        <Stack.Screen name="JournalEditor" component={JournalEditorScreen} />
+        <Stack.Screen name="JournalCalendar" component={JournalCalendarScreen} />
+        <Stack.Screen name="DayDetail" component={DayDetailScreen} />
+        <Stack.Screen name="MissionDetail" component={MissionDetailScreen} />
+      </Stack.Navigator>
+    </BottomSheetModalProvider>
   );
 }

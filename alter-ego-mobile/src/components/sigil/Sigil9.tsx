@@ -1,215 +1,110 @@
-/**
- * Level 9 — ALTER_EGO_Sigil_FullPage.html (The Absolute)
- */
 import React from "react";
-import Svg, { Circle, Line, Polygon, Ellipse } from "react-native-svg";
+import Svg, { Circle, Ellipse, G, Line, Polygon } from "react-native-svg";
 import { useAnimatedProps } from "react-native-reanimated";
-import {
-  useRotation,
-  useHtmlSvgPulseS,
-  useHtmlBreatheR,
-} from "./SigilAnimations";
-import { useRotateCenterStyle } from "./rotateCenter";
+import { useHtmlSvgPulseS, useHtmlFlickerFo, useHtmlBreatheR } from "./SigilAnimations";
 import { AnimatedG, AnimatedCircle } from "./sigilSvg";
-import { HtmlFlickerStrokeCircle } from "./sigilHtmlPrimitives";
 import type { SigilProps } from "./sigilTypes";
-import { SIGIL_VB } from "./sigilTypes";
+import { RotatingG } from "./rotateCenter";
 
-const D9 = "170,22 178,40 170,58 162,40";
-const D9_FILLS = [
-  "#FDE68A",
-  "#FBBF24",
-  "#FDE68A",
-  "#FEF3C7",
-  "#FDE68A",
-  "#FBBF24",
-  "#FDE68A",
-  "#FEF3C7",
-  "#FDE68A",
-  "#FBBF24",
-  "#FDE68A",
-  "#FEF3C7",
-] as const;
-
-const ROSE12: { rot: number; fill: string }[] = [
-  { rot: 0, fill: "#FDE68A" },
-  { rot: 30, fill: "#FBBF24" },
-  { rot: 60, fill: "#FDE68A" },
-  { rot: 90, fill: "#FEF3C7" },
-  { rot: 120, fill: "#FDE68A" },
-  { rot: 150, fill: "#FBBF24" },
-  { rot: 180, fill: "#FDE68A" },
-  { rot: 210, fill: "#F59E0B" },
-  { rot: 240, fill: "#FDE68A" },
-  { rot: 270, fill: "#FBBF24" },
-  { rot: 300, fill: "#FDE68A" },
-  { rot: 330, fill: "#FEF3C7" },
-];
-
-const INNER6: { rot: number; fill: string }[] = [
-  { rot: 0, fill: "#FFFBEB" },
-  { rot: 60, fill: "#FDE68A" },
-  { rot: 120, fill: "#FFFBEB" },
-  { rot: 180, fill: "#FDE68A" },
-  { rot: 240, fill: "#FFFBEB" },
-  { rot: 300, fill: "#FDE68A" },
-];
-
-function ray9(i: number): { sw: number; stroke: string } {
-  const m = i % 6;
-  if (m === 0 || m === 2 || m === 4) return { sw: 1.5, stroke: "#FDE68A" };
-  if (m === 1) return { sw: 1, stroke: "#FCD34D" };
-  if (m === 3) return { sw: 1, stroke: "#FBBF24" };
-  return { sw: 1, stroke: "#F59E0B" };
+function CoronaRing({ r, sw, fo, dly, stroke }: { r: number; sw: number; fo: number; dly: number; stroke: string }) {
+  const op = useHtmlFlickerFo(2800, fo, dly);
+  const ap = useAnimatedProps(() => ({ opacity: op.value }));
+  return (
+    <AnimatedCircle cx={170} cy={170} r={r} stroke={stroke} strokeWidth={sw} fill="none" animatedProps={ap} />
+  );
 }
 
-const rayLen9 = 165;
+const RAY_COLORS = ["#FFFFFF", "#FDE68A", "#FCD34D"];
 
 export function Sigil9({ size = 300 }: SigilProps) {
-  const pulseStyle = useHtmlSvgPulseS(1900);
-  const rRay = useRotation(55000, false);
-  const rD = useRotation(20000, true);
-  const rRose = useRotation(5500, true);
-  const rIn = useRotation(3500, false);
+  const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulseS(2000);
+  const flicker = useHtmlFlickerFo(1400, 1, 0);
+  const breatheOuter = useHtmlBreatheR(40, 2400, 1.05);
+  const breatheInner = useHtmlBreatheR(7, 1800, 1.12);
 
-  const sr = useRotateCenterStyle(rRay);
-  const sd = useRotateCenterStyle(rD);
-  const srose = useRotateCenterStyle(rRose);
-  const sin = useRotateCenterStyle(rIn);
-
-  const breathe40 = useHtmlBreatheR(40, 1700, 1.06);
-  const ap40 = useAnimatedProps(() => ({ r: breathe40.value }));
-  const breathe7 = useHtmlBreatheR(7, 1300, 1.06);
-  const ap7 = useAnimatedProps(() => ({ r: breathe7.value }));
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: pulseOp.value,
+    transform: [
+      { translateX: 170 },
+      { translateY: 170 },
+      { scale: pulseSc.value },
+      { translateX: -170 },
+      { translateY: -170 },
+    ],
+  }));
+  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
+  const outerAp = useAnimatedProps(() => ({ r: breatheOuter.value }));
+  const innerAp = useAnimatedProps(() => ({ r: breatheInner.value }));
 
   return (
-    <Svg width={size} height={size} viewBox={`0 0 ${SIGIL_VB} ${SIGIL_VB}`}>
-      <AnimatedG style={pulseStyle}>
-        <Circle
-          cx={170}
-          cy={170}
-          r={168}
-          fill="rgba(253,230,138,0.015)"
-          stroke="#FDE68A"
-          strokeWidth={0.5}
-          opacity={0.25}
-        />
-        <Circle
-          cx={170}
-          cy={170}
-          r={155}
-          fill="rgba(252,211,77,0.02)"
-          stroke="#FCD34D"
-          strokeWidth={0.75}
-          opacity={0.3}
-        />
-        <Circle
-          cx={170}
-          cy={170}
-          r={142}
-          fill="rgba(251,191,36,0.02)"
-          stroke="#FBBF24"
-          strokeWidth={1}
-          opacity={0.35}
-        />
-        <HtmlFlickerStrokeCircle
-          cx={170}
-          cy={170}
-          r={126}
-          stroke="#FDE68A"
-          strokeWidth={1.25}
-          fo={0.4}
-          flickerMs={2500}
-          delayMs={0}
-        />
-        <HtmlFlickerStrokeCircle
-          cx={170}
-          cy={170}
-          r={108}
-          stroke="#F59E0B"
-          strokeWidth={1.5}
-          fo={0.45}
-          flickerMs={2500}
-          delayMs={400}
-        />
+    <Svg width={size} height={size} viewBox="0 0 340 340">
+      <AnimatedG animatedProps={pulseAp}>
+        <CoronaRing r={168} sw={0.75} fo={0.14} dly={0} stroke="#FDE68A" />
+        <CoronaRing r={152} sw={1} fo={0.18} dly={300} stroke="#FCD34D" />
+        <CoronaRing r={132} sw={1.25} fo={0.22} dly={600} stroke="#FDE68A" />
+        <CoronaRing r={108} sw={1.5} fo={0.28} dly={900} stroke="#FFFFFF" />
+        <CoronaRing r={88} sw={2} fo={0.34} dly={1200} stroke="#FDE68A" />
 
-        <AnimatedG style={sr}>
-          {Array.from({ length: 36 }).map((_, i) => {
-            const deg = i * 10;
-            const { sw, stroke } = ray9(i);
-            const rad = (deg * Math.PI) / 180;
-            const x2 = 170 + rayLen9 * Math.sin(rad);
-            const y2 = 170 - rayLen9 * Math.cos(rad);
-            return (
-              <Line
-                key={deg}
-                x1={170}
-                y1={170}
-                x2={x2}
-                y2={y2}
-                stroke={stroke}
-                strokeWidth={sw}
-                opacity={0.5}
-              />
-            );
-          })}
-        </AnimatedG>
+        <RotatingG durationMs={55000}>
+          <G opacity={0.42}>
+            {Array.from({ length: 36 }, (_, i) => (
+              <G key={i} transform={`rotate(${i * 10} 170 170)`}>
+                <Line
+                  x1={170}
+                  y1={170}
+                  x2={170}
+                  y2={5}
+                  stroke={RAY_COLORS[i % 3]}
+                  strokeWidth={i % 2 === 0 ? 1.5 : 1}
+                />
+              </G>
+            ))}
+          </G>
+        </RotatingG>
 
-        <AnimatedG style={sd}>
-          {D9_FILLS.map((fill, i) => (
-            <Polygon
-              key={i}
-              points={D9}
-              fill={fill}
-              transform={`rotate(${i * 30} 170 170)`}
-              opacity={0.8}
-            />
-          ))}
-        </AnimatedG>
+        <RotatingG durationMs={20000} reverse>
+          <G opacity={0.55}>
+            {Array.from({ length: 12 }, (_, i) => (
+              <G key={i} transform={`rotate(${i * 30} 170 170)`}>
+                <Polygon points="170,22 182,48 170,74 158,48" fill={i % 2 === 0 ? "#FDE68A" : "#FCD34D"} />
+              </G>
+            ))}
+          </G>
+        </RotatingG>
 
-        <AnimatedG style={srose}>
-          {ROSE12.map(({ rot, fill }) => (
-            <Ellipse
-              key={rot}
-              cx={170}
-              cy={118}
-              rx={9}
-              ry={48}
-              fill={fill}
-              opacity={0.72}
-              transform={`rotate(${rot} 170 170)`}
-            />
-          ))}
-        </AnimatedG>
+        <RotatingG durationMs={5500} reverse>
+          <G opacity={0.65}>
+            {Array.from({ length: 12 }, (_, i) => (
+              <G key={i} transform={`rotate(${i * 30} 170 170)`}>
+                <Ellipse cx={170} cy={118} rx={9} ry={48} fill={i % 2 === 0 ? "#FDE68A" : "#FBBF24"} />
+              </G>
+            ))}
+          </G>
+        </RotatingG>
 
-        <AnimatedG style={sin}>
-          {INNER6.map(({ rot, fill }) => (
-            <Ellipse
-              key={rot}
-              cx={170}
-              cy={138}
-              rx={6}
-              ry={28}
-              fill={fill}
-              opacity={0.65}
-              transform={`rotate(${rot} 170 170)`}
-            />
-          ))}
-        </AnimatedG>
+        <RotatingG durationMs={3500}>
+          <G opacity={0.55}>
+            {[0, 60, 120, 180, 240, 300].map((deg) => (
+              <G key={deg} transform={`rotate(${deg} 170 170)`}>
+                <Ellipse cx={170} cy={138} rx={6} ry={28} fill={deg % 120 === 0 ? "#FDE68A" : "#FFFBEB"} />
+              </G>
+            ))}
+          </G>
+        </RotatingG>
 
         <AnimatedCircle
           cx={170}
           cy={170}
-          fill="rgba(253,230,138,0.35)"
+          fill="rgba(253,230,138,0.15)"
           stroke="#FFFBEB"
-          strokeWidth={3}
-          opacity={0.97}
-          animatedProps={ap40}
+          strokeWidth={2}
+          opacity={0.95}
+          animatedProps={outerAp}
         />
         <Circle cx={170} cy={170} r={24} fill="#92400E" />
         <Circle cx={170} cy={170} r={14} fill="#FDE68A" />
-        <AnimatedCircle cx={170} cy={170} fill="#FFFBEB" animatedProps={ap7} />
-        <Circle cx={170} cy={170} r={3} fill="white" />
+        <AnimatedCircle cx={170} cy={170} fill="#FFFBEB" stroke="#FFFBEB" strokeWidth={1} animatedProps={innerAp} />
+        <AnimatedCircle cx={170} cy={170} r={3} fill="#FFFFFF" animatedProps={flickAp} />
       </AnimatedG>
     </Svg>
   );

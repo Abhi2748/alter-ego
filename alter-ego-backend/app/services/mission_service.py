@@ -10,7 +10,16 @@ from fastapi import HTTPException
 from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
-from app.core.constants import CORE_MISSIONS, DAILY_PF_CAPS, DAILY_XP_CAPS, resolve_stat_tag
+from app.core.constants import (
+    CORE_MISSIONS,
+    DAILY_PF_CAPS,
+    DAILY_XP_CAPS,
+    MISSION_PF,
+    MISSION_XP_BY_TYPE,
+    RECOVERY_MISSION_OVERRIDES,
+    get_completion_copy,
+    resolve_stat_tag,
+)
 from app.services.progression_service import (
     check_character_stage_progression,
     check_pet_stage_progression,
@@ -140,19 +149,16 @@ def get_days_since_registration(registration_date: str, timezone_str: str) -> in
 
 async def generate_core_missions_for_user(user_id: str, mission_date: str) -> list[dict]:
     """
-    Generates all 6 core missions for a user for a given date.
-    Inserts them into the missions table.
-    Returns the list of created mission dicts.
-
-    Rules:
-    - Always generates all 6 core missions (sleep, movement, hydration,
-      mindfulness, no_phone, journal)
-    - If missions already exist for this user+date: return existing ones
-      (idempotent — safe to call multiple times)
-    - XP and PF values come directly from constants.py CORE_MISSIONS
-    - Journal mission: set is_journal_mission=True, core_pillar="journal"
-    - All missions start as completed=False
+    Generates core pillar missions (3–5 by day since signup + archetype) plus journal.
+    Idempotent: if any core row exists for this user+date, returns existing rows.
     """
+    from app.agents.core_mission_agent import (
+        ARCHETYPE_PILLAR_ORDER,
+        CORE_TIER_SPECS,
+        estimated_minutes_for,
+        generate_core_missions,
+    )
+
     existing = (
         supabase_admin.table("missions")
         .select("*")
@@ -161,35 +167,155 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
         .eq("type", "core")
         .execute()
     )
-    if existing.data and isinstance(existing.data, list) and len(existing.data) >= 6:
+    if existing.data:
         return existing.data
 
+    user_res = (
+        supabase_admin.table("users")
+        .select("archetype, registration_date, timezone")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    user = (user_res.data or [None])[0]
+    if not user:
+        return []
+
+    tz_str = user.get("timezone") or "UTC"
+    try:
+        tz = ZoneInfo(tz_str)
+    except Exception:
+        tz = timezone.utc
+
+    reg_raw = user.get("registration_date") or ""
+    try:
+        reg_dt = datetime.fromisoformat(str(reg_raw).replace("Z", "+00:00"))
+        reg_day = reg_dt.astimezone(tz).date()
+    except Exception:
+        reg_day = date.today()
+
+    try:
+        mday = date.fromisoformat(mission_date)
+    except Exception:
+        mday = date.today()
+
+    days_active = max(0, (mday - reg_day).days)
+    archetype = str(user.get("archetype") or "structured_climber")
+
+    dna_res = supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id).limit(1).execute()
+    dna_row = (dna_res.data or [None])[0] or {}
+
+    pillar_keys = ["sleep", "movement", "hydration", "mindfulness", "no_phone"]
+    pillar_difficulties: dict[str, str] = {}
+    for pk in pillar_keys:
+        col = f"core_{pk}_difficulty"
+        raw = dna_row.get(col, "easy")
+        pillar_difficulties[pk] = str(raw or "easy").lower()
+
+    seven_start = (mday - timedelta(days=7)).isoformat()
+    recent = (
+        supabase_admin.table("missions")
+        .select("core_pillar, completed, is_journal_mission, mission_date")
+        .eq("user_id", user_id)
+        .eq("type", "core")
+        .gte("mission_date", seven_start)
+        .execute()
+        .data
+        or []
+    )
+
+    pillar_rates: dict[str, float] = {}
+    for pillar in pillar_keys:
+        pm = [
+            m
+            for m in recent
+            if (m.get("core_pillar") or "") == pillar and not m.get("is_journal_mission")
+        ]
+        if pm:
+            pillar_rates[pillar] = sum(1 for m in pm if m.get("completed")) / len(pm)
+        else:
+            pillar_rates[pillar] = 0.7
+
+    last_titles_res = (
+        supabase_admin.table("missions")
+        .select("title, created_at")
+        .eq("user_id", user_id)
+        .eq("type", "core")
+        .eq("is_journal_mission", False)
+        .order("created_at", desc=True)
+        .limit(24)
+        .execute()
+        .data
+        or []
+    )
+    last_mission_texts = [str(m["title"]) for m in last_titles_res if m.get("title")][:6]
+
+    batch = await generate_core_missions(
+        archetype=archetype,
+        days_active=days_active,
+        pillar_difficulties=pillar_difficulties,
+        recent_pillar_completions=pillar_rates,
+        last_core_missions=last_mission_texts,
+        recovery_pillars_today=recovery_pillars_today,
+    )
+
+    journal_cfg = next(m for m in CORE_MISSIONS if m.get("is_journal_mission"))
+
     rows: list[dict] = []
-    for mission in CORE_MISSIONS:
-        pillar = mission["pillar"]
+    for m in batch.missions:
+        diff = str(m.difficulty).lower()
+        if diff not in ("easy", "medium", "hard", "elite"):
+            diff = "easy"
+        xp = MISSION_XP_BY_TYPE["core"].get(diff, MISSION_XP_BY_TYPE["core"]["easy"])
+        pf = MISSION_PF["core"].get(diff, MISSION_PF["core"]["easy"])
+        spec_text = CORE_TIER_SPECS[m.pillar][diff]
         rows.append(
             {
                 "user_id": user_id,
                 "type": "core",
-                "title": mission["title"],
-                "difficulty": mission["difficulty"],
-                "xp_value": mission["xp"],
-                "pf_value": mission["pf"],
+                "title": m.title,
+                "difficulty": diff,
+                "xp_value": xp,
+                "pf_value": pf,
                 "mission_date": mission_date,
                 "completed": False,
-                "is_journal_mission": bool(mission.get("is_journal_mission", False)),
-                "core_pillar": pillar,
-                "stat_tag": resolve_stat_tag(pillar, "core"),
-                "estimated_minutes": mission["estimated_minutes"],
-                "rationale": mission["rationale"],
+                "is_journal_mission": False,
+                "core_pillar": m.pillar,
+                "stat_tag": resolve_stat_tag(m.pillar, "core"),
+                "estimated_minutes": estimated_minutes_for(m.pillar, diff),
+                "rationale": spec_text,
             }
         )
 
+    xp_boost_pct = int(recovery_overrides.get("xp_boost_pct", 0) or 0)
+    if xp_boost_pct > 0:
+        boost = 1.0 + (xp_boost_pct / 100.0)
+        for row in rows:
+            if not row.get("is_journal_mission"):
+                row["xp_value"] = int(round(int(row.get("xp_value") or 0) * boost))
+
+    rows.append(
+        {
+            "user_id": user_id,
+            "type": "core",
+            "title": journal_cfg["title"],
+            "difficulty": journal_cfg["difficulty"],
+            "xp_value": journal_cfg["xp"],
+            "pf_value": journal_cfg["pf"],
+            "mission_date": mission_date,
+            "completed": False,
+            "is_journal_mission": True,
+            "core_pillar": journal_cfg["pillar"],
+            "stat_tag": resolve_stat_tag(journal_cfg["pillar"], "core"),
+            "estimated_minutes": journal_cfg["estimated_minutes"],
+            "rationale": journal_cfg["rationale"],
+        }
+    )
+
     inserted = supabase_admin.table("missions").insert(rows).execute()
-    if inserted.data and isinstance(inserted.data, list) and len(inserted.data) >= 6:
+    if inserted.data:
         return inserted.data
 
-    # Fallback: fetch what we just created
     fetched = (
         supabase_admin.table("missions")
         .select("*")
@@ -272,6 +398,15 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     )
     user = user_result.data or {}
 
+    _sigil_empty = {
+        "aether_awarded": 0,
+        "surge_activated": False,
+        "surge_active": False,
+        "level_up": False,
+        "new_level": None,
+        "new_level_name": None,
+    }
+
     if mission.get("completed"):
         return {
             "success": True,
@@ -292,15 +427,8 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
                 "missions_completed_today": 0,
                 "total_missions_today": 0,
             },
-            "sigil": {
-                "aether_awarded": 0,
-                "surge_activated": False,
-                "surge_active": False,
-                "level_up": False,
-                "new_level": None,
-                "new_level_name": None,
-                "total_aether": 0,
-            },
+            "sigil": _sigil_empty,
+            "completion_copy": None,
         }
 
     if mission.get("is_journal_mission"):
@@ -389,32 +517,15 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
             }
         ).execute()
 
+    try:
+        from app.services.absence_service import reset_absence
+
+        reset_absence(supabase_admin, user_id, today)
+    except Exception:
+        logger.exception("reset_absence failed after mission complete user=%s", user_id)
+
     # Update user totals
     supabase_admin.table("users").update({"total_xp": new_total_xp, "total_pf": new_total_pf}).eq("id", user_id).execute()
-
-    sigil_result = {
-        "aether_awarded": 0,
-        "surge_activated": False,
-        "surge_active": False,
-        "level_up": False,
-        "new_level": None,
-        "new_level_name": None,
-        "total_aether": 0,
-    }
-    try:
-        from app.services.sigil_service import check_and_award_aether
-
-        sigil_result = await check_and_award_aether(
-            user_id=user_id,
-            mission_id=mission_id,
-            mission_difficulty=str(mission.get("difficulty") or "easy"),
-            xp_today_before=xp_today,
-            xp_earned_this_mission=xp_earned,
-            user_character_stage=character_stage,
-            today=today,
-        )
-    except Exception:
-        logger.exception("Sigil Aether award failed for user %s", user_id)
 
     # Progression checks
     stage_evolved = await check_character_stage_progression(user_id, new_total_xp, character_stage)
@@ -470,6 +581,84 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     except Exception:
         logger.exception("Stat SP award failed for user %s", user_id)
 
+    sigil_result = dict(_sigil_empty)
+    try:
+        from app.services.sigil_service import check_and_award_aether
+
+        total_xp_today_after = xp_today + xp_earned
+        sigil_result = check_and_award_aether(
+            user_id=user_id,
+            mission_id=mission_id,
+            mission_difficulty=str(mission.get("difficulty") or "easy"),
+            xp_earned_this_completion=xp_earned,
+            user_stage=character_stage,
+            total_xp_today=total_xp_today_after,
+            today_str=today,
+        )
+    except Exception:
+        logger.exception("Sigil / aether award failed user=%s", user_id)
+
+    twin_already_done: bool | None = None
+    try:
+        m_title = str(mission.get("title") or "").strip()
+        if m_title:
+            twin_log = (
+                supabase_admin.table("twin_mission_log")
+                .select("id")
+                .eq("user_id", user_id)
+                .eq("mission_date", today)
+                .eq("mission_title", m_title)
+                .limit(1)
+                .execute()
+            )
+            twin_already_done = bool(twin_log.data)
+    except Exception:
+        twin_already_done = None
+
+    twin_xp_for_copy = 0
+    try:
+        twin_rec = (
+            supabase_admin.table("twin_daily_record")
+            .select("xp_earned")
+            .eq("user_id", user_id)
+            .eq("record_date", today)
+            .execute()
+        )
+        tr = twin_rec.data or []
+        twin_xp_for_copy = int(tr[0].get("xp_earned") or 0) if tr else 0
+    except Exception:
+        pass
+
+    user_xp_before = xp_today
+    user_xp_after = xp_today + xp_earned
+    user_takes_lead = user_xp_before <= twin_xp_for_copy and user_xp_after > twin_xp_for_copy
+
+    all_complete_today = False
+    try:
+        missions_today = (
+            supabase_admin.table("missions")
+            .select("id, completed")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .execute()
+        )
+        rows = missions_today.data or []
+        if rows:
+            all_complete_today = all(m.get("completed") for m in rows)
+    except Exception:
+        pass
+
+    streak_milestone_hit = streak_result.get("milestone_reached") is not None
+
+    completion_copy = get_completion_copy(
+        user_takes_lead=user_takes_lead,
+        surge_activated=bool(sigil_result.get("surge_activated")),
+        all_complete=all_complete_today,
+        twin_already_done=twin_already_done,
+        stage_evolved=bool(stage_evolved),
+        streak_milestone=streak_milestone_hit,
+    )
+
     return {
         "success": True,
         "xp_earned": xp_earned,
@@ -503,15 +692,8 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
             "missions_completed_today": stat_result["missions_completed_today"],
             "total_missions_today": stat_result["total_missions_today"],
         },
-        "sigil": {
-            "aether_awarded": sigil_result["aether_awarded"],
-            "surge_activated": sigil_result["surge_activated"],
-            "surge_active": sigil_result["surge_active"],
-            "level_up": sigil_result["level_up"],
-            "new_level": sigil_result["new_level"],
-            "new_level_name": sigil_result["new_level_name"],
-            "total_aether": sigil_result["total_aether"],
-        },
+        "sigil": sigil_result,
+        "completion_copy": completion_copy,
     }
 
 
@@ -527,7 +709,8 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
 
     Called from GET /missions/today so mid-day profile changes show up without waiting for cron.
     """
-    from app.agents.planner_agent import generate_interest_mission, generate_quit_target_mission
+    from app.agents.interest_planner_agent import generate_interest_mission
+    from app.services.quit_service import sync_quit_path_missions_for_date
 
     interests_res = (
         supabase_admin.table("interests").select("*").eq("user_id", user_id).execute()
@@ -561,20 +744,19 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
             supabase_admin.table("missions").delete().eq("id", m["id"]).execute()
             removed_interest += 1
 
-    quits_res = (
-        supabase_admin.table("quit_targets")
-        .select("*")
+    paths_res = (
+        supabase_admin.table("quit_paths")
+        .select("id")
         .eq("user_id", user_id)
-        .eq("is_active", True)
-        .eq("conquered", False)
+        .eq("status", "active")
         .execute()
     )
-    quit_rows = quits_res.data or []
-    eligible_quit_ids = {str(q["id"]) for q in quit_rows}
+    quit_path_rows = paths_res.data or []
+    eligible_path_ids = {str(p["id"]) for p in quit_path_rows}
 
     res_missions = (
         supabase_admin.table("missions")
-        .select("id, quit_target_id, completed")
+        .select("id, quit_path_id, completed")
         .eq("user_id", user_id)
         .eq("mission_date", mission_date)
         .eq("type", "resistance")
@@ -585,8 +767,8 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
     for m in res_missions:
         if m.get("completed"):
             continue
-        qid = m.get("quit_target_id")
-        if qid is None or str(qid) not in eligible_quit_ids:
+        qpid = m.get("quit_path_id")
+        if qpid is None or str(qpid) not in eligible_path_ids:
             supabase_admin.table("missions").delete().eq("id", m["id"]).execute()
             removed_resistance += 1
 
@@ -619,22 +801,189 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
         except Exception as e:
             logger.error("sync_today_planner_missions: interest %s: %s", interest.get("id"), e)
 
-    for qt in quit_rows:
-        try:
-            await generate_quit_target_mission(
-                user_id=user_id,
-                quit_target=qt,
-                mission_date=mission_date,
-                user=user,
-                discipline_dna=discipline_dna,
-            )
-        except Exception as e:
-            logger.error("sync_today_planner_missions: quit %s: %s", qt.get("id"), e)
+    try:
+        await sync_quit_path_missions_for_date(user_id, mission_date)
+    except Exception as e:
+        logger.error("sync_today_planner_missions: quit_paths sync: %s", e)
 
     return {
         "removed_interest": removed_interest,
         "removed_resistance": removed_resistance,
         "eligible_interests": len(active_interest_rows),
-        "eligible_quits": len(quit_rows),
+        "eligible_quits": len(quit_path_rows),
     }
+
+
+TIER_ORDER = ["easy", "medium", "hard", "elite"]
+CORE_PILLARS = ["sleep", "movement", "hydration", "mindfulness", "no_phone"]
+MIN_DAYS_BETWEEN_AUTO_CORE_CHANGES = 14
+
+
+async def recalibrate_core_pillar_difficulties(user_id: str) -> list[str]:
+    """
+    Per-pillar core difficulty progression. Called from twin recalibration cadence.
+    """
+    now = datetime.now(timezone.utc)
+    fourteen_days_ago = (now.date() - timedelta(days=14)).isoformat()
+
+    dna_res = supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id).limit(1).execute()
+    if not dna_res.data:
+        return []
+    dna = dna_res.data[0]
+
+    recent_missions = (
+        supabase_admin.table("missions")
+        .select("core_pillar, completed, mission_date, is_journal_mission")
+        .eq("user_id", user_id)
+        .eq("type", "core")
+        .gte("mission_date", fourteen_days_ago)
+        .eq("is_journal_mission", False)
+        .execute()
+        .data
+        or []
+    )
+
+    updates: dict = {}
+    difficulty_changes: list[str] = []
+    pending_ready: list[str] = []
+
+    for pillar in CORE_PILLARS:
+        col_diff = f"core_{pillar}_difficulty"
+        col_weeks = f"core_{pillar}_clean_weeks"
+        col_changed = f"core_{pillar}_difficulty_changed_at"
+
+        current_difficulty = str(dna.get(col_diff) or "easy").lower()
+        if current_difficulty not in TIER_ORDER:
+            current_difficulty = "easy"
+        clean_weeks = int(dna.get(col_weeks) or 0)
+        last_changed_at = dna.get(col_changed)
+
+        if last_changed_at:
+            try:
+                last_changed = datetime.fromisoformat(str(last_changed_at).replace("Z", "+00:00"))
+                if (now - last_changed).days < MIN_DAYS_BETWEEN_AUTO_CORE_CHANGES:
+                    continue
+            except Exception:
+                pass
+
+        pillar_missions = [m for m in recent_missions if (m.get("core_pillar") or "") == pillar]
+        if not pillar_missions:
+            continue
+
+        pillar_completed = sum(1 for m in pillar_missions if m.get("completed"))
+        pillar_total = len(pillar_missions)
+        missed = pillar_total - pillar_completed
+
+        if missed >= 4 and current_difficulty != "easy":
+            idx = TIER_ORDER.index(current_difficulty)
+            new_difficulty = TIER_ORDER[max(0, idx - 1)]
+            updates[col_diff] = new_difficulty
+            updates[col_weeks] = 0
+            updates[col_changed] = now.isoformat()
+            difficulty_changes.append(
+                f"{pillar.replace('_', ' ').title()}: {current_difficulty} → {new_difficulty} (dropped)"
+            )
+            continue
+
+        days_in_period = min(pillar_total, 14)
+        days_completed = pillar_completed
+        is_clean_period = days_completed >= max(1, days_in_period - 1)
+        is_perfect_period = days_completed == days_in_period and days_in_period > 0
+
+        if is_clean_period:
+            new_clean = clean_weeks + 1
+            updates[col_weeks] = new_clean
+            if new_clean >= 2 and current_difficulty != "elite":
+                idx = TIER_ORDER.index(current_difficulty)
+                new_difficulty = TIER_ORDER[min(len(TIER_ORDER) - 1, idx + 1)]
+                updates[col_diff] = new_difficulty
+                updates[col_weeks] = 0
+                updates[col_changed] = now.isoformat()
+                difficulty_changes.append(
+                    f"{pillar.replace('_', ' ').title()}: {current_difficulty} → {new_difficulty} (advanced)"
+                )
+            elif is_perfect_period and current_difficulty != "elite":
+                pending_ready.append(f"{pillar}:ready")
+        else:
+            updates[col_weeks] = 0
+
+    pending_parts: list[str] = []
+    prev_pending = dna.get("pending_difficulty_change")
+    if prev_pending:
+        pending_parts.append(str(prev_pending))
+    if pending_ready:
+        pending_parts.append(", ".join(pending_ready))
+    if difficulty_changes:
+        pending_parts.append("; ".join(difficulty_changes))
+
+    if pending_parts:
+        updates["pending_difficulty_change"] = " | ".join(pending_parts)
+
+    if updates:
+        supabase_admin.table("discipline_dna").update(updates).eq("user_id", user_id).execute()
+
+    if difficulty_changes:
+        logger.info("Core difficulty changes for %s: %s", user_id, difficulty_changes)
+
+    return difficulty_changes
+
+
+async def update_pillar_difficulty(user_id: str, pillar: str, direction: str) -> dict:
+    """
+    User taps harder/easier on a core pillar. direction: 'up' | 'down'
+    """
+    if pillar not in CORE_PILLARS:
+        return {"updated": False, "reason": "Invalid pillar."}
+    if direction not in ("up", "down"):
+        return {"updated": False, "reason": "Invalid direction."}
+
+    now = datetime.now(timezone.utc)
+    col_diff = f"core_{pillar}_difficulty"
+    col_changed = f"core_{pillar}_difficulty_changed_at"
+    col_weeks = f"core_{pillar}_clean_weeks"
+
+    dna_res = (
+        supabase_admin.table("discipline_dna")
+        .select(f"{col_diff}, {col_changed}")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    dna = (dna_res.data or [None])[0]
+    if not dna:
+        return {"updated": False, "reason": "No discipline profile yet."}
+
+    current = str(dna.get(col_diff) or "easy").lower()
+    if current not in TIER_ORDER:
+        current = "easy"
+    last_changed = dna.get(col_changed)
+    if last_changed:
+        try:
+            last_dt = datetime.fromisoformat(str(last_changed).replace("Z", "+00:00"))
+            if (now - last_dt).days < 7:
+                return {"updated": False, "reason": "Changed too recently. Try again in a few days."}
+        except Exception:
+            pass
+
+    idx = TIER_ORDER.index(current)
+    if direction == "up":
+        new_idx = min(len(TIER_ORDER) - 1, idx + 1)
+    else:
+        new_idx = max(0, idx - 1)
+    if new_idx == idx:
+        return {
+            "updated": False,
+            "reason": f"Already at {'maximum' if direction == 'up' else 'minimum'} difficulty.",
+        }
+
+    new_difficulty = TIER_ORDER[new_idx]
+    supabase_admin.table("discipline_dna").update(
+        {
+            col_diff: new_difficulty,
+            col_changed: now.isoformat(),
+            col_weeks: 0,
+        }
+    ).eq("user_id", user_id).execute()
+
+    return {"updated": True, "pillar": pillar, "old": current, "new": new_difficulty}
 

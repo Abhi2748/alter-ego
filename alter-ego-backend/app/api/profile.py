@@ -10,6 +10,9 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException
 from postgrest.exceptions import APIError
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from app.api.auth import get_user_id_from_token
 from app.core.constants import (
@@ -22,10 +25,32 @@ from app.core.constants import (
     XP_THRESHOLDS,
 )
 from app.core.supabase_client import supabase_admin
+from app.services.interest_path_service import (
+    build_ui_path,
+    complete_quest_insight,
+    difficulty_label,
+    experience_from_level_choice,
+    normalize_path_state,
+    schedule_abbrev,
+)
 from app.services.mission_service import get_user_date
 
 router = APIRouter(prefix="/api/v1/profile", tags=["profile"])
 logger = logging.getLogger(__name__)
+
+
+def _interest_owned_row(user_id: str, interest_id: str) -> dict:
+    res = (
+        supabase_admin.table("interests")
+        .select("*")
+        .eq("id", interest_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Interest not found")
+    return rows[0]
 
 
 def _milestone_rows_character_stages(user_id: str) -> list:
@@ -102,7 +127,8 @@ async def get_profile_overview(authorization: str = Header(None)):
             "username, archetype, character_stage, total_xp, "
             "pet_stage, pet_unlocked, total_pf, current_streak, "
             "longest_streak, power_score, registration_date, "
-            "leaderboard_unlocked, email_connected, subscription_tier"
+            "leaderboard_unlocked, email_connected, subscription_tier, "
+            "return_reason"
         )
         .eq("id", user_id)
         .single()
@@ -192,6 +218,7 @@ async def get_profile_overview(authorization: str = Header(None)):
         "unread_mail_count": unread,
         "twin_tone_type": str(dna_row.get("twin_tone_type") or "rival"),
         "twin_intensity": int(dna_row.get("twin_intensity") or 3),
+        "return_reason": user.get("return_reason"),
     }
 
 
@@ -477,6 +504,18 @@ async def get_profile_interests(authorization: str = Header(None)):
                 "earned_at": earned_at,
             })
 
+        path_raw = interest.get("interest_path_state")
+        if not isinstance(path_raw, dict):
+            path_raw = {}
+
+        ui_path = build_ui_path(interest, milestone_status, path_raw)
+        tier = interest.get("current_difficulty_tier") or "easy"
+        if tier not in ("easy", "medium", "hard"):
+            tier = "easy"
+        active_days = interest.get("active_days", [1, 2, 3, 4, 5, 6, 7])
+        if not isinstance(active_days, list):
+            active_days = [1, 2, 3, 4, 5, 6, 7]
+
         results.append({
             "id": interest["id"],
             "name": interest.get("normalised_name"),
@@ -484,67 +523,167 @@ async def get_profile_interests(authorization: str = Header(None)):
             "level_text": interest.get("level_text"),
             "user_goal": interest.get("user_goal"),
             "interest_level": interest.get("interest_level", 1),
-            "current_difficulty_tier": interest.get("current_difficulty_tier"),
+            "current_difficulty_tier": tier,
             "current_phase": interest.get("current_phase"),
             "total_sessions": total_sessions,
             "interest_xp": interest.get("interest_xp", 0),
-            "active_days": interest.get("active_days", [1, 2, 3, 4, 5, 6, 7]),
+            "active_days": active_days,
             "milestones": milestone_status,
+            "ui_path": ui_path,
+            "schedule_abbrev": schedule_abbrev([int(d) for d in active_days if isinstance(d, (int, float))]),
+            "difficulty_label": difficulty_label(tier),
         })
 
     return {"interests": results}
 
 
-QUIT_PHASES = [
-    {"key": "awareness", "label": "Awareness", "days": (0, 10)},
-    {"key": "replacement", "label": "Replacement", "days": (10, 30)},
-    {"key": "reflex", "label": "Reflex", "days": (30, 60)},
-    {"key": "rewired", "label": "Rewired", "days": (60, 90)},
-    {"key": "free", "label": "Free", "days": (90, 9999)},
-]
+class InterestCriterionPatch(BaseModel):
+    quest_id: str
+    index: int = Field(ge=0, le=1)
+    done: bool
+
+
+class InterestDifficultyPut(BaseModel):
+    tier: str
+
+
+class InterestSchedulePut(BaseModel):
+    active_days: list[int] = Field(..., min_length=2)
+
+
+class InterestGoalPut(BaseModel):
+    new_goal: str = Field(..., min_length=4, max_length=500)
+    experience_level: Literal["beginner", "intermediate", "advanced"]
+
+
+@router.patch("/interests/{interest_id}/quest/criterion", response_model=dict)
+async def patch_interest_quest_criterion(
+    interest_id: str,
+    body: InterestCriterionPatch,
+    authorization: str = Header(None),
+):
+    user_id = get_user_id_from_token(authorization)
+    row = _interest_owned_row(user_id, interest_id)
+    st = normalize_path_state(row.get("interest_path_state") or {})
+    cur = st["current"]
+    if body.quest_id != str(cur):
+        raise HTTPException(
+            status_code=400,
+            detail="You can only update criteria for the active quest.",
+        )
+    qkey = str(cur)
+    crit = list(st["criteria"].get(qkey, [False, False]))
+    if body.index >= len(crit):
+        raise HTTPException(status_code=400, detail="Invalid criterion index")
+    crit[body.index] = body.done
+    st["criteria"][qkey] = crit
+    supabase_admin.table("interests").update({"interest_path_state": st}).eq(
+        "id", interest_id
+    ).execute()
+    return {"success": True}
+
+
+@router.post("/interests/{interest_id}/quests/{quest_id}/complete", response_model=dict)
+async def post_interest_quest_complete(
+    interest_id: str,
+    quest_id: str,
+    authorization: str = Header(None),
+):
+    user_id = get_user_id_from_token(authorization)
+    row = _interest_owned_row(user_id, interest_id)
+    st = normalize_path_state(row.get("interest_path_state") or {})
+    cur = st["current"]
+    if cur >= 3:
+        raise HTTPException(status_code=400, detail="All quests on this path are complete.")
+    if quest_id != str(cur):
+        raise HTTPException(status_code=400, detail="This quest is not active.")
+    crit = st["criteria"].get(str(cur), [False, False])
+    if len(crit) < 2 or not (crit[0] and crit[1]):
+        raise HTTPException(
+            status_code=400,
+            detail="Complete all success criteria before finishing the quest.",
+        )
+    name = row.get("normalised_name") or "this skill"
+    insight = complete_quest_insight(cur, name)
+    st["current"] = min(3, cur + 1)
+    supabase_admin.table("interests").update({"interest_path_state": st}).eq(
+        "id", interest_id
+    ).execute()
+    return {"success": True, "insight": insight}
+
+
+@router.put("/interests/{interest_id}/difficulty", response_model=dict)
+async def put_profile_interest_difficulty(
+    interest_id: str,
+    body: InterestDifficultyPut,
+    authorization: str = Header(None),
+):
+    user_id = get_user_id_from_token(authorization)
+    _interest_owned_row(user_id, interest_id)
+    tier = body.tier.lower()
+    if tier not in ("easy", "medium", "hard"):
+        raise HTTPException(status_code=400, detail="Invalid difficulty tier")
+    supabase_admin.table("interests").update({"current_difficulty_tier": tier}).eq(
+        "id", interest_id
+    ).execute()
+    return {"success": True}
+
+
+@router.put("/interests/{interest_id}/schedule", response_model=dict)
+async def put_profile_interest_schedule(
+    interest_id: str,
+    body: InterestSchedulePut,
+    authorization: str = Header(None),
+):
+    user_id = get_user_id_from_token(authorization)
+    _interest_owned_row(user_id, interest_id)
+    days = sorted({int(d) for d in body.active_days})
+    if len(days) < 2:
+        raise HTTPException(status_code=400, detail="Pick at least two days")
+    for d in days:
+        if d < 1 or d > 7:
+            raise HTTPException(status_code=400, detail="Invalid weekday (use 1–7)")
+    supabase_admin.table("interests").update({"active_days": days}).eq(
+        "id", interest_id
+    ).execute()
+    return {"success": True}
+
+
+@router.put("/interests/{interest_id}/goal", response_model=dict)
+async def put_profile_interest_goal(
+    interest_id: str,
+    body: InterestGoalPut,
+    authorization: str = Header(None),
+):
+    user_id = get_user_id_from_token(authorization)
+    _interest_owned_row(user_id, interest_id)
+    lt = experience_from_level_choice(body.experience_level)
+    supabase_admin.table("interests").update({
+        "user_goal": body.new_goal.strip(),
+        "level_text": lt,
+        "interest_path_state": {},
+    }).eq("id", interest_id).execute()
+    return {"success": True}
+
+
+@router.delete("/interests/{interest_id}", response_model=dict)
+async def delete_profile_interest(
+    interest_id: str,
+    authorization: str = Header(None),
+):
+    user_id = get_user_id_from_token(authorization)
+    _interest_owned_row(user_id, interest_id)
+    supabase_admin.table("interests").delete().eq("id", interest_id).eq(
+        "user_id", user_id
+    ).execute()
+    return {"success": True}
 
 
 @router.get("/quits", response_model=dict)
 async def get_profile_quits(authorization: str = Header(None)):
+    """Legacy alias — use GET /api/v1/quits for the full quit path payload."""
     user_id = get_user_id_from_token(authorization)
+    from app.services.quit_service import get_quits_for_user
 
-    quit_targets = (
-        supabase_admin.table("quit_targets")
-        .select("*")
-        .eq("user_id", user_id)
-        .execute()
-        .data
-        or []
-    )
-
-    results = []
-    for qt in quit_targets:
-        clean_days = qt.get("clean_days", 0) or 0
-        current_phase = next(
-            (
-                p["key"]
-                for p in QUIT_PHASES
-                if p["days"][0] <= clean_days < p["days"][1]
-            ),
-            "awareness",
-        )
-
-        results.append({
-            "id": qt["id"],
-            "name": qt.get("normalised_name"),
-            "clean_days": clean_days,
-            "current_phase": current_phase,
-            "last_slip_date": qt.get("last_slip_date"),
-            "is_active": qt.get("is_active", True),
-            "conquered": qt.get("conquered", False),
-            "phases": [
-                {
-                    **p,
-                    "completed": clean_days >= p["days"][1],
-                    "active": p["key"] == current_phase,
-                }
-                for p in QUIT_PHASES
-            ],
-        })
-
-    return {"quit_targets": results}
+    paths = await get_quits_for_user(user_id)
+    return {"quit_paths": paths}

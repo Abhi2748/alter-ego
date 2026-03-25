@@ -32,9 +32,8 @@ export type OnboardingStackParamList = {
 };
 
 export type MainTabParamList = {
-  Sigil: undefined;
   Home: { journalJustCompleted?: boolean } | undefined;
-  Leaderboard: undefined;
+  Feed: undefined;
   Twin: undefined;
   Report: undefined;
   Profile: undefined;
@@ -66,32 +65,18 @@ export type MainStackParamList = {
   };
   JournalCalendar: undefined;
   MissionDetail: {
-    mission: {
-      id: string;
-      type: "core" | "interest" | "resistance";
-      title: string;
-      difficulty: "easy" | "medium" | "hard" | "elite";
-      xp_value: number;
-      pf_value: number;
-      completed: boolean;
-      completed_at: string | null;
-      is_journal_mission: boolean;
-      core_pillar: string | null;
-      interest_id: string | null;
-      rationale: string | null;
-      domain_knowledge: string | null;
-      estimated_minutes: number | null;
-      mission_date: string;
-    };
+    missionId: string;
   };
+  SigilScreen: undefined;
+  Leaderboard: undefined;
 };
 
 export type ProfileStackParamList = {
   ProfileMain: undefined;
   ProfileAbilities: undefined;
   ProfileStreak: undefined;
+  ProfileInterests: undefined;
   ProfileIdentity: undefined;
   ProfileCompanion: undefined;
-  ProfileInterests: undefined;
   ProfileQuits: undefined;
 };

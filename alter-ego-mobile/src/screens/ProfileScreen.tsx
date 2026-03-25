@@ -1,19 +1,10 @@
 /**
- * Profile Screen — Identity hero card + 4 nav rows to sub-screens.
+ * Profile Screen — Identity hero card + nav rows to sub-screens.
  * No fixed header; hero bleeds edge to edge. Do NOT touch sub-screens or bottom nav.
  */
 
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  ActivityIndicator,
-  Image,
-  Platform,
-} from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Image, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,7 +12,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { Ionicons } from "@expo/vector-icons";
-import Svg, { Rect, Path, Circle } from "react-native-svg";
+import Svg, { Path, Circle } from "react-native-svg";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -37,53 +28,10 @@ import { SkeletonBlock } from "@/components/SkeletonBlock";
 import { SigilMiniPreview } from "@/components/sigil/SigilMiniPreview";
 import { useSigilData } from "@/hooks/useSigil";
 
-const ARCHETYPE_DISPLAY: Record<string, string> = {
-  restless_creator: "The Restless Creator",
-  reluctant_achiever: "The Reluctant Achiever",
-  structured_climber: "The Structured Climber",
-  lone_wolf: "The Lone Wolf",
-  social_performer: "The Social Performer",
-};
-
 type Nav = CompositeNavigationProp<
   StackNavigationProp<ProfileStackParamList, "ProfileMain">,
   StackNavigationProp<ProfileStackParamList>
 >;
-
-function AbilitiesIcon() {
-  return (
-    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
-      <Path
-        d="M9 1.5L14.5 5.25V12.75L9 16.5L3.5 12.75V5.25L9 1.5Z"
-        stroke="#8B5CF6"
-        strokeWidth={1.4}
-        strokeLinejoin="round"
-      />
-      <Path
-        d="M9 6.5V11.5M6.5 9H11.5"
-        stroke="#A78BFA"
-        strokeWidth={1.2}
-        strokeLinecap="round"
-      />
-    </Svg>
-  );
-}
-
-function StreakIcon() {
-  return (
-    <Svg width={16} height={20} viewBox="0 0 16 20" fill="none">
-      <Path
-        d="M8 1C8 1 13 6.5 13 11C13 14 10.8 16.5 8 16.5C5.2 16.5 3 14 3 11C3 8.5 5 7 5.5 6C5.5 8 6.5 9 7 9.5C7 6.5 7.5 3.5 8 1Z"
-        fill="#8B5CF6"
-      />
-      <Path
-        d="M6.5 12C6.5 13.1 7.2 13.8 8 13.8C8.8 13.8 9.5 13.1 9.5 12C9.5 11 8.8 10.3 8 10C7.2 10.3 6.5 11 6.5 12Z"
-        fill="#5B21B6"
-        opacity={0.5}
-      />
-    </Svg>
-  );
-}
 
 function JourneyIcon() {
   return (
@@ -101,27 +49,6 @@ function JourneyIcon() {
   );
 }
 
-function InterestsIcon() {
-  return (
-    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
-      <Circle cx={9} cy={8.5} r={2} fill="#8B5CF6" />
-      <Path
-        d="M9 2.5C9 2.5 12 5.5 12 8C12 9.7 10.7 11 9 11C7.3 11 6 9.7 6 8C6 5.5 9 2.5 9 2.5Z"
-        fill="#8B5CF6"
-        opacity={0.4}
-      />
-      <Path
-        d="M4 13.5C4 11.6 6.2 10 9 10C11.8 10 14 11.6 14 13.5"
-        stroke="#6D28D9"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-      />
-      <Circle cx={3} cy={10} r={1.5} fill="#5B21B6" opacity={0.5} />
-      <Circle cx={15} cy={10} r={1.5} fill="#5B21B6" opacity={0.5} />
-    </Svg>
-  );
-}
-
 function QuitsIcon() {
   return (
     <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
@@ -131,16 +58,66 @@ function QuitsIcon() {
   );
 }
 
-const NAV_ENTRIES: {
-  key: keyof Omit<ProfileStackParamList, "ProfileMain">;
+function AetherSigilIcon() {
+  return (
+    <View
+      style={{
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: "rgba(167,139,250,0.13)",
+        borderWidth: 1.5,
+        borderColor: "#A78BFA",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#A78BFA" }} />
+    </View>
+  );
+}
+
+const PROFILE_NAV_ROWS: {
+  kind: "sigil" | "stack" | "journey" | "quits" | "leaderboard";
+  key?: keyof Omit<ProfileStackParamList, "ProfileMain">;
   label: string;
   Icon: React.FC;
+  iconWrap: "violet" | "ember" | "journey" | "quits";
 }[] = [
-  { key: "ProfileAbilities", label: "Abilities", Icon: AbilitiesIcon },
-  { key: "ProfileStreak", label: "Streak", Icon: StreakIcon },
-  { key: "ProfileIdentity", label: "Journey", Icon: JourneyIcon },
-  { key: "ProfileInterests", label: "Interests", Icon: InterestsIcon },
-  { key: "ProfileQuits", label: "Quits", Icon: QuitsIcon },
+  { kind: "sigil", label: "Aether Sigil", Icon: AetherSigilIcon, iconWrap: "violet" },
+  {
+    kind: "stack",
+    key: "ProfileAbilities",
+    label: "Abilities",
+    Icon: () => <Text style={{ fontSize: 18 }}>⚡</Text>,
+    iconWrap: "violet",
+  },
+  {
+    kind: "stack",
+    key: "ProfileStreak",
+    label: "Streak",
+    Icon: () => <Text style={{ fontSize: 18 }}>🔥</Text>,
+    iconWrap: "ember",
+  },
+  {
+    kind: "stack",
+    key: "ProfileInterests",
+    label: "Interests",
+    Icon: () => (
+      <Text style={{ fontSize: 18, color: "#8B5CF6", fontWeight: "700" }}>
+        ✦
+      </Text>
+    ),
+    iconWrap: "violet",
+  },
+  {
+    kind: "leaderboard",
+    label: "Leaderboard",
+    Icon: () => <Text style={{ fontSize: 18 }}>🏆</Text>,
+    iconWrap: "violet",
+  },
+  { kind: "journey", key: "ProfileIdentity", label: "Journey", Icon: JourneyIcon, iconWrap: "journey" },
+  { kind: "quits", key: "ProfileQuits", label: "Quits", Icon: QuitsIcon, iconWrap: "quits" },
 ];
 
 const PET_STAGE_NAMES: Record<number, string> = {
@@ -154,11 +131,22 @@ const PET_STAGE_NAMES: Record<number, string> = {
   8: "Dragon",
 };
 
+function navIconWrapStyle(
+  wrap: "violet" | "ember" | "journey" | "quits"
+): typeof styles.navIconWrap {
+  if (wrap === "ember") return styles.navIconWrapEmber;
+  if (wrap === "journey") return styles.navIconWrapJourney;
+  if (wrap === "quits") return styles.navIconWrapQuits;
+  return styles.navIconWrap;
+}
+
 export function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
   const profile = useUserStore((state) => state.profile);
   const profileLoading = useUserStore((state) => state.isLoading);
+  const { data: sigilData } = useSigilData();
+  const sigilLevel = sigilData?.sigil_level ?? 1;
   const [journeyDropdownVisible, setJourneyDropdownVisible] = useState(false);
   const journeyDropdownTop = 260;
 
@@ -192,12 +180,12 @@ export function ProfileScreen() {
   };
 
   const openSigil = () => {
-    const tabNav = (navigation as any).getParent?.()?.getParent?.();
-    tabNav?.navigate("Sigil");
+    (navigation.getParent() as any)?.navigate("SigilScreen");
   };
 
-  const { data: sigilData } = useSigilData();
-  const sigilPreviewLevel = sigilData?.sigil_level ?? 1;
+  const openLeaderboard = () => {
+    (navigation.getParent() as any)?.navigate("Leaderboard");
+  };
 
   const openEntry = (screen: keyof Omit<ProfileStackParamList, "ProfileMain">) => {
     navigation.navigate(screen);
@@ -255,15 +243,6 @@ export function ProfileScreen() {
                 </LinearGradient>
               )}
               <View style={{ flex: 1 }} />
-              <Pressable
-                onPress={openSigil}
-                style={[styles.settingsBtn, { marginRight: 4 }]}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel="Open Aether sigil"
-              >
-                <SigilMiniPreview level={sigilPreviewLevel} size={24} />
-              </Pressable>
               <Pressable
                 onPress={openMailInbox}
                 style={styles.settingsBtn}
@@ -398,41 +377,38 @@ export function ProfileScreen() {
           />
         </View>
 
-        {/* Nav rows */}
         <View style={[styles.navSection, { paddingHorizontal: 16 }]}>
-          {NAV_ENTRIES.map(({ key, label, Icon }) => {
-            const isJourney = key === "ProfileIdentity";
+          {PROFILE_NAV_ROWS.map((row) => {
+            const { kind, key, label, Icon, iconWrap } = row;
+            const rowKey =
+              kind === "sigil"
+                ? "sigil"
+                : kind === "leaderboard"
+                  ? "leaderboard"
+                  : key ?? label;
+            const isJourney = kind === "journey";
+            const onPress = () => {
+              if (kind === "sigil") openSigil();
+              else if (kind === "leaderboard") openLeaderboard();
+              else if (kind === "journey") setJourneyDropdownVisible(true);
+              else if (key) openEntry(key);
+            };
             return (
               <Pressable
-                key={key}
-                style={({ pressed }) => [
-                  styles.navRow,
-                  pressed && styles.navRowPressed,
-                ]}
-                onPress={() =>
-                  isJourney ? setJourneyDropdownVisible(true) : openEntry(key)
-                }
+                key={rowKey}
+                style={({ pressed }) => [styles.navRow, pressed && styles.navRowPressed]}
+                onPress={onPress}
               >
-                <View style={styles.navIconWrap}>
+                <View style={navIconWrapStyle(iconWrap)}>
                   <Icon />
                 </View>
                 {isJourney ? (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
+                  <View style={styles.navRowTitleWrap}>
                     <Text style={styles.navRowTitle}>Journey</Text>
-                    <Ionicons
-                      name="chevron-down"
-                      size={10}
-                      color="#6B7280"
-                    />
+                    <Ionicons name="chevron-down" size={10} color="#6B7280" />
                   </View>
                 ) : (
-                  <Text style={styles.navRowTitle}>{label}</Text>
+                  <Text style={[styles.navRowTitle, styles.navRowTitleGrow]}>{label}</Text>
                 )}
                 <Ionicons name="chevron-forward" size={16} color="#374151" />
               </Pressable>
@@ -727,6 +703,111 @@ const styles = StyleSheet.create({
     color: "#374151",
     letterSpacing: 0.5,
   },
+  profileTabsSection: {
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
+  profileTabRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(42,48,80,0.5)",
+    marginBottom: 4,
+  },
+  profileTabBtn: {
+    flex: 1,
+    alignItems: "center",
+    paddingBottom: 8,
+  },
+  profileTabLbl: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7280",
+    marginBottom: 6,
+  },
+  profileTabLblActive: {
+    color: "#A78BFA",
+    fontFamily: "Inter_700Bold",
+  },
+  profileTabUnderline: {
+    height: 2,
+    width: "70%",
+    borderRadius: 1,
+    backgroundColor: "#8B5CF6",
+  },
+  profileTabUnderlineHidden: {
+    opacity: 0,
+  },
+  statsTabBlock: {
+    paddingVertical: 16,
+  },
+  statsTabHeading: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.2,
+    color: "#4B5563",
+    marginBottom: 12,
+  },
+  statsTabGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  miniStatCard: {
+    width: "47%",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.4)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    gap: 4,
+  },
+  miniStatVal: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    color: "#E5E7EB",
+  },
+  miniStatLbl: {
+    fontSize: 8,
+    fontFamily: "Inter_600SemiBold",
+    color: "#4B5563",
+    letterSpacing: 0.5,
+  },
+  streakTeaser: {
+    paddingVertical: 20,
+    alignItems: "center",
+    gap: 10,
+  },
+  streakTeaserTitle: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.5,
+    color: "#4B5563",
+  },
+  streakTeaserVal: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    color: "#E5E7EB",
+  },
+  streakTeaserBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#2A3050",
+    backgroundColor: "rgba(255,255,255,0.03)",
+  },
+  streakTeaserBtnTxt: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#A78BFA",
+  },
   navSection: {
     paddingTop: 24,
   },
@@ -755,12 +836,48 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  navRowTitle: {
+  navIconWrapEmber: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: "rgba(249,115,22,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(249,115,22,0.20)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navIconWrapJourney: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: "rgba(139,92,246,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.28)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navIconWrapQuits: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: "rgba(251,146,60,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(251,146,60,0.20)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navRowTitleWrap: {
     flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  navRowTitle: {
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
     color: "#E5E7EB",
   },
+  navRowTitleGrow: { flex: 1 },
   journeyDropdownCard: {
     position: "absolute",
     left: 16,

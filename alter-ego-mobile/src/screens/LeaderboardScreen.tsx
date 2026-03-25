@@ -16,6 +16,8 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import type { StackNavigationProp } from "@react-navigation/stack";
+import type { MainStackParamList } from "@/navigation/types";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -23,6 +25,7 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
+import { Ionicons } from "@expo/vector-icons";
 import { LeaderboardSkeleton } from "../components/LeaderboardSkeleton";
 import { COLORS, SPACING, GRADIENTS } from "../constants/theme";
 import { leaderboardService, type LeaderboardEntryApi } from "@/services/leaderboard";
@@ -372,7 +375,8 @@ function StandardRow({
 
 export function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const navigation =
+    useNavigation<StackNavigationProp<MainStackParamList, "Leaderboard">>();
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [myRank, setMyRank] = useState<number | null>(null);
@@ -453,9 +457,8 @@ export function LeaderboardScreen() {
       myRank != null && myRank >= 1 && myRank <= 3
         ? (myRank as 1 | 2 | 3)
         : undefined;
-    (navigation.getParent() as any)?.navigate("RankCard", {
-      rankPosition,
-    });
+    // Leaderboard is a MainStack screen; do not use getParent() — that is RootStack and has no RankCard.
+    navigation.navigate("RankCard", { rankPosition });
   };
   const showShare = userVisible;
 
@@ -472,7 +475,16 @@ export function LeaderboardScreen() {
 
       {/* Fixed header */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <View>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          style={styles.headerBackBtn}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="chevron-back" size={22} color={COLORS.muted} />
+        </Pressable>
+        <View style={styles.headerTitleBlock}>
           <Text style={styles.headerTitle}>Leaderboard</Text>
           <Text style={styles.headerSubtitle}>
             {locked ? "—" : `${displayTotal} competing`}
@@ -571,12 +583,25 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     paddingHorizontal: 16,
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     justifyContent: "space-between",
+    gap: 10,
     backgroundColor: "rgba(6,7,14,0.6)",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(42,48,80,0.6)",
     zIndex: 1,
+  },
+  headerBackBtn: {
+    padding: 4,
+    marginLeft: -4,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTitleBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   headerTitle: {
     fontFamily: "Inter_700Bold",

@@ -25,7 +25,7 @@ const SIGILS: React.FC<SigilProps>[] = [
 ];
 
 export function SigilRenderer({ level, ...props }: SigilProps & { level: number }) {
-  const L = Math.min(10, Math.max(1, level));
+  const L = Math.min(10, Math.max(1, Math.floor(level)));
   const Comp = SIGILS[L - 1];
   return <Comp {...props} />;
 }

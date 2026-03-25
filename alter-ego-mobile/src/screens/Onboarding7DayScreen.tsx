@@ -134,7 +134,7 @@ export function Onboarding7DayScreen() {
   }, []);
 
   const handleContinue = () => {
-    navigation.navigate("TwinIntroduction", {
+    navigation.navigate("TwinForming", {
       archetype,
     });
   };

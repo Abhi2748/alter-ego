@@ -1,10 +1,13 @@
+import asyncio
+import json
+import logging
 import random
 import re
 from datetime import datetime, timezone
-import asyncio
 
 from fastapi import HTTPException
 
+from app.agents.agent_guardrails import check_crisis_content
 from app.core.supabase_client import supabase_admin
 from app.core.archetype import classify_archetype, get_archetype_data, get_initial_dna
 from app.core.constants import (
@@ -13,6 +16,26 @@ from app.core.constants import (
     TWIN_INITIAL_CONSISTENCY,
 )
 from app.agents.interest_normaliser import normalise_interest
+
+logger = logging.getLogger(__name__)
+
+
+def _interest_normalisation_rejection_payload(rejection_reason: str) -> dict[str, str]:
+    reason = rejection_reason or ""
+    if reason == "self_harm":
+        return {
+            "rejection_type": "self_harm",
+            "message": "Please reach out to someone who can help.",
+        }
+    if "quit target" in reason.lower():
+        return {
+            "rejection_type": "redirect_to_quit",
+            "message": "This sounds like something to quit, not a skill to build.",
+        }
+    return {
+        "rejection_type": "invalid_input",
+        "message": "Please describe a skill or interest you want to develop.",
+    }
 
 
 ADJECTIVES = [
@@ -351,6 +374,9 @@ async def complete_onboarding(user_id: str) -> dict:
     if not isinstance(interest_items, list):
         interest_items = []
 
+    interest_rejections: list[dict] = []
+    self_harm_interest_detected = False
+
     # Run all interest normalisations in parallel to cut latency
     interest_inputs: list[tuple[str, str, str | None, list | None]] = []
     for item in interest_items:
@@ -376,6 +402,14 @@ async def complete_onboarding(user_id: str) -> dict:
                 if isinstance(normalised, Exception):
                     raise normalised
                 normalised = normalised or {}
+                if normalised.get("rejected"):
+                    payload = _interest_normalisation_rejection_payload(
+                        str(normalised.get("rejection_reason") or "")
+                    )
+                    interest_rejections.append(payload)
+                    if payload.get("rejection_type") == "self_harm":
+                        self_harm_interest_detected = True
+                    continue
                 level_context = normalised.get("level_context") or {}
 
                 level_meta = INTEREST_LEVEL_MAP.get(
@@ -426,11 +460,28 @@ async def complete_onboarding(user_id: str) -> dict:
 
     from app.services.quit_service import create_quit_path
 
+    self_harm_quit_detected = False
+
     for item in quit_items:
         it = item or {}
         name = str(it.get("name") or it.get("raw_text") or "").strip()
         if not name:
             continue
+
+        if check_crisis_content(name):
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "quit_target_self_harm_detected",
+                        "user_id": user_id,
+                        "preview": name[:30],
+                    }
+                )
+            )
+            self_harm_quit_detected = True
+            notes.append("quit_target_rejected_self_harm")
+            continue
+
         contexts = it.get("contexts") if isinstance(it.get("contexts"), list) else []
         awareness = str(it.get("awareness") or "semi_conscious")
         quit_goal = str(it.get("quit_goal") or "stop_completely")
@@ -547,7 +598,12 @@ async def complete_onboarding(user_id: str) -> dict:
         "twin_first_message": twin_first_message,
         "interests_processed": len(interests_created),
         "quit_targets_processed": len(quit_targets_created),
+        "self_harm_quit_detected": self_harm_quit_detected,
     }
+    if interest_rejections:
+        resp["interest_rejections"] = interest_rejections
+    if self_harm_interest_detected:
+        resp["self_harm_interest_detected"] = True
     if notes:
         resp["notes"] = notes
     return resp

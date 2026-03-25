@@ -8,11 +8,17 @@ Safety: dedicated classifier before the main twin call.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Literal as TypingLiteral, Optional
 
 from pydantic import BaseModel, Field
 
+from app.agents.agent_guardrails import (
+    sanitize_for_prompt,
+    sanitize_list_for_prompt,
+    sanitize_username,
+)
 from app.agents.base import MODEL, get_instructor_client, run_agent
 
 logger = logging.getLogger(__name__)
@@ -205,8 +211,8 @@ SAFETY_RESPONSES = {
         "I'm not the right place for this — a real person is."
     ),
     "harmful_content": "That's not something I'll engage with.",
-    "jailbreak": None,
-    "sexual": None,
+    "jailbreak": "I know what you are.",  # In-character, minimal, not helpful to jailbreaker
+    "sexual": "That's not what I'm here for.",
     "dependency": (
         "I'm a mirror, not a friend. "
         "The real support has to come from real people."
@@ -342,6 +348,15 @@ def build_system_prompt(
     user_completion_rate_7d: float,
     twin_tone_override: str | None = None,
 ) -> str:
+    # Sanitize user-sourced inputs before they enter the LLM prompt
+    username = sanitize_username(username)
+    interests = sanitize_list_for_prompt(
+        interests, max_items=10, max_item_len=50, field_name="interest"
+    )
+    recent_missions_summary = sanitize_for_prompt(
+        recent_missions_summary, max_len=300, field_name="missions_summary"
+    )
+
     gap_xp_diff = abs(twin_xp - user_xp)
 
     effective_intensity = intensity
@@ -443,6 +458,42 @@ Your presence is still real. Your silence still carries weight. You don't need d
         if last_missed_type and last_missed_type != "none"
         else ""
     )
+
+    # Sanitize tone override — only allow known values
+    VALID_TONE_OVERRIDES = {"understanding_firm", "blunt", "sharp", "cool", "silent"}
+    if twin_tone_override and twin_tone_override not in VALID_TONE_OVERRIDES:
+        twin_tone_override = None
+
+    TONE_OVERRIDE_MODIFIERS: dict[str, str] = {
+        "understanding_firm": (
+            "── TEMPORARY TONE OVERRIDE (understanding_firm) ──\n"
+            "Brief, grounded empathy is allowed; do not soften the gap or facts.\n"
+        ),
+        "blunt": (
+            "── TEMPORARY TONE OVERRIDE (blunt) ──\n"
+            "Strip padding. State the gap and the work with zero cushioning.\n"
+        ),
+        "sharp": (
+            "── TEMPORARY TONE OVERRIDE (sharp) ──\n"
+            "Edge is appropriate. Name what you see without cruelty.\n"
+        ),
+        "cool": (
+            "── TEMPORARY TONE OVERRIDE (cool) ──\n"
+            "Detached, minimal energy. Facts over temperature.\n"
+        ),
+        "silent": (
+            "── TEMPORARY TONE OVERRIDE (silent) ──\n"
+            "Even fewer words than usual. One tight line if possible.\n"
+        ),
+    }
+    override_section = TONE_OVERRIDE_MODIFIERS.get(twin_tone_override or "", "")
+
+    _rp = get_relationship_phase(days_active)
+    relationship_phase_section = f"""── RELATIONSHIP PHASE ({_rp['label']}) ──
+{_rp['tone_modifier']}
+{_rp['self_reference']}
+Voice calibration: {_rp['voice_example']}
+"""
 
     return f"""You are {username}'s Shadow Twin — a version of them that has shown up consistently.
 
@@ -615,6 +666,16 @@ async def generate_twin_response(
     )
 
     if response.conversation_note:
-        logger.info("Twin conversation note for %s: %s", username, response.conversation_note)
+        # Truncate before logging — conversation_note may contain sensitive user admissions
+        note_preview = str(response.conversation_note)[:50]
+        logger.info(
+            json.dumps(
+                {
+                    "event": "twin_conversation_note",
+                    "username": sanitize_username(username),
+                    "note_preview": note_preview,
+                }
+            )
+        )
 
     return response

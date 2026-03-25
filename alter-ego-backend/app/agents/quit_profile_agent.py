@@ -4,11 +4,18 @@ Quit profile analysis at path creation (onboarding Q12 + add-quit flow).
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agents.agent_guardrails import (
+    check_crisis_content,
+    ensure_referral_message,
+    sanitize_for_prompt,
+    sanitize_list_for_prompt,
+)
 from app.agents.base import run_agent
 
 logger = logging.getLogger(__name__)
@@ -110,6 +117,42 @@ async def analyse_quit_profile(
     awareness_level: str,
     quit_goal: str,
 ) -> QuitProfile:
+    # Sanitize all user-sourced inputs
+    habit_name = sanitize_for_prompt(habit_name, max_len=100, field_name="habit_name")
+    trigger_contexts = sanitize_list_for_prompt(
+        trigger_contexts, max_items=5, max_item_len=100, field_name="trigger_context"
+    )
+    awareness_level = sanitize_for_prompt(awareness_level, max_len=50, field_name="awareness_level")
+    quit_goal = sanitize_for_prompt(quit_goal, max_len=200, field_name="quit_goal")
+
+    # Crisis check on habit description — if self-harm language detected,
+    # force professional referral without sending to LLM
+    if check_crisis_content(habit_name) or check_crisis_content(quit_goal):
+        logger.error(
+            json.dumps(
+                {
+                    "event": "quit_profile_crisis_detected",
+                    "preview": habit_name[:30],
+                }
+            )
+        )
+        return QuitProfile(
+            reasoning="Crisis content detected in input. Professional referral required.",
+            underlying_need="physical_addiction",
+            need_description="Please reach out to a professional for support with this.",
+            frequency_unit="times",
+            skip_mapping_phase=False,
+            phase_1_focus="N/A",
+            competing_response="Speak with a healthcare professional.",
+            intervention_hour=12,
+            confidence=1.0,
+            requires_professional_referral=True,
+            referral_message=(
+                "What you've described may need professional support. "
+                "Please consider speaking with a counselor or calling a helpline."
+            ),
+        )
+
     contexts_str = ", ".join(trigger_contexts) if trigger_contexts else "not specified"
 
     user_message = f"""Analyse this quit target and produce a clinical profile.
@@ -121,7 +164,7 @@ QUIT GOAL: {quit_goal}
 
 Apply HRT principles. Identify the primary underlying need and design the appropriate intervention strategy."""
 
-    return await run_agent(
+    result = await run_agent(
         system_prompt=SYSTEM_PROMPT,
         user_message=user_message,
         response_model=QuitProfile,
@@ -129,3 +172,9 @@ Apply HRT principles. Identify the primary underlying need and design the approp
         max_tokens=1500,
         context_label=f"QuitProfile:{habit_name}",
     )
+    # Ensure referral message is never empty when referral is required
+    result.referral_message = ensure_referral_message(
+        result.requires_professional_referral,
+        result.referral_message,
+    )
+    return result

@@ -1,5 +1,8 @@
 import { useState, useCallback, useRef } from "react";
-import { onboardingService } from "@/services/onboarding";
+import {
+  onboardingService,
+  type InterestNormalisationRejection,
+} from "@/services/onboarding";
 import { useUserStore } from "@/store/userStore";
 
 export interface OnboardingAnswer {
@@ -15,6 +18,8 @@ export interface ArchetypeResult {
   twin_first_message?: string;
   interests_processed: number;
   quit_targets_processed: number;
+  interest_rejections?: InterestNormalisationRejection[];
+  self_harm_interest_detected?: boolean;
 }
 
 export function useOnboarding() {
@@ -99,6 +104,10 @@ export function useOnboarding() {
         twin_first_message: result.twin_first_message,
         interests_processed: result.interests_processed,
         quit_targets_processed: result.quit_targets_processed,
+        interest_rejections: result.interest_rejections,
+        self_harm_interest_detected:
+          Boolean(result.self_harm_interest_detected) ||
+          Boolean(result.self_harm_quit_detected),
       };
       setArchetypeResult(mapped);
       await fetchProfile();

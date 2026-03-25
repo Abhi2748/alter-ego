@@ -204,7 +204,11 @@ async def process_absence_escalation_notifications() -> None:
             .execute()
         )
     except Exception as e:
-        logger.error(json.dumps({"event": "absence_notif_batch_error", "error": str(e)}))
+        logger.error(
+            json.dumps(
+                {"event": "absence_notif_batch_error", "error": str(e)[:200]}
+            )
+        )
         return
 
     for user in users_result.data or []:
@@ -225,7 +229,12 @@ async def process_absence_escalation_notifications() -> None:
                 final_sent = bool(user.get("final_absence_notif_sent"))
                 if not final_sent and token:
                     fn = ABSENCE_FINAL_NOTIFICATION
-                    await _send_push_notification(token, fn["title"], fn["body"])
+                    await _send_push_notification(
+                        token,
+                        fn["title"],
+                        fn["body"],
+                        push_context="absence_final",
+                    )
                     try:
                         supabase_admin.table("users").update(
                             {"final_absence_notif_sent": True}
@@ -235,9 +244,10 @@ async def process_absence_escalation_notifications() -> None:
                     logger.info(
                         json.dumps(
                             {
-                                "event": "final_absence_notification_sent",
+                                "event": "absence_notification_sent",
                                 "user_id": uid,
-                                "days": days,
+                                "absence_days": days,
+                                "notification_type": "final",
                             }
                         )
                     )
@@ -248,7 +258,12 @@ async def process_absence_escalation_notifications() -> None:
                 if last_sent != days:
                     copy = ABSENCE_NOTIFICATION_COPY.get(days)
                     if copy:
-                        await _send_push_notification(token, copy["title"], copy["body"])
+                        await _send_push_notification(
+                            token,
+                            copy["title"],
+                            copy["body"],
+                            push_context=f"absence_day_{days}",
+                        )
                         try:
                             supabase_admin.table("users").update(
                                 {"last_absence_notif_day": days}
@@ -260,7 +275,8 @@ async def process_absence_escalation_notifications() -> None:
                                 {
                                     "event": "absence_notification_sent",
                                     "user_id": uid,
-                                    "days": days,
+                                    "absence_days": days,
+                                    "notification_type": f"day_{days}",
                                 }
                             )
                         )
@@ -278,7 +294,10 @@ async def process_absence_escalation_notifications() -> None:
                     if datetime.now(timezone.utc) - set_at >= timedelta(hours=24):
                         n = ABSENCE_SILENT_RETURN_NOTIFICATION
                         await _send_push_notification(
-                            token, n["title"], n["body"]
+                            token,
+                            n["title"],
+                            n["body"],
+                            push_context="absence_unsure_followup",
                         )
                         supabase_admin.table("users").update(
                             {"unsure_followup_push_sent": True}
@@ -286,8 +305,10 @@ async def process_absence_escalation_notifications() -> None:
                         logger.info(
                             json.dumps(
                                 {
-                                    "event": "absence_unsure_followup_sent",
+                                    "event": "absence_notification_sent",
                                     "user_id": uid,
+                                    "absence_days": days,
+                                    "notification_type": "unsure_followup",
                                 }
                             )
                         )
@@ -297,7 +318,7 @@ async def process_absence_escalation_notifications() -> None:
                             {
                                 "event": "absence_unsure_followup_error",
                                 "user_id": uid,
-                                "error": str(ex),
+                                "error": str(ex)[:200],
                             }
                         )
                     )
@@ -308,7 +329,7 @@ async def process_absence_escalation_notifications() -> None:
                     {
                         "event": "absence_notification_error",
                         "user_id": uid,
-                        "error": str(err),
+                        "error": str(err)[:200],
                     }
                 )
             )

@@ -9,6 +9,7 @@ from typing import List, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.agents.agent_guardrails import sanitize_for_prompt, sanitize_list_for_prompt
 from app.agents.base import run_agent
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,16 @@ class QuitMission(BaseModel):
         for word in forbidden:
             if word in v_lower:
                 raise ValueError(f"Mission title cannot contain '{word}'")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def description_must_be_positive(cls, v: str) -> str:
+        forbidden = ["don't", "avoid", "stop", "resist", "try to", "attempt", "never do"]
+        v_lower = v.lower()
+        for word in forbidden:
+            if word in v_lower:
+                raise ValueError(f"Mission description cannot contain '{word}'")
         return v
 
 
@@ -78,6 +89,27 @@ async def generate_quit_missions(
     days_in_phase: int,
     archetype: str,
 ) -> QuitMissionBatch:
+    # Sanitize all user-sourced inputs before LLM call
+    habit_name = sanitize_for_prompt(habit_name, max_len=100, field_name="habit_name")
+    underlying_need = sanitize_for_prompt(underlying_need, max_len=80, field_name="underlying_need")
+    trigger_contexts = sanitize_list_for_prompt(
+        trigger_contexts, max_items=5, max_item_len=100, field_name="trigger_context"
+    )
+    awareness_level = sanitize_for_prompt(awareness_level, max_len=50, field_name="awareness_level")
+    current_phase = sanitize_for_prompt(current_phase, max_len=50, field_name="current_phase")
+    competing_response = sanitize_for_prompt(
+        competing_response, max_len=200, field_name="competing_response"
+    )
+    phase_1_focus = sanitize_for_prompt(phase_1_focus, max_len=200, field_name="phase_1_focus")
+    archetype = sanitize_for_prompt(archetype, max_len=50, field_name="archetype")
+
+    if recent_missions:
+        for m in recent_missions[:5]:
+            if "title" in m:
+                m["title"] = sanitize_for_prompt(
+                    str(m["title"]), max_len=60, field_name="mission_title"
+                )
+
     contexts_str = ", ".join(trigger_contexts) if trigger_contexts else "general/any time"
 
     history_str = "No recent missions yet"

@@ -11,6 +11,11 @@ export type RootStackParamList = {
 
 import type { OnboardingAnswers } from "../context/OnboardingAnswersContext";
 
+export type InterestNormalisationRejection = {
+  rejection_type: "self_harm" | "redirect_to_quit" | "invalid_input";
+  message: string;
+};
+
 export type ArchetypeRevealResult = {
   archetype: string;
   archetype_name: string;
@@ -19,6 +24,8 @@ export type ArchetypeRevealResult = {
   twin_first_message?: string;
   interests_processed: number;
   quit_targets_processed: number;
+  interest_rejections?: InterestNormalisationRejection[];
+  self_harm_interest_detected?: boolean;
 };
 
 export type OnboardingStackParamList = {
@@ -26,8 +33,10 @@ export type OnboardingStackParamList = {
   OnboardingQuestion: { questionNumber: number; fromBack?: boolean } | undefined;
   ArchetypeReveal: { answers?: OnboardingAnswers; archetypeResult?: ArchetypeRevealResult };
   Onboarding7Day: { archetype?: string } | undefined;
+  TwinForming: { archetype?: string } | undefined;
   /** Twin card copy is resolved on-screen from archetype (not commitment-question API line). */
   TwinIntroduction: { archetype?: string; gender?: "male" | "female" | "other" } | undefined;
+  OnboardingSafetySupport: { archetypeResult?: ArchetypeRevealResult } | undefined;
   NotificationPermission: undefined;
 };
 

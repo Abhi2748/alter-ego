@@ -47,11 +47,11 @@ export function useSaveJournal() {
       bookmarked?: boolean;
     }) => missionsService.saveJournal(body),
 
-    onSuccess: (data: JournalSaveResponse) => {
+    onSuccess: async (data: JournalSaveResponse) => {
       queryClient.invalidateQueries({ queryKey: JOURNAL_KEYS.all });
       const completion = data.completion;
       if (completion && completion.success && !completion.already_completed) {
-        applyMissionCompletionSideEffects(queryClient, completion);
+        await applyMissionCompletionSideEffects(queryClient, completion);
         emitMissionCompletionCelebration(completion, {});
       }
       queryClient.invalidateQueries({ queryKey: MISSION_KEYS.today });

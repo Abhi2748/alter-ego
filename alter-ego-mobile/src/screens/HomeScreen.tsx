@@ -496,7 +496,13 @@ export function HomeScreen() {
   const petStage = profile?.pet_stage ?? 0;
   const totalPetFood = profile?.total_pf ?? 0;
   const streak = profile?.current_streak ?? 0;
-  const petHealthState = "idle";
+  const totalToday = todayData?.summary?.total ?? 0;
+  const petHealthState: "happy" | "idle" | "sad" =
+    absenceDays >= 2
+      ? "sad"
+      : totalToday > 0 && completedToday > 0 && completedToday === totalToday
+        ? "happy"
+        : "idle";
 
   const streakHeatmap = streakProfile?.heatmap ?? [];
   const heatmapByDate = useMemo(() => new Map(streakHeatmap.map((r) => [r.date, r])), [streakHeatmap]);

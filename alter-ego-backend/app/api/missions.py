@@ -369,6 +369,17 @@ def _attach_quit_path_detail(row: dict) -> None:
 async def complete_mission_endpoint(mission_id: str, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
     result = await complete_mission(user_id, mission_id)
+    logger.info(
+        json.dumps(
+            {
+                "event": "mission_completed",
+                "user_id": user_id,
+                "mission_id": mission_id,
+                "xp_earned": int(result.get("xp_earned", 0) or 0),
+                "stage_evolved": result.get("stage_evolved") is not None,
+            }
+        )
+    )
     return result
 
 

@@ -23,6 +23,11 @@ export interface CreateProfileResponse {
   user_id: string;
 }
 
+export type InterestNormalisationRejection = {
+  rejection_type: "self_harm" | "redirect_to_quit" | "invalid_input";
+  message: string;
+};
+
 export interface OnboardingCompleteResponse {
   success: boolean;
   archetype: string;
@@ -32,6 +37,9 @@ export interface OnboardingCompleteResponse {
   twin_first_message: string;
   interests_processed: number;
   quit_targets_processed: number;
+  interest_rejections?: InterestNormalisationRejection[];
+  self_harm_interest_detected?: boolean;
+  self_harm_quit_detected?: boolean;
 }
 
 export const onboardingService = {

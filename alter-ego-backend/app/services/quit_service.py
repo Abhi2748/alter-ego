@@ -4,6 +4,7 @@ Quit path creation, phase transitions, mission generation, frequency logging.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -528,18 +529,35 @@ async def update_quit_schedule(
         quit_goal=path["quit_goal"],
     )
 
-    supabase_admin.table("quit_paths").update(
-        {
-            "trigger_contexts": trigger_contexts,
-            "awareness_level": awareness_level,
-            "underlying_need": profile.underlying_need,
-            "need_description": profile.need_description,
-            "competing_response": profile.competing_response,
-            "phase_1_focus": profile.phase_1_focus,
-            "intervention_hour": profile.intervention_hour,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).eq("id", path_id).execute()
+    if profile.requires_professional_referral:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "quit_profile_referral_required",
+                    "user_id": user_id,
+                    "habit_preview": (str(path.get("habit_name") or ""))[:30],
+                }
+            )
+        )
+
+    update_payload: dict[str, Any] = {
+        "trigger_contexts": trigger_contexts,
+        "awareness_level": awareness_level,
+        "underlying_need": profile.underlying_need,
+        "need_description": profile.need_description,
+        "competing_response": profile.competing_response,
+        "phase_1_focus": profile.phase_1_focus,
+        "intervention_hour": profile.intervention_hour,
+        "requires_professional_referral": profile.requires_professional_referral,
+        "referral_message": profile.referral_message or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if profile.requires_professional_referral:
+        update_payload["status"] = "referral_only"
+    elif path.get("status") == "referral_only":
+        update_payload["status"] = "active"
+
+    supabase_admin.table("quit_paths").update(update_payload).eq("id", path_id).execute()
 
     return {"updated": True}
 

@@ -945,7 +945,7 @@ async def get_shadow_feed(
                 {
                     "event": "shadow_feed_error",
                     "user_id": user_id,
-                    "error": str(e),
+                    "error": str(e)[:200],
                 }
             )
         )
@@ -961,7 +961,24 @@ async def get_twin_state(authorization: str = Header(None)):
     opens the app earlier) so timeline + stats are never empty on day 1.
     """
     user_id = get_user_id_from_token(authorization)
+    try:
+        return await _build_twin_state_response(user_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "twin_state_error",
+                    "user_id": user_id,
+                    "error": str(e)[:200],
+                }
+            )
+        )
+        raise HTTPException(status_code=500, detail="Unable to load twin state") from e
 
+
+async def _build_twin_state_response(user_id: str) -> dict:
     await ensure_twin_simulated_for_today(user_id)
 
     user_result = (
@@ -1082,7 +1099,7 @@ async def get_twin_state(authorization: str = Header(None)):
                 {
                     "event": "twin_state_heatmap_error",
                     "user_id": user_id,
-                    "error": str(e),
+                    "error": str(e)[:200],
                 }
             )
         )
@@ -1172,7 +1189,7 @@ async def get_twin_state(authorization: str = Header(None)):
                 {
                     "event": "twin_state_dna_error",
                     "user_id": user_id,
-                    "error": str(e),
+                    "error": str(e)[:200],
                 }
             )
         )
@@ -1213,7 +1230,7 @@ async def get_twin_state(authorization: str = Header(None)):
         anchor_30 = date_cls.fromisoformat(today)
     except Exception:
         anchor_30 = date_cls.today()
-    thirty_days_ago = str(anchor - timedelta(days=30))
+    thirty_days_ago = str(anchor_30 - timedelta(days=30))
     twin_completion = fetch_twin_30d_completion_rate(user_id, thirty_days_ago)
 
     twin_power_score = compute_power_score_value(

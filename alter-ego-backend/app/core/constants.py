@@ -1034,6 +1034,18 @@ TWIN_JOURNAL_FALLBACKS: dict[str, str] = {
     "partner": "{done}/{total}. {N} days in. You're not who you were when you started.",
 }
 
+# ── PET–TWIN JOURNAL (D2) ────────────────────────────────────────────────────
+# Appended to a normal Twin journal entry once per week (see twin_service).
+PET_TWIN_JOURNAL_LINES = [
+    "Your companion has been waiting by the door.",
+    "The pet roams. It doesn't know about the gap. You do.",
+    "I noticed your companion is still here. So am I.",
+    "Your creature is more patient than you deserve right now.",
+    "The companion dims when you disappear. You probably didn't notice.",
+    "I don't have a companion. I don't need one.",
+    "Your companion doesn't track XP. Lucky.",
+]
+
 
 # ── SHADOW FEED TWIN MICRO-COPY ───────────────────────────────────────────────
 # Short notes attached to Twin's feed entries.

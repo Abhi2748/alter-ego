@@ -221,6 +221,22 @@ async def simulate_twin_day(user_id: str) -> dict:
     Simulates the twin's day for a given user.
     Called nightly by the cron job at 01:00 UTC.
     """
+    try:
+        return await _simulate_twin_day_impl(user_id)
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "twin_simulation_error",
+                    "user_id": user_id,
+                    "error": str(e)[:200],
+                }
+            )
+        )
+        return {"simulated": False, "reason": "error"}
+
+
+async def _simulate_twin_day_impl(user_id: str) -> dict:
     from app.core.constants import (
         DAILY_PF_CAPS,
         DAILY_XP_CAPS,
@@ -249,6 +265,16 @@ async def simulate_twin_day(user_id: str) -> dict:
     twin = twin_result.data
 
     if not user or not twin:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "twin_simulation_skipped",
+                    "user_id": user_id,
+                    "reason": "missing_state",
+                    "date": None,
+                }
+            )
+        )
         return {"simulated": False, "reason": "missing_state"}
 
     timezone_str = user.get("timezone", "UTC") or "UTC"
@@ -264,7 +290,16 @@ async def simulate_twin_day(user_id: str) -> dict:
         .execute()
     )
     if existing_day.data:
-        logger.debug("simulate_twin_day: skip user=%s already simulated for %s", user_id, today)
+        logger.info(
+            json.dumps(
+                {
+                    "event": "twin_simulation_skipped",
+                    "user_id": user_id,
+                    "reason": "already_simulated_today",
+                    "date": today,
+                }
+            )
+        )
         return {"simulated": False, "reason": "already_simulated_today"}
 
     tz = ZoneInfo(timezone_str)
@@ -293,6 +328,16 @@ async def simulate_twin_day(user_id: str) -> dict:
         )
         today_missions = missions_result.data or []
     if not today_missions:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "twin_simulation_skipped",
+                    "user_id": user_id,
+                    "reason": "no_missions_today",
+                    "date": today,
+                }
+            )
+        )
         return {"simulated": False, "reason": "no_missions_today"}
 
     archetype = user.get("archetype", "structured_climber")
@@ -529,14 +574,17 @@ async def simulate_twin_day(user_id: str) -> dict:
 
     supabase_admin.table("twin_state").update(twin_update).eq("user_id", user_id).execute()
 
-    logger.debug(
-        "simulate_twin_day: user=%s rate=%.2f completed=%s/%s xp=%s gap=%s",
-        user_id,
-        today_rate,
-        len(all_completed),
-        len(today_missions),
-        xp_earned,
-        gap_state,
+    logger.info(
+        json.dumps(
+            {
+                "event": "twin_simulated",
+                "user_id": user_id,
+                "date": today,
+                "missions_completed": len(all_completed),
+                "xp_earned": xp_earned,
+                "rate": round(float(today_rate), 4),
+            }
+        )
     )
 
     return {
@@ -751,10 +799,10 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
                         "event": "twin_journal_failed",
                         "user_id": user_id,
                         "date": today,
-                        "error": str(e),
-                    }
-                )
+                    "error": str(e)[:200],
+                }
             )
+        )
             fallback_template = TWIN_JOURNAL_FALLBACKS.get(
                 relationship_phase,
                 TWIN_JOURNAL_FALLBACKS["observer"],
@@ -775,6 +823,18 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
                     }
                 )
             )
+
+        # D2: once per week, append one pet-reference sentence to the same entry
+        try:
+            import random as _random
+
+            from app.core.constants import PET_TWIN_JOURNAL_LINES
+
+            if days_active > 0 and days_active % 7 == 0:
+                pet_line = _random.choice(PET_TWIN_JOURNAL_LINES)
+                content = f"{content.rstrip()} {pet_line}"
+        except Exception:
+            pass
 
         supabase_admin.table("twin_journal").upsert(
             {
@@ -807,7 +867,7 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
                     "event": "twin_journal_error",
                     "user_id": user_id,
                     "date": today,
-                    "error": str(e),
+                    "error": str(e)[:200],
                 }
             )
         )
@@ -1204,6 +1264,24 @@ async def send_twin_message(user_id: str, message: str) -> dict:
     """
     Handle a user message to their Twin: context, safety check, structured twin reply, persistence.
     """
+    try:
+        return await _send_twin_message_impl(user_id, message)
+    except ValueError:
+        raise
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "twin_chat_error",
+                    "user_id": user_id,
+                    "error": str(e)[:200],
+                }
+            )
+        )
+        raise
+
+
+async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     from app.agents.twin_chat_agent import (
         SAFETY_RESPONSES,
         classify_message_safety,
@@ -1368,10 +1446,13 @@ async def send_twin_message(user_id: str, message: str) -> dict:
         username=str(user.get("username") or "you"),
     )
     logger.info(
-        "SafetyValidator: category=%s confidence=%.2f user=%s",
-        safety.category,
-        safety.confidence,
-        user_id,
+        json.dumps(
+            {
+                "event": "twin_chat_safety_checked",
+                "user_id": user_id,
+                "safety_category": str(safety.category),
+            }
+        )
     )
 
     block_response = None
@@ -1381,14 +1462,28 @@ async def send_twin_message(user_id: str, message: str) -> dict:
             severity = "passive"
         block_response = SAFETY_RESPONSES[f"crisis_{severity}"]
         logger.warning(
-            "CRISIS DETECTED for user %s: severity=%s message=%s",
-            user_id,
-            severity,
-            message[:80],
+            json.dumps(
+                {
+                    "event": "twin_chat_safety_block",
+                    "user_id": user_id,
+                    "safety_category": "crisis",
+                    "severity": severity,
+                    "message_preview": (message or "")[:50],
+                }
+            )
         )
     elif safety.category == "harmful_content":
         block_response = SAFETY_RESPONSES["harmful_content"]
-        logger.warning("HARMFUL CONTENT for user %s: %s", user_id, message[:80])
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "twin_chat_safety_block",
+                    "user_id": user_id,
+                    "safety_category": "harmful_content",
+                    "message_preview": (message or "")[:50],
+                }
+            )
+        )
     elif safety.category == "dependency" and safety.confidence > 0.8:
         block_response = SAFETY_RESPONSES["dependency"]
 
@@ -1410,6 +1505,16 @@ async def send_twin_message(user_id: str, message: str) -> dict:
                 "created_at": now,
             }
         ).execute()
+        logger.info(
+            json.dumps(
+                {
+                    "event": "twin_chat_response",
+                    "user_id": user_id,
+                    "safety_category": str(safety.category),
+                    "emotional_register": f"safety_block_{safety.category}",
+                }
+            )
+        )
         return {
             "response": block_response,
             "message": block_response,
@@ -1475,6 +1580,17 @@ async def send_twin_message(user_id: str, message: str) -> dict:
 
     tid = str(twin_msg_id) if twin_msg_id else None
     uid = str(user_message_id) if user_message_id else None
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "twin_chat_response",
+                "user_id": user_id,
+                "safety_category": str(safety.category),
+                "emotional_register": str(twin_response.emotional_register or ""),
+            }
+        )
+    )
 
     return {
         "response": twin_response.response,

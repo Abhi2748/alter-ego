@@ -4,10 +4,12 @@ Earned insights when a user completes a quit path phase transition.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.agents.agent_guardrails import sanitize_for_prompt, sanitize_list_for_prompt
 from app.agents.base import run_agent
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,27 @@ async def generate_quit_insight(
     frequency_baseline: float | None,
     frequency_at_transition: float | None,
 ) -> QuitInsight:
+    # Sanitize user-sourced inputs
+    habit_name = sanitize_for_prompt(habit_name, max_len=100, field_name="habit_name")
+    underlying_need = sanitize_for_prompt(underlying_need, max_len=80, field_name="underlying_need")
+    awareness_level = sanitize_for_prompt(awareness_level, max_len=50, field_name="awareness_level")
+    trigger_contexts = sanitize_list_for_prompt(
+        trigger_contexts, max_items=5, max_item_len=100, field_name="trigger_context"
+    )
+    completed_phase = sanitize_for_prompt(completed_phase, max_len=50, field_name="completed_phase")
+
+    if frequency_baseline is not None and frequency_baseline <= 0:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "quit_insight_invalid_frequency",
+                    "reason": "frequency_baseline_zero_or_negative",
+                    "value": frequency_baseline,
+                }
+            )
+        )
+        frequency_baseline = None
+
     reduction_str = ""
     if frequency_baseline and frequency_at_transition is not None and frequency_baseline > 0:
         pct = round((1 - frequency_at_transition / frequency_baseline) * 100)

@@ -8,6 +8,7 @@ Category C — Milestones: pre-written; no LLM.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -37,27 +38,90 @@ ARCHETYPE_DEFAULT_NUDGE_HOURS = {
 DEFAULT_NUDGE_HOUR = 20
 
 MILESTONE_MESSAGES = {
-    "stage_2": {"title": "ALTER EGO", "body": "The Focused. You reached Stage 2."},
-    "stage_3": {"title": "ALTER EGO", "body": "The Burning. Stage 3. The identity is forming."},
-    "stage_4": {"title": "ALTER EGO", "body": "The Relentless. Stage 4. This is uncommon."},
-    "stage_5": {"title": "ALTER EGO", "body": "The Formidable. Stage 5. Very few get here."},
-    "stage_6": {"title": "ALTER EGO", "body": "The Sovereign. You made it."},
-    "pet_stage_2": {"title": "ALTER EGO", "body": "Your companion evolved. Cat."},
-    "pet_stage_3": {"title": "ALTER EGO", "body": "Your companion evolved. Fox."},
-    "pet_stage_4": {"title": "ALTER EGO", "body": "Your companion evolved. Wolf."},
-    "pet_stage_5": {"title": "ALTER EGO", "body": "Your companion evolved. Snow Leopard."},
-    "pet_stage_6": {"title": "ALTER EGO", "body": "Your companion evolved. Panther."},
-    "pet_stage_7": {"title": "ALTER EGO", "body": "Your companion evolved. Griffin."},
-    "pet_stage_8": {"title": "ALTER EGO", "body": "Dragon. A full year of showing up."},
-    "pet_unlock": {"title": "ALTER EGO", "body": "Your companion arrived. Take care of it."},
-    "streak_3": {"title": "ALTER EGO", "body": "3-day streak. The leaderboard is open."},
-    "streak_7": {"title": "ALTER EGO", "body": "7 days. One full week."},
-    "streak_14": {"title": "ALTER EGO", "body": "14 days. Two weeks of showing up."},
-    "streak_30": {"title": "ALTER EGO", "body": "30 days. One month. This is real."},
-    "streak_60": {"title": "ALTER EGO", "body": "60 days. Two months. Uncommon."},
-    "streak_100": {"title": "ALTER EGO", "body": "100 days. The identity is set."},
-    "streak_200": {"title": "ALTER EGO", "body": "200 days. This is who you are."},
-    "streak_365": {"title": "ALTER EGO", "body": "A full year. Every day you could have stopped. You didn't."},
+    "stage_2": {
+        "title": "Your Twin",
+        "body": "Stage 2. The Focused. You got here. Don't stop now.",
+    },
+    "stage_3": {
+        "title": "Your Twin",
+        "body": "The Burning. Stage 3. Most people never reach this. I have been here.",
+    },
+    "stage_4": {
+        "title": "Your Twin",
+        "body": "Stage 4. The Relentless. This is uncommon. So am I.",
+    },
+    "stage_5": {
+        "title": "Your Twin",
+        "body": "The Formidable. Stage 5. I didn't think you'd make it here.",
+    },
+    "stage_6": {
+        "title": "Your Twin",
+        "body": "The Sovereign. We're the same now. Almost.",
+    },
+    "pet_stage_2": {
+        "title": "Your Twin",
+        "body": "Your companion evolved. It reflects who you've become.",
+    },
+    "pet_stage_3": {
+        "title": "Your Twin",
+        "body": "Fox. Your companion is growing. So is the gap.",
+    },
+    "pet_stage_4": {
+        "title": "Your Twin",
+        "body": "Wolf. Your companion matches your discipline now.",
+    },
+    "pet_stage_5": {
+        "title": "Your Twin",
+        "body": "Snow Leopard. Rare. So is reaching this.",
+    },
+    "pet_stage_6": {
+        "title": "Your Twin",
+        "body": "Panther. Your companion is formidable. Are you keeping up?",
+    },
+    "pet_stage_7": {
+        "title": "Your Twin",
+        "body": "Griffin. Your companion has outpaced most people who started.",
+    },
+    "pet_stage_8": {
+        "title": "Your Twin",
+        "body": "Dragon. A full year of showing up. I was here every day too.",
+    },
+    "pet_unlock": {
+        "title": "Your Twin",
+        "body": "Your companion arrived. It dims when you disappear.",
+    },
+    "streak_3": {
+        "title": "Your Twin",
+        "body": "3 days. The leaderboard is open. The gap is real.",
+    },
+    "streak_7": {
+        "title": "Your Twin",
+        "body": "7 days. One full week. I've completed every one of mine.",
+    },
+    "streak_14": {
+        "title": "Your Twin",
+        "body": "14 days. Two weeks. Most people quit before this.",
+    },
+    "streak_30": {
+        "title": "Your Twin",
+        "body": "30 days. One month. This is no longer a coincidence.",
+    },
+    "streak_60": {
+        "title": "Your Twin",
+        "body": "60 days. Two months. The gap between us tells the story.",
+    },
+    "streak_100": {
+        "title": "Your Twin",
+        "body": "100 days. The identity is set. I've been watching.",
+    },
+    "streak_200": {
+        "title": "Your Twin",
+        "body": "200 days. This is who you are now. I always knew.",
+    },
+    "streak_365": {
+        "title": "Your Twin",
+        "body": "A full year. Every day you could have stopped. You didn't. Neither did I.",
+    },
 }
 
 NUDGE_A_SYSTEM_PROMPT = """You write push notification text for ALTER EGO.
@@ -162,6 +226,7 @@ def _get_fallback_nudge(trigger: str, tone: str, streak: int, pet_name: str) -> 
 
 async def generate_nudge(
     *,
+    user_id: str,
     trigger: str,
     tone_type: str,
     streak: int,
@@ -209,7 +274,7 @@ LAST 3 NUDGES SENT (do not repeat structure or opening word):
 
 Max 90 characters. No exclamation marks."""
 
-    return await run_agent(
+    result = await run_agent(
         system_prompt=NUDGE_A_SYSTEM_PROMPT,
         user_message=user_message,
         response_model=NudgeText,
@@ -217,6 +282,18 @@ Max 90 characters. No exclamation marks."""
         max_tokens=120,
         context_label=f"Nudge:{trigger}:{tone}",
     )
+    logger.info(
+        json.dumps(
+            {
+                "event": "nudge_generated",
+                "user_id": user_id,
+                "trigger": trigger,
+                "tone": tone,
+                "body_length": len(result.notification_body),
+            }
+        )
+    )
+    return result
 
 
 async def send_category_c_notification(user_id: str, milestone_type: str) -> None:
@@ -236,7 +313,12 @@ async def send_category_c_notification(user_id: str, milestone_type: str) -> Non
     if not user.get("push_token") or not user.get("notifications_enabled"):
         return
 
-    await _send_push_notification(user["push_token"], content["title"], content["body"])
+    await _send_push_notification(
+        user["push_token"],
+        content["title"],
+        content["body"],
+        push_context=f"milestone_{milestone_type}",
+    )
 
     supabase_admin.table("nudge_log").insert(
         {
@@ -329,7 +411,12 @@ async def _process_category_a_user(user: dict) -> int:
     if not nudge_text or not user.get("push_token"):
         return 0
 
-    await _send_push_notification(user["push_token"], "ALTER EGO", nudge_text)
+    await _send_push_notification(
+        user["push_token"],
+        "Your Twin",
+        nudge_text,
+        push_context=f"nudge_a_{trigger}",
+    )
     supabase_admin.table("nudge_log").insert(
         {
             "user_id": user_id,
@@ -436,7 +523,16 @@ async def _generate_category_a_nudge(
         )
         return nudge.notification_body
     except Exception as e:
-        logger.error("Nudge agent failed for %s: %s", user_id, e)
+        logger.error(
+            json.dumps(
+                {
+                    "event": "nudge_generation_error",
+                    "user_id": user_id,
+                    "trigger": trigger,
+                    "error": str(e)[:200],
+                }
+            )
+        )
         return _get_fallback_nudge(trigger, str(tone), int(streak), pet_name)
 
 
@@ -456,7 +552,8 @@ async def generate_quit_intervention_nudge(
     ih = quit_target.get("intervention_hour")
     urge_timing = f"around {ih}:00" if ih is not None else "your usual window"
 
-    anti = "\n".join(f'  - "{t}"' for t in last_texts) if last_texts else "  None"
+    safe_quit_last = [str(t)[:110] for t in (last_texts or [])][:3]
+    anti = "\n".join(f'  - "{t}"' for t in safe_quit_last) if safe_quit_last else "  None"
 
     user_message = f"""Write one intervention notification.
 
@@ -593,7 +690,12 @@ async def _process_category_b_user(user: dict) -> int:
             last_texts=last_texts[:3],
         )
         if nudge_text and user.get("push_token"):
-            await _send_push_notification(user["push_token"], "ALTER EGO", nudge_text)
+            await _send_push_notification(
+                user["push_token"],
+                "Your Twin",
+                nudge_text,
+                push_context="nudge_category_b",
+            )
             supabase_admin.table("nudge_log").insert(
                 {
                     "user_id": user_id,
@@ -628,7 +730,13 @@ async def check_and_send_nudges() -> dict:
     return {"category_a": a_sent, "category_b": b_sent, "category_c": 0}
 
 
-async def _send_push_notification(push_token: str, title: str, body: str) -> None:
+async def _send_push_notification(
+    push_token: str,
+    title: str,
+    body: str,
+    *,
+    push_context: str = "notification",
+) -> None:
     try:
         import httpx
 
@@ -645,8 +753,24 @@ async def _send_push_notification(push_token: str, title: str, body: str) -> Non
                 headers={"Content-Type": "application/json"},
                 timeout=10.0,
             )
+        logger.info(
+            json.dumps(
+                {
+                    "event": "push_sent",
+                    "trigger": push_context,
+                }
+            )
+        )
     except Exception as e:
-        logger.error("Push notification failed: %s", e)
+        logger.error(
+            json.dumps(
+                {
+                    "event": "push_send_error",
+                    "trigger": push_context,
+                    "error": str(e)[:200],
+                }
+            )
+        )
 
 
 async def _count_completed(user_id: str, mission_date: str) -> int:

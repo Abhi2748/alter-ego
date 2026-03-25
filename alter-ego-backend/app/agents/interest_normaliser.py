@@ -7,6 +7,13 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from dotenv import load_dotenv
 
 from app.core.constants import INTEREST_LEVEL_MAP, INTEREST_PHASES
+from app.services.interest_guardrails import (
+    InterestValidationError,
+    validate_interest_input,
+    validate_normalised_interest,
+    validate_normalised_quit,
+    validate_quit_input,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +185,35 @@ async def normalise_interest(
         result["needs_review"] = True
         return result
 
+    try:
+        raw_text, level_text, user_goal_clean = validate_interest_input(
+            raw_text,
+            level_text,
+            user_goal or "",
+        )
+        user_goal = user_goal_clean.strip() or None
+    except InterestValidationError as e:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "interest_input_rejected",
+                    "reason": str(e),
+                    "is_self_harm": e.is_self_harm,
+                }
+            )
+        )
+        if e.is_self_harm:
+            return {
+                **_fallback_interest(raw_text or "unknown"),
+                "rejected": True,
+                "rejection_reason": "self_harm",
+            }
+        return {
+            **_fallback_interest(raw_text or "unknown"),
+            "rejected": True,
+            "rejection_reason": str(e),
+        }
+
     level_meta = INTEREST_LEVEL_MAP.get(level_text)
     level_hint = f"{level_text} ({level_meta['description']})" if level_meta else level_text
 
@@ -201,15 +237,43 @@ async def normalise_interest(
         if not isinstance(parsed, dict):
             raise ValueError("LLM did not return valid JSON object")
 
+        parsed = validate_normalised_interest(parsed, raw_text)
+        if parsed is None:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "interest_normalise_output_invalid",
+                        "raw_preview": raw_text[:50],
+                    }
+                )
+            )
+            return _fallback_interest(raw_text)
+
         confidence = float(parsed.get("confidence", 0.0) or 0.0)
-        logger.info("interest_normalise raw=%r confidence=%.2f", raw_text, confidence)
+        logger.info(
+            json.dumps(
+                {
+                    "event": "interest_normalised",
+                    "confidence": round(confidence, 2),
+                    "raw_preview": raw_text[:50],
+                }
+            )
+        )
 
         if confidence < 0.70:
             parsed["needs_review"] = True
 
         return parsed
     except Exception as e:
-        logger.warning("interest_normalise failed raw=%r error=%s", raw_text, str(e))
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "interest_normalise_failed",
+                    "raw_preview": raw_text[:50],
+                    "error": str(e)[:200],
+                }
+            )
+        )
         return _fallback_interest(raw_text)
 
 
@@ -226,6 +290,36 @@ async def normalise_quit_target(
         result = _fallback_quit_target("unknown")
         result["needs_review"] = True
         return result
+
+    try:
+        raw_text, description, trigger = validate_quit_input(
+            raw_text,
+            description or "",
+            trigger or "",
+        )
+        description = description.strip() or None
+        trigger = trigger.strip() or None
+    except InterestValidationError as e:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "quit_input_rejected",
+                    "reason": str(e),
+                    "is_self_harm": e.is_self_harm,
+                }
+            )
+        )
+        if e.is_self_harm:
+            return {
+                **_fallback_quit_target(raw_text or "unknown"),
+                "rejected": True,
+                "rejection_reason": "self_harm",
+            }
+        return {
+            **_fallback_quit_target(raw_text or "unknown"),
+            "rejected": True,
+            "rejection_reason": str(e),
+        }
 
     parts = [f"raw_text: {raw_text}"]
     if description:
@@ -245,14 +339,34 @@ async def normalise_quit_target(
         if not isinstance(parsed, dict):
             raise ValueError("LLM did not return valid JSON object")
 
+        parsed = validate_normalised_quit(parsed, raw_text)
+        if parsed is None:
+            return _fallback_quit_target(raw_text)
+
         confidence = float(parsed.get("confidence", 0.0) or 0.0)
-        logger.info("quit_normalise raw=%r confidence=%.2f", raw_text, confidence)
+        logger.info(
+            json.dumps(
+                {
+                    "event": "quit_normalised",
+                    "confidence": round(confidence, 2),
+                    "raw_preview": raw_text[:50],
+                }
+            )
+        )
 
         if confidence < 0.70:
             parsed["needs_review"] = True
 
         return parsed
     except Exception as e:
-        logger.warning("quit_normalise failed raw=%r error=%s", raw_text, str(e))
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "quit_normalise_failed",
+                    "raw_preview": raw_text[:50],
+                    "error": str(e)[:200],
+                }
+            )
+        )
         return _fallback_quit_target(raw_text)
 

@@ -142,6 +142,10 @@ def generate_twin_journal_entry(
     Returns the journal entry content string.
     Raises on failure — caller handles fallback.
     """
+    archetype = str(archetype or "")[:50]
+    relationship_phase = str(relationship_phase or "observer")[:30]
+    skipped_types = [str(t)[:50] for t in (skipped_types or [])][:5]
+
     client = get_instructor_client()
 
     system_prompt = build_journal_system_prompt(archetype, relationship_phase, days_active)

@@ -115,8 +115,8 @@ def select_echo(
     for key in ECHO_PRIORITY_KEYS:
         if key == last_key:
             continue
-        answer = answers.get(key, "").strip()
-        if not answer:
+        answer = str(answers.get(key, "") or "")[:100].strip()
+        if not answer or len(answer) < 2:
             continue
         templates = ONBOARDING_ECHO_TEMPLATES.get(key, [])
         if not templates:
@@ -225,7 +225,7 @@ async def fire_echo_for_user(
     except Exception as e:
         logger.error(
             json.dumps(
-                {"event": "echo_fire_error", "user_id": user_id, "error": str(e)}
+                {"event": "echo_fire_error", "user_id": user_id, "error": str(e)[:200]}
             )
         )
         return False
@@ -392,7 +392,7 @@ async def fire_contradiction_for_user(
                 {
                     "event": "contradiction_fire_error",
                     "user_id": user_id,
-                    "error": str(e),
+                    "error": str(e)[:200],
                 }
             )
         )

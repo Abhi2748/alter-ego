@@ -10,6 +10,33 @@ from fastapi import HTTPException
 from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
+
+_MISSION_TITLE_INJECTION_PHRASES = (
+    "ignore previous",
+    "system:",
+    "assistant:",
+    "you are now",
+)
+_FALLBACK_CORE_MISSION_TITLE = "Complete a mindfulness task today"
+
+
+def _sanitize_core_mission_title(title: str, *, user_id: str) -> str:
+    raw = str(title or "")[:200].strip()
+    low = raw.lower()
+    if any(p in low for p in _MISSION_TITLE_INJECTION_PHRASES):
+        logger.error(
+            json.dumps(
+                {
+                    "event": "mission_injection_attempt",
+                    "user_id": user_id,
+                    "title_preview": raw[:50],
+                }
+            )
+        )
+        return _FALLBACK_CORE_MISSION_TITLE
+    return raw if raw else _FALLBACK_CORE_MISSION_TITLE
+
+
 from app.core.constants import (
     CORE_MISSIONS,
     DAILY_PF_CAPS,
@@ -20,6 +47,7 @@ from app.core.constants import (
     get_completion_copy,
     resolve_stat_tag,
 )
+from app.services.mission_row_utils import mission_row_completed
 from app.services.progression_service import (
     check_character_stage_progression,
     check_pet_stage_progression,
@@ -153,10 +181,10 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
     Idempotent: if any core row exists for this user+date, returns existing rows.
     """
     from app.agents.core_mission_agent import (
-        ARCHETYPE_PILLAR_ORDER,
         CORE_TIER_SPECS,
         estimated_minutes_for,
         generate_core_missions,
+        pillars_for_day,
     )
 
     existing = (
@@ -172,7 +200,10 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
 
     user_res = (
         supabase_admin.table("users")
-        .select("archetype, registration_date, timezone")
+        .select(
+            "archetype, registration_date, timezone, "
+            "recovery_mode_reason, recovery_mode_until"
+        )
         .eq("id", user_id)
         .limit(1)
         .execute()
@@ -250,6 +281,35 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
     )
     last_mission_texts = [str(m["title"]) for m in last_titles_res if m.get("title")][:6]
 
+    recovery_overrides: dict = {}
+    recovery_pillars_today: list[str] | None = None
+    rm_reason = user.get("recovery_mode_reason")
+    rm_until = user.get("recovery_mode_until")
+    if rm_reason and rm_until:
+        try:
+            until_d = date.fromisoformat(str(rm_until)[:10])
+            if mday <= until_d:
+                rkey = str(rm_reason).strip().lower()
+                recovery_overrides = dict(RECOVERY_MISSION_OVERRIDES.get(rkey, {}))
+                mp = recovery_overrides.get("max_pillars")
+                if isinstance(mp, int) and mp > 0:
+                    full = pillars_for_day(archetype, days_active)
+                    recovery_pillars_today = full[:mp]
+        except Exception:
+            recovery_overrides = {}
+            recovery_pillars_today = None
+
+    diff_cap = recovery_overrides.get("difficulty_cap")
+    if isinstance(diff_cap, str) and diff_cap:
+        cap = diff_cap.lower()
+        if cap in ("easy", "medium", "hard", "elite"):
+            cap_rank = {"easy": 0, "medium": 1, "hard": 2, "elite": 3}
+            c = cap_rank[cap]
+            for pk in pillar_keys:
+                cur = str(pillar_difficulties.get(pk, "easy")).lower()
+                if cap_rank.get(cur, 0) > c:
+                    pillar_difficulties[pk] = cap
+
     batch = await generate_core_missions(
         archetype=archetype,
         days_active=days_active,
@@ -273,7 +333,7 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
             {
                 "user_id": user_id,
                 "type": "core",
-                "title": m.title,
+                "title": _sanitize_core_mission_title(m.title, user_id=user_id),
                 "difficulty": diff,
                 "xp_value": xp,
                 "pf_value": pf,
@@ -312,19 +372,43 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
         }
     )
 
-    inserted = supabase_admin.table("missions").insert(rows).execute()
-    if inserted.data:
-        return inserted.data
-
-    fetched = (
-        supabase_admin.table("missions")
-        .select("*")
-        .eq("user_id", user_id)
-        .eq("mission_date", mission_date)
-        .eq("type", "core")
-        .execute()
-    )
-    return fetched.data or []
+    try:
+        inserted = supabase_admin.table("missions").insert(rows).execute()
+        out: list[dict] = list(inserted.data) if inserted.data else []
+        if not out:
+            fetched = (
+                supabase_admin.table("missions")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("mission_date", mission_date)
+                .eq("type", "core")
+                .execute()
+            )
+            out = fetched.data or []
+        logger.info(
+            json.dumps(
+                {
+                    "event": "missions_generated",
+                    "user_id": user_id,
+                    "date": mission_date,
+                    "count": len(out),
+                    "recovery_active": bool(recovery_overrides),
+                }
+            )
+        )
+        return out
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "mission_generation_error",
+                    "user_id": user_id,
+                    "date": mission_date,
+                    "error": str(e)[:200],
+                }
+            )
+        )
+        raise
 
 
 async def get_today_missions(user_id: str, mission_date: str) -> list[dict]:
@@ -407,7 +491,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         "new_level_name": None,
     }
 
-    if mission.get("completed"):
+    if mission_row_completed(mission):
         return {
             "success": True,
             "already_completed": True,

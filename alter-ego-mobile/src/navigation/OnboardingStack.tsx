@@ -6,9 +6,10 @@ import { OnboardingFramingScreen } from "../screens/OnboardingFramingScreen";
 import { OnboardingQuestionScreen } from "../screens/OnboardingQuestionScreen";
 import { ArchetypeRevealScreen } from "../screens/ArchetypeRevealScreen";
 import { Onboarding7DayScreen } from "../screens/Onboarding7DayScreen";
+import { TwinFormingScreen } from "../screens/TwinFormingScreen";
 import { TwinIntroductionScreen } from "../screens/TwinIntroductionScreen";
+import { OnboardingSafetySupport } from "../screens/OnboardingSafetySupport";
 import { NotificationPermissionScreen } from "../screens/NotificationPermissionScreen";
-import { COLORS } from "../constants/theme";
 
 const Stack = createStackNavigator<OnboardingStackParamList>();
 
@@ -25,10 +26,16 @@ export function OnboardingStack() {
         <Stack.Screen name="OnboardingQuestion" component={OnboardingQuestionScreen} />
         <Stack.Screen name="ArchetypeReveal" component={ArchetypeRevealScreen} />
         <Stack.Screen name="Onboarding7Day" component={Onboarding7DayScreen} />
+        <Stack.Screen name="TwinForming" component={TwinFormingScreen} />
         <Stack.Screen
           name="TwinIntroduction"
           component={TwinIntroductionScreen}
           options={{ headerShown: false, title: "" }}
+        />
+        <Stack.Screen
+          name="OnboardingSafetySupport"
+          component={OnboardingSafetySupport}
+          options={{ gestureEnabled: false, headerShown: false, title: "" }}
         />
         <Stack.Screen
           name="NotificationPermission"

@@ -71,11 +71,16 @@ export function prefetchTodayMissions(queryClient: QueryClient) {
 }
 
 /** Profile + cache updates after a successful mission completion (swipe, journal save, etc.). */
-export function applyMissionCompletionSideEffects(
+export async function applyMissionCompletionSideEffects(
   queryClient: QueryClient,
   result: CompleteMissionResponse
 ) {
   if (result.already_completed) return;
+
+  const { profile, fetchProfile } = useUserStore.getState();
+  if (!profile) {
+    await fetchProfile();
+  }
 
   const {
     updateXP,
@@ -176,7 +181,7 @@ export function useCompleteMission() {
     },
 
     onSuccess: (result: CompleteMissionResponse) => {
-      applyMissionCompletionSideEffects(queryClient, result);
+      void applyMissionCompletionSideEffects(queryClient, result);
     },
 
     onError: (_error, _missionId, context) => {

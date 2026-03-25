@@ -640,6 +640,10 @@ export function OnboardingQuestionScreen() {
       });
       const result = await completeOnboarding();
       if (result) {
+        if (result.self_harm_interest_detected) {
+          navigation.replace("OnboardingSafetySupport", { archetypeResult: result });
+          return;
+        }
         navigation.replace("ArchetypeReveal", { archetypeResult: result });
       } else {
         Alert.alert(

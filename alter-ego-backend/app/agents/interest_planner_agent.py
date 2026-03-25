@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone, date
@@ -21,7 +22,9 @@ from app.services.mission_service import (
     isoweekday_for_mission_date,
     parse_interest_active_days,
 )
+from app.services.interest_guardrails import sanitize_planner_inputs
 
+logger = logging.getLogger(__name__)
 
 INTEREST_PLANNER_SYSTEM_PROMPT = """
 You are an expert coach and practitioner for the domain: {mission_domain}.
@@ -212,24 +215,44 @@ async def generate_interest_mission(
     character_stage = int(user.get("character_stage", 1) or 1)
     stage_name = STAGE_NAMES[max(0, min(character_stage - 1, len(STAGE_NAMES) - 1))]
 
+    (
+        last_5_missions,
+        user_feedback,
+        interest,
+        level_context,
+        level_text,
+        current_tier,
+        archetype,
+        skip_pattern,
+    ) = sanitize_planner_inputs(
+        last_5_missions=last_5_missions,
+        user_feedback=user_feedback,
+        interest=interest,
+        level_context=level_context,
+        level_text=level_text,
+        current_tier=interest.get("current_difficulty_tier", "easy"),
+        archetype=user.get("archetype", "structured_climber"),
+        skip_pattern=discipline_dna.get("mission_skip_pattern") or "None detected",
+    )
+
     prompt = INTEREST_PLANNER_SYSTEM_PROMPT.format(
         mission_domain=interest.get("mission_domain") or interest.get("normalised_name") or "this interest",
         evidence_base=interest.get("evidence_base") or "Apply deliberate practice principles.",
         level_context=level_context,
         level_text=level_text,
-        current_tier=interest.get("current_difficulty_tier", "easy"),
+        current_tier=current_tier,
         current_phase=interest.get("current_phase", "days_1_10"),
         available_minutes=available_minutes,
         user_goal=interest.get("user_goal") or "improve at this skill",
         interest_level=interest.get("interest_level", 1),
         character_stage=character_stage,
         stage_name=stage_name,
-        archetype=user.get("archetype", "structured_climber"),
+        archetype=archetype,
         completion_rate=round(float(discipline_dna.get("completion_rate_7d", 0) or 0), 1),
         last_5_missions=last_5_missions,
         last_5_ratings=last_5_ratings,
         user_feedback=user_feedback,
-        skip_pattern=discipline_dna.get("mission_skip_pattern") or "None detected",
+        skip_pattern=skip_pattern,
         day_of_week=mission_day.strftime("%A"),
         peak_day=peak_day or "None detected",
     )
@@ -244,17 +267,39 @@ async def generate_interest_mission(
         response = await llm.ainvoke(
             [
                 SystemMessage(content=prompt),
-                HumanMessage(content=f"Generate one mission for {interest.get('normalised_name', 'this interest')} today."),
+                HumanMessage(
+                    content=f"Generate one mission for {interest.get('normalised_name') or 'this interest'} today."
+                ),
             ]
         )
         mission_data = _parse_json_response(str(response.content))
+
+        title = str(mission_data.get("title", ""))[:80].strip()
+        title = title.replace("{", "(").replace("}", ")")
+        if not title or len(title) < 5:
+            title = f"Practice {interest.get('normalised_name', 'this skill')} today"
+        mission_data["title"] = title
+        mission_data["rationale"] = str(mission_data.get("rationale", ""))[:300]
+        mission_data["domain_knowledge_applied"] = str(
+            mission_data.get("domain_knowledge_applied", "")
+        )[:500]
+        mission_data["phase_principle"] = str(mission_data.get("phase_principle", ""))[:200]
+        valid_difficulties = {"easy", "medium", "hard", "elite"}
+        if mission_data.get("difficulty") not in valid_difficulties:
+            mission_data["difficulty"] = "easy"
+        try:
+            mins = int(mission_data.get("estimated_minutes", 20))
+            mission_data["estimated_minutes"] = max(5, min(120, mins))
+        except (ValueError, TypeError):
+            mission_data["estimated_minutes"] = 20
     except Exception:
         # Step 8 — fallback mission so the day isn't broken
         difficulty = interest.get("current_difficulty_tier", "easy")
+        safe_name = interest.get("normalised_name") or "this interest"
         fallback = {
             "user_id": user_id,
             "type": "interest",
-            "title": f"Spend 20 minutes on {interest.get('normalised_name', 'this interest')}",
+            "title": f"Spend 20 minutes on {safe_name}",
             "difficulty": difficulty,
             "xp_value": mission_xp_for_type("interest", difficulty),
             "pf_value": MISSION_PF["interest"].get(difficulty, 8),
@@ -327,13 +372,27 @@ async def generate_all_interest_missions(user_id: str, mission_date: str) -> lis
 
     generated: list[dict] = []
     for interest in interest_rows:
-        mission = await generate_interest_mission(
-            user_id=user_id,
-            interest=interest,
-            mission_date=mission_date,
-            user=user,
-            discipline_dna=discipline_dna,
-        )
-        if mission:
-            generated.append(mission)
+        try:
+            mission = await generate_interest_mission(
+                user_id=user_id,
+                interest=interest,
+                mission_date=mission_date,
+                user=user,
+                discipline_dna=discipline_dna,
+            )
+            if mission:
+                generated.append(mission)
+        except Exception as e:
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "interest_mission_generation_error",
+                        "user_id": user_id,
+                        "interest_id": str(interest.get("id", "")),
+                        "interest_name": str(interest.get("normalised_name", ""))[:50],
+                        "error": str(e)[:200],
+                    }
+                )
+            )
+            continue
     return generated

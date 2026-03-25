@@ -13,7 +13,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+from postgrest.types import CountMethod
+
 from app.core.supabase_client import supabase_admin
+from app.services.mission_row_utils import mission_row_completed
 
 
 def evaluate_streak_requirement(completed_missions: list[dict], streak_tier: str) -> bool:
@@ -32,10 +35,14 @@ def evaluate_streak_requirement(completed_missions: list[dict], streak_tier: str
         for m in completed_missions
         if m.get("type") == "core"
         and not m.get("is_journal_mission", False)
-        and m.get("completed")
+        and mission_row_completed(m)
     )
-    interest_done = sum(1 for m in completed_missions if m.get("type") == "interest" and m.get("completed"))
-    personal_done = sum(1 for m in completed_missions if m.get("type") == "personal" and m.get("completed"))
+    interest_done = sum(
+        1 for m in completed_missions if m.get("type") == "interest" and mission_row_completed(m)
+    )
+    personal_done = sum(
+        1 for m in completed_missions if m.get("type") == "personal" and mission_row_completed(m)
+    )
 
     if req.get("core_or_interest"):
         # Do not require resistance — users without quit targets would never streak.
@@ -152,15 +159,20 @@ async def process_streak(user_id: str) -> dict:
 
     # Single winner per calendar day: concurrent mission completes must not each
     # return streak_achieved_today / fire duplicate animations or milestone inserts.
+    # Use count=exact so we detect rows matched even when the PATCH body is empty
+    # (204 / minimal representation) — do not rely on update_res.data alone.
+    # Quote ISO date in or() so PostgREST does not treat hyphens as filter syntax.
     update_res = (
         supabase_admin.table("users")
-        .update(update_data)
+        .update(update_data, count=CountMethod.exact)
         .eq("id", user_id)
-        .or_(f"last_streak_date.is.null,last_streak_date.neq.{today}")
-        .select("current_streak")
+        .or_(f'last_streak_date.is.null,last_streak_date.neq."{today}"')
         .execute()
     )
-    if not (update_res.data or []):
+    rows_affected = update_res.count
+    if rows_affected is None:
+        rows_affected = len(update_res.data or [])
+    if rows_affected <= 0:
         user_fresh = (
             supabase_admin.table("users").select("*").eq("id", user_id).single().execute().data or {}
         )

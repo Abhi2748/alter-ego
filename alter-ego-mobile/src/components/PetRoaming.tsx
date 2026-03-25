@@ -56,12 +56,26 @@ export function PetRoaming({
   heroY,
   stage = 1,
   isHappy = true,
+  absenceOpacity = 1,
 }: PetRoamingProps) {
   const posX = useSharedValue(heroX);
   const posY = useSharedValue(heroY);
   const scale = useSharedValue(1);
   const isReturning = useSharedValue(0);
+  const wrapOpacity = useSharedValue(absenceOpacity);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const targetOpacity = absenceOpacity ?? 1;
+    if (targetOpacity >= 1) {
+      wrapOpacity.value = withSpring(1, { damping: 14, stiffness: 120 });
+    } else {
+      wrapOpacity.value = withTiming(targetOpacity, {
+        duration: 800,
+        easing: Easing.inOut(Easing.ease),
+      });
+    }
+  }, [absenceOpacity]);
 
   const safeWidth = Math.max(0, containerWidth - EDGE_MARGIN * 2 - PET_SIZE);
   const safeHeight = Math.max(

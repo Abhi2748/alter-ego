@@ -92,7 +92,7 @@ async def pet_unlock_check_job():
     from app.services.streak_service import handle_streak_break
     from zoneinfo import ZoneInfo
 
-    logger.info("pet_unlock_check_job: starting")
+    logger.info(json.dumps({"event": "pet_unlock_check_job_start"}))
 
     users_result = (
         supabase_admin.table("users")
@@ -134,7 +134,14 @@ async def pet_unlock_check_job():
                 await send_category_c_notification(user["id"], "pet_unlock")
 
                 unlock_count += 1
-                logger.info("Pet unlocked for user %s", user["id"])
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "pet_unlocked",
+                            "user_id": str(user["id"]),
+                        }
+                    )
+                )
 
             last_streak_date = user.get("last_streak_date")
             today = get_user_date(timezone)
@@ -143,13 +150,25 @@ async def pet_unlock_check_job():
                 break_count += 1
 
         except Exception as e:
-            logger.error("pet_unlock_check_job: failed for user %s: %s", user.get("id"), e)
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "pet_unlock_check_error",
+                        "user_id": str(user.get("id", "")),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
             continue
 
     logger.info(
-        "pet_unlock_check_job: done. Unlocked %s pets, processed %s streak breaks.",
-        unlock_count,
-        break_count,
+        json.dumps(
+            {
+                "event": "pet_unlock_check_job_done",
+                "unlock_count": unlock_count,
+                "break_count": break_count,
+            }
+        )
     )
 
 
@@ -177,7 +196,7 @@ async def daily_mission_reset_job():
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    logger.info("daily_mission_reset_job: starting")
+    logger.info(json.dumps({"event": "daily_mission_reset_job_start"}))
 
     users_result = (
         supabase_admin.table("users")
@@ -187,7 +206,7 @@ async def daily_mission_reset_job():
     )
 
     if not users_result.data:
-        logger.info("daily_mission_reset_job: no users found")
+        logger.info(json.dumps({"event": "daily_mission_reset_job_done", "reset_count": 0, "note": "no_users"}))
         return
 
     reset_count = 0
@@ -220,7 +239,15 @@ async def daily_mission_reset_job():
                 await generate_core_missions_for_user(user["id"], today)
                 await sync_today_planner_missions(user["id"], today)
                 reset_count += 1
-                logger.info("daily_mission_reset_job: generated missions for user %s", user["id"])
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "daily_mission_reset_user",
+                            "user_id": str(user["id"]),
+                            "date": today,
+                        }
+                    )
+                )
             else:
                 await sync_today_planner_missions(user["id"], today)
 
@@ -230,10 +257,25 @@ async def daily_mission_reset_job():
             reset_daily_surge(user["id"])
 
         except Exception as e:
-            logger.error("daily_mission_reset_job: failed for user %s: %s", user.get("id"), e)
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "daily_mission_reset_error",
+                        "user_id": str(user.get("id", "")),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
             continue
 
-    logger.info("daily_mission_reset_job: completed. Reset %s users.", reset_count)
+    logger.info(
+        json.dumps(
+            {
+                "event": "daily_mission_reset_job_done",
+                "reset_count": reset_count,
+            }
+        )
+    )
 
 
 async def twin_simulation_job():
@@ -249,7 +291,7 @@ async def twin_simulation_job():
     from app.core.supabase_client import supabase_admin
     from app.services.mission_service import get_user_date
 
-    logger.info("twin_simulation_job: starting")
+    logger.info(json.dumps({"event": "twin_simulation_job_start"}))
 
     users_result = (
         supabase_admin.table("users")
@@ -278,11 +320,35 @@ async def twin_simulation_job():
 
             await update_strip_message(user["id"])
             success_count += 1
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "twin_simulated",
+                        "user_id": str(user.get("id")),
+                        "date": today_str,
+                    }
+                )
+            )
         except Exception as e:
-            logger.error("twin_simulation_job: failed for user %s: %s", user.get("id"), e)
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "twin_simulation_error",
+                        "user_id": str(user.get("id", "")),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
             continue
 
-    logger.info("twin_simulation_job: done. Simulated %s users.", success_count)
+    logger.info(
+        json.dumps(
+            {
+                "event": "twin_simulation_job_done",
+                "success_count": success_count,
+            }
+        )
+    )
 
 
 async def twin_recalibration_job():
@@ -299,7 +365,7 @@ async def twin_recalibration_job():
     from app.services.mission_service import get_days_since_registration
     from app.services.twin_service import recalibrate_twin
 
-    logger.info("twin_recalibration_job: starting")
+    logger.info(json.dumps({"event": "twin_recalibration_job_start"}))
 
     users_result = (
         supabase_admin.table("users")
@@ -349,13 +415,35 @@ async def twin_recalibration_job():
                 await recalibrate_twin(user["id"])
                 await send_app_mail(user["id"], "twin_recalibration_note")
                 recal_count += 1
-                logger.info("twin_recalibration_job: recalibrated user %s", user["id"])
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "twin_recalibrated",
+                            "user_id": str(user["id"]),
+                        }
+                    )
+                )
 
         except Exception as e:
-            logger.error("twin_recalibration_job: failed for user %s: %s", user.get("id"), e)
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "twin_recalibration_error",
+                        "user_id": str(user.get("id", "")),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
             continue
 
-    logger.info("twin_recalibration_job: done. Recalibrated %s users.", recal_count)
+    logger.info(
+        json.dumps(
+            {
+                "event": "twin_recalibration_job_done",
+                "recal_count": recal_count,
+            }
+        )
+    )
 
 
 async def user_local_maintenance_job():
@@ -379,7 +467,7 @@ async def user_local_maintenance_job():
     from app.services.power_score_service import calculate_power_score
     from zoneinfo import ZoneInfo
 
-    logger.info("user_local_maintenance_job: starting")
+    logger.info(json.dumps({"event": "user_local_maintenance_job_start"}))
 
     users_result = (
         supabase_admin.table("users")
@@ -433,15 +521,30 @@ async def user_local_maintenance_job():
                             {
                                 "event": "echo_scheduler_error",
                                 "user_id": str(user_id),
-                                "error": str(e),
+                                "error": str(e)[:200],
                             }
                         )
                     )
         except Exception as e:
-            logger.error("user_local_maintenance_job: failed for user %s: %s", user_id, e)
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "user_local_maintenance_error",
+                        "user_id": str(user_id),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
             continue
 
-    logger.info("user_local_maintenance_job: done. Processed %s users (local hour 1).", processed)
+    logger.info(
+        json.dumps(
+            {
+                "event": "user_local_maintenance_job_done",
+                "processed_hour1": processed,
+            }
+        )
+    )
 
 
 async def weekly_report_local_job():
@@ -453,7 +556,7 @@ async def weekly_report_local_job():
     from app.core.supabase_client import supabase_admin
     from zoneinfo import ZoneInfo
 
-    logger.info("weekly_report_local_job: starting")
+    logger.info(json.dumps({"event": "weekly_report_local_job_start"}))
 
     users_result = (
         supabase_admin.table("users")
@@ -478,7 +581,15 @@ async def weekly_report_local_job():
                 continue
             due_ids.append(user["id"])
         except Exception as e:
-            logger.error("weekly_report_local_job: skip user %s: %s", user.get("id"), e)
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "weekly_report_schedule_error",
+                        "user_id": str(user.get("id", "")),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
 
     BATCH_SIZE = 50
     count = 0
@@ -491,12 +602,34 @@ async def weekly_report_local_job():
         results = await asyncio.gather(*[_one(uid) for uid in batch], return_exceptions=True)
         for uid, res in zip(batch, results):
             if isinstance(res, Exception):
-                logger.error("weekly_report_local_job: failed for user %s: %s", uid, res)
+                logger.error(
+                    json.dumps(
+                        {
+                            "event": "weekly_report_error",
+                            "user_id": str(uid),
+                            "error": str(res)[:200],
+                        }
+                    )
+                )
             else:
                 count += 1
-                logger.info("weekly_report_local_job: generated report for %s", uid)
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "weekly_report_generated",
+                            "user_id": str(uid),
+                        }
+                    )
+                )
 
-    logger.info("weekly_report_local_job: done. Generated %s reports.", count)
+    logger.info(
+        json.dumps(
+            {
+                "event": "weekly_report_local_job_done",
+                "report_count": count,
+            }
+        )
+    )
 
 
 async def nudge_check_job():
@@ -504,12 +637,20 @@ async def nudge_check_job():
     from app.agents.nudge_agent import check_and_send_nudges
     from app.services.absence_service import process_absence_escalation_notifications
 
-    logger.info("nudge_check_job: starting")
+    logger.info(json.dumps({"event": "nudge_check_job_start"}))
     result = await check_and_send_nudges()
-    logger.info("nudge_check_job: %s", result)
+    logger.info(json.dumps({"event": "nudge_check_job_nudges", "result": result}))
     try:
         await process_absence_escalation_notifications()
     except Exception as e:
-        logger.error("nudge_check_job: absence escalation failed: %s", e)
+        logger.error(
+            json.dumps(
+                {
+                    "event": "nudge_check_absence_error",
+                    "error": str(e)[:200],
+                }
+            )
+        )
+    logger.info(json.dumps({"event": "nudge_check_job_done"}))
 
 

@@ -49,6 +49,26 @@ async def create_quit_path_route(body: CreateQuitPathRequest, authorization: str
             awareness_level=body.awareness_level,
             quit_goal=body.quit_goal,
         )
+    except ValueError as e:
+        msg = str(e).lower()
+        if "duplicate" in msg:
+            raise HTTPException(
+                status_code=409,
+                detail="You already have a path for this habit.",
+            ) from e
+        if "self_harm" in msg:
+            raise HTTPException(
+                status_code=400,
+                detail="We can't add this habit in the app. Please reach out to someone who can help.",
+            ) from e
+        if "too short" in msg:
+            raise HTTPException(status_code=400, detail="Name is too short.") from e
+        if "rejected" in msg or "quit_target" in msg:
+            raise HTTPException(
+                status_code=400,
+                detail="We couldn't add this quit target. Try a clearer description.",
+            ) from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         if "quit_paths_user_habit_unique" in str(e).lower() or "duplicate" in str(e).lower():
             raise HTTPException(status_code=409, detail="You already have a path for this habit.") from e

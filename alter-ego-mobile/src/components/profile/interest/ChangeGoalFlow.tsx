@@ -96,6 +96,14 @@ export function ChangeGoalFlow({
             </View>
           ) : (
             <View style={styles.card}>
+              <Pressable
+                onPress={() => setStep(1)}
+                disabled={loading}
+                style={({ pressed }) => [styles.backLink, pressed && { opacity: 0.75 }]}
+                hitSlop={8}
+              >
+                <Text style={styles.backLinkText}>← Back</Text>
+              </Pressable>
               <Text style={styles.cardTitle}>What&apos;s your new goal?</Text>
               <Text style={styles.sub2}>
                 Be specific. This becomes the destination of your new Path.
@@ -154,7 +162,7 @@ export function ChangeGoalFlow({
                   style={styles.btnPrimary}
                 >
                   {loading ? (
-                    <ActivityIndicator color="#FFFFFF" />
+                    <ActivityIndicator color="#E5E7EB" />
                   ) : (
                     <Text style={styles.btnPrimaryText}>Build New Path →</Text>
                   )}
@@ -196,6 +204,16 @@ const styles = StyleSheet.create({
     fontSize: 32,
     textAlign: "center",
     marginBottom: 8,
+  },
+  backLink: {
+    alignSelf: "flex-start",
+    marginBottom: 10,
+    paddingVertical: 4,
+  },
+  backLinkText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#A78BFA",
   },
   cardTitle: {
     fontSize: 16,
@@ -299,7 +317,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   btnPrimaryText: {
-    color: "#FFFFFF",
+    color: "#E5E7EB",
     fontSize: 14,
     fontFamily: "Inter_700Bold",
   },

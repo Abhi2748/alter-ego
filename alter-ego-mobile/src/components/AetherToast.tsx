@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
-import { Text } from "react-native";
+import { Text, View, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -14,21 +15,23 @@ interface AetherToastProps {
   onDismiss: () => void;
 }
 
+/** Bottom banner — distinct from SP toast (top-left) and Surge pill (top bar). */
 export function AetherToast({ amount, visible, onDismiss }: AetherToastProps) {
-  const translateY = useSharedValue(-20);
+  const insets = useSafeAreaInsets();
+  const translateY = useSharedValue(24);
   const opacity = useSharedValue(0);
 
   useEffect(() => {
     if (!visible) return;
     translateY.value = withSequence(
-      withTiming(0, { duration: 300 }),
-      withTiming(0, { duration: 2000 }),
-      withTiming(-20, { duration: 300 })
+      withTiming(0, { duration: 280 }),
+      withTiming(0, { duration: 2200 }),
+      withTiming(24, { duration: 280 })
     );
     opacity.value = withSequence(
-      withTiming(1, { duration: 300 }),
-      withTiming(1, { duration: 2000 }),
-      withTiming(0, { duration: 300 }, (finished) => {
+      withTiming(1, { duration: 280 }),
+      withTiming(1, { duration: 2200 }),
+      withTiming(0, { duration: 280 }, (finished) => {
         if (finished) runOnJS(onDismiss)();
       })
     );
@@ -44,24 +47,64 @@ export function AetherToast({ amount, visible, onDismiss }: AetherToastProps) {
   return (
     <Animated.View
       style={[
+        styles.outer,
         {
-          position: "absolute",
-          top: 80,
-          right: 16,
-          zIndex: 100,
-          paddingVertical: 6,
-          paddingHorizontal: 14,
-          borderRadius: 20,
-          backgroundColor: "rgba(139,92,246,0.15)",
-          borderWidth: 1,
-          borderColor: "rgba(139,92,246,0.35)",
+          bottom: insets.bottom + 88,
+          paddingHorizontal: 16,
         },
         animStyle,
       ]}
     >
-      <Text style={{ fontSize: 12, fontWeight: "700", color: "#A78BFA" }}>
-        +{amount} ✦ Aether
-      </Text>
+      <View style={styles.inner}>
+        <Text style={styles.kicker}>AETHER</Text>
+        <Text style={styles.amount}>
+          +{amount} <Text style={styles.dim}>✦</Text>
+        </Text>
+      </View>
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create({
+  outer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 150,
+    alignItems: "center",
+  },
+  inner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: "#141824",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.5)",
+    borderLeftWidth: 3,
+    borderLeftColor: "#A78BFA",
+    maxWidth: 360,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  kicker: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 2,
+    color: "#6B7280",
+  },
+  amount: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#E5E7EB",
+  },
+  dim: {
+    color: "#A78BFA",
+    fontWeight: "700",
+  },
+});

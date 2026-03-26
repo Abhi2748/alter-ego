@@ -10,11 +10,8 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import type { InterestInsight, InterestPathDisplay, PathQuest } from "@/types/interestPath";
-import {
-  darkenHex,
-  hexWithAlpha,
-  interestInitials,
-} from "@/utils/interestColor";
+import { darkenHex, hexWithAlpha, interestInitials } from "@/utils/interestColor";
+import { getInterestColorByHex } from "@/constants/missionColors";
 
 export type InterestCardProps = {
   path: InterestPathDisplay;
@@ -314,8 +311,11 @@ export function InterestCard({
   onMarkCriterion,
   onInsightTap,
 }: InterestCardProps) {
-  const C = path.color_hex?.startsWith("#") ? path.color_hex : `#${path.color_hex ?? "8B5CF6"}`;
-  const darker = darkenHex(C, 0.7);
+  const scheme = getInterestColorByHex(
+    path.color_hex?.startsWith("#") ? path.color_hex : `#${path.color_hex ?? "14B8A6"}`
+  );
+  const C = scheme.primary;
+  const darker = scheme.deep;
   const initials = interestInitials(path.interest_name);
   const activeQuest = path.quests.find((q) => q.status === "active");
   const craftPct = Math.min(1, path.craft_sp / Math.max(1, path.next_craft_threshold));

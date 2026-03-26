@@ -70,6 +70,10 @@ export interface TwinTimelineEvent {
 
 export interface TwinStateResponse {
   strip_message?: string | null;
+  /** Rivalry-focused line for Twin Comparison tab — not the home strip. */
+  comparison_line?: string | null;
+  /** Identity line for Rank Card — not strip copy. */
+  rank_card_oracle?: string | null;
   twin_timeline?: TwinTimelineEvent[];
   user: TwinUserState;
   twin: TwinRivalState;

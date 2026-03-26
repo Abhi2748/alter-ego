@@ -8,6 +8,7 @@ import {
   updateTriggerProfile,
   type CreateQuitPathBody,
 } from "@/services/quits";
+import { MISSION_KEYS } from "@/hooks/useMissions";
 
 export const QUIT_KEYS = {
   all: ["quits"] as const,
@@ -70,6 +71,7 @@ export function useCreateQuitPath() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: QUIT_KEYS.all });
       await qc.refetchQueries({ queryKey: QUIT_KEYS.list() });
+      void qc.invalidateQueries({ queryKey: MISSION_KEYS.today });
     },
   });
 }

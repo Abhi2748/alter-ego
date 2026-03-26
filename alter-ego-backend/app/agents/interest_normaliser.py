@@ -81,6 +81,7 @@ Return ONLY valid JSON — no preamble, no explanation, no markdown fences.
 Return this exact structure:
 {
   "normalised_name": "Social Media Scrolling",
+  "dedupe_key": "social_media_scrolling",
   "primary_need_category": "boredom_dopamine",
   "need_reasoning": "Social media scrolling primarily serves the need for novelty and dopamine stimulation. It provides a low-effort, high-frequency reward loop that substitutes for meaningful engagement.",
   "replacement_directions": ["Active creative engagement", "Social connection with intentionality", "Physical movement when bored", "Learning something new"],
@@ -102,6 +103,8 @@ Need categories: boredom_dopamine / stress_anxiety / social_ritual /
 impulsivity_gratification / avoidance_procrastination / comfort_oral
 
 Rules:
+- dedupe_key: REQUIRED. Lowercase snake_case identifier — the SAME key for every slang variant of one behaviour (e.g. masturbating, fapping, jerking off → dedupe_key "masturbation"). Used only for duplicate detection; must stay stable across calls.
+- normalised_name: A clear, neutral clinical title. Map slang, euphemisms, abbreviations, and common misspellings to ONE canonical label for the same underlying habit (e.g. "fapping", "jerking off", "rubbing one out" → one consistent name; "procrasting", "procrastination" → "Procrastination"). Same behaviour must always get the same normalised_name so the app can dedupe paths.
 - intervention_hour: Extract the most likely local hour (0-23) when the urge hits based on urge_timing and trigger/description. Examples: "around 3pm" → 15, "after lunch" → 13, "late at night" → 22, "morning" → 8. Return null if no specific time can be inferred.
 - primary_need_category: Choose the PRIMARY one if multiple apply
 - evidence_base: Must reference actual mechanisms, not generic advice
@@ -133,8 +136,10 @@ def _fallback_interest(raw_text: str) -> dict:
 
 
 def _fallback_quit_target(raw_text: str) -> dict:
+    slug = raw_text.strip().lower().replace(" ", "_").replace("-", "_")[:80]
     return {
         "normalised_name": raw_text.strip().title(),
+        "dedupe_key": slug or "habit",
         "primary_need_category": "boredom_dopamine",
         "need_reasoning": "Insufficient signal to classify. Defaulting to a novelty/dopamine loop pattern.",
         "replacement_directions": ["Physical movement", "Intentional social connection", "Active learning", "Creative output"],

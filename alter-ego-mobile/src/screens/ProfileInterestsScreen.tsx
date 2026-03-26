@@ -32,13 +32,16 @@ export function ProfileInterestsScreen() {
           <View style={styles.backBtn} />
         </View>
       </View>
-      <InterestsTab />
+      <View style={styles.body}>
+        <InterestsTab />
+      </View>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  body: { flex: 1, minHeight: 0 },
   header: {
     paddingBottom: 12,
     paddingHorizontal: 16,

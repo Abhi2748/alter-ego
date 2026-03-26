@@ -11,6 +11,7 @@ import Animated, {
 import { Ionicons } from "@expo/vector-icons";
 import type { QuitMission, QuitPhase, QuitTarget } from "@/types/quits";
 import { PHASE_CONFIG, phaseOrder, awarenessDisplay } from "@/types/quits";
+import { QUIT_ORANGE } from "@/constants/missionColors";
 
 const PHASE_KEYS: QuitPhase[] = ["mapping", "disruption", "consolidation"];
 const INSIGHT_SLOTS = 5;
@@ -32,13 +33,13 @@ function nodeState(phase: QuitPhase, current: QuitPhase): "done" | "active" | "l
 
 function barColorForPhase(phase: QuitPhase): string {
   if (phase === "mapping") return "rgba(139,92,246,0.4)";
-  if (phase === "disruption") return "rgba(239,68,68,0.42)";
+  if (phase === "disruption") return QUIT_ORANGE.border2;
   return "rgba(45,212,191,0.4)";
 }
 
 function phaseDeep(phase: QuitPhase): string {
   if (phase === "mapping") return "#6D28D9";
-  if (phase === "disruption") return "#DC2626";
+  if (phase === "disruption") return QUIT_ORANGE.deep;
   return "#14B8A6";
 }
 
@@ -122,7 +123,7 @@ export function QuitCard({
   return (
     <View style={styles.card}>
       <LinearGradient
-        colors={["transparent", "rgba(239,68,68,0.35)", "transparent"]}
+        colors={["transparent", QUIT_ORANGE.border2, "transparent"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={styles.cardTopGlow}
@@ -180,7 +181,7 @@ export function QuitCard({
                       backgroundColor: emptyToday ? "transparent" : barFill,
                       borderWidth: emptyToday ? 1 : 0,
                       borderStyle: emptyToday ? "dashed" : "solid",
-                      borderColor: emptyToday ? "rgba(239,68,68,0.2)" : "transparent",
+                      borderColor: emptyToday ? QUIT_ORANGE.border : "transparent",
                     },
                   ]}
                 />
@@ -300,7 +301,7 @@ export function QuitCard({
           </View>
           <Pressable style={styles.logSaveBtn} onPress={logSave} disabled={saving}>
             {saving ? (
-              <ActivityIndicator color="#EF4444" size="small" />
+              <ActivityIndicator color={QUIT_ORANGE.primary} size="small" />
             ) : (
               <Text style={styles.logSaveTxt}>Log & Save</Text>
             )}
@@ -358,7 +359,7 @@ export function QuitCard({
                     <Text
                       style={[
                         styles.pathDotTxt,
-                        st === "done" && { color: "#EF4444" },
+                        st === "done" && { color: QUIT_ORANGE.primary },
                         st === "active" && { color: pc.color, fontFamily: "Inter_700Bold" },
                         st === "locked" && { color: "#2E2020" },
                       ]}
@@ -475,16 +476,16 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 11,
-    backgroundColor: "rgba(239,68,68,0.10)",
+    backgroundColor: QUIT_ORANGE.surface,
     borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.20)",
+    borderColor: QUIT_ORANGE.border,
     alignItems: "center",
     justifyContent: "center",
   },
   initialsText: {
     fontSize: 13,
     fontFamily: "Inter_800ExtraBold",
-    color: "#EF4444",
+    color: QUIT_ORANGE.primary,
   },
   metaCol: { flex: 1, minWidth: 0 },
   habitName: { fontSize: 16, fontFamily: "Inter_800ExtraBold", color: "#E5E7EB" },
@@ -564,7 +565,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "rgba(127,29,29,0.12)",
     borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.22)",
+    borderColor: QUIT_ORANGE.border,
   },
   referralTitle: {
     fontSize: 12,
@@ -707,7 +708,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     backgroundColor: "#15100F",
     borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.12)",
+    borderColor: QUIT_ORANGE.border,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 11,
@@ -718,7 +719,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 8,
-    backgroundColor: "rgba(239,68,68,0.10)",
+    backgroundColor: QUIT_ORANGE.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -731,16 +732,16 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 6,
     borderWidth: 1.5,
-    borderColor: "rgba(239,68,68,0.3)",
+    borderColor: QUIT_ORANGE.border2,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "transparent",
   },
   checkboxOn: {
-    backgroundColor: "rgba(239,68,68,0.15)",
-    borderColor: "#EF4444",
+    backgroundColor: QUIT_ORANGE.surface,
+    borderColor: QUIT_ORANGE.primary,
   },
-  checkMark: { color: "#EF4444", fontSize: 11, fontFamily: "Inter_800ExtraBold" },
+  checkMark: { color: QUIT_ORANGE.primary, fontSize: 11, fontFamily: "Inter_800ExtraBold" },
   loggerBlock: {
     flexDirection: "row",
     alignItems: "center",
@@ -764,23 +765,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  stepBtnTxt: { color: "#EF4444", fontSize: 16, fontWeight: "700" },
+  stepBtnTxt: { color: QUIT_ORANGE.primary, fontSize: 16, fontWeight: "700" },
   stepCount: {
     minWidth: 20,
     textAlign: "center",
     fontSize: 14,
     fontFamily: "Inter_800ExtraBold",
-    color: "#EF4444",
+    color: QUIT_ORANGE.primary,
   },
   logSaveBtn: {
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 8,
-    backgroundColor: "rgba(239,68,68,0.10)",
+    backgroundColor: QUIT_ORANGE.surface,
     borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.30)",
+    borderColor: QUIT_ORANGE.border2,
   },
-  logSaveTxt: { fontSize: 11, fontFamily: "Inter_700Bold", color: "#EF4444" },
+  logSaveTxt: { fontSize: 11, fontFamily: "Inter_700Bold", color: QUIT_ORANGE.primary },
   pathStrip: {
     marginHorizontal: 12,
     marginBottom: 11,
@@ -819,9 +820,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   pathDotDone: {
-    backgroundColor: "rgba(239,68,68,0.18)",
+    backgroundColor: QUIT_ORANGE.border2,
     borderWidth: 1.5,
-    borderColor: "#EF4444",
+    borderColor: QUIT_ORANGE.primary,
   },
   pathDotLocked: {
     backgroundColor: "#100C0C",
@@ -843,7 +844,7 @@ const styles = StyleSheet.create({
     minWidth: 8,
     maxHeight: 2,
   },
-  pathLineDone: { backgroundColor: "rgba(239,68,68,0.30)" },
+  pathLineDone: { backgroundColor: QUIT_ORANGE.border2 },
   pathLinePending: { backgroundColor: "#1E1515" },
   statsRow: {
     flexDirection: "row",
@@ -858,7 +859,7 @@ const styles = StyleSheet.create({
   statNum: {
     fontSize: 20,
     fontFamily: "Inter_800ExtraBold",
-    color: "#EF4444",
+    color: QUIT_ORANGE.primary,
   },
   statNumGreen: {
     fontSize: 16,
@@ -898,10 +899,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   insightDotOn: {
-    backgroundColor: "rgba(239,68,68,0.12)",
+    backgroundColor: QUIT_ORANGE.surface,
     borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.30)",
-    shadowColor: "rgba(239,68,68,0.35)",
+    borderColor: QUIT_ORANGE.border2,
+    shadowColor: QUIT_ORANGE.border2,
     shadowOpacity: 0.5,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },

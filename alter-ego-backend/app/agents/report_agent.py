@@ -579,19 +579,10 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
     Generates a 1-2 sentence archive entry for a specific day.
     Stored in daily_summaries table.
     Returns the summary text.
+
+    Cached summaries are invalidated when mission completion / XP / streak stats
+    for that day change (stats_fingerprint).
     """
-    existing = (
-        supabase_admin.table("daily_summaries")
-        .select("summary_text")
-        .eq("user_id", user_id)
-        .eq("summary_date", target_date)
-        .execute()
-        .data
-    )
-
-    if existing:
-        return existing[0]["summary_text"]
-
     user_result = (
         supabase_admin.table("users")
         .select("registration_date, timezone, current_streak")
@@ -658,6 +649,25 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
     notable = [m.get("milestone_type", "") for m in milestones if m.get("milestone_type")]
     notable_str = ", ".join(notable) if notable else "None"
 
+    # Fingerprint: when any of these change, regenerate the LLM summary.
+    stats_fingerprint = (
+        f"{completed}|{total}|{core_done}|{xp_earned}|{streak_count}|{notable_str}"
+    )
+
+    existing = (
+        supabase_admin.table("daily_summaries")
+        .select("summary_text, stats_fingerprint")
+        .eq("user_id", user_id)
+        .eq("summary_date", target_date)
+        .execute()
+        .data
+    )
+
+    if existing:
+        row = existing[0]
+        if row.get("stats_fingerprint") == stats_fingerprint and row.get("summary_text"):
+            return row["summary_text"]
+
     try:
         reg_str = str(user.get("registration_date", ""))[:10]
         reg_date = date.fromisoformat(reg_str)
@@ -700,6 +710,7 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
             "user_id": user_id,
             "summary_date": target_date,
             "summary_text": summary,
+            "stats_fingerprint": stats_fingerprint,
         },
         on_conflict="user_id,summary_date",
     ).execute()

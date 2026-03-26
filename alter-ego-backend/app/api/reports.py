@@ -4,12 +4,16 @@ B29: Weekly report generated Sunday 03:00 in the user's timezone.
 B30: Day summary generated ~01:00 local or on demand.
 """
 
+import logging
+
 from fastapi import APIRouter, Header
 
 from app.api.auth import get_user_id_from_token
-from app.agents.report_agent import generate_day_summary
+from app.agents.report_agent import generate_day_summary, generate_weekly_report
 from app.core.supabase_client import supabase_admin
 from app.services.mission_service import local_completed_week_bounds
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
@@ -43,6 +47,24 @@ async def get_weekly_report(authorization: str = Header(None)):
         .execute()
         .data
     )
+
+    if not result:
+        try:
+            await generate_weekly_report(user_id)
+            result = (
+                supabase_admin.table("weekly_reports")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("week_start", str(week_start))
+                .execute()
+                .data
+            )
+        except Exception as e:
+            logger.warning(
+                "weekly report on-demand generate failed user=%s: %s",
+                user_id,
+                str(e)[:200],
+            )
 
     if not result:
         return {

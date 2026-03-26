@@ -7,6 +7,7 @@ import {
 } from "@gorhom/bottom-sheet";
 import type { BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
 import type { QuitTarget } from "@/types/quits";
+import { QUIT_ORANGE } from "@/constants/missionColors";
 
 export type QuitManageSheetProps = {
   sheetRef: React.RefObject<BottomSheetModal | null>;
@@ -133,7 +134,7 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     color: "#E5E7EB",
   },
-  rowTitleDanger: { color: "#F87171" },
+  rowTitleDanger: { color: QUIT_ORANGE.text },
   rowDesc: {
     fontSize: 11,
     fontFamily: "Inter_400Regular",

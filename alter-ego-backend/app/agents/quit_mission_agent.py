@@ -57,7 +57,8 @@ class QuitMission(BaseModel):
 
 class QuitMissionBatch(BaseModel):
     reasoning: str = Field(..., description="50-100 words on why these missions today.")
-    missions: List[QuitMission] = Field(..., min_length=1, max_length=2)
+    # One mission per path per day — beginners are overwhelmed by multiple resistance tasks.
+    missions: List[QuitMission] = Field(..., min_length=1, max_length=1)
     confidence: float = Field(..., ge=0.0, le=1.0)
 
 
@@ -142,7 +143,7 @@ FREQUENCY: {freq_str}
 
 {history_str}
 
-Generate phase-appropriate missions (1 in mapping; 1-2 in disruption/consolidation)."""
+Generate exactly ONE phase-appropriate mission for today (one mission per day per habit path)."""
 
     return await run_agent(
         system_prompt=SYSTEM_PROMPT,

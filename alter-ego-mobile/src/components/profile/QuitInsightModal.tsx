@@ -1,6 +1,7 @@
 import React from "react";
 import { Modal, View, Text, Pressable, StyleSheet } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { QUIT_ORANGE } from "@/constants/missionColors";
 
 export type QuitInsightModalProps = {
   visible: boolean;
@@ -75,9 +76,9 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 8,
-    backgroundColor: "rgba(239,68,68,0.12)",
+    backgroundColor: QUIT_ORANGE.surface,
     borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.28)",
+    borderColor: QUIT_ORANGE.border,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -86,7 +87,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontFamily: "Inter_700Bold",
     letterSpacing: 2,
-    color: "#EF4444",
+    color: QUIT_ORANGE.primary,
   },
   title: {
     fontSize: 16,
@@ -105,10 +106,10 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 12,
     borderWidth: 1,
-    backgroundColor: "rgba(239,68,68,0.12)",
-    borderColor: "rgba(239,68,68,0.30)",
+    backgroundColor: QUIT_ORANGE.surface,
+    borderColor: QUIT_ORANGE.border2,
     alignItems: "center",
     justifyContent: "center",
   },
-  btnText: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#EF4444" },
+  btnText: { fontSize: 14, fontFamily: "Inter_700Bold", color: QUIT_ORANGE.primary },
 });

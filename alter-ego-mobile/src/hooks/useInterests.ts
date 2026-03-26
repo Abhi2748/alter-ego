@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { profileService } from '@/services/profile';
+import { profileService, type CreateInterestPayload } from '@/services/profile';
 import { PROFILE_KEYS } from '@/hooks/useProfile';
 import type { ProfileInterestApiRow } from '@/types/interestPath';
 import { toInterestPathDisplay } from '@/types/interestPath';
@@ -74,6 +74,16 @@ export function useUpdateSchedule() {
   return useMutation({
     mutationFn: async (vars: { pathId: string; active_days: number[] }) =>
       profileService.putInterestSchedule(vars.pathId, vars.active_days),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: PROFILE_KEYS.interests });
+    },
+  });
+}
+
+export function useCreateInterest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateInterestPayload) => profileService.createInterest(payload),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: PROFILE_KEYS.interests });
     },

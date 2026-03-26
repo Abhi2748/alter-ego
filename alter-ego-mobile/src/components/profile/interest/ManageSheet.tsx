@@ -47,6 +47,8 @@ export function ManageSheet({
       enablePanDownToClose
       onDismiss={onDismiss}
       backdropComponent={renderBackdrop}
+      backgroundStyle={styles.sheetBg}
+      handleIndicatorStyle={styles.handleIndicator}
     >
       <BottomSheetView style={styles.content}>
         <Text style={styles.title} numberOfLines={1}>
@@ -107,9 +109,16 @@ export function ManageSheet({
 }
 
 const styles = StyleSheet.create({
+  sheetBg: {
+    backgroundColor: "#141824",
+  },
+  handleIndicator: {
+    backgroundColor: "#2A3050",
+  },
   content: {
     paddingHorizontal: 20,
     paddingBottom: 24,
+    backgroundColor: "#141824",
   },
   title: {
     fontSize: 15,

@@ -358,6 +358,13 @@ def validate_normalised_quit(parsed: dict | None, raw_text: str) -> dict | None:
     except (ValueError, TypeError):
         parsed["intervention_hour"] = None
 
+    dk = str(parsed.get("dedupe_key") or "").strip().lower()
+    if dk:
+        dk = dk.replace(" ", "_").replace("-", "_")[:80]
+        parsed["dedupe_key"] = dk
+    else:
+        parsed.pop("dedupe_key", None)
+
     return parsed
 
 

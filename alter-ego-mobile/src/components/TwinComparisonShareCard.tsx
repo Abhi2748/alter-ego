@@ -1,6 +1,6 @@
 /**
  * Twin Comparison Share Card — Full-screen modal with shareable card.
- * Twin ahead (gap_days > 0): violet card. User ahead (gap_days <= 0): gold card.
+ * Violet: twin XP ≥ user XP. Gold: user XP > twin XP.
  * Capture via react-native-view-shot and share via native share sheet.
  */
 
@@ -42,10 +42,14 @@ export function TwinComparisonShareCard({ visible, onClose, comparison }: Props)
   const cardWidth = Math.max(CARD_MIN_WIDTH, screenWidth - CARD_PADDING_H * 2);
   const [sharing, setSharing] = React.useState(false);
 
-  const gapDays = comparison?.gap_days ?? 0;
-  const twinAhead = gapDays > 0;
-  const userPower = comparison?.user_power_score != null ? Math.round(comparison.user_power_score) : 0;
-  const twinPower = comparison?.twin_power_score != null ? Math.round(comparison.twin_power_score) : 0;
+  const userXp = comparison?.user_xp ?? 0;
+  const twinXp = comparison?.twin_xp ?? 0;
+  /** Total XP decides who leads — not gap.days_user_ahead (that is “days since you passed Twin”). */
+  const userAhead = userXp > twinXp;
+  const twinAhead = !userAhead; // includes tie → violet
+  const xpGapAbs = Math.abs(userXp - twinXp);
+  const userXpDisp = userXp.toLocaleString();
+  const twinXpDisp = twinXp.toLocaleString();
   const userStreak = comparison?.user_streak ?? 0;
   const twinStreak = comparison?.twin_streak ?? 0;
 
@@ -116,12 +120,14 @@ export function TwinComparisonShareCard({ visible, onClose, comparison }: Props)
                 </View>
                 <View style={styles.statsRowCard}>
                   <View style={styles.statCell}>
-                    <Text style={styles.statValueViolet}>{gapDays}</Text>
-                    <Text style={styles.statLabelCard}>Gap (days)</Text>
+                    <Text style={styles.statValueViolet}>{xpGapAbs.toLocaleString()}</Text>
+                    <Text style={styles.statLabelCard}>XP gap</Text>
                   </View>
                   <View style={styles.statCell}>
-                    <Text style={styles.statValueViolet}>{userPower} / {twinPower}</Text>
-                    <Text style={styles.statLabelCard}>Power Score</Text>
+                    <Text style={styles.statValueViolet} numberOfLines={1} adjustsFontSizeToFit>
+                      {userXpDisp} / {twinXpDisp}
+                    </Text>
+                    <Text style={styles.statLabelCard}>XP</Text>
                   </View>
                   <View style={styles.statCell}>
                     <Text style={styles.statValueViolet}>{userStreak} / {twinStreak}</Text>
@@ -129,7 +135,9 @@ export function TwinComparisonShareCard({ visible, onClose, comparison }: Props)
                   </View>
                 </View>
                 <Text style={styles.oracleViolet} numberOfLines={2}>
-                  {comparison?.strip_message ?? "Your rival is you — one week ahead."}
+                  {comparison?.comparison_line?.trim() ||
+                    comparison?.strip_message ||
+                    "Your rival is you — one week ahead."}
                 </Text>
                 <View style={styles.footer}>
                   <Text style={styles.footerLeft}>alterego.app</Text>
@@ -170,12 +178,16 @@ export function TwinComparisonShareCard({ visible, onClose, comparison }: Props)
                 </View>
                 <View style={[styles.statsRowCard, styles.statsRowGold]}>
                   <View style={styles.statCell}>
-                    <Text style={styles.statValueGold}>You're ahead</Text>
-                    <Text style={styles.statLabelCard}>Gap</Text>
+                    <Text style={styles.statValueGold} numberOfLines={1} adjustsFontSizeToFit>
+                      +{(userXp - twinXp).toLocaleString()} XP
+                    </Text>
+                    <Text style={styles.statLabelCard}>XP lead</Text>
                   </View>
                   <View style={styles.statCell}>
-                    <Text style={styles.statValueGold}>{userPower} / {twinPower}</Text>
-                    <Text style={styles.statLabelCard}>Power Score</Text>
+                    <Text style={styles.statValueGold} numberOfLines={1} adjustsFontSizeToFit>
+                      {userXpDisp} / {twinXpDisp}
+                    </Text>
+                    <Text style={styles.statLabelCard}>XP</Text>
                   </View>
                   <View style={styles.statCell}>
                     <Text style={styles.statValueGold}>{userStreak} / {twinStreak}</Text>

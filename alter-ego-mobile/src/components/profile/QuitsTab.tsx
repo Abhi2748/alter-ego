@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Alert,
 } from "react-native";
 import type { BottomSheetModal } from "@gorhom/bottom-sheet";
 import Animated, {
@@ -32,6 +33,8 @@ import { QuitCard } from "@/components/profile/QuitCard";
 import { QuitManageSheet } from "@/components/profile/QuitManageSheet";
 import { QuitInsightModal } from "@/components/profile/QuitInsightModal";
 import { QuitTargetProfileSheet } from "@/components/onboarding/QuitTargetProfileSheet";
+import { getErrorMessage, isApiError } from "@/services/api";
+import { QUIT_ORANGE } from "@/constants/missionColors";
 
 function SkeletonCard() {
   const o = useSharedValue(0.35);
@@ -285,6 +288,18 @@ export function QuitsTab() {
                 advancing={advancingPathId === t.path_id}
               />
             ))}
+            {creatingQuitPath || createMutation.isPending ? (
+              <View style={styles.preparingBanner}>
+                <ActivityIndicator size="small" color="#8B5CF6" />
+                <View style={styles.preparingBannerText}>
+                  <Text style={styles.preparingBannerTitle}>Building your path</Text>
+                  <Text style={styles.preparingBannerSub}>
+                    We&apos;re setting up your quit plan on our servers (missions and insights). This can take a little
+                    while — you can leave this tab. Pull down to refresh when you&apos;re back.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
             <Pressable
               style={styles.addDashedList}
               onPress={() => {
@@ -355,7 +370,7 @@ export function QuitsTab() {
               disabled={deleting}
             >
               {deleting ? (
-                <ActivityIndicator color="#F87171" />
+                <ActivityIndicator color={QUIT_ORANGE.primary} />
               ) : (
                 <Text style={styles.delDangerTxt}>Delete permanently</Text>
               )}
@@ -521,8 +536,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     borderStyle: "dashed",
-    borderColor: "rgba(239,68,68,0.35)",
-    backgroundColor: "rgba(239,68,68,0.04)",
+    borderColor: QUIT_ORANGE.border,
+    backgroundColor: QUIT_ORANGE.surface,
   },
   addDashedList: {
     flexDirection: "row",
@@ -533,12 +548,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     borderStyle: "dashed",
-    borderColor: "rgba(239,68,68,0.35)",
-    backgroundColor: "rgba(239,68,68,0.04)",
+    borderColor: QUIT_ORANGE.border,
+    backgroundColor: QUIT_ORANGE.surface,
     marginBottom: 24,
   },
-  addPlus: { fontSize: 18, color: "rgba(239,68,68,0.65)", fontFamily: "Inter_700Bold" },
-  addTxt: { fontSize: 13, color: "rgba(239,68,68,0.75)", fontFamily: "Inter_600SemiBold" },
+  addPlus: { fontSize: 18, color: QUIT_ORANGE.muted, fontFamily: "Inter_700Bold" },
+  addTxt: { fontSize: 13, color: QUIT_ORANGE.text, fontFamily: "Inter_600SemiBold" },
   nameModalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.75)",
@@ -557,7 +572,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#12100F",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.25)",
+    borderColor: QUIT_ORANGE.border,
     padding: 14,
     fontSize: 14,
     color: "#E5E7EB",
@@ -567,7 +582,7 @@ const styles = StyleSheet.create({
   nameModalGhost: { paddingVertical: 10, paddingHorizontal: 12 },
   nameModalGhostTxt: { color: "#6B7280", fontFamily: "Inter_600SemiBold" },
   nameModalPrimary: {
-    backgroundColor: "#EF4444",
+    backgroundColor: QUIT_ORANGE.primary,
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 10,
@@ -603,17 +618,17 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 20,
   },
-  delStrong: { color: "#F87171", fontFamily: "Inter_700Bold" },
+  delStrong: { color: QUIT_ORANGE.text, fontFamily: "Inter_700Bold" },
   delDanger: {
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: "rgba(248,113,113,0.12)",
+    backgroundColor: QUIT_ORANGE.surface,
     borderWidth: 1,
-    borderColor: "rgba(248,113,113,0.3)",
+    borderColor: QUIT_ORANGE.border2,
     alignItems: "center",
     marginBottom: 8,
   },
-  delDangerTxt: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#F87171" },
+  delDangerTxt: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: QUIT_ORANGE.text },
   delGhost: {
     paddingVertical: 12,
     borderRadius: 12,

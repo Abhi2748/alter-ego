@@ -252,11 +252,14 @@ def build_ui_path(
 
     unlocked_insights = sum(1 for x in insights_out if x["unlocked"])
 
+    stored_color = (str(interest.get("color") or "").strip())
+    color_hex = stored_color if stored_color.startswith("#") and len(stored_color) >= 4 else accent_hex(name)
+
     return {
         "path_id": str(interest["id"]),
         "interest_name": name,
         "goal_text": goal,
-        "color_hex": accent_hex(name),
+        "color_hex": color_hex,
         "experience_label": exp_label,
         "schedule_days": sorted(active_set),
         "difficulty": tier,

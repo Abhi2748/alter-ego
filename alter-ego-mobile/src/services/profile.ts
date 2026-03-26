@@ -1,5 +1,13 @@
 import { apiClient } from '@/services/api';
 
+/** POST /api/v1/profile/interests — matches AddInterestSheet payload */
+export interface CreateInterestPayload {
+  interest_description: string;
+  interest_level: string;
+  goal_description: string;
+  schedule_days: number[];
+}
+
 export interface MirrorObservation {
   text: string;
   bold_segments: string[];
@@ -42,6 +50,12 @@ export const profileService = {
   getCompanion: () => apiClient.get('/api/v1/profile/companion'),
 
   getInterests: () => apiClient.get('/api/v1/profile/interests'),
+
+  createInterest: (body: CreateInterestPayload) =>
+    apiClient.post<{ success: boolean; interest_id?: string | null }>(
+      '/api/v1/profile/interests',
+      body
+    ),
 
   getQuits: () => apiClient.get('/api/v1/profile/quits'),
 

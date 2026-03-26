@@ -223,6 +223,10 @@ STREAK_FREEZE_DAYS = 29       # Days 1-29 of absence: XP frozen, full recovery p
 # ── FREE TRIAL + SUBSCRIPTION ────────────────────────────────────────────
 
 FREE_TRIAL_DAYS = 7
+
+# Quit paths: max resistance missions per user per calendar day (all active paths combined).
+# Prevents runaway duplicates if sync runs multiple times; one mission per path is typical.
+MAX_QUIT_RESISTANCE_MISSIONS_PER_USER_DAY = 6
 LEADERBOARD_UNLOCK_STREAK = 3  # First time user hits a 3-day streak
 
 # ── ARCHETYPE DEFINITIONS ────────────────────────────────────────────────

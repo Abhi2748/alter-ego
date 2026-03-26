@@ -25,8 +25,6 @@ import { mailService, type AppMail } from "@/services/mail";
 import { useUserStore } from "@/store/userStore";
 import { getErrorMessage } from "@/services/api";
 import { COLORS, GRADIENTS, RADIUS, SPACING, SHADOWS, FONTS } from "@/constants/theme";
-import { IS_CLOSED_BETA } from "@/constants/closedBeta";
-
 function formatMailType(raw: string): string {
   const t = raw.toLowerCase().replace(/_/g, " ").trim();
   if (!t) return "Message";
@@ -103,8 +101,6 @@ export function MailInboxScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AppMail | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
-  const [infoExpanded, setInfoExpanded] = useState(true);
-
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -159,64 +155,6 @@ export function MailInboxScreen() {
       setMarkingAll(false);
     }
   };
-
-  const listHeader = (
-    <View style={{ marginBottom: SPACING.lg }}>
-      {/* Hero */}
-      <View style={styles.heroWrap}>
-        <LinearGradient
-          colors={["rgba(109,40,217,0.18)", "transparent"]}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.heroFracture} />
-        <Text style={styles.heroKicker}>ALTER EGO</Text>
-        <Text style={styles.heroTitle}>Inbox</Text>
-        <Text style={styles.heroSub}>
-          Letters from your journey — welcome notes, milestones, and in-app updates. Everything here stays inside the
-          app; we do not sell your data.
-        </Text>
-      </View>
-
-      {/* How it works — collapsible */}
-      <Pressable
-        onPress={() => setInfoExpanded(!infoExpanded)}
-        style={({ pressed }) => [styles.infoCard, pressed && { opacity: 0.92 }]}
-      >
-        <LinearGradient
-          colors={["rgba(139,92,246,0.12)", "rgba(20,24,36,0.4)"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.infoCardTop}>
-          <View style={styles.infoIconCircle}>
-            <Ionicons name="information-circle-outline" size={22} color={COLORS.violetGlow} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.infoTitle}>How your inbox works</Text>
-            <Text style={styles.infoHint}>{infoExpanded ? "Tap to collapse" : "Tap to expand"}</Text>
-          </View>
-          <Ionicons
-            name={infoExpanded ? "chevron-up" : "chevron-down"}
-            size={20}
-            color={COLORS.muted}
-          />
-        </View>
-        {infoExpanded ? (
-          <View style={styles.infoBullets}>
-            <Bullet text="Welcome and tips from the team when you join or hit key moments." />
-            <Bullet text="Your Twin and systems may surface nudges and milestones here — always pride-first, never guilt." />
-            <Bullet text="Tap a message to read in full; unread items glow violet until you open them." />
-            {IS_CLOSED_BETA ? (
-              <Bullet text="Closed beta: you may see test mail as we tune delivery — thank you for bearing with us." />
-            ) : null}
-          </View>
-        ) : null}
-      </Pressable>
-    </View>
-  );
 
   const emptyState = (
     <View style={styles.emptyWrap}>
@@ -302,7 +240,7 @@ export function MailInboxScreen() {
         <FlatList
           data={mails}
           keyExtractor={(item) => item.id}
-          ListHeaderComponent={listHeader}
+          ListHeaderComponent={null}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -411,15 +349,6 @@ export function MailInboxScreen() {
           </View>
         </View>
       </Modal>
-    </View>
-  );
-}
-
-function Bullet({ text }: { text: string }) {
-  return (
-    <View style={styles.bulletRow}>
-      <View style={styles.bulletDot} />
-      <Text style={styles.bulletText}>{text}</Text>
     </View>
   );
 }

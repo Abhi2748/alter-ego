@@ -9,10 +9,15 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from app.agents.interest_normaliser import normalise_quit_target
 from app.agents.quit_insight_agent import generate_quit_insight
 from app.agents.quit_mission_agent import generate_quit_missions
 from app.agents.quit_profile_agent import analyse_quit_profile
-from app.core.constants import MISSION_PF, mission_xp_for_type
+from app.core.constants import (
+    MAX_QUIT_RESISTANCE_MISSIONS_PER_USER_DAY,
+    MISSION_PF,
+    mission_xp_for_type,
+)
 from app.core.supabase_client import supabase_admin
 from app.services.mission_service import get_user_date
 
@@ -28,6 +33,63 @@ def _get_initials(name: str) -> str:
 
 def _normalize_habit(name: str) -> str:
     return name.strip().lower().replace(" ", "_").replace("-", "_")
+
+
+# Map slang / morphological variants to one stable slug so duplicate paths are not created.
+_QUIT_SLUG_ALIASES: dict[str, str] = {
+    "masturbating": "masturbation",
+    "masturbation": "masturbation",
+    "fapping": "masturbation",
+    "fap": "masturbation",
+    "jerking_off": "masturbation",
+}
+
+
+def canonical_quit_slug(nq: dict[str, Any], canonical_display: str) -> str:
+    """Stable habit key for quit_paths.habit_normalized (LLM dedupe_key + synonym merge)."""
+    dk = str(nq.get("dedupe_key") or "").strip().lower()
+    if dk:
+        dk = dk.replace(" ", "_").replace("-", "_")
+        dk = _QUIT_SLUG_ALIASES.get(dk, dk)
+        return dk[:120]
+    slug = _normalize_habit(canonical_display)
+    return _QUIT_SLUG_ALIASES.get(slug, slug)[:120]
+
+
+def _dedupe_incomplete_quit_resistance_missions(user_id: str, mission_date: str) -> None:
+    """
+    Keep a single incomplete resistance mission per quit_path per day; delete extras.
+    Repairs duplicate rows from race conditions or older multi-mission batches.
+    """
+    res = (
+        supabase_admin.table("missions")
+        .select("id, quit_path_id, completed, created_at")
+        .eq("user_id", user_id)
+        .eq("mission_date", mission_date)
+        .eq("type", "resistance")
+        .execute()
+    )
+    rows = res.data or []
+    by_path: dict[str, list[dict]] = {}
+    for m in rows:
+        if m.get("completed"):
+            continue
+        qpid = m.get("quit_path_id")
+        if not qpid:
+            continue
+        by_path.setdefault(str(qpid), []).append(m)
+    for ms in by_path.values():
+        if len(ms) <= 1:
+            continue
+        ms.sort(key=lambda x: str(x.get("created_at") or ""))
+        for extra in ms[1:]:
+            try:
+                supabase_admin.table("missions").delete().eq("id", extra["id"]).execute()
+            except Exception:
+                logger.exception(
+                    "dedupe quit resistance: failed to delete mission %s",
+                    extra.get("id"),
+                )
 
 
 def _user_timezone(user_id: str) -> str:
@@ -83,8 +145,33 @@ async def create_quit_path(
     awareness_level: str,
     quit_goal: str,
 ) -> dict[str, Any]:
+    raw_label = (habit_name or "").strip()
+    if len(raw_label) < 2:
+        raise ValueError("Habit name is too short")
+
+    nq = await normalise_quit_target(raw_label, "", "")
+    if nq.get("rejected"):
+        reason = str(nq.get("rejection_reason") or "")
+        if reason == "self_harm":
+            raise ValueError("self_harm_quit")
+        raise ValueError("quit_target_rejected")
+
+    canonical_display = str(nq.get("normalised_name") or raw_label).strip() or raw_label.title()
+    canonical_key = canonical_quit_slug(nq, canonical_display)
+
+    dup = (
+        supabase_admin.table("quit_paths")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("habit_normalized", canonical_key)
+        .limit(1)
+        .execute()
+    )
+    if dup.data:
+        raise ValueError("duplicate quit habit")
+
     profile = await analyse_quit_profile(
-        habit_name=habit_name,
+        habit_name=canonical_display,
         trigger_contexts=trigger_contexts,
         awareness_level=awareness_level,
         quit_goal=quit_goal,
@@ -97,14 +184,14 @@ async def create_quit_path(
         logger.warning(
             "QuitPath user=%s habit=%s flagged referral_only",
             user_id,
-            habit_name,
+            canonical_display,
         )
 
     row = {
         "user_id": user_id,
-        "habit_name": habit_name,
-        "habit_normalized": _normalize_habit(habit_name),
-        "initials": _get_initials(habit_name),
+        "habit_name": canonical_display,
+        "habit_normalized": canonical_key,
+        "initials": _get_initials(canonical_display),
         "trigger_contexts": trigger_contexts,
         "awareness_level": awareness_level,
         "quit_goal": quit_goal,
@@ -563,17 +650,40 @@ async def update_quit_schedule(
 
 
 async def sync_quit_path_missions_for_date(user_id: str, mission_date: str) -> None:
-    paths = (
+    _dedupe_incomplete_quit_resistance_missions(user_id, mission_date)
+
+    def _count_incomplete_resistance_today() -> int:
+        r = (
+            supabase_admin.table("missions")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("mission_date", mission_date)
+            .eq("type", "resistance")
+            .eq("completed", False)
+            .execute()
+        )
+        return len(r.data or [])
+
+    paths_raw = (
         supabase_admin.table("quit_paths")
-        .select("id")
+        .select("id, created_at")
         .eq("user_id", user_id)
         .eq("status", "active")
         .execute()
         .data
         or []
     )
+    paths = sorted(paths_raw, key=lambda p: str(p.get("created_at") or ""))
     for p in paths:
         try:
+            if _count_incomplete_resistance_today() >= MAX_QUIT_RESISTANCE_MISSIONS_PER_USER_DAY:
+                logger.info(
+                    "sync_quit_path_missions: user=%s at cap=%s for %s",
+                    user_id,
+                    MAX_QUIT_RESISTANCE_MISSIONS_PER_USER_DAY,
+                    mission_date,
+                )
+                break
             rows = await generate_quit_missions_for_today(user_id, p["id"], mission_date)
             if rows:
                 supabase_admin.table("missions").insert(rows).execute()

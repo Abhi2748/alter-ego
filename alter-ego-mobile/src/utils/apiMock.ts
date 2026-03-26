@@ -392,6 +392,8 @@ export async function getTwinComparison(_accessToken: string): Promise<TwinCompa
     current_gap_state: "slightly_behind",
     gap_line: "Twin has a Cat and 2,480 XP. You have a Cub and 1,240 XP.",
     strip_message: '"Four down. What\'s your count?"',
+    comparison_line:
+      "Neck and neck: 1,240 XP to 2,480 — only 1,240 apart. Today finish the list before Twin's simulated run does.",
     gap_days: 7,
     username: "shadow_wolf",
     twin_today_activities: [

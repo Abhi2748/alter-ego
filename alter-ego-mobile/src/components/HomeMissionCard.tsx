@@ -17,6 +17,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { STATS, type StatKey } from "@/constants/stats";
+import { QUIT_ORANGE, getInterestColorByHex } from "@/constants/missionColors";
 
 export type HomeMissionType = "core" | "interest" | "personal" | "recovery" | "resistance";
 export type HomeMissionDifficulty = "Easy" | "Medium" | "Hard";
@@ -104,6 +105,8 @@ export interface HomeMissionCardProps {
   statKey?: StatKey;
   /** Twin already completed this mission today (pending cards only). */
   twinCompleted?: boolean;
+  /** Interest missions: accent from interests.color (hex). */
+  accentColor?: string;
 }
 
 export function HomeMissionCard({
@@ -124,6 +127,7 @@ export function HomeMissionCard({
   onLongPress,
   statKey,
   twinCompleted,
+  accentColor,
 }: HomeMissionCardProps) {
   const scale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -189,11 +193,23 @@ export function HomeMissionCard({
 
   const isComplete = status === "complete";
   const isResistance = missionType === "resistance";
+  const interestScheme =
+    missionType === "interest" && accentColor
+      ? getInterestColorByHex(accentColor)
+      : null;
   const edgeColors =
     missionType === "resistance"
-      ? (["#EF4444", "#B91C1C"] as const)
-      : LEFT_EDGE_GRADIENTS[missionType][difficulty];
-  const chipStyle = CHIP_STYLES[missionType];
+      ? ([QUIT_ORANGE.primary, QUIT_ORANGE.deep] as const)
+      : interestScheme
+        ? ([interestScheme.primary, interestScheme.deep] as const)
+        : LEFT_EDGE_GRADIENTS[missionType][difficulty];
+  const chipStyle = interestScheme
+    ? {
+        bg: interestScheme.surface,
+        color: interestScheme.text,
+        border: interestScheme.border,
+      }
+    : CHIP_STYLES[missionType];
   const sectionLabel =
     missionType === "interest" && interestName
       ? interestName
@@ -266,7 +282,9 @@ export function HomeMissionCard({
               <View style={[styles.sectionChip, { backgroundColor: chipStyle.bg, borderColor: chipStyle.border }]}>
                 <Text style={[styles.sectionChipText, { color: chipStyle.color }]}>{sectionLabel}</Text>
               </View>
-              <Text style={styles.xpMeta}>★ {xpValue}</Text>
+              <Text style={[styles.xpMeta, interestScheme && { color: interestScheme.text }]}>
+                ★ {xpValue}
+              </Text>
               <Text style={styles.pfMeta}>🌿 {petFoodValue}</Text>
               {statKey ? (
                 <Text

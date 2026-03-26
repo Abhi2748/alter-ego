@@ -1,6 +1,6 @@
 /**
- * Profile Screen — Identity hero card + nav rows to sub-screens.
- * No fixed header; hero bleeds edge to edge. Do NOT touch sub-screens or bottom nav.
+ * Profile Screen — Screen title + identity hero card + nav rows to sub-screens.
+ * Do NOT touch sub-screens or bottom nav.
  */
 
 import React, { useState } from "react";
@@ -27,6 +27,11 @@ import { useUserStore } from "@/store/userStore";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
 import { SigilMiniPreview } from "@/components/sigil/SigilMiniPreview";
 import { useSigilData } from "@/hooks/useSigil";
+import { useQuery } from "@tanstack/react-query";
+import { leaderboardService } from "@/services/leaderboard";
+
+/** Matches stage badge / "Stage 1 · The Awakened" accent on this screen */
+const PROFILE_HERO_ACCENT = "rgba(167,139,250,0.95)";
 
 type Nav = CompositeNavigationProp<
   StackNavigationProp<ProfileStackParamList, "ProfileMain">,
@@ -147,6 +152,15 @@ export function ProfileScreen() {
   const profileLoading = useUserStore((state) => state.isLoading);
   const { data: sigilData } = useSigilData();
   const sigilLevel = sigilData?.sigil_level ?? 1;
+  const { data: lbData } = useQuery({
+    queryKey: ["leaderboard", "profile-header"],
+    queryFn: () => leaderboardService.getLeaderboard(),
+    staleTime: 60_000,
+  });
+  const rankLabel =
+    lbData?.current_user?.rank != null && lbData.current_user.rank > 0
+      ? String(lbData.current_user.rank)
+      : "—";
   const [journeyDropdownVisible, setJourneyDropdownVisible] = useState(false);
   const journeyDropdownTop = 260;
 
@@ -169,10 +183,6 @@ export function ProfileScreen() {
 
   const openSettings = () => {
     (navigation.getParent() as any)?.navigate("Settings");
-  };
-
-  const openRankCard = () => {
-    (navigation.getParent() as any)?.navigate("RankCard");
   };
 
   const openMailInbox = () => {
@@ -220,7 +230,7 @@ export function ProfileScreen() {
             style={[
               styles.heroContent,
               {
-                paddingTop: insets.top + 10,
+                paddingTop: 12,
                 paddingHorizontal: 16,
               },
             ]}
@@ -321,21 +331,9 @@ export function ProfileScreen() {
                 </View>
 
                 {/* Username */}
-                <Text style={styles.heroUsername}>{profile.username}</Text>
-
-                {/* Power score + Share rank card — single row, clean fit */}
-                <View style={styles.powerShareRow}>
-                  <View style={styles.powerBlock}>
-                    <Text style={styles.powerLabel}>POWER SCORE</Text>
-                    <Text style={styles.powerValue} numberOfLines={1}>
-                      {profile.power_score.toLocaleString()}
-                    </Text>
-                  </View>
-                  <Pressable onPress={openRankCard} style={styles.shareRankRow} hitSlop={8}>
-                    <Ionicons name="share-outline" size={12} color="#6D28D9" />
-                    <Text style={styles.shareRankText}>Share rank card</Text>
-                  </Pressable>
-                </View>
+                <Text style={[styles.heroUsername, { color: PROFILE_HERO_ACCENT }]}>
+                  {profile.username}
+                </Text>
 
                 {/* Quick stat pills */}
                 <View style={styles.pillsRow}>
@@ -346,21 +344,19 @@ export function ProfileScreen() {
                     <Text style={styles.pillLabel}>STREAK</Text>
                   </View>
                   <View style={styles.pill}>
-                    <Text style={[styles.pillValue, { color: "#E5E7EB" }]}>
+                    <Text style={[styles.pillValue, { color: PROFILE_HERO_ACCENT }]}>
                       {profile.total_xp.toLocaleString()}
                     </Text>
                     <Text style={styles.pillLabel}>XP</Text>
                   </View>
                   <View style={styles.pill}>
-                    <Text style={[styles.pillValue, styles.pillValuePet]}>
-                      {profile.pet_name ?? "—"}
+                    <Text style={[styles.pillValue, { color: PROFILE_HERO_ACCENT }]} numberOfLines={1}>
+                      {profile.power_score.toLocaleString()}
                     </Text>
-                    <Text style={styles.pillLabel}>PET</Text>
+                    <Text style={styles.pillLabel}>POWER</Text>
                   </View>
                   <View style={styles.pill}>
-                    <Text style={[styles.pillValue, styles.pillValuePet]}>
-                      {"—"}
-                    </Text>
+                    <Text style={[styles.pillValue, { color: PROFILE_HERO_ACCENT }]}>{rankLabel}</Text>
                     <Text style={styles.pillLabel}>RANK</Text>
                   </View>
                 </View>
@@ -634,42 +630,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     textAlign: "center",
   },
-  powerShareRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 12,
-    marginBottom: 12,
-    gap: 12,
-  },
-  powerBlock: {
-    alignItems: "flex-start",
-    gap: 2,
-    flexShrink: 0,
-  },
-  powerLabel: {
-    fontSize: 9,
-    fontFamily: "Inter_600SemiBold",
-    letterSpacing: 1.5,
-    color: "#4B5563",
-  },
-  powerValue: {
-    fontSize: 24,
-    fontFamily: "Inter_700Bold",
-    color: "#E5E7EB",
-    letterSpacing: -0.8,
-    lineHeight: 28,
-  },
-  shareRankRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  shareRankText: {
-    fontSize: 11,
-    fontFamily: "Inter_500Medium",
-    color: "#6D28D9",
-  },
   pillsRow: {
     flexDirection: "row",
     gap: 6,
@@ -692,11 +652,6 @@ const styles = StyleSheet.create({
   pillValue: {
     fontSize: 14,
     fontFamily: "Inter_700Bold",
-  },
-  pillValuePet: {
-    fontSize: 13,
-    fontFamily: "Inter_700Bold",
-    color: "#E5E7EB",
   },
   pillLabel: {
     fontSize: 8,

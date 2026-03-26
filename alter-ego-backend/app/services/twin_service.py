@@ -15,6 +15,7 @@ No artificial rubber-banding. The gap is earned in both directions.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import random
@@ -25,8 +26,107 @@ from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
 
-# Twin “morning person” hours for simulated completion timestamps (6–12 bias).
-_TWIN_LOG_MORNING_HOURS = (6, 7, 8, 9, 9, 10, 10, 11, 11, 12)
+
+def _mission_local_hour_window(
+    title: str,
+    core_pillar: str | None,
+    mission_type: str | None,
+    is_journal_mission: bool | None,
+) -> tuple[int, int]:
+    """
+    Returns inclusive [hour_min, hour_max] in local time for when this mission is plausible.
+    Night/sleep missions must not appear in the morning feed.
+    """
+    t = (title or "").lower()
+    p = (str(core_pillar or "")).lower()
+    mt = (str(mission_type or "")).lower()
+
+    if is_journal_mission or "journal" in t or p == "journal":
+        return (14, 19)
+
+    if any(
+        k in t
+        for k in (
+            "bed",
+            "bedtime",
+            "midnight",
+            "before midnight",
+            "by midnight",
+            "sleep",
+            "before bed",
+            "tonight",
+            "night routine",
+        )
+    ):
+        return (21, 23)
+    if p == "sleep" or ("sleep" in t and "phone" not in t):
+        return (21, 23)
+
+    if any(k in t for k in ("morning", "wake", "first thing", "sunrise")):
+        return (6, 10)
+
+    if any(k in t for k in ("hydration", "water", "glass of water")) and "before bed" not in t:
+        return (7, 11)
+
+    if mt == "personal":
+        return (9, 20)
+
+    if any(k in t for k in ("walk", "movement", "workout", "exercise", "gym", "steps")):
+        return (8, 14)
+
+    if any(k in t for k in ("mindful", "meditat", "breath")) or p in ("mindfulness", "meditation"):
+        return (7, 11)
+
+    if "phone" in t or p == "no_phone" or "screen" in t:
+        return (10, 21)
+
+    if mt in ("interest", "resistance"):
+        return (10, 20)
+
+    # Default: spread across working hours (not pre-dawn, not late night)
+    return (8, 18)
+
+
+def _stable_minute(seed: str) -> int:
+    h = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    return int(h[:8], 16) % 46  # 0–45, stable per mission+day
+
+
+def _assign_simulated_times_for_missions(
+    mission_rows: list[dict],
+    mission_date: str,
+) -> list[tuple[dict, int, int]]:
+    """
+    Returns (mission_row, hour, minute) in chronological order for the simulated day.
+    """
+    enriched: list[tuple[tuple[int, int, int], dict]] = []
+    for r in mission_rows:
+        w = _mission_local_hour_window(
+            str(r.get("title") or ""),
+            r.get("core_pillar"),
+            r.get("type"),
+            r.get("is_journal_mission"),
+        )
+        tie = hash(str(r.get("title", "")) + mission_date) % 10000
+        enriched.append(((w[0], w[1], tie), r))
+
+    enriched.sort(key=lambda x: x[0])
+    out: list[tuple[dict, int, int]] = []
+    for idx, (_, r) in enumerate(enriched):
+        w = _mission_local_hour_window(
+            str(r.get("title") or ""),
+            r.get("core_pillar"),
+            r.get("type"),
+            r.get("is_journal_mission"),
+        )
+        lo, hi = w
+        span = max(1, hi - lo + 1)
+        seed = f"{mission_date}|{r.get('title')}|{r.get('id')}|{idx}"
+        h = lo + (abs(int(hashlib.md5(seed.encode()).hexdigest(), 16)) % span)
+        minute = _stable_minute(seed + "|minute")
+        out.append((r, h, minute))
+    out.sort(key=lambda x: (x[1], x[2]))
+    return out
 
 
 async def record_twin_mission_log_from_daily_record(
@@ -65,24 +165,29 @@ async def record_twin_mission_log_from_daily_record(
 
         mres = (
             supabase_admin.table("missions")
-            .select("id, title, type, core_pillar")
+            .select("id, title, type, core_pillar, is_journal_mission")
             .eq("user_id", user_id)
             .in_("id", id_list)
             .execute()
         )
         by_id = {str(r.get("id")): r for r in (mres.data or []) if r.get("id")}
 
-        d = date_type.fromisoformat(today)
-        rows: list[dict] = []
-        for i, mid in enumerate(id_list):
+        mission_rows: list[dict] = []
+        for mid in id_list:
             r = by_id.get(str(mid))
             if not r:
                 continue
             title = (r.get("title") or "").strip()
             if not title:
                 continue
-            simulated_hour = _TWIN_LOG_MORNING_HOURS[i % len(_TWIN_LOG_MORNING_HOURS)]
-            local_dt = datetime(d.year, d.month, d.day, simulated_hour, 0, 0, tzinfo=tz)
+            mission_rows.append(r)
+
+        assigned = _assign_simulated_times_for_missions(mission_rows, today)
+        d = date_type.fromisoformat(today)
+        rows: list[dict] = []
+        for r, hour, minute in assigned:
+            title = (r.get("title") or "").strip()
+            local_dt = datetime(d.year, d.month, d.day, hour, minute, 0, tzinfo=tz)
             completed_at = local_dt.astimezone(timezone.utc).isoformat()
             mt = r.get("type") or "core"
             mt = str(mt).lower() if mt else "core"
@@ -94,7 +199,7 @@ async def record_twin_mission_log_from_daily_record(
                     "mission_title": title,
                     "core_pillar": r.get("core_pillar"),
                     "mission_type": mt,
-                    "simulated_hour": simulated_hour,
+                    "simulated_hour": hour,
                     "completed_at": completed_at,
                 }
             )
@@ -126,6 +231,171 @@ async def record_twin_mission_log_from_daily_record(
                 }
             )
         )
+
+
+async def backfill_twin_mission_log_simulated_hours_for_date(mission_date: str) -> dict:
+    """
+    One-off maintenance: recompute `simulated_hour` and `completed_at` for every
+    `twin_mission_log` row on `mission_date`, using `_assign_simulated_times_for_missions`
+    (same as `record_twin_mission_log_from_daily_record` / `_mission_local_hour_window`).
+
+    Match missions by user + mission_date + title (case-insensitive) to recover
+    `id` and `is_journal_mission` for stable hashes; if no mission row exists,
+    falls back to log fields only.
+    """
+    try:
+        date_type.fromisoformat(mission_date)
+    except ValueError as e:
+        raise ValueError("mission_date must be YYYY-MM-DD") from e
+
+    # Paginate — default PostgREST cap can truncate large selects.
+    page_size = 1000
+    offset = 0
+    all_logs: list[dict] = []
+    while True:
+        res = (
+            supabase_admin.table("twin_mission_log")
+            .select("*")
+            .eq("mission_date", mission_date)
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        batch = res.data or []
+        all_logs.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+
+    if not all_logs:
+        return {
+            "mission_date": mission_date,
+            "rows_updated": 0,
+            "users_processed": 0,
+            "event": "twin_mission_log_backfill_empty",
+        }
+
+    by_user: dict[str, list[dict]] = {}
+    for row in all_logs:
+        uid = str(row.get("user_id") or "")
+        if not uid:
+            continue
+        by_user.setdefault(uid, []).append(row)
+
+    rows_updated = 0
+    for user_id, logs in by_user.items():
+        tz_name = "UTC"
+        try:
+            ures = (
+                supabase_admin.table("users")
+                .select("timezone")
+                .eq("id", user_id)
+                .single()
+                .execute()
+            )
+            if ures.data:
+                tz_name = (ures.data.get("timezone") or "UTC").strip() or "UTC"
+        except Exception:
+            tz_name = "UTC"
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = ZoneInfo("UTC")
+
+        mres = (
+            supabase_admin.table("missions")
+            .select("id, title, type, core_pillar, is_journal_mission")
+            .eq("user_id", user_id)
+            .eq("mission_date", mission_date)
+            .execute()
+        )
+        missions = mres.data or []
+        by_title_lower: dict[str, dict] = {}
+        for m in missions:
+            key = (str(m.get("title") or "")).strip().lower()
+            if key:
+                by_title_lower[key] = m
+
+        mission_rows: list[dict] = []
+        for log in logs:
+            key = (str(log.get("mission_title") or "")).strip().lower()
+            m = by_title_lower.get(key)
+            if m:
+                mission_rows.append(dict(m))
+            else:
+                mission_rows.append(
+                    {
+                        "id": None,
+                        "title": log.get("mission_title"),
+                        "type": log.get("mission_type") or "core",
+                        "core_pillar": log.get("core_pillar"),
+                        "is_journal_mission": None,
+                    }
+                )
+
+        assigned = _assign_simulated_times_for_missions(mission_rows, mission_date)
+        hour_by_title: dict[str, tuple[int, int]] = {}
+        for r, hour, minute in assigned:
+            tk = (str(r.get("title") or "")).strip().lower()
+            if tk:
+                hour_by_title[tk] = (hour, minute)
+
+        upserts: list[dict] = []
+        for log in logs:
+            tk = (str(log.get("mission_title") or "")).strip().lower()
+            pair = hour_by_title.get(tk)
+            if not pair:
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "twin_mission_log_backfill_skip",
+                            "user_id": user_id,
+                            "mission_date": mission_date,
+                            "mission_title": log.get("mission_title"),
+                        }
+                    )
+                )
+                continue
+            hour, minute = pair
+            day = date_type.fromisoformat(mission_date)
+            local_dt = datetime(day.year, day.month, day.day, hour, minute, 0, tzinfo=tz)
+            completed_at = local_dt.astimezone(timezone.utc).isoformat()
+            mt = str(log.get("mission_type") or "core").lower()
+            upserts.append(
+                {
+                    "user_id": user_id,
+                    "mission_date": mission_date,
+                    "mission_title": log.get("mission_title"),
+                    "core_pillar": log.get("core_pillar"),
+                    "mission_type": mt,
+                    "simulated_hour": hour,
+                    "completed_at": completed_at,
+                }
+            )
+
+        if upserts:
+            supabase_admin.table("twin_mission_log").upsert(
+                upserts,
+                on_conflict="user_id,mission_date,mission_title",
+            ).execute()
+            rows_updated += len(upserts)
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "twin_mission_log_backfill_done",
+                "mission_date": mission_date,
+                "rows_updated": rows_updated,
+                "users_processed": len(by_user),
+            }
+        )
+    )
+    return {
+        "mission_date": mission_date,
+        "rows_updated": rows_updated,
+        "users_processed": len(by_user),
+        "event": "twin_mission_log_backfill_done",
+    }
+
 
 # Two-phase crossing recovery system
 CROSSING_RECOVERY_DAYS = 6        # Phase 1: boost lasts 6 days after user crosses twin
@@ -644,6 +914,73 @@ async def ensure_twin_simulated_for_today(user_id: str) -> None:
         return
 
     await simulate_twin_day(user_id)
+
+
+async def ensure_twin_journal_backfilled(user_id: str) -> None:
+    """
+    Create twin_journal rows for recent calendar days where twin_daily_record exists but
+    journal is missing (e.g. day 1 simulated on-demand so the 1am job never wrote a journal).
+
+    Fills at most 3 days per call, prioritizing yesterday, then older gaps, then today.
+    """
+    from datetime import date as date_type, timedelta
+
+    from app.services.mission_service import get_user_date
+
+    try:
+        user_row = (
+            supabase_admin.table("users")
+            .select("timezone")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        tz = str((user_row.data or {}).get("timezone") or "UTC").strip() or "UTC"
+        today = get_user_date(tz)
+        anchor = date_type.fromisoformat(today)
+
+        order: list[str] = [str(anchor - timedelta(days=i)) for i in range(1, 8)] + [today]
+        seen: set[str] = set()
+        filled = 0
+        max_fill = 3
+        for d_str in order:
+            if d_str in seen:
+                continue
+            seen.add(d_str)
+            if filled >= max_fill:
+                break
+            rec = (
+                supabase_admin.table("twin_daily_record")
+                .select("id")
+                .eq("user_id", user_id)
+                .eq("record_date", d_str)
+                .limit(1)
+                .execute()
+            )
+            if not rec.data:
+                continue
+            jr = (
+                supabase_admin.table("twin_journal")
+                .select("id")
+                .eq("user_id", user_id)
+                .eq("entry_date", d_str)
+                .limit(1)
+                .execute()
+            )
+            if jr.data:
+                continue
+            await generate_and_store_twin_journal(user_id, d_str)
+            filled += 1
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "twin_journal_backfill_error",
+                    "user_id": user_id,
+                    "error": str(e)[:200],
+                }
+            )
+        )
 
 
 async def generate_and_store_twin_journal(user_id: str, today: str) -> None:

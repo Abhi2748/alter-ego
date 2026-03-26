@@ -15,6 +15,8 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
+import type { StackNavigationProp } from "@react-navigation/stack";
+import type { MainStackParamList } from "@/navigation/types";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useQuery } from "@tanstack/react-query";
@@ -33,9 +35,11 @@ async function fetchFaq(): Promise<FaqItem[]> {
   return Array.isArray(res?.faq) ? res.faq : [];
 }
 
+type FaqNav = StackNavigationProp<MainStackParamList, "SettingsFaq">;
+
 export function SettingsFaqScreen() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const navigation = useNavigation<FaqNav>();
 
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["settings", "faq"],
@@ -47,16 +51,25 @@ export function SettingsFaqScreen() {
     void refetch();
   }, [refetch]);
 
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate("ContactUs");
+    }
+  }, [navigation]);
+
   return (
     <View style={styles.container}>
       <LinearGradient colors={BG_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         {Platform.OS === "ios" ? <BlurView intensity={12} tint="dark" style={StyleSheet.absoluteFill} /> : null}
         <View style={styles.headerRow}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={12}>
+          <Pressable onPress={handleBack} style={styles.backBtn} hitSlop={12}>
             <Ionicons name="chevron-back" size={22} color={MUTED} />
           </Pressable>
           <Text style={styles.headerTitle}>FAQs</Text>
+          <View style={styles.headerSpacer} />
         </View>
       </View>
 
@@ -100,9 +113,26 @@ const styles = StyleSheet.create({
     position: "relative",
     overflow: "hidden",
   },
-  headerRow: { flexDirection: "row", alignItems: "center", flex: 1 },
-  backBtn: { padding: 4 },
-  headerTitle: { fontSize: 17, fontWeight: "700", color: TEXT },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerSpacer: { width: 44, height: 44 },
+  headerTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: "700",
+    color: TEXT,
+    textAlign: "center",
+    fontFamily: "Inter_700Bold",
+  },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 20, gap: 12 },
   card: {

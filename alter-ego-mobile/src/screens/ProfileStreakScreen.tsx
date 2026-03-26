@@ -1,6 +1,6 @@
 /**
  * Profile → Streak. Premium streak display: big flame number, pet companion,
- * monthly calendar, stat cards, month progress, streak freezes.
+ * monthly calendar, stat cards, streak freezes.
  * No 52-week heatmap — monthly calendar is the primary view.
  */
 
@@ -32,7 +32,6 @@ import { useProfileStreak } from "@/hooks/useProfile";
 import { useUserStore } from "@/store/userStore";
 import {
   clampViewMonthToEarliest,
-  countDaysInMonthOnOrAfterJoin,
   earliestNavigableMonth,
   formatLocalYmd,
   isCalendarDayTappable,
@@ -216,17 +215,6 @@ export function ProfileStreakScreen() {
     }
     return set;
   }, [monthEntries]);
-
-  const activeDaysThisMonth = useMemo(
-    () => monthEntries.filter((r) => (r.missions_done ?? 0) > 0).length,
-    [monthEntries]
-  );
-
-  /** Days in this calendar month on or after join (denominator for progress + "remaining"). */
-  const eligibleDaysInMonth = useMemo(
-    () => countDaysInMonthOnOrAfterJoin(displayYear, viewMonth.month, joinForCalendar),
-    [displayYear, viewMonth.month, joinForCalendar]
-  );
 
   const activeDaysThisYear = useMemo(() => {
     if (!effectiveHeatmap.length) return 0;
@@ -454,30 +442,6 @@ export function ProfileStreakScreen() {
             <Ionicons name="finger-print-outline" size={12} color="#374151" />
             <Text style={styles.tapHintText}>Tap any day to see your mission history</Text>
           </View>
-        </View>
-
-        {/* Month progress bar */}
-        <View style={styles.progressCard}>
-          <View style={styles.progressTopRow}>
-            <Text style={styles.progressActiveText}>{isLoading ? "—" : `${activeDaysThisMonth} active days`}</Text>
-            <Text style={styles.progressFractionText}>
-              {isLoading ? "—" : `${activeDaysThisMonth} / ${daysInViewMonth}`}
-            </Text>
-          </View>
-          <View style={styles.progressTrack}>
-            <LinearGradient
-              colors={["#F97316", "#FBBF24"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[
-                styles.progressFill,
-                { width: `${daysInViewMonth > 0 ? (activeDaysThisMonth / daysInViewMonth) * 100 : 0}%` },
-              ]}
-            />
-          </View>
-          <Text style={styles.progressSubText}>
-            {Math.max(0, daysInViewMonth - activeDaysThisMonth)} days remaining in {displayMonthName}
-          </Text>
         </View>
       </ScrollView>
     </View>
@@ -736,49 +700,6 @@ const styles = StyleSheet.create({
   },
   calendarCellFlameEmoji: {
     fontSize: 8,
-  },
-
-  progressCard: {
-    backgroundColor: "#111623",
-    borderWidth: 1,
-    borderColor: "#1A1F30",
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 12,
-  },
-  progressTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  progressActiveText: {
-    fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
-    color: "#E5E7EB",
-  },
-  progressFractionText: {
-    fontSize: 11,
-    color: "#4B5563",
-  },
-  progressTrack: {
-    height: 5,
-    borderRadius: 5,
-    backgroundColor: "rgba(30,35,51,0.9)",
-    marginTop: 8,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: 5,
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(249,115,22,0.40)", shadowRadius: 8, shadowOffset: { width: 0, height: 0 } }
-      : {}),
-  },
-  progressSubText: {
-    fontSize: 10,
-    color: "#374151",
-    marginTop: 4,
   },
 
   freezesCard: {

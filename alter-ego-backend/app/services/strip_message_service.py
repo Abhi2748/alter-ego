@@ -24,6 +24,19 @@ from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
 
+
+def normalize_strip_tone(tone_type: str | None) -> str:
+    """Map DB / API tone values to STRIP_MESSAGES keys (rival | philosopher | silent_force)."""
+    t = (tone_type or "rival").strip().lower()
+    if t in ("philosopher", "philosophical"):
+        return "philosopher"
+    if t in ("silent_force", "silent"):
+        return "silent_force"
+    if t == "rival":
+        return "rival"
+    return "rival"
+
+
 # ── MESSAGE BANKS ────────────────────────────────────────────────────────
 # Structure: STRIP_MESSAGES[gap_state][tone_type] = [list of messages]
 # Each message uses {username} as a placeholder (replaced at render time)
@@ -61,7 +74,7 @@ STRIP_MESSAGES = {
             "This is where it gets decided.",
         ],
         "philosopher": [
-            "The mirror is level. The next choice tips it.",
+            "Same ground. Different pressure. You feel it.",
             "This is where character actually forms. Right here.",
             "Equal ground. Not for long.",
             "Same position. Different intentions.",
@@ -159,12 +172,14 @@ def get_strip_message(
     If event is provided, returns the event-specific message.
     Otherwise picks randomly from the gap_state × tone_type bank.
     """
+    tone_key = normalize_strip_tone(tone_type)
     if event and event in EVENT_MESSAGES:
         msg = EVENT_MESSAGES[event].get(
-            tone_type, EVENT_MESSAGES[event].get("rival", "")
+            tone_key, EVENT_MESSAGES[event].get("rival", "")
         )
         return msg.replace("{username}", username)
 
+    tone_type = tone_key
     bank = STRIP_MESSAGES.get(gap_state, STRIP_MESSAGES["neck_and_neck"])
     messages = bank.get(tone_type, bank.get("rival", ["Still here."]))
     msg = random.choice(messages)
@@ -216,14 +231,16 @@ async def update_strip_message(
     )
     username = user_result.data.get("username", "you") if user_result.data else "you"
 
-    tone_type = dna.get("twin_tone_type", "rival")
+    tone_type = normalize_strip_tone(dna.get("twin_tone_type", "rival"))
     frequency = dna.get("twin_message_frequency", "medium")
     gap_state = twin.get("current_gap_state", "neck_and_neck")
     last_updated = twin.get("last_strip_updated")
+    strip_empty = not (twin.get("strip_message") or "").strip()
 
     # Check if we should update based on frequency
     # Events always trigger an update regardless of frequency
-    if event is None and last_updated:
+    # Empty strip always gets a message (frequency only limits rotation when copy exists)
+    if event is None and last_updated and not strip_empty:
         try:
             last_dt = datetime.fromisoformat(str(last_updated))
             days_since = (datetime.utcnow() - last_dt).days

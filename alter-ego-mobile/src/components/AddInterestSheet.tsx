@@ -40,9 +40,17 @@ interface AddInterestSheetProps {
   onClose: () => void;
   onSave: (payload: PostInterestPayload) => Promise<void>;
   onSuccess: () => void;
+  /** Called when onSave rejects so the parent can show a toast */
+  onSaveError?: (e: unknown) => void;
 }
 
-export function AddInterestSheet({ visible, onClose, onSave, onSuccess }: AddInterestSheetProps) {
+export function AddInterestSheet({
+  visible,
+  onClose,
+  onSave,
+  onSuccess,
+  onSaveError,
+}: AddInterestSheetProps) {
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState(1);
   const [interestDescription, setInterestDescription] = useState("");
@@ -87,12 +95,22 @@ export function AddInterestSheet({ visible, onClose, onSave, onSuccess }: AddInt
         schedule_days: scheduleDays,
       });
       onSuccess(); // close sheet + refetch
-    } catch (_) {
-      // caller may show error
+    } catch (e) {
+      onSaveError?.(e);
     } finally {
       setSaving(false);
     }
-  }, [canSave, saving, interestDescription, level, goalDescription, scheduleDays, onSave, onSuccess]);
+  }, [
+    canSave,
+    saving,
+    interestDescription,
+    level,
+    goalDescription,
+    scheduleDays,
+    onSave,
+    onSuccess,
+    onSaveError,
+  ]);
 
   const scheduleSummary =
     scheduleDays.length > 0

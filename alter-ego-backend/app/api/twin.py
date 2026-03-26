@@ -33,9 +33,14 @@ from app.services.power_score_service import (
     compute_power_score_value,
     fetch_twin_30d_completion_rate,
 )
+from app.services.twin_comparison_copy import (
+    build_comparison_line,
+    build_rank_card_oracle,
+)
 from app.services.absence_service import compute_absence_days, get_twin_accomplishments
 from app.services.twin_service import (
     build_twin_day_timeline,
+    ensure_twin_journal_backfilled,
     ensure_twin_simulated_for_today,
     get_home_strip_context,
     get_twin_xp_comparison,
@@ -632,6 +637,8 @@ async def get_twin_journal(
     """
     user_id = get_user_id_from_token(authorization)
 
+    await ensure_twin_journal_backfilled(user_id)
+
     result = (
         supabase_admin.table("twin_journal")
         .select(
@@ -807,12 +814,24 @@ async def get_shadow_feed(
 
         for r in revealed_twin:
             hour = int(r.get("simulated_hour") or 9)
-            sim_dt = datetime(anchor.year, anchor.month, anchor.day, hour, random.randint(0, 45), 0, tzinfo=tz)
+            ca = r.get("completed_at")
+            sim_dt: datetime
+            if ca:
+                try:
+                    raw = str(ca).replace("Z", "+00:00")
+                    sim_dt = datetime.fromisoformat(raw)
+                    if sim_dt.tzinfo is None:
+                        sim_dt = sim_dt.replace(tzinfo=timezone.utc)
+                    sim_dt = sim_dt.astimezone(tz)
+                except Exception:
+                    sim_dt = datetime(anchor.year, anchor.month, anchor.day, hour, 0, 0, tzinfo=tz)
+            else:
+                sim_dt = datetime(anchor.year, anchor.month, anchor.day, hour, 0, 0, tzinfo=tz)
             pillar_raw = r.get("core_pillar")
             pillar_s = str(pillar_raw).lower() if pillar_raw else None
             note = get_twin_feed_note(
                 pillar=pillar_s,
-                simulated_hour=hour,
+                simulated_hour=sim_dt.hour,
                 mission_type=str(r.get("mission_type") or "core"),
             )
             entries.append(
@@ -985,7 +1004,7 @@ async def _build_twin_state_response(user_id: str) -> dict:
         supabase_admin.table("users")
         .select(
             "total_xp, character_stage, pet_stage, pet_unlocked, "
-            "current_streak, timezone, username, power_score"
+            "current_streak, timezone, username, power_score, archetype"
         )
         .eq("id", user_id)
         .single()
@@ -997,6 +1016,21 @@ async def _build_twin_state_response(user_id: str) -> dict:
         supabase_admin.table("twin_state").select("*").eq("user_id", user_id).single().execute()
     )
     twin = twin_result.data or {}
+
+    if not (twin.get("strip_message") or "").strip():
+        new_strip = await update_strip_message(user_id)
+        if new_strip:
+            twin["strip_message"] = new_strip
+        else:
+            twin_refresh = (
+                supabase_admin.table("twin_state")
+                .select("strip_message")
+                .eq("user_id", user_id)
+                .single()
+                .execute()
+            )
+            if twin_refresh.data:
+                twin["strip_message"] = twin_refresh.data.get("strip_message")
 
     today = get_user_date(user.get("timezone", "UTC") or "UTC")
 
@@ -1242,8 +1276,41 @@ async def _build_twin_state_response(user_id: str) -> dict:
         twin_completion,
     )
 
+    gs = str(twin.get("current_gap_state") or "neck_and_neck")
+    xp_diff_abs = abs(int(user.get("total_xp", 0) or 0) - twin_xp)
+    comparison_line = build_comparison_line(
+        user_id,
+        today,
+        gap_state=gs,
+        xp_difference=xp_diff_abs,
+        user_is_ahead=bool(user_is_ahead),
+        user_streak=int(user.get("current_streak", 0) or 0),
+        twin_streak=int(twin.get("twin_streak", 0) or 0),
+        user_xp=int(user.get("total_xp", 0) or 0),
+        twin_xp=twin_xp,
+        user_power_score=int(user.get("power_score", 0) or 0),
+        twin_power_score=int(twin_power_score),
+        user_done_today=sum(1 for m in user_missions if m.get("completed")),
+        user_total_today=len(user_missions),
+        twin_done_today=int(twin_record["missions_completed"]) if twin_record else 0,
+        twin_total_today=int(twin_record["missions_assigned"]) if twin_record else 0,
+        week_heatmap=week_heatmap,
+    )
+    rank_card_oracle = build_rank_card_oracle(
+        user_id,
+        today,
+        username=str(user.get("username") or ""),
+        archetype=user.get("archetype"),
+        character_stage_name=STAGE_NAMES[user.get("character_stage", 1) - 1],
+        streak=int(user.get("current_streak", 0) or 0),
+        power_score=int(user.get("power_score", 0) or 0),
+        total_xp=int(user.get("total_xp", 0) or 0),
+    )
+
     return {
         "strip_message": twin.get("strip_message"),
+        "comparison_line": comparison_line,
+        "rank_card_oracle": rank_card_oracle,
         "twin_timeline": twin_timeline,
         "user": {
             "username": user.get("username"),

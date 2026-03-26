@@ -4,6 +4,7 @@
 
 import React, { useEffect } from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -21,6 +22,7 @@ export interface SpGainToastProps {
 }
 
 export function SpGainToast({ gains, footerNote, onFinish }: SpGainToastProps) {
+  const insets = useSafeAreaInsets();
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(-10);
 
@@ -56,7 +58,14 @@ export function SpGainToast({ gains, footerNote, onFinish }: SpGainToastProps) {
   }, [gains, footerNote, onFinish, opacity, translateY]);
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.wrap, animatedStyle]}>
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        styles.wrap,
+        { top: insets.top + 52, left: 12 },
+        animatedStyle,
+      ]}
+    >
       <View style={styles.box}>
         {gains.map((g, i) => {
           const s = STATS[g.statKey];
@@ -89,10 +98,8 @@ export function SpGainToast({ gains, footerNote, onFinish }: SpGainToastProps) {
 const styles = StyleSheet.create({
   wrap: {
     position: "absolute",
-    top: 108,
-    right: 16,
     zIndex: 2000,
-    maxWidth: "72%",
+    maxWidth: "78%",
   },
   box: {
     backgroundColor: "#141824",

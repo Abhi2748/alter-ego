@@ -347,6 +347,8 @@ export type TwinComparisonOut = {
   current_gap_state: string;
   gap_line: string;
   strip_message: string | null;
+  /** Verdict copy for comparison tab / share — not the home strip. */
+  comparison_line?: string | null;
   gap_days: number | null;
   username?: string | null;
   twin_today_activities?: TwinActivity[];
@@ -406,6 +408,7 @@ export async function getTwinComparison(
     current_gap_state: String(gap?.gap_state ?? ""),
     gap_line: "",
     strip_message: (raw?.strip_message as string | null) ?? null,
+    comparison_line: (raw?.comparison_line as string | null) ?? null,
     gap_days: Number(gap?.days_user_ahead ?? 0),
     username: user?.username ?? null,
     twin_today_activities: twinActs,

@@ -123,13 +123,15 @@ export function runMissionCompletionCelebrationUI(
     });
   }
 
+  let spToastWillShow = false;
   if (!result.already_completed) {
     const mid = source.missionId;
     const doneMission = mid ? ctx.missionById.get(mid) : undefined;
     const twinNote = doneMission ? getTwinCompletionNote(doneMission) : undefined;
     const tg = buildSpToastGains(result.stat_gains);
     const footerNote = result.completion_copy ?? twinNote ?? undefined;
-    if (tg.length > 0 || footerNote) {
+    spToastWillShow = tg.length > 0 || !!footerNote;
+    if (spToastWillShow) {
       ctx.setSpToast({ k: Date.now(), gains: tg, footerNote });
     }
   }
@@ -137,9 +139,19 @@ export function runMissionCompletionCelebrationUI(
   const sigil = result?.sigil;
   if (sigil && typeof sigil === "object") {
     ctx.queryClient.invalidateQueries({ queryKey: SIGIL_KEYS.all });
-    if (typeof sigil.aether_awarded === "number" && sigil.aether_awarded > 0) {
-      ctx.setAetherToastAmount(sigil.aether_awarded);
-      ctx.setAetherToastVisible(true);
+    const aetherAmt =
+      typeof sigil.aether_awarded === "number" ? sigil.aether_awarded : 0;
+    if (aetherAmt > 0) {
+      const showAether = () => {
+        ctx.setAetherToastAmount(aetherAmt);
+        ctx.setAetherToastVisible(true);
+      };
+      // SP toast uses same top area; run Aether after SP dismisses (~2.4s) to avoid overlap.
+      if (spToastWillShow) {
+        setTimeout(showAether, 2600);
+      } else {
+        showAether();
+      }
     }
     if (sigil.surge_activated === true) {
       ctx.setSurgeJustActivated(true);

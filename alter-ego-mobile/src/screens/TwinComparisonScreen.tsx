@@ -29,8 +29,8 @@ const CHAT_FAB_BOTTOM = 8;
 const CHAT_FAB_RIGHT = 16;
 const CHAT_FAB_SIZE = 56;
 
-const DEFAULT_TWIN_VERDICT =
-  "The mirror is level. The next choice tips it.";
+/** Shown only when strip copy has not loaded from the API yet. */
+const DEFAULT_TWIN_VERDICT = "Still here.";
 
 export type TwinJournalEntry = {
   id: string;
@@ -119,6 +119,7 @@ export function TwinComparisonScreen() {
       current_gap_state: twin.gap_state,
       gap_line: "",
       strip_message: stripMessage,
+      comparison_line: twinData.comparison_line?.trim() ?? null,
       gap_days: inferredGapDays,
       username: user.username,
       twin_today_activities: activities,
@@ -155,8 +156,7 @@ export function TwinComparisonScreen() {
   const pillarDna: PillarDNA[] = twinData?.pillar_dna ?? [];
 
   const twinVerdict =
-    twinData?.strip_message?.trim() ||
-    stripData?.strip_message?.trim() ||
+    twinData?.comparison_line?.trim() ||
     DEFAULT_TWIN_VERDICT;
 
   const xpMax = Math.max(userXpTotal, twinXpTotal, 1);

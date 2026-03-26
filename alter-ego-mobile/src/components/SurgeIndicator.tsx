@@ -32,36 +32,36 @@ export function SurgeIndicator({ visible }: { visible: boolean }) {
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 5,
-        paddingVertical: 4,
-        paddingHorizontal: 10,
-        borderRadius: 20,
-        backgroundColor: "rgba(139,92,246,0.12)",
-        borderWidth: 1,
-        borderColor: "rgba(139,92,246,0.3)",
+        gap: 4,
+        paddingVertical: 3,
+        paddingHorizontal: 8,
+        borderRadius: 8,
+        backgroundColor: "transparent",
+        borderWidth: 1.5,
+        borderColor: "rgba(192,132,252,0.55)",
       }}
     >
       <Animated.View
         style={[
           {
-            width: 6,
-            height: 6,
-            borderRadius: 3,
-            backgroundColor: "#A78BFA",
+            width: 5,
+            height: 5,
+            borderRadius: 2.5,
+            backgroundColor: "#C084FC",
           },
           dotStyle,
         ]}
       />
       <Text
         style={{
-          fontSize: 9,
-          fontWeight: "700",
-          color: "#A78BFA",
-          letterSpacing: 1.5,
+          fontSize: 8,
+          fontWeight: "800",
+          color: "#C084FC",
+          letterSpacing: 1.2,
           textTransform: "uppercase",
         }}
       >
-        SURGE ACTIVE
+        SURGE
       </Text>
     </View>
   );

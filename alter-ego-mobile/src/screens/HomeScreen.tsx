@@ -36,7 +36,12 @@ import { StageTwinMessageOverlay } from "@/components/StageTwinMessageOverlay";
 import { MilestoneAchievementCard } from "../components/MilestoneAchievementCard";
 import { HomeMissionSectionsSkeleton } from "@/components/HomeMissionSectionsSkeleton";
 import { useUserStore } from "@/store/userStore";
-import { useTodayMissions, useCompleteMission, useDeletePersonalMission } from "@/hooks/useMissions";
+import {
+  useTodayMissions,
+  useCompleteMission,
+  useDeletePersonalMission,
+  MISSION_KEYS,
+} from "@/hooks/useMissions";
 import { DeleteMissionSheet } from "@/components/DeleteMissionSheet";
 import { MissionRemovedToast } from "@/components/MissionRemovedToast";
 import { StreakAchievementOverlay } from "@/components/StreakAchievementOverlay";
@@ -76,9 +81,24 @@ import {
   type AbilityStatKey,
 } from "@/constants/stats";
 import { useCharacterStats } from "@/hooks/useStats";
+import { useInterests } from "@/hooks/useInterests";
+import {
+  INTEREST_COLORS,
+  QUIT_ORANGE,
+  getInterestColorByHex,
+} from "@/constants/missionColors";
 /** AsyncStorage keys for streak-break ceremony (B1 Fracture). */
 const AE_LAST_STREAK_KEY_PREFIX = "ae_last_streak_";
 const AE_FRACTURE_SHOWN_KEY_PREFIX = "ae_fracture_shown_";
+
+/** YYYY-MM-DD in the device's local calendar (not UTC). Must match GET /missions/today mission_date. */
+function localCalendarYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 /** Calendar days since registration (day 1 = first day), device-local; mirrors backend intent for mirror eligibility. */
 function profileUsageDayCount(registrationDate: string | undefined): number {
@@ -435,11 +455,29 @@ export function HomeScreen() {
     mirrorData?.eligible === true &&
     (mirrorData?.observations?.length ?? 0) > 0;
 
+  const { data: interestsData } = useInterests();
+  const interestColorById = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const p of interestsData?.paths ?? []) {
+      const raw = p.color_hex?.trim() ?? "";
+      const hex = raw.startsWith("#") ? raw : raw ? `#${raw}` : INTEREST_COLORS[0].primary;
+      if (p.path_id) m[p.path_id] = hex;
+    }
+    return m;
+  }, [interestsData?.paths]);
+
   const missionPayload = todayData?.missions;
   const coreList = asMissionArray(missionPayload?.core);
   const interestList = asMissionArray(missionPayload?.interest);
   const resistanceList = asMissionArray(missionPayload?.resistance);
   const personalList = asMissionArray(missionPayload?.personal);
+
+  const focusSectionScheme = useMemo(() => {
+    const id = interestList[0]?.interest_id;
+    const hex =
+      (id && interestColorById[id]) ? interestColorById[id] : INTEREST_COLORS[0].primary;
+    return getInterestColorByHex(hex);
+  }, [interestList, interestColorById]);
 
   const coreMissions = coreList.map((m) => missionApiToCard(m, "Core"));
   const interestMissions = interestList.map((m) => missionApiToCard(m, "Interest"));
@@ -658,7 +696,7 @@ export function HomeScreen() {
 
   const handleAddMission = useCallback(
     async (title: string, difficulty: "Easy" | "Medium" | "Hard") => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localCalendarYmd();
       const tierMap = { Easy: "easy", Medium: "medium", Hard: "hard" } as const;
       const tier = tierMap[difficulty];
       const estimated_minutes =
@@ -671,9 +709,9 @@ export function HomeScreen() {
         estimated_minutes,
         date: today,
       });
-      refetch();
+      await queryClient.invalidateQueries({ queryKey: MISSION_KEYS.today });
     },
-    [refetch]
+    [queryClient]
   );
 
   const handleSuggestTier = useCallback(async (title: string) => {
@@ -959,8 +997,15 @@ export function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderLeft}>
-              <LinearGradient colors={[VIOLET, VIOLET_DEEP]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.sectionBarFocus} />
-              <Text style={[styles.sectionTitle, { color: VIOLET }]}>TODAY&apos;S FOCUS</Text>
+              <LinearGradient
+                colors={[focusSectionScheme.primary, focusSectionScheme.deep]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0, y: 1 }}
+                style={styles.sectionBarFocus}
+              />
+              <Text style={[styles.sectionTitle, { color: focusSectionScheme.primary }]}>
+                TODAY&apos;S FOCUS
+              </Text>
             </View>
             <Text style={styles.sectionFraction}>
               <Text style={styles.sectionFractionDone}>{interestMissions.filter((m) => m.status === "complete").length}</Text>
@@ -970,6 +1015,9 @@ export function HomeScreen() {
           <View style={styles.cards}>
             {(todayData?.missions?.interest ?? []).map((apiMission, i) => {
                 const m = missionApiToCard(apiMission, "Interest");
+                const iid = apiMission.interest_id ?? "";
+                const accent =
+                  iid && interestColorById[iid] ? interestColorById[iid] : undefined;
                 return (
                   <HomeMissionCard
                     key={m.id}
@@ -987,6 +1035,7 @@ export function HomeScreen() {
                     appearIndex={i}
                     statKey={resolveStatKeyForMission("interest", apiMission.core_pillar ?? null)}
                     twinCompleted={apiMission.twin_completed === true}
+                    accentColor={accent}
                   />
                 );
               })}
@@ -998,7 +1047,11 @@ export function HomeScreen() {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderLeft}>
               <View style={styles.sectionBarResistance} />
-              <Text style={[styles.sectionTitle, { color: RED_CORE, fontSize: 13, fontWeight: "600" }]}>RESISTANCE</Text>
+              <Text
+                style={[styles.sectionTitle, { color: QUIT_ORANGE.primary, fontSize: 13, fontWeight: "600" }]}
+              >
+                RESISTANCE
+              </Text>
             </View>
             <Text style={styles.sectionFraction}>
               <Text style={styles.sectionFractionDone}>{resistanceMissions.filter((m) => m.status === "complete").length}</Text>
@@ -1510,7 +1563,7 @@ const styles = StyleSheet.create({
     width: 3,
     height: 13,
     borderRadius: 2,
-    backgroundColor: RED_CORE,
+    backgroundColor: QUIT_ORANGE.primary,
   },
   sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.8, textTransform: "uppercase" },
   sectionFraction: { fontSize: 11, fontWeight: "600", color: "#374151" },

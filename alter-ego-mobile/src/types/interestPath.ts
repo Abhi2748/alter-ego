@@ -49,6 +49,8 @@ export type InterestPathDisplay = InterestPath & {
 export type ProfileInterestApiRow = {
   id: string;
   name: string | null;
+  /** Hex from DB, e.g. #14B8A6 */
+  color?: string | null;
   user_goal: string | null;
   current_difficulty_tier?: string | null;
   active_days?: number[] | null;
@@ -85,16 +87,19 @@ export function fallbackInterestPathDisplay(
 
 export function toInterestPathDisplay(row: ProfileInterestApiRow): InterestPathDisplay {
   const p = row.ui_path;
+  const hexFromRow = row.color?.trim();
   if (!p || !Array.isArray(p.quests)) {
     const f = fallbackInterestPathDisplay(row);
     return {
       ...f,
+      color_hex: hexFromRow?.startsWith("#") ? hexFromRow : f.color_hex,
       schedule_abbrev: row.schedule_abbrev ?? f.schedule_abbrev,
       difficulty_label: row.difficulty_label ?? f.difficulty_label,
     };
   }
   return {
     ...p,
+    color_hex: hexFromRow?.startsWith("#") ? hexFromRow : p.color_hex,
     schedule_abbrev: row.schedule_abbrev ?? "—",
     difficulty_label: row.difficulty_label ?? "—",
   };

@@ -133,7 +133,8 @@ export interface CreatePersonalMissionRequest {
   xp: number;
   pf: number;
   estimated_minutes: number;
-  date: string;
+  /** YYYY-MM-DD; omit to let backend use user's local day */
+  date?: string;
   multiday_days?: number;
 }
 

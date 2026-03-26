@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import type { BottomSheetModal } from "@gorhom/bottom-sheet";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   useAnimatedStyle,
@@ -17,6 +17,7 @@ import {
   useUpdateSchedule,
   useChangeGoal,
   useDeleteInterest,
+  useCreateInterest,
 } from "@/hooks/useInterests";
 import type { InterestInsight, InterestPathDisplay } from "@/types/interestPath";
 import { InterestCard } from "@/components/profile/InterestCard";
@@ -27,6 +28,7 @@ import { ChangeGoalFlow } from "@/components/profile/interest/ChangeGoalFlow";
 import { DeleteModal } from "@/components/profile/interest/DeleteModal";
 import { InsightModal } from "@/components/profile/interest/InsightModal";
 import { getErrorMessage, isApiError } from "@/services/api";
+import { AddInterestSheet } from "@/components/AddInterestSheet";
 
 function SkeletonCard() {
   const o = useSharedValue(0.4);
@@ -55,6 +57,7 @@ export function InterestsTab() {
   const updateSchedule = useUpdateSchedule();
   const changeGoal = useChangeGoal();
   const deleteInterest = useDeleteInterest();
+  const createInterest = useCreateInterest();
 
   const manageSheetRef = useRef<BottomSheetModal>(null);
   const difficultySheetRef = useRef<BottomSheetModal>(null);
@@ -72,8 +75,11 @@ export function InterestsTab() {
     body: string;
     color: string;
   } | null>(null);
+  const [addInterestOpen, setAddInterestOpen] = useState(false);
 
   const paths = data?.paths ?? [];
+
+  const openAddInterest = useCallback(() => setAddInterestOpen(true), []);
 
   const handleManageSheetDismiss = useCallback(() => {
     if (suppressManagePathClear.current) {
@@ -145,57 +151,98 @@ export function InterestsTab() {
 
   if (isLoading && !data) {
     return (
-      <View style={styles.pad}>
-        <SkeletonCard />
-        <View style={{ height: 14 }} />
-        <SkeletonCard />
+      <View style={styles.root}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.contentPad}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <SkeletonCard />
+          <View style={{ height: 14 }} />
+          <SkeletonCard />
+        </ScrollView>
       </View>
     );
   }
 
   if (isError) {
     return (
-      <View style={styles.emptyWrap}>
-        <Text style={styles.errTxt}>Couldn&apos;t load interests.</Text>
-        <Pressable onPress={() => refetch()} style={styles.retry}>
-          <Text style={styles.retryTxt}>{isFetching ? "…" : "Retry"}</Text>
-        </Pressable>
+      <View style={styles.root}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.contentPad}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.emptyWrap}>
+            <Text style={styles.errTxt}>Couldn&apos;t load interests.</Text>
+            <Pressable onPress={() => refetch()} style={styles.retry}>
+              <Text style={styles.retryTxt}>{isFetching ? "…" : "Retry"}</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       </View>
     );
   }
 
   if (paths.length === 0) {
     return (
-      <View style={styles.emptyWrap}>
-        <Text style={styles.emptyTitle}>No interests yet</Text>
-        <Text style={styles.emptySub}>
-          Add an interest to build a path toward a real goal.
-        </Text>
-        <Pressable style={styles.addPrimaryWrap}>
-          <LinearGradient
-            colors={["#6D28D9", "#8B5CF6"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.addPrimary}
-          >
-            <Text style={styles.addPrimaryTxt}>+ Add Interest</Text>
-          </LinearGradient>
-        </Pressable>
+      <View style={styles.root}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.contentPad}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.emptyWrap}>
+            <Text style={styles.emptyTitle}>No interests yet</Text>
+            <Text style={styles.emptySub}>
+              Add an interest to build a path toward a real goal.
+            </Text>
+            <Pressable style={styles.addPrimaryWrap} onPress={openAddInterest}>
+              <LinearGradient
+                colors={["#6D28D9", "#8B5CF6"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.addPrimary}
+              >
+                <Text style={styles.addPrimaryTxt}>+ Add Interest</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </ScrollView>
+        <AddInterestSheet
+          visible={addInterestOpen}
+          onClose={() => setAddInterestOpen(false)}
+          onSave={async (payload) => {
+            await createInterest.mutateAsync(payload);
+          }}
+          onSuccess={() => {
+            setAddInterestOpen(false);
+            setToast({ msg: "Interest added. Your path is ready.", kind: "ok" });
+            setTimeout(() => setToast(null), 2800);
+          }}
+          onSaveError={showError}
+        />
       </View>
     );
   }
 
   return (
-    <View style={styles.pad}>
-      {toast ? (
-        <View style={toast.kind === "err" ? styles.toastErr : styles.toastOk}>
-          <Text style={toast.kind === "err" ? styles.toastErrTxt : styles.toastOkTxt}>
-            {toast.msg}
-          </Text>
-        </View>
-      ) : null}
+    <View style={styles.root}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator
+      >
+        {toast ? (
+          <View style={toast.kind === "err" ? styles.toastErr : styles.toastOk}>
+            <Text style={toast.kind === "err" ? styles.toastErrTxt : styles.toastOkTxt}>
+              {toast.msg}
+            </Text>
+          </View>
+        ) : null}
 
-      <View style={styles.scrollBottom}>
         {paths.map((p) => (
           <InterestCard
             key={p.path_id}
@@ -207,11 +254,25 @@ export function InterestsTab() {
             onInsightTap={handleInsightTap}
           />
         ))}
-        <Pressable style={styles.addDashed}>
+        <Pressable style={styles.addDashed} onPress={openAddInterest}>
           <Text style={styles.addDashedPlus}>+</Text>
           <Text style={styles.addDashedTxt}>Add New Interest</Text>
         </Pressable>
-      </View>
+      </ScrollView>
+
+      <AddInterestSheet
+        visible={addInterestOpen}
+        onClose={() => setAddInterestOpen(false)}
+        onSave={async (payload) => {
+          await createInterest.mutateAsync(payload);
+        }}
+        onSuccess={() => {
+          setAddInterestOpen(false);
+          setToast({ msg: "Interest added. Your path is ready.", kind: "ok" });
+          setTimeout(() => setToast(null), 2800);
+        }}
+        onSaveError={showError}
+      />
 
       <ManageSheet
         sheetRef={manageSheetRef}
@@ -310,8 +371,10 @@ export function InterestsTab() {
 }
 
 const styles = StyleSheet.create({
-  pad: { paddingHorizontal: 18 },
-  scrollBottom: { paddingBottom: 88 },
+  root: { flex: 1, minHeight: 0 },
+  scroll: { flex: 1 },
+  contentPad: { paddingHorizontal: 18, paddingBottom: 88 },
+  scrollContent: { paddingHorizontal: 18, paddingBottom: 88, flexGrow: 1 },
   skelCard: {
     height: 420,
     borderRadius: 18,

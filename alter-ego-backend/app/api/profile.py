@@ -5,6 +5,7 @@ Profile tab data endpoints — overview, streak, identity, companion, interests,
 from __future__ import annotations
 
 import logging
+from difflib import SequenceMatcher
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import get_user_id_from_token
 from app.core.constants import (
+    INTEREST_LEVEL_MAP,
     INTEREST_MILESTONE_SESSIONS,
     PET_NAMES,
     PF_THRESHOLDS,
@@ -33,10 +35,47 @@ from app.services.interest_path_service import (
     normalize_path_state,
     schedule_abbrev,
 )
-from app.services.mission_service import get_user_date
+from app.agents.interest_normaliser import normalise_interest
+from app.services.mission_service import get_user_date, sync_today_planner_missions
 
 router = APIRouter(prefix="/api/v1/profile", tags=["profile"])
 logger = logging.getLogger(__name__)
+
+# Rotates on new interest creation (must match mobile INTEREST_COLORS primary + migration 027)
+INTEREST_COLOR_PALETTE = [
+    "#14B8A6",
+    "#F59E0B",
+    "#38BDF8",
+    "#84CC16",
+    "#EC4899",
+]
+
+
+def _norm_interest_key(name: str) -> str:
+    return name.strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _interest_names_match(a: str, b: str) -> bool:
+    na, nb = _norm_interest_key(a), _norm_interest_key(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    if SequenceMatcher(None, na, nb).ratio() >= 0.88:
+        return True
+    if len(na) >= 5 and len(nb) >= 5 and (na in nb or nb in na):
+        return True
+    return False
+
+
+def _goals_differ_meaningfully(g_new: str, g_old: str) -> bool:
+    a = (g_new or "").strip().lower()
+    b = (g_old or "").strip().lower()
+    if not a or not b:
+        return False
+    if a == b:
+        return False
+    return SequenceMatcher(None, a, b).ratio() < 0.82
 
 
 def _interest_owned_row(user_id: str, interest_id: str) -> dict:
@@ -535,6 +574,139 @@ async def get_profile_interests(authorization: str = Header(None)):
         })
 
     return {"interests": results}
+
+
+def _map_interest_level_from_client(level: str) -> str:
+    """Map Add Interest sheet labels to DB `level_text` keys."""
+    s = (level or "").strip().lower()
+    m = {
+        "still figuring it out": "still_figuring_it_out",
+        "getting the hang of it": "getting_the_hang_of_it",
+        "pretty solid": "pretty_solid",
+        "still_figuring_it_out": "still_figuring_it_out",
+        "getting_the_hang_of_it": "getting_the_hang_of_it",
+        "pretty_solid": "pretty_solid",
+    }
+    return m.get(s, "still_figuring_it_out")
+
+
+def _schedule_client_indices_to_db(days: list[int]) -> list[int]:
+    """App sends 0=Mon … 6=Sun; DB uses 1–7 (Mon–Sun)."""
+    out = sorted({int(d) + 1 for d in days if 0 <= int(d) <= 6})
+    if len(out) < 1:
+        raise HTTPException(status_code=400, detail="Pick at least one practice day")
+    return out
+
+
+class InterestCreateBody(BaseModel):
+    interest_description: str = Field(..., min_length=2, max_length=4000)
+    interest_level: str = ""
+    goal_description: str = Field(..., min_length=10, max_length=4000)
+    schedule_days: list[int] = Field(..., min_length=1)
+
+
+@router.post("/interests", response_model=dict)
+async def post_profile_interest(body: InterestCreateBody, authorization: str = Header(None)):
+    """Create a new interest + path (same pipeline as onboarding interest rows)."""
+    user_id = get_user_id_from_token(authorization)
+    level_key = _map_interest_level_from_client(body.interest_level)
+    if level_key not in INTEREST_LEVEL_MAP:
+        level_key = "still_figuring_it_out"
+    active_days = _schedule_client_indices_to_db(body.schedule_days)
+    raw_text = body.interest_description.strip()
+    user_goal = body.goal_description.strip()
+
+    normalised = await normalise_interest(raw_text, level_key, user_goal)
+    if normalised.get("rejected"):
+        reason = str(normalised.get("rejection_reason") or "")
+        if reason == "self_harm":
+            raise HTTPException(
+                status_code=400,
+                detail="Please reach out to someone who can help.",
+            )
+        if "quit target" in reason.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="This sounds like something to quit — add it under Quits instead.",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail="This interest could not be added. Try different wording.",
+        )
+
+    level_context = normalised.get("level_context") or {}
+    level_meta = INTEREST_LEVEL_MAP[level_key]
+
+    existing_rows = (
+        supabase_admin.table("interests")
+        .select("id, normalised_name, user_goal")
+        .eq("user_id", user_id)
+        .eq("is_active", True)
+        .execute()
+    ).data or []
+    new_nm = str(normalised.get("normalised_name") or raw_text).strip()
+    for ex in existing_rows:
+        ex_nm = str(ex.get("normalised_name") or "").strip()
+        if not _interest_names_match(new_nm, ex_nm):
+            continue
+        if _goals_differ_meaningfully(user_goal, str(ex.get("user_goal") or "")):
+            raise HTTPException(
+                status_code=409,
+                detail="You already have an interest for this topic. Update the goal on that interest instead of adding a new one.",
+            )
+        raise HTTPException(status_code=409, detail="You already have this interest.")
+
+    palette_index = len(existing_rows) % len(INTEREST_COLOR_PALETTE)
+    interest_color = INTEREST_COLOR_PALETTE[palette_index]
+
+    row = {
+        "user_id": user_id,
+        "raw_text": raw_text,
+        "normalised_name": normalised.get("normalised_name") or raw_text.title(),
+        "color": interest_color,
+        "category": normalised.get("category") or "Other",
+        "mission_domain": normalised.get("mission_domain") or raw_text.lower(),
+        "level_context_beginner": (
+            level_context.get("beginner") if isinstance(level_context, dict) else None
+        ),
+        "level_context_intermediate": (
+            level_context.get("intermediate") if isinstance(level_context, dict) else None
+        ),
+        "level_context_advanced": (
+            level_context.get("advanced") if isinstance(level_context, dict) else None
+        ),
+        "evidence_base": normalised.get("evidence_base"),
+        "common_obstacles": normalised.get("common_obstacles") or [],
+        "level_text": level_key,
+        "user_goal": user_goal,
+        "active_days": active_days,
+        "interest_level": 1,
+        "interest_xp": 0,
+        "current_difficulty_tier": level_meta["starting_tier"],
+        "current_phase": level_meta["phase"],
+        "total_sessions": 0,
+        "is_active": True,
+    }
+    ins = supabase_admin.table("interests").insert(row).execute()
+    new_id = None
+    if ins.data and isinstance(ins.data, list) and ins.data[0].get("id"):
+        new_id = str(ins.data[0]["id"])
+
+    try:
+        tz_res = (
+            supabase_admin.table("users")
+            .select("timezone")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        tz_str = (tz_res.data or {}).get("timezone") or "UTC"
+        today = get_user_date(tz_str)
+        await sync_today_planner_missions(user_id, today)
+    except Exception as e:
+        logger.warning("post_profile_interest: planner sync failed: %s", e)
+
+    return {"success": True, "interest_id": new_id}
 
 
 class InterestCriterionPatch(BaseModel):

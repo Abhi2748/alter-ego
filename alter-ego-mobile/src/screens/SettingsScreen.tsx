@@ -24,8 +24,6 @@ import { supabase } from "@/utils/supabase";
 import { apiClient } from "@/services/api";
 import { IS_CLOSED_BETA } from "@/constants/closedBeta";
 import { NOTIF_PERMISSION_ASKED_KEY } from "../constants/notificationPermission";
-import { useUserStore } from "@/store/userStore";
-
 const PRIVACY_POLICY_URL = "https://alterego.app/privacy";
 const SERVICE_TERMS_URL = "https://alterego.app/terms";
 // -----------------------------------------------------------------------------
@@ -82,27 +80,6 @@ function IconNotifications() {
         strokeLinecap="round"
       />
       <Circle cx={13} cy={4} r={2.5} fill="#F97316" />
-    </Svg>
-  );
-}
-
-function IconInbox() {
-  return (
-    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
-      <Path
-        d="M3 4.5h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z"
-        stroke="#8B5CF6"
-        strokeWidth={1.5}
-        fill="none"
-      />
-      <Path
-        d="M2.5 5.5 9 9.5l6.5-4"
-        stroke="#A78BFA"
-        strokeWidth={1.4}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
     </Svg>
   );
 }
@@ -331,7 +308,6 @@ function RowItem({ icon, label, onPress, danger, showDivider, rightAccessory }: 
 export function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const unreadMail = useUserStore((s) => s.profile?.unread_mail_count ?? 0);
 
   const nav = navigation as any;
 
@@ -470,19 +446,6 @@ export function SettingsScreen() {
             label="Notifications"
             onPress={openNotifications}
             showDivider
-          />
-          <RowItem
-            icon={<IconInbox />}
-            label="Inbox"
-            onPress={() => nav.navigate?.("MailInbox")}
-            showDivider
-            rightAccessory={
-              unreadMail > 0 ? (
-                <View style={styles.inboxBadge}>
-                  <Text style={styles.inboxBadgeText}>{unreadMail > 9 ? "9+" : unreadMail}</Text>
-                </View>
-              ) : undefined
-            }
           />
           <RowItem
             icon={<IconNotifications />}
@@ -624,23 +587,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_500Medium",
     color: "#E5E7EB",
-  },
-  inboxBadge: {
-    minWidth: 22,
-    height: 22,
-    paddingHorizontal: 7,
-    borderRadius: 11,
-    backgroundColor: "rgba(139,92,246,0.25)",
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 6,
-  },
-  inboxBadgeText: {
-    fontSize: 11,
-    fontFamily: "Inter_700Bold",
-    color: "#A78BFA",
   },
   rowLabelDanger: {
     color: "#F87171",

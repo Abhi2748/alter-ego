@@ -244,7 +244,7 @@ class PersonalMissionCreateRequest(BaseModel):
     xp: int
     pf: int
     estimated_minutes: int
-    date: str  # YYYY-MM-DD
+    date: str | None = None  # YYYY-MM-DD; default = user's local calendar day
     multiday_days: int | None = None
 
 
@@ -557,6 +557,17 @@ async def personal_estimate(body: PersonalMissionEstimateRequest, authorization:
 async def personal_create(body: PersonalMissionCreateRequest, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
+    user_tz_row = (
+        supabase_admin.table("users")
+        .select("timezone")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    tz_str = str((user_tz_row.data or {}).get("timezone") or "UTC").strip() or "UTC"
+    default_date = get_user_date(tz_str)
+    mission_date = (body.date or "").strip() or default_date
+
     # Accept tier exactly as sent by client; do not re-estimate or validate it here.
     tier = (body.tier or "medium").lower()
 
@@ -584,7 +595,7 @@ async def personal_create(body: PersonalMissionCreateRequest, authorization: str
         "difficulty": difficulty,
         "xp_value": xp_value,
         "pf_value": pf_value,
-        "mission_date": body.date,
+        "mission_date": mission_date,
         "completed": False,
         "estimated_minutes": int(body.estimated_minutes),
     }

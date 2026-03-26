@@ -155,27 +155,34 @@ export function RankCardScreen() {
   const [regenerating, setRegenerating] = useState(false);
   const [sharing, setSharing] = useState(false);
 
+  const fallbackOracle = (p: typeof profile) => {
+    if (!p?.username) return "—";
+    return `${p.username} — ${p.character_stage_name}. Power ${p.power_score.toLocaleString()} · ${p.current_streak}-day streak.`;
+  };
+
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [strip, lb] = await Promise.all([
-          twinService.getStrip(),
+        const [state, lb] = await Promise.all([
+          twinService.getState(),
           leaderboardService.getLeaderboard(),
         ]);
         if (!alive) return;
-        const msg = strip.message?.trim();
+        const msg = state.rank_card_oracle?.trim();
         if (msg) setOracleLine(msg);
+        else setOracleLine(fallbackOracle(profile));
         const r = lb.current_user?.rank;
         setGlobalRank(typeof r === "number" ? r : null);
       } catch {
         if (!alive) return;
+        setOracleLine(fallbackOracle(profile));
       }
     })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [profile]);
 
   const cardWidth = screenWidth - CARD_MARGIN_H * 2;
 
@@ -217,11 +224,12 @@ export function RankCardScreen() {
   const handleRegenerate = async () => {
     setRegenerating(true);
     try {
-      const strip = await twinService.getStrip();
-      const msg = strip.message?.trim();
+      const state = await twinService.getState();
+      const msg = state.rank_card_oracle?.trim();
       if (msg) setOracleLine(msg);
+      else setOracleLine(fallbackOracle(profile));
     } catch {
-      /* keep current line */
+      setOracleLine(fallbackOracle(profile));
     } finally {
       setRegenerating(false);
     }

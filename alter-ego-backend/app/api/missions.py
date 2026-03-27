@@ -14,6 +14,7 @@ from app.core.journal_rules import journal_stored_qualifies_for_mission, word_co
 from app.agents.personal_mission_agent import estimate_personal_mission_tier
 from app.services.mission_service import (
     complete_mission,
+    delete_stale_incomplete_personal_missions,
     generate_core_missions_for_user,
     get_days_since_registration,
     get_today_missions,
@@ -269,6 +270,8 @@ async def get_missions_today(authorization: str = Header(None)):
 
     # Interest + resistance: sync to current profile (adds missing, removes stale incomplete)
     await sync_today_planner_missions(user_id, mission_date)
+
+    await delete_stale_incomplete_personal_missions(user_id, mission_date)
 
     rows = await get_today_missions(user_id, mission_date)
     _enrich_mission_rows(rows)
@@ -565,8 +568,8 @@ async def personal_create(body: PersonalMissionCreateRequest, authorization: str
         .execute()
     )
     tz_str = str((user_tz_row.data or {}).get("timezone") or "UTC").strip() or "UTC"
-    default_date = get_user_date(tz_str)
-    mission_date = (body.date or "").strip() or default_date
+    # Always anchor to the user's server-side local calendar day (avoids device vs profile TZ drift).
+    mission_date = get_user_date(tz_str)
 
     # Accept tier exactly as sent by client; do not re-estimate or validate it here.
     tier = (body.tier or "medium").lower()

@@ -472,6 +472,10 @@ export type WeeklyReportRow = {
     pet_stage?: number;
     pet_change_this_week?: string;
     day_of_week_completion?: number[];
+    day_of_week_xp?: number[];
+    power_score?: number;
+    power_score_change?: number;
+    longest_streak?: number;
   };
   wins?: string[];
   slipped?: string[];

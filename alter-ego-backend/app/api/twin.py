@@ -44,6 +44,7 @@ from app.services.twin_service import (
     ensure_twin_simulated_for_today,
     get_home_strip_context,
     get_twin_xp_comparison,
+    refresh_twin_gap_state,
     send_twin_message,
 )
 
@@ -541,13 +542,19 @@ async def get_twin_strip(authorization: str = Header(None)):
     Includes gap state, strip message, and twin stats.
     """
     user_id = get_user_id_from_token(authorization)
+    prev_gap, new_gap = await refresh_twin_gap_state(user_id)
+    # Match /twin/state: ensure today's twin_daily_record exists before reading XP,
+    # so Home strip user/twin today bars stay aligned with Twin Comparison.
+    await ensure_twin_simulated_for_today(user_id)
     context = await get_home_strip_context(user_id)
 
     # If no strip message exists yet, generate one now
     if not context.get("strip_message"):
-        from app.services.strip_message_service import update_strip_message
-
         new_msg = await update_strip_message(user_id)
+        if new_msg:
+            context["strip_message"] = new_msg
+    elif prev_gap is not None and prev_gap != new_gap:
+        new_msg = await update_strip_message(user_id, force=True)
         if new_msg:
             context["strip_message"] = new_msg
 
@@ -652,6 +659,33 @@ async def get_twin_journal(
     )
 
     rows = result.data or []
+    dates = sorted({str(r.get("entry_date", ""))[:10] for r in rows if r.get("entry_date")})
+    counts_by_date: dict[str, tuple[int, int]] = {}
+    if dates:
+        try:
+            all_m = (
+                supabase_admin.table("missions")
+                .select("mission_date, completed")
+                .eq("user_id", user_id)
+                .in_("mission_date", dates)
+                .execute()
+                .data
+                or []
+            )
+            by_d: dict[str, list] = {}
+            for m in all_m:
+                d = str(m.get("mission_date", ""))[:10]
+                if not d:
+                    continue
+                by_d.setdefault(d, []).append(m)
+            for d, lst in by_d.items():
+                counts_by_date[d] = (
+                    sum(1 for x in lst if x.get("completed")),
+                    len(lst),
+                )
+        except Exception:
+            counts_by_date = {}
+
     out: list[TwinJournalEntryOut] = []
     for r in rows:
         ca = r.get("created_at")
@@ -661,14 +695,19 @@ async def get_twin_journal(
             created_at_s = ca.isoformat()
         else:
             created_at_s = str(ca)
+        ed = str(r.get("entry_date", ""))[:10]
+        mc = int(r.get("missions_completed") or 0)
+        mt = int(r.get("missions_total") or 0)
+        if ed in counts_by_date:
+            mc, mt = counts_by_date[ed]
         out.append(
             TwinJournalEntryOut(
                 id=str(r.get("id", "")),
                 entry_date=str(r.get("entry_date", "")),
                 content=str(r.get("content") or ""),
                 relationship_phase=str(r.get("relationship_phase") or "observer"),
-                missions_completed=int(r.get("missions_completed") or 0),
-                missions_total=int(r.get("missions_total") or 0),
+                missions_completed=mc,
+                missions_total=mt,
                 archetype=r.get("archetype"),
                 created_at=created_at_s,
             )
@@ -707,6 +746,8 @@ async def get_shadow_feed(
             get_twin_feed_note,
         )
 
+        await ensure_twin_simulated_for_today(user_id)
+
         user_row = (
             supabase_admin.table("users")
             .select("timezone, registration_date")
@@ -743,6 +784,9 @@ async def get_shadow_feed(
 
         revealed_twin = [r for r in twin_today if int(r.get("simulated_hour") or 0) <= current_hour]
         pending_twin = [r for r in twin_today if int(r.get("simulated_hour") or 0) > current_hour]
+        if not revealed_twin and twin_today:
+            revealed_twin = list(twin_today)
+            pending_twin = []
 
         user_today = (
             supabase_admin.table("missions")
@@ -999,6 +1043,7 @@ async def get_twin_state(authorization: str = Header(None)):
 
 async def _build_twin_state_response(user_id: str) -> dict:
     await ensure_twin_simulated_for_today(user_id)
+    await refresh_twin_gap_state(user_id)
 
     user_result = (
         supabase_admin.table("users")
@@ -1069,6 +1114,7 @@ async def _build_twin_state_response(user_id: str) -> dict:
             supabase_admin.table("missions")
             .select("mission_date, completed, core_pillar")
             .eq("user_id", user_id)
+            .in_("type", ["core", "interest", "resistance", "personal"])
             .gte("mission_date", week_start)
             .lte("mission_date", today)
             .execute()
@@ -1203,7 +1249,8 @@ async def _build_twin_state_response(user_id: str) -> dict:
                 continue
 
             u_rate = round(u_done / u_total, 3) if u_total > 0 else 0.0
-            t_rate = round(t_done / t_total, 3) if t_total > 0 else 0.0
+            t_raw = (t_done / t_total) if t_total > 0 else 0.0
+            t_rate = round(min(1.0, t_raw), 3)
 
             pillar_dna.append(
                 {

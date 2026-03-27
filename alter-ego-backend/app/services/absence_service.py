@@ -23,9 +23,15 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_last_active_date(user: Mapping[str, Any], supabase: Any, user_id: str) -> str | None:
-    last_active = user.get("last_active_date")
-    if last_active:
-        return str(last_active)[:10]
+    """
+    Most recent calendar day the user earned XP / was marked active / had streak credit.
+    Prefer the latest of all signals so a stale users.last_active_date cannot hide real activity.
+    """
+    candidates: list[str] = []
+
+    la = user.get("last_active_date")
+    if la:
+        candidates.append(str(la)[:10])
 
     xp_result = (
         supabase.table("xp_log")
@@ -36,12 +42,17 @@ def _resolve_last_active_date(user: Mapping[str, Any], supabase: Any, user_id: s
         .execute()
     )
     if xp_result.data:
-        return str(xp_result.data[0].get("log_date", ""))[:10] or None
+        d = str(xp_result.data[0].get("log_date", ""))[:10]
+        if d:
+            candidates.append(d)
 
     ls = user.get("last_streak_date")
     if ls:
-        return str(ls)[:10]
-    return None
+        candidates.append(str(ls)[:10])
+
+    if not candidates:
+        return None
+    return max(candidates)
 
 
 def compute_absence_days(
@@ -51,7 +62,9 @@ def compute_absence_days(
     today: str,
 ) -> int:
     """
-    Consecutive calendar days since last mission completion (exclusive of today if active today).
+    Full calendar days missed since last activity (not "days since last completion" raw delta).
+
+    If the user was active yesterday but not yet today, that is 0 missed days — not day-1 absence.
     Syncs users.absence_days. Returns computed value; on error returns 0.
     """
     try:
@@ -64,7 +77,9 @@ def compute_absence_days(
         if last_date > today_date:
             return 0
 
-        days_absent = (today_date - last_date).days
+        raw_gap = (today_date - last_date).days
+        # raw_gap 1 = last active yesterday → 0 full missed days (today still in progress)
+        days_absent = max(0, raw_gap - 1)
 
         prev = int(user.get("absence_days") or 0)
         if days_absent != prev:

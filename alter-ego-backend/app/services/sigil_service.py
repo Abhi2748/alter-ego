@@ -49,6 +49,7 @@ def check_and_award_aether(
         daily_cap = int(DAILY_XP_CAPS.get(user_stage, 100))
         xp_before = total_xp_today - xp_earned_this_completion
         surge_just_activated = xp_before < daily_cap and total_xp_today >= daily_cap
+        in_surge = total_xp_today >= daily_cap
 
         sigil_row = (
             supabase_admin.table("sigil_state")
@@ -73,18 +74,22 @@ def check_and_award_aether(
 
         sigil = sigil_row.data[0]
         surge_was_active = bool(sigil.get("surge_active"))
-        surge_now_active = surge_was_active or surge_just_activated
+
+        # Surge and aether only apply after today's XP meets the daily cap (not stale surge from prior day).
+        if not in_surge:
+            if surge_was_active:
+                supabase_admin.table("sigil_state").update(
+                    {"surge_active": False, "updated_at": _now_iso()}
+                ).eq("user_id", user_id).execute()
+            return result
 
         if surge_just_activated:
             supabase_admin.table("sigil_state").update(
                 {"surge_active": True, "updated_at": _now_iso()}
             ).eq("user_id", user_id).execute()
 
-        result["surge_active"] = surge_now_active
+        result["surge_active"] = True
         result["surge_activated"] = surge_just_activated
-
-        if not surge_was_active and not surge_just_activated:
-            return result
 
         diff = str(mission_difficulty or "easy").lower()
         if diff == "elite":
@@ -145,8 +150,51 @@ def check_and_award_aether(
         return result
 
 
+def ensure_sigil_reflects_today_xp(user_id: str) -> None:
+    """
+    Clear stale surge / per-day aether before the daily scheduler runs (e.g. new local day, first app open).
+    Surge must only show when today's logged XP has reached the daily cap.
+    """
+    try:
+        from app.services.mission_service import get_user_date
+
+        urow = (
+            supabase_admin.table("users")
+            .select("timezone, character_stage")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        tz = str((urow.data or {}).get("timezone") or "UTC").strip() or "UTC"
+        today = get_user_date(tz)
+        stage = int((urow.data or {}).get("character_stage") or 1)
+        cap = int(DAILY_XP_CAPS.get(stage, 100))
+        xp_rows = (
+            supabase_admin.table("xp_log")
+            .select("amount")
+            .eq("user_id", user_id)
+            .eq("log_date", today)
+            .execute()
+        )
+        xp_today = sum(int(r.get("amount") or 0) for r in (xp_rows.data or []))
+        srow = (
+            supabase_admin.table("sigil_state")
+            .select("surge_active")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if not srow.data:
+            return
+        if xp_today < cap and bool(srow.data[0].get("surge_active")):
+            reset_daily_surge(user_id)
+    except Exception as e:
+        logger.exception("ensure_sigil_reflects_today_xp failed for %s: %s", user_id, e)
+
+
 def get_sigil_data(user_id: str) -> dict:
     try:
+        ensure_sigil_reflects_today_xp(user_id)
         row = (
             supabase_admin.table("sigil_state")
             .select("*")

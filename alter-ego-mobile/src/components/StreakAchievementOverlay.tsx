@@ -522,8 +522,9 @@ export function StreakAchievementOverlay({ visible, streakCount, onDismiss }: Pr
                         </Defs>
                         <SvgText
                           x={numW / 2}
-                          y={numH * 0.54}
+                          y={numH * 0.5}
                           textAnchor="middle"
+                          alignmentBaseline="central"
                           dominantBaseline="central"
                           fontSize={tier.numSize}
                           fontWeight="800"

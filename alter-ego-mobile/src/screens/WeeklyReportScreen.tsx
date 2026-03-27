@@ -25,8 +25,6 @@ import {
   currentWeeklyToRow,
 } from "@/utils/weeklyReportMapper";
 import type { PastReportSummary, WeeklyReportData } from "@/types/weeklyReportUi";
-import { useUserStore } from "@/store/userStore";
-
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const BAR_CHART_HEIGHT = 80;
 const BAR_MIN = 8;
@@ -408,7 +406,6 @@ export function WeeklyReportScreen() {
       }
 
       const current = await reportsService.getCurrentWeekly();
-      const profilePs = useUserStore.getState().profile?.power_score;
 
       if (!current.available) {
         setData(null);
@@ -419,9 +416,6 @@ export function WeeklyReportScreen() {
       const c = current as Record<string, unknown>;
       const row = currentWeeklyToRow(c, String(c.week_start ?? "current"));
       const mapped = mapRowToWeeklyReportData(row, pastList);
-      if (typeof profilePs === "number") {
-        mapped.power_score = profilePs;
-      }
       setData(mapped);
       setPastSummaries(pastList);
     } catch (e) {

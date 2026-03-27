@@ -615,6 +615,15 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     # Update user totals
     supabase_admin.table("users").update({"total_xp": new_total_xp, "total_pf": new_total_pf}).eq("id", user_id).execute()
 
+    try:
+        from app.services.strip_message_service import update_strip_message
+        from app.services.twin_service import refresh_twin_gap_state
+
+        await refresh_twin_gap_state(user_id)
+        await update_strip_message(user_id, force=True)
+    except Exception:
+        logger.exception("twin strip refresh failed after mission complete user=%s", user_id)
+
     # Progression checks
     stage_evolved = await check_character_stage_progression(user_id, new_total_xp, character_stage)
     pet_evolved = await check_pet_stage_progression(user_id, new_total_pf, pet_stage, bool(user.get("pet_unlocked")))
@@ -900,6 +909,31 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
         "eligible_interests": len(active_interest_rows),
         "eligible_quits": len(quit_path_rows),
     }
+
+
+async def delete_stale_incomplete_personal_missions(user_id: str, today: str) -> None:
+    """Remove incomplete personal missions dated before the user's local today (fresh daily list)."""
+    try:
+        (
+            supabase_admin.table("missions")
+            .delete()
+            .eq("user_id", user_id)
+            .eq("type", "personal")
+            .eq("completed", False)
+            .lt("mission_date", today)
+            .execute()
+        )
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "delete_stale_personal_error",
+                    "user_id": user_id,
+                    "today": today,
+                    "error": str(e)[:200],
+                }
+            )
+        )
 
 
 TIER_ORDER = ["easy", "medium", "hard", "elite"]

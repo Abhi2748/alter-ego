@@ -189,6 +189,7 @@ def get_strip_message(
 async def update_strip_message(
     user_id: str,
     event: str | None = None,
+    force: bool = False,
 ) -> str | None:
     """
     Updates the strip message in twin_state based on current conditions.
@@ -240,7 +241,7 @@ async def update_strip_message(
     # Check if we should update based on frequency
     # Events always trigger an update regardless of frequency
     # Empty strip always gets a message (frequency only limits rotation when copy exists)
-    if event is None and last_updated and not strip_empty:
+    if event is None and last_updated and not strip_empty and not force:
         try:
             last_dt = datetime.fromisoformat(str(last_updated))
             days_since = (datetime.utcnow() - last_dt).days

@@ -96,17 +96,18 @@ def build_journal_user_prompt(
     skipped_types: list[str],
     completion_hour: int | None,
     streak: int,
-    twin_xp: int,
-    user_xp: int,
+    twin_xp_today: int,
+    user_xp_today: int,
     days_active: int,
 ) -> str:
-    gap = twin_xp - user_xp
+    """Uses calendar-day XP earned (same basis as daily caps), not lifetime totals."""
+    gap = twin_xp_today - user_xp_today
     if gap > 0:
-        gap_str = f"Twin ahead by {gap} XP"
+        gap_str = f"Twin ahead by {gap} XP today (daily)"
     elif gap < 0:
-        gap_str = f"User ahead by {abs(gap)} XP"
+        gap_str = f"User ahead by {abs(gap)} XP today (daily)"
     else:
-        gap_str = "Equal XP"
+        gap_str = "Equal XP today (daily)"
 
     skipped_str = ", ".join(skipped_types) if skipped_types else "none"
 
@@ -114,15 +115,15 @@ def build_journal_user_prompt(
     if completion_hour is not None:
         hour_str = f"Last user mission completed at approximately {completion_hour}:00 local."
 
-    return f"""Today's data:
-- Missions completed: {missions_completed} of {missions_total}
-- Mission types skipped: {skipped_str}
+    return f"""Today's data (this calendar day only):
+- User missions completed: {missions_completed} of {missions_total} assigned today
+- Mission types skipped (vs Twin): {skipped_str}
 - {hour_str}
 - Current streak: {streak} days
-- XP gap: {gap_str}
-- Days active: {days_active}
+- Daily XP — User: {user_xp_today}, Twin: {twin_xp_today}. {gap_str}
+- Days active in app: {days_active}
 
-Write the Twin's journal entry for today based on this data."""
+Write the Twin's journal entry for this day based on this data."""
 
 
 def generate_twin_journal_entry(
@@ -134,8 +135,8 @@ def generate_twin_journal_entry(
     skipped_types: list[str],
     completion_hour: int | None,
     streak: int,
-    twin_xp: int,
-    user_xp: int,
+    twin_xp_today: int,
+    user_xp_today: int,
 ) -> str:
     """
     Synchronous generation — called from scheduler via asyncio.to_thread.
@@ -155,8 +156,8 @@ def generate_twin_journal_entry(
         skipped_types,
         completion_hour,
         streak,
-        twin_xp,
-        user_xp,
+        twin_xp_today,
+        user_xp_today,
         days_active,
     )
 

@@ -33,7 +33,6 @@ import type { MissionType, MissionStatus } from "../components/MissionCard";
 import { AddMissionModal } from "../components/AddMissionModal";
 import { CharacterEvolutionOverlay } from "../components/CharacterEvolutionOverlay";
 import { StageTwinMessageOverlay } from "@/components/StageTwinMessageOverlay";
-import { MilestoneAchievementCard } from "../components/MilestoneAchievementCard";
 import { HomeMissionSectionsSkeleton } from "@/components/HomeMissionSectionsSkeleton";
 import { useUserStore } from "@/store/userStore";
 import {
@@ -367,12 +366,6 @@ export function HomeScreen() {
     new_pet_name: string;
   } | null>(null);
   const [addModalVisible, setAddModalVisible] = useState(false);
-  const [milestoneCard, setMilestoneCard] = useState<{
-    interestName: string;
-    milestoneNumber: number;
-    milestoneName: string;
-    twinCongratulation: string;
-  } | null>(null);
   const [evolutionOverlayVisible, setEvolutionOverlayVisible] = useState(false);
   const [stageTwinMsgVisible, setStageTwinMsgVisible] = useState(false);
   const [stageTwinMsgStageName, setStageTwinMsgStageName] = useState("");
@@ -506,7 +499,6 @@ export function HomeScreen() {
     setStageTwinMessageVisible: setStageTwinMsgVisible,
     setStageTwinMessageStageName: setStageTwinMsgStageName,
     setPetEvolutionData,
-    setMilestoneCard,
     setSpToast,
     setAetherToastAmount,
     setAetherToastVisible,
@@ -670,8 +662,6 @@ export function HomeScreen() {
 
   const showTwinStrip = twinStrip?.has_twin && twinStrip?.strip_message;
   const twinStripMessage = twinStrip?.strip_message ?? null;
-
-  useFocusEffect(useCallback(() => { refetch(); }, [refetch]));
 
   useEffect(() => {
     if (
@@ -1195,16 +1185,6 @@ export function HomeScreen() {
         onAdd={handleAddMission}
         onSuggestTier={handleSuggestTier}
       />
-      {milestoneCard && (
-        <MilestoneAchievementCard
-          visible={true}
-          onClose={() => setMilestoneCard(null)}
-          interestName={milestoneCard.interestName}
-          milestoneNumber={milestoneCard.milestoneNumber}
-          milestoneName={milestoneCard.milestoneName}
-          twinCongratulation={milestoneCard.twinCongratulation}
-        />
-      )}
       <StageTwinMessageOverlay
         visible={stageTwinMsgVisible}
         stageName={stageTwinMsgStageName}

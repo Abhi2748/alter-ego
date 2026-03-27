@@ -64,14 +64,6 @@ export type MissionCompletionCelebrationContext = {
   setPetEvolutionData: React.Dispatch<
     React.SetStateAction<{ new_stage: number; new_pet_name: string } | null>
   >;
-  setMilestoneCard: React.Dispatch<
-    React.SetStateAction<{
-      interestName: string;
-      milestoneNumber: number;
-      milestoneName: string;
-      twinCongratulation: string;
-    } | null>
-  >;
   setSpToast: React.Dispatch<
     React.SetStateAction<{
       k: number;
@@ -113,14 +105,6 @@ export function runMissionCompletionCelebrationUI(
   }
   if (result.pet_evolved) {
     ctx.setPetEvolutionData(result.pet_evolved);
-  }
-  if (result.milestone_reached != null) {
-    ctx.setMilestoneCard({
-      interestName: "",
-      milestoneNumber: result.milestone_reached,
-      milestoneName: `Streak milestone: ${result.milestone_reached} days`,
-      twinCongratulation: "Your Twin noticed.",
-    });
   }
 
   let spToastWillShow = false;

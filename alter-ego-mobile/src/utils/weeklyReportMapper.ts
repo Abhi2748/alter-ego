@@ -10,11 +10,14 @@ export function mapRowToWeeklyReportData(
   past: PastReportSummary[]
 ): WeeklyReportData {
   const d = row.this_week_data ?? {};
+  const xpSeven = (d.day_of_week_xp as number[] | undefined);
   const completion = (d.day_of_week_completion as number[] | undefined) ?? [
     0, 0, 0, 0, 0, 0, 0,
   ];
-  const maxPct = Math.max(...completion, 1);
-  const daily_xp = completion.map((pct) => Math.round((pct / 100) * 180));
+  const daily_xp =
+    xpSeven && xpSeven.length >= 7
+      ? xpSeven.slice(0, 7)
+      : completion.map((pct) => Math.round((pct / 100) * 180));
   const weekEnd = (() => {
     const s = new Date(row.week_start + "T00:00:00");
     s.setDate(s.getDate() + 6);
@@ -34,10 +37,10 @@ export function mapRowToWeeklyReportData(
   return {
     week_start: row.week_start,
     week_end: weekEnd,
-    power_score: 0,
-    power_score_change: 0,
+    power_score: (d.power_score as number) ?? 0,
+    power_score_change: (d.power_score_change as number) ?? 0,
     streak_current: (d.current_streak as number) ?? 0,
-    streak_longest_month: (d.current_streak as number) ?? 0,
+    streak_longest_month: (d.longest_streak as number) ?? (d.current_streak as number) ?? 0,
     daily_xp,
     pet_stage: (d.pet_stage as number) ?? 0,
     pet_name: (d.pet_name as string) ?? "—",

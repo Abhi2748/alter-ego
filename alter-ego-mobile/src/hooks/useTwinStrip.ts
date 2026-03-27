@@ -12,7 +12,8 @@ export function useTwinStrip() {
   return useQuery({
     queryKey: ["twin", "strip"],
     queryFn: () => twinService.getStrip(),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30 * 1000,
     refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 }

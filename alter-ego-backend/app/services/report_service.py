@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from app.core.constants import PET_NAMES, STAGE_NAMES
@@ -30,7 +30,7 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
         supabase_admin.table("users")
         .select(
             "username, archetype, character_stage, pet_stage, pet_unlocked, "
-            "current_streak, longest_streak, total_xp, timezone"
+            "current_streak, longest_streak, total_xp, timezone, power_score"
         )
         .eq("id", user_id)
         .single()
@@ -103,6 +103,13 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
         xp_earned = xp_from_log
     if pf_from_log > 0:
         pf_earned = pf_from_log
+
+    xp_by_day: dict[str, int] = {}
+    for r in xp_log_rows:
+        ld = str(r.get("log_date") or "")[:10]
+        if len(ld) < 10:
+            continue
+        xp_by_day[ld] = xp_by_day.get(ld, 0) + int(r.get("amount") or 0)
 
     streak_rows = (
         supabase_admin.table("streak_log")
@@ -273,7 +280,7 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
 
     day_counts: dict[str, dict[str, int]] = {}
     for m in missions:
-        d = str(m.get("mission_date") or "")
+        d = str(m.get("mission_date") or "")[:10]
         if not d:
             continue
         day_counts.setdefault(d, {"done": 0, "total": 0})
@@ -303,6 +310,33 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
 
     user_is_ahead = user_xp > twin_xp
 
+    prev_power: int | None = None
+    if prev_rep:
+        row_ps = prev_rep[0]
+        tw_ps = row_ps.get("this_week_data") or {}
+        if isinstance(tw_ps, dict) and tw_ps.get("power_score") is not None:
+            try:
+                prev_power = int(tw_ps["power_score"])
+            except (TypeError, ValueError):
+                pass
+
+    power_score_snap = int(user.get("power_score") or 0)
+    power_score_change = (power_score_snap - prev_power) if prev_power is not None else 0
+    longest_streak_val = int(user.get("longest_streak") or 0)
+
+    day_of_week_completion: list[int] = []
+    day_of_week_xp: list[int] = []
+    cursor_d = week_start
+    for _ in range(7):
+        d_key = cursor_d.isoformat()
+        dc = day_counts.get(d_key, {"done": 0, "total": 0})
+        tot_d = dc["total"]
+        dn_d = dc["done"]
+        pct_d = round((dn_d / tot_d) * 100) if tot_d > 0 else 0
+        day_of_week_completion.append(pct_d)
+        day_of_week_xp.append(int(xp_by_day.get(d_key, 0)))
+        cursor_d += timedelta(days=1)
+
     return {
         "username": user.get("username") or "you",
         "archetype": str(user.get("archetype") or "structured_climber"),
@@ -330,6 +364,11 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
         "gap_change": gap_change,
         "gap_state": gap_state,
         "user_is_ahead": user_is_ahead,
+        "power_score": power_score_snap,
+        "power_score_change": power_score_change,
+        "longest_streak": longest_streak_val,
+        "day_of_week_completion": day_of_week_completion,
+        "day_of_week_xp": day_of_week_xp,
         "difficulty_change_next_week": difficulty_change_next_week,
         "next_milestone": next_milestone,
         "days_to_milestone": days_to_milestone,

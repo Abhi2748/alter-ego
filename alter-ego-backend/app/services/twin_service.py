@@ -22,9 +22,56 @@ import random
 from datetime import datetime, timedelta, date as date_type, timezone
 from zoneinfo import ZoneInfo
 
+from app.core.constants import GAP_THRESHOLDS
 from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
+
+
+def compute_gap_state_from_totals(user_xp: int, twin_xp: int) -> str:
+    """Same gap buckets as simulate_twin_day (lifetime XP vs lifetime twin XP)."""
+    user_passed_twin = user_xp > twin_xp
+    if user_passed_twin:
+        return "user_ahead"
+    gap_xp = twin_xp - user_xp
+    gap_pct = gap_xp / max(user_xp, 1)
+    if gap_pct <= GAP_THRESHOLDS["neck_and_neck"]:
+        return "neck_and_neck"
+    if gap_pct <= GAP_THRESHOLDS["slightly_behind"]:
+        return "slightly_behind"
+    return "significantly_behind"
+
+
+async def refresh_twin_gap_state(user_id: str) -> tuple[str | None, str]:
+    """
+    Recompute current_gap_state from live lifetime totals (intraday user XP changes).
+    Returns (previous_state, new_state) for callers that need to refresh strip copy.
+    """
+    user_result = (
+        supabase_admin.table("users")
+        .select("total_xp")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    twin_result = (
+        supabase_admin.table("twin_state")
+        .select("twin_xp, current_gap_state")
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not twin_result.data:
+        return None, "neck_and_neck"
+
+    user_xp = int((user_result.data or {}).get("total_xp") or 0)
+    twin_xp = int(twin_result.data.get("twin_xp") or 0)
+    old_gs = twin_result.data.get("current_gap_state")
+    new_gs = compute_gap_state_from_totals(user_xp, twin_xp)
+    old_s = str(old_gs) if old_gs is not None else None
+    if old_s != new_gs:
+        supabase_admin.table("twin_state").update({"current_gap_state": new_gs}).eq("user_id", user_id).execute()
+    return old_s, new_gs
 
 
 def _mission_local_hour_window(
@@ -510,7 +557,6 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
     from app.core.constants import (
         DAILY_PF_CAPS,
         DAILY_XP_CAPS,
-        GAP_THRESHOLDS,
         PET_UNLOCK_DAY,
         PF_THRESHOLDS,
         TOTAL_CHARACTER_STAGES,
@@ -747,17 +793,7 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
 
     user_xp = int(user.get("total_xp") or 0)
     user_passed_twin = user_xp > new_twin_xp
-    if user_passed_twin:
-        gap_state = "user_ahead"
-    else:
-        gap_xp = new_twin_xp - user_xp
-        gap_pct = gap_xp / max(user_xp, 1)
-        if gap_pct <= GAP_THRESHOLDS["neck_and_neck"]:
-            gap_state = "neck_and_neck"
-        elif gap_pct <= GAP_THRESHOLDS["slightly_behind"]:
-            gap_state = "slightly_behind"
-        else:
-            gap_state = "significantly_behind"
+    gap_state = compute_gap_state_from_totals(user_xp, new_twin_xp)
 
     supabase_admin.table("twin_daily_record").upsert(
         {
@@ -1025,7 +1061,7 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
 
         user_res = (
             supabase_admin.table("users")
-            .select("archetype, registration_date, timezone, total_xp, current_streak")
+            .select("archetype, registration_date, timezone, current_streak")
             .eq("id", user_id)
             .single()
             .execute()
@@ -1034,7 +1070,7 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
 
         twin_res = (
             supabase_admin.table("twin_state")
-            .select("twin_xp, twin_streak")
+            .select("twin_streak")
             .eq("user_id", user_id)
             .single()
             .execute()
@@ -1048,11 +1084,31 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         relationship_phase = str(phase_data.get("phase") or "observer")
         archetype = str(journal_user.get("archetype") or "structured_climber")
 
-        missions_completed = int(twin_record.get("missions_completed") or 0)
-        missions_total = int(twin_record.get("missions_assigned") or 0)
+        # User's actual missions that day (not Twin's simulated completion counts)
+        um_rows = (
+            supabase_admin.table("missions")
+            .select("completed")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .execute()
+            .data
+            or []
+        )
+        missions_total = len(um_rows)
+        missions_completed = sum(1 for m in um_rows if m.get("completed"))
+
         missed_titles = twin_record.get("missed_mission_titles") or []
-        twin_xp = int(journal_twin.get("twin_xp") or 0)
-        user_xp = int(journal_user.get("total_xp") or 0)
+        twin_xp_today = int(twin_record.get("xp_earned") or 0)
+        xp_log_rows = (
+            supabase_admin.table("xp_log")
+            .select("amount")
+            .eq("user_id", user_id)
+            .eq("log_date", today)
+            .execute()
+            .data
+            or []
+        )
+        user_xp_today = sum(int(r.get("amount") or 0) for r in xp_log_rows)
         user_streak = int(journal_user.get("current_streak") or 0)
 
         skipped_types: list[str] = []
@@ -1126,8 +1182,8 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
                 skipped_types=skipped_types,
                 completion_hour=completion_hour,
                 streak=user_streak,
-                twin_xp=twin_xp,
-                user_xp=user_xp,
+                twin_xp_today=twin_xp_today,
+                user_xp_today=user_xp_today,
             )
         except Exception as e:
             logger.error(
@@ -1136,20 +1192,20 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
                         "event": "twin_journal_failed",
                         "user_id": user_id,
                         "date": today,
-                    "error": str(e)[:200],
-                }
+                        "error": str(e)[:200],
+                    }
+                )
             )
-        )
             fallback_template = TWIN_JOURNAL_FALLBACKS.get(
                 relationship_phase,
                 TWIN_JOURNAL_FALLBACKS["observer"],
             )
-            gap = abs(twin_xp - user_xp)
+            gap = abs(twin_xp_today - user_xp_today)
             content = fallback_template.format(
                 N=days_active,
                 done=missions_completed,
                 total=missions_total,
-                gap=f"{gap} XP",
+                gap=f"{gap} XP (today)",
             )
             logger.info(
                 _json.dumps(

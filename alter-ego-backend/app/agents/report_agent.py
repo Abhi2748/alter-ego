@@ -490,6 +490,7 @@ async def generate_weekly_report(
         "pet_food_earned": d["pf_earned"],
         "streak": d["current_streak"],
         "current_streak": d["current_streak"],
+        "longest_streak": d["longest_streak"],
         "streak_events": d["streak_events"],
         "stage": d["character_stage_name"],
         "stage_evolved": d["stage_changed_to"],
@@ -500,6 +501,10 @@ async def generate_weekly_report(
         "gap_xp": d["gap_xp"],
         "user_is_ahead": d["user_is_ahead"],
         "display_lines": d["this_week_display"],
+        "power_score": d["power_score"],
+        "power_score_change": d["power_score_change"],
+        "day_of_week_completion": d["day_of_week_completion"],
+        "day_of_week_xp": d["day_of_week_xp"],
     }
 
     generated_at = datetime.now(timezone.utc).isoformat()

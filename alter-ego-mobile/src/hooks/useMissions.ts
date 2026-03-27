@@ -122,6 +122,7 @@ export async function applyMissionCompletionSideEffects(
   queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
   queryClient.invalidateQueries({ queryKey: ["twin", "state"] });
   queryClient.invalidateQueries({ queryKey: ["twin", "strip"] });
+  queryClient.invalidateQueries({ queryKey: ["twin", "feed"] });
   queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
   queryClient.invalidateQueries({ queryKey: STATS_KEYS.all });
   queryClient.invalidateQueries({ queryKey: SIGIL_KEYS.all });

@@ -204,12 +204,53 @@ export function ProfileScreen() {
   const initial = profile?.username ? profile.username[0].toUpperCase() : "?";
 
   return (
-    <LinearGradient
-      colors={["#09091A", "#07080F"]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 0, y: 1 }}
-      style={styles.container}
-    >
+    <View style={styles.container}>
+      <LinearGradient
+        colors={["#09091A", "#07080F"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View
+        style={[
+          styles.fixedHeader,
+          {
+            paddingTop: insets.top + 10,
+            paddingBottom: 12,
+            paddingHorizontal: 16,
+          },
+        ]}
+      >
+        <View style={styles.headerRow}>
+          <View style={styles.headerLeft}>
+            {profile?.profile_photo_url ? (
+              <Image source={{ uri: profile.profile_photo_url }} style={styles.profilePic} />
+            ) : (
+              <LinearGradient
+                colors={["rgba(80,30,160,0.7)", "rgba(30,20,60,0.9)"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.profilePic}
+              >
+                <Text style={styles.profileInitial}>{initial}</Text>
+              </LinearGradient>
+            )}
+            <Text style={styles.headerUsername} numberOfLines={1}>
+              {profile?.username ?? "…"}
+            </Text>
+          </View>
+          <View style={styles.headerActions}>
+            <Pressable onPress={openMailInbox} style={styles.settingsBtn} hitSlop={10}>
+              <Ionicons name="mail-outline" size={18} color="#6B7280" />
+              {(profile?.unread_mail_count ?? 0) > 0 ? <View style={styles.mailBadge} /> : null}
+            </Pressable>
+            <Pressable onPress={openSettings} style={[styles.settingsBtn, { marginLeft: 8 }]} hitSlop={10}>
+              <Ionicons name="settings-outline" size={18} color="#6B7280" />
+            </Pressable>
+          </View>
+        </View>
+      </View>
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 + 80 }}
@@ -235,43 +276,6 @@ export function ProfileScreen() {
               },
             ]}
           >
-            {/* Top row: profile pic + settings */}
-            <View style={styles.topRow}>
-              {profile?.profile_photo_url ? (
-                <Image
-                  source={{ uri: profile.profile_photo_url }}
-                  style={styles.profilePic}
-                />
-              ) : (
-                <LinearGradient
-                  colors={["rgba(80,30,160,0.7)", "rgba(30,20,60,0.9)"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.profilePic}
-                >
-                  <Text style={styles.profileInitial}>{initial}</Text>
-                </LinearGradient>
-              )}
-              <View style={{ flex: 1 }} />
-              <Pressable
-                onPress={openMailInbox}
-                style={styles.settingsBtn}
-                hitSlop={10}
-              >
-                <Ionicons name="mail-outline" size={18} color="#6B7280" />
-                {(profile?.unread_mail_count ?? 0) > 0 ? (
-                  <View style={styles.mailBadge} />
-                ) : null}
-              </Pressable>
-              <Pressable
-                onPress={openSettings}
-                style={[styles.settingsBtn, { marginLeft: 8 }]}
-                hitSlop={10}
-              >
-                <Ionicons name="settings-outline" size={18} color="#6B7280" />
-              </Pressable>
-            </View>
-
             {/* Stage badge */}
             <View style={styles.stageBadge}>
               <Text style={styles.stageBadgeText}>
@@ -329,11 +333,6 @@ export function ProfileScreen() {
                     </View>
                   </Animated.View>
                 </View>
-
-                {/* Username */}
-                <Text style={[styles.heroUsername, { color: PROFILE_HERO_ACCENT }]}>
-                  {profile.username}
-                </Text>
 
                 {/* Quick stat pills */}
                 <View style={styles.pillsRow}>
@@ -481,12 +480,42 @@ export function ProfileScreen() {
           </View>
         </>
       )}
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  fixedHeader: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(42,48,80,0.85)",
+    backgroundColor: "rgba(7,8,15,0.92)",
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  headerLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minWidth: 0,
+  },
+  headerUsername: {
+    flex: 1,
+    fontSize: 17,
+    fontFamily: "Inter_700Bold",
+    fontWeight: "700",
+    color: PROFILE_HERO_ACCENT,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+  },
   scroll: { flex: 1 },
   hero: {
     width: "100%",
@@ -513,12 +542,6 @@ const styles = StyleSheet.create({
     height: 1,
     width: "100%",
   },
-  topRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingBottom: 0,
-  },
   profilePic: {
     width: 42,
     height: 42,
@@ -537,8 +560,8 @@ const styles = StyleSheet.create({
     color: "rgba(167,139,250,0.8)",
   },
   settingsBtn: {
-    width: 38,
-    height: 38,
+    width: 44,
+    height: 44,
     borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
@@ -622,13 +645,6 @@ const styles = StyleSheet.create({
     ...(Platform.OS === "ios"
       ? { shadowColor: "rgba(109,40,217,0.22)", shadowRadius: 16, shadowOffset: { width: 0, height: 0 } }
       : {}),
-  },
-  heroUsername: {
-    fontSize: 20,
-    fontFamily: "Inter_700Bold",
-    color: "#E5E7EB",
-    letterSpacing: -0.3,
-    textAlign: "center",
   },
   pillsRow: {
     flexDirection: "row",

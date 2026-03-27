@@ -174,6 +174,7 @@ export function AbilitiesTab({ embedded = false }: { embedded?: boolean }) {
   const aura = STATS.aura;
   const auraLevel = stats.aura.level;
   const levelName = stats.aura.level_name;
+  /** Ring = progress within current Aura level (same as core ability bars). */
   const arcPct = Math.min(100, Math.max(0, stats.aura.progress_percent));
   const filled = (arcPct / 100) * CIRC;
   const gap = CIRC - filled;

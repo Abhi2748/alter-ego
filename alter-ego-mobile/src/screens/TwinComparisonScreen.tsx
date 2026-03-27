@@ -3,7 +3,7 @@
  * Arena, lifetime XP strip, verdict, 7-day heatmap, pillar DNA; Twin journal when API exists.
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useTwinState, useTwinStrip } from "@/hooks/useTwin";
@@ -41,12 +41,25 @@ export type TwinJournalEntry = {
   missions_total: number;
 };
 
-function formatJournalDateLabel(entryDate: string, idx: number): string {
-  if (idx === 0) return "Today";
-  if (idx === 1) return "Yesterday";
+function localCalendarYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function formatJournalDateLabel(entryDate: string): string {
+  const d = entryDate.slice(0, 10);
+  const today = localCalendarYmd();
+  if (d === today) return "Today";
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+  if (d === yStr) return "Yesterday";
   try {
-    const d = new Date(entryDate + "T12:00:00");
-    return d.toLocaleDateString(undefined, {
+    const dt = new Date(`${d}T12:00:00`);
+    return dt.toLocaleDateString(undefined, {
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -128,7 +141,7 @@ export function TwinComparisonScreen() {
     };
   }, [stripData?.strip_message, twinData, profile?.current_streak, profile?.power_score]);
 
-  const { data: journalData } = useQuery({
+  const { data: journalData, refetch: refetchJournal } = useQuery({
     queryKey: ["twin", "journal"],
     queryFn: async () => {
       try {
@@ -140,10 +153,20 @@ export function TwinComparisonScreen() {
         return [];
       }
     },
-    enabled: activeTab === "journal" && !!twinData,
-    staleTime: 5 * 60 * 1000,
+    enabled: !!twinData,
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: "always",
     retry: 1,
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      if (activeTab === "journal" && twinData) {
+        void refetchJournal();
+      }
+    }, [activeTab, twinData, refetchJournal])
+  );
 
   const openTwinChat = () => {
     (navigation as any).navigate("TwinChat");
@@ -157,7 +180,8 @@ export function TwinComparisonScreen() {
 
   const twinVerdict =
     twinData?.comparison_line?.trim() ||
-    DEFAULT_TWIN_VERDICT;
+    stripData?.strip_message?.trim() ||
+    (loading && !twinData ? "…" : DEFAULT_TWIN_VERDICT);
 
   const xpMax = Math.max(userXpTotal, twinXpTotal, 1);
   const userXpPct = Math.min((userXpTotal / xpMax) * 100, 100);
@@ -350,7 +374,7 @@ export function TwinComparisonScreen() {
           >
             <View style={styles.journalAccent} />
             <Text style={styles.journalDate}>
-              {formatJournalDateLabel(entry.entry_date, idx)}
+              {formatJournalDateLabel(entry.entry_date)}
               {entry.missions_total > 0
                 ? ` · ${entry.missions_completed}/${entry.missions_total}`
                 : ""}

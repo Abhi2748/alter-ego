@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.auth import get_user_id_from_token
@@ -102,6 +102,8 @@ class TwinMessage(BaseModel):
     created_at: str
     message_rating: int | None = None
     tone_rating: str | None = None
+    is_proactive: bool | None = None
+    is_read: bool | None = None
 
 
 class ChatHistoryResponse(BaseModel):
@@ -117,6 +119,47 @@ class TwinJournalEntryOut(BaseModel):
     missions_total: int
     archetype: str | None = None
     created_at: str
+    is_new: bool = False
+
+
+class TwinChallengeOut(BaseModel):
+    id: str
+    challenge_type: str
+    challenge_text: str
+    target_value: int
+    current_value: int
+    status: str  # pending | accepted | completed | failed | declined
+    issued_at: str
+    accepted_at: str | None = None
+    expires_at: str
+    completed_at: str | None = None
+    xp_reward: int
+    days_remaining: int = 0
+
+
+class ChallengeActionResponse(BaseModel):
+    ok: bool
+    status: str | None = None
+
+
+class ParticleConfig(BaseModel):
+    color: str  # "orange" | "violet"
+    density: str  # "high" | "medium" | "low" | "minimal"
+
+
+class GapMomentOut(BaseModel):
+    id: str
+    trigger_type: str
+    trigger_value: str | None = None
+    headline: str
+    subtext: str
+    accent_color: str
+    particle_config: ParticleConfig
+    mission_count: int | None = None
+
+
+class GapMomentDismissBody(BaseModel):
+    id: str
 
 
 class FeedEntry(BaseModel):
@@ -131,6 +174,7 @@ class FeedEntry(BaseModel):
     twin_note: str | None = None
     is_twin: bool = False
     is_user: bool = False
+    is_shared_interest: bool = False
     observation_text: str | None = None
     summary_date_label: str | None = None
     summary_missions_done: int | None = None
@@ -147,6 +191,7 @@ class ShadowFeedResponse(BaseModel):
     today_user_done: int
     has_more_today: bool
     pending_count: int
+    end_of_day_insight: str | None = None
 
 
 def _shadow_feed_ampm(dt: datetime) -> str:
@@ -240,6 +285,8 @@ class PillarDNA(BaseModel):
 
 class TwinStateResponse(BaseModel):
     strip_message: str | None = None
+    comparison_line: str = ""
+    rank_card_oracle: str = ""
     twin_timeline: list[TwinTimelineEvent] = Field(default_factory=list)
     user: TwinUserState
     twin: TwinRivalState
@@ -288,7 +335,7 @@ async def get_chat_history(authorization: str = Header(None), limit: int = 50):
 
     result = (
         supabase_admin.table("twin_messages")
-        .select("id, role, content, created_at, message_rating")
+        .select("id, role, content, created_at, message_rating, is_proactive, is_read")
         .eq("user_id", user_id)
         .order("created_at", desc=False)
         .limit(min(limit, 100))
@@ -324,6 +371,16 @@ async def get_chat_history(authorization: str = Header(None), limit: int = 50):
                 m["message_rating"] = 0
 
     return {"messages": rows}
+
+
+@router.post("/chat/mark-read")
+async def mark_twin_chat_messages_read(authorization: str = Header(None)):
+    """Mark unread proactive Twin messages as read (e.g. when chat screen opens)."""
+    user_id = get_user_id_from_token(authorization)
+    supabase_admin.table("twin_messages").update({"is_read": True}).eq("user_id", user_id).eq(
+        "is_read", False
+    ).execute()
+    return {"ok": True}
 
 
 @router.post("/chat/{message_id}/rate")
@@ -688,6 +745,9 @@ async def get_twin_journal(
 
     out: list[TwinJournalEntryOut] = []
     for r in rows:
+        content_str = str(r.get("content") or "").strip()
+        if not content_str:
+            continue
         ca = r.get("created_at")
         if ca is None:
             created_at_s = ""
@@ -704,15 +764,186 @@ async def get_twin_journal(
             TwinJournalEntryOut(
                 id=str(r.get("id", "")),
                 entry_date=str(r.get("entry_date", "")),
-                content=str(r.get("content") or ""),
+                content=content_str,
                 relationship_phase=str(r.get("relationship_phase") or "observer"),
                 missions_completed=mc,
                 missions_total=mt,
                 archetype=r.get("archetype"),
                 created_at=created_at_s,
+                is_new=False,
             )
         )
-    return out
+
+    last_viewed: datetime | None = None
+    try:
+        ts_res = (
+            supabase_admin.table("twin_state")
+            .select("last_journal_viewed_at")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+        )
+        raw_ts = (ts_res.data or {}).get("last_journal_viewed_at")
+        if raw_ts:
+            last_viewed = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+    except Exception:
+        last_viewed = None
+
+    marked: list[TwinJournalEntryOut] = []
+    for entry in out:
+        if last_viewed is None:
+            is_new = True
+        else:
+            try:
+                ed = str(entry.entry_date)[:10]
+                entry_dt = datetime.fromisoformat(f"{ed}T00:00:00+00:00")
+                lv = last_viewed
+                if lv.tzinfo is None:
+                    lv = lv.replace(tzinfo=timezone.utc)
+                is_new = entry_dt > lv
+            except Exception:
+                is_new = False
+        marked.append(entry.model_copy(update={"is_new": is_new}))
+    return marked
+
+
+@router.post("/journal/mark-read")
+async def mark_journal_read(authorization: str = Header(None)):
+    """Mark all journal entries as read by updating last_journal_viewed_at to now."""
+    user_id = get_user_id_from_token(authorization)
+    try:
+        supabase_admin.table("twin_state").update(
+            {"last_journal_viewed_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("user_id", user_id).execute()
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "journal_mark_read_error",
+                    "user_id": user_id,
+                    "error": str(e)[:200],
+                }
+            )
+        )
+    return {"ok": True}
+
+
+@router.get("/challenge", response_model=TwinChallengeOut | None)
+async def get_twin_challenge(authorization: str = Header(None)):
+    """
+    Returns the user's current active challenge (pending or accepted),
+    or null if none exists. Progress is computed on-demand.
+    """
+    user_id = get_user_id_from_token(authorization)
+    from app.services.challenge_service import get_active_challenge
+
+    challenge = await get_active_challenge(user_id)
+    if not challenge:
+        return None
+
+    # Compute days remaining
+    days_remaining = 0
+    try:
+        expires_raw = challenge.get("expires_at")
+        if expires_raw:
+            expires_dt = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
+            delta = expires_dt - datetime.now(timezone.utc)
+            days_remaining = max(0, delta.days)
+    except Exception:
+        pass
+
+    def _str(v) -> str:
+        return str(v) if v is not None else ""
+
+    return TwinChallengeOut(
+        id=str(challenge.get("id") or ""),
+        challenge_type=str(challenge.get("challenge_type") or ""),
+        challenge_text=str(challenge.get("challenge_text") or ""),
+        target_value=int(challenge.get("target_value") or 1),
+        current_value=int(challenge.get("current_value") or 0),
+        status=str(challenge.get("status") or "pending"),
+        issued_at=_str(challenge.get("issued_at")),
+        accepted_at=_str(challenge.get("accepted_at")) or None,
+        expires_at=_str(challenge.get("expires_at")),
+        completed_at=_str(challenge.get("completed_at")) or None,
+        xp_reward=int(challenge.get("xp_reward") or 50),
+        days_remaining=days_remaining,
+    )
+
+
+@router.post("/challenge/accept", response_model=ChallengeActionResponse)
+async def accept_twin_challenge(authorization: str = Header(None)):
+    """Accept the current pending challenge."""
+    user_id = get_user_id_from_token(authorization)
+    from app.services.challenge_service import get_active_challenge, accept_challenge
+
+    challenge = await get_active_challenge(user_id)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="No active challenge found")
+    if challenge.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Challenge is not in pending state")
+
+    ok = await accept_challenge(user_id, str(challenge["id"]))
+    return ChallengeActionResponse(ok=ok, status="accepted" if ok else None)
+
+
+@router.post("/challenge/decline", response_model=ChallengeActionResponse)
+async def decline_twin_challenge(authorization: str = Header(None)):
+    """Decline the current pending challenge."""
+    user_id = get_user_id_from_token(authorization)
+    from app.services.challenge_service import get_active_challenge, decline_challenge
+
+    challenge = await get_active_challenge(user_id)
+    if not challenge:
+        raise HTTPException(status_code=404, detail="No active challenge found")
+    if challenge.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Challenge is not in pending state")
+
+    ok = await decline_challenge(user_id, str(challenge["id"]))
+    return ChallengeActionResponse(ok=ok, status="declined" if ok else None)
+
+
+@router.get("/gap-moment", response_model=GapMomentOut | None)
+async def get_gap_moment(authorization: str = Header(None)):
+    """
+    Returns the oldest pending Gap Moment for the user, or null if none.
+    Called on every app open from the root navigator.
+    """
+    user_id = get_user_id_from_token(authorization)
+    from app.services.gap_moment_service import get_pending_gap_moment
+
+    data = await get_pending_gap_moment(user_id)
+    if not data:
+        return None
+    pc = data.get("particle_config") or {}
+    return GapMomentOut(
+        id=str(data.get("id") or ""),
+        trigger_type=str(data.get("trigger_type") or ""),
+        trigger_value=data.get("trigger_value"),
+        headline=str(data.get("headline") or ""),
+        subtext=str(data.get("subtext") or ""),
+        accent_color=str(data.get("accent_color") or "#A78BFA"),
+        particle_config=ParticleConfig(
+            color=str(pc.get("color") or "violet"),
+            density=str(pc.get("density") or "low"),
+        ),
+        mission_count=data.get("mission_count"),
+    )
+
+
+@router.post("/gap-moment/dismiss")
+async def dismiss_gap_moment(
+    authorization: str = Header(None),
+    body: GapMomentDismissBody = Body(...),
+):
+    """Mark the gap moment as shown so it won't reappear."""
+    user_id = get_user_id_from_token(authorization)
+    if not body.id:
+        raise HTTPException(status_code=400, detail="id required")
+    from app.services.gap_moment_service import mark_gap_moment_shown
+
+    await mark_gap_moment_shown(user_id, body.id)
+    return {"ok": True}
 
 
 def _empty_shadow_feed() -> ShadowFeedResponse:
@@ -724,6 +955,7 @@ def _empty_shadow_feed() -> ShadowFeedResponse:
         today_user_done=0,
         has_more_today=False,
         pending_count=0,
+        end_of_day_insight=None,
     )
 
 
@@ -800,6 +1032,17 @@ async def get_shadow_feed(
             or []
         )
 
+        user_today_incomplete = (
+            supabase_admin.table("missions")
+            .select("title, type, core_pillar")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .eq("completed", False)
+            .execute()
+            .data
+            or []
+        )
+
         xp_today_rows = (
             supabase_admin.table("xp_log")
             .select("amount")
@@ -854,6 +1097,17 @@ async def get_shadow_feed(
 
         twin_titles_done = {str(r.get("mission_title") or "").lower() for r in revealed_twin}
 
+        user_interest_titles = {
+            str(m.get("title") or "").lower()
+            for m in user_today
+            if str(m.get("type") or "") == "interest"
+        }
+        user_interest_titles.update(
+            str(m.get("title") or "").lower()
+            for m in user_today_incomplete
+            if str(m.get("type") or "") == "interest"
+        )
+
         entries: list[FeedEntry] = []
 
         for r in revealed_twin:
@@ -878,6 +1132,11 @@ async def get_shadow_feed(
                 simulated_hour=sim_dt.hour,
                 mission_type=str(r.get("mission_type") or "core"),
             )
+            title_lower = str(r.get("mission_title") or "").lower()
+            is_shared = (
+                str(r.get("mission_type") or "") == "interest"
+                and title_lower in user_interest_titles
+            )
             entries.append(
                 FeedEntry(
                     entry_type="twin_completion",
@@ -891,6 +1150,7 @@ async def get_shadow_feed(
                     twin_note=note,
                     is_twin=True,
                     is_user=False,
+                    is_shared_interest=is_shared,
                 )
             )
 
@@ -924,10 +1184,27 @@ async def get_shadow_feed(
                     twin_note=reaction,
                     is_twin=False,
                     is_user=True,
+                    is_shared_interest=False,
                 )
             )
 
-        entries.sort(key=lambda e: e.timestamp_iso, reverse=True)
+        for m in user_today_incomplete:
+            entries.append(
+                FeedEntry(
+                    entry_type="user_incomplete",
+                    timestamp_iso=f"{today}T23:58:00",
+                    display_time="",
+                    entry_date=today,
+                    mission_title=m.get("title"),
+                    mission_type=m.get("type"),
+                    core_pillar=m.get("core_pillar"),
+                    is_twin=False,
+                    is_user=True,
+                    is_shared_interest=False,
+                )
+            )
+
+        entries.sort(key=lambda e: e.timestamp_iso, reverse=False)
 
         obs_text: str | None = None
         gap_xp = twin_xp_today - user_xp_today
@@ -956,8 +1233,14 @@ async def get_shadow_feed(
                     display_time="now",
                     entry_date=today,
                     observation_text=obs_text,
+                    is_shared_interest=False,
                 ),
             )
+
+        yesterday_str = str(anchor - timedelta(days=1))
+        end_of_day_insight = journal_by_date.get(yesterday_str) or None
+        if end_of_day_insight and len(end_of_day_insight) > 160:
+            end_of_day_insight = end_of_day_insight[:157] + "..."
 
         for rec in twin_past:
             rec_date = _rec_date_key(rec)
@@ -987,6 +1270,7 @@ async def get_shadow_feed(
                     summary_missions_total=int(rec.get("missions_assigned") or 0),
                     summary_xp=int(rec.get("xp_earned") or 0),
                     summary_twin_quote=quote or None,
+                    is_shared_interest=False,
                 )
             )
 
@@ -998,6 +1282,7 @@ async def get_shadow_feed(
             today_user_done=user_done_today,
             has_more_today=len(pending_twin) > 0,
             pending_count=len(pending_twin),
+            end_of_day_insight=end_of_day_insight,
         )
 
     except HTTPException:
@@ -1232,11 +1517,17 @@ async def _build_twin_state_response(user_id: str) -> dict:
             if m.get("completed"):
                 user_pillar_done[p] = user_pillar_done.get(p, 0) + 1
 
+        twin_pillar_seen: set[tuple[str, str]] = set()
         twin_pillar_done: dict[str, int] = {}
         for m in twin_pillar_missions:
             p = str(m.get("core_pillar") or "").lower()
             if p not in pillar_order:
                 continue
+            d = str(m.get("mission_date") or "")[:10]
+            key = (p, d)
+            if key in twin_pillar_seen:
+                continue
+            twin_pillar_seen.add(key)
             twin_pillar_done[p] = twin_pillar_done.get(p, 0) + 1
 
         for pillar in pillar_order:
@@ -1295,11 +1586,11 @@ async def _build_twin_state_response(user_id: str) -> dict:
     )
     xp_today = sum(r.get("amount", 0) for r in xp_today_rows)
 
-    # Days user has been ahead since last_passed_at
+    # Days since last crossing (user passed Twin); narrative copy uses for temporal context
     last_passed = twin.get("last_passed_at")
     user_is_ahead = user.get("total_xp", 0) > twin.get("twin_xp", 0)
     days_user_ahead = 0
-    if last_passed and user_is_ahead:
+    if last_passed:
         try:
             days_user_ahead = (date_cls.today() - date_cls.fromisoformat(str(last_passed)[:10])).days
         except Exception:
@@ -1342,6 +1633,7 @@ async def _build_twin_state_response(user_id: str) -> dict:
         twin_done_today=int(twin_record["missions_completed"]) if twin_record else 0,
         twin_total_today=int(twin_record["missions_assigned"]) if twin_record else 0,
         week_heatmap=week_heatmap,
+        days_user_ahead=days_user_ahead,
     )
     rank_card_oracle = build_rank_card_oracle(
         user_id,

@@ -12,15 +12,9 @@ export function Sigil3({ size = 300 }: SigilProps) {
   const flicker = useHtmlFlickerFo(2500, 1, 0);
   const breatheR = useHtmlBreatheR(36, 3000, 1.06);
 
-  const pulseStyle = useAnimatedStyle(() => ({
+  const pulseAp = useAnimatedProps(() => ({
     opacity: pulseOp.value,
-    transform: [
-      { translateX: 170 },
-      { translateY: 170 },
-      { scale: pulseSc.value },
-      { translateX: -170 },
-      { translateY: -170 },
-    ],
+    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
   }));
   const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
   const ringAp = useAnimatedProps(() => ({ r: breatheR.value }));

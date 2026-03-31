@@ -1,13 +1,13 @@
 /**
- * Onboarding answers accumulated Q1→Q13. Consumed by OnboardingQuestionScreen
- * and passed to ArchetypeRevealScreen after Q13. archetype_content from POST /onboarding.
+ * Onboarding answers accumulated Q1→Q15. Consumed by OnboardingQuestionScreen
+ * and passed to ArchetypeRevealScreen after completion. archetype_content from POST /onboarding.
  */
 
 import React, { createContext, useContext, useCallback, useState } from "react";
 import type { ArchetypeContent } from "../utils/api";
 import type { AwarenessLevel, QuitGoal } from "@/types/quits";
 
-/** One interest from Q11 — full object for Planner. */
+/** One interest from Q12 — full object for Planner. */
 export type OnboardingInterest = {
   name: string;
   level: "beginner" | "intermediate" | "advanced";
@@ -40,19 +40,30 @@ export type OnboardingAnswers = {
   ageRange?: string;
   situation?: string;
   reason?: string;
-  taskApproach?: string;
-  offTrack?: string;
-  motivation?: string;
-  autonomy?: string;
-  comparison?: string;
-  /** Q11: full interest objects (min 1 required). */
+  alarmScenario?: string;
+  missedDay?: string;
+  doubtResponse?: string;
+  successPattern?: string;
+  failurePattern?: string;
+  disciplineMeaning?: string;
+  /** Q12: full interest objects (min 1 required). */
   interests?: OnboardingInterest[];
   interestOther?: string;
-  /** Q12: full quit target objects (optional, can be []). */
+  /** Q13: full quit target objects (optional, can be []). */
   quitTargets?: OnboardingQuitTarget[];
   quitOther?: string;
   dailyHours?: number;
   commitmentTimeline?: string;
+  /** DEPRECATED — old Q6–Q10. Keep for draft migration only. */
+  taskApproach?: string;
+  /** DEPRECATED — old Q6–Q10. Keep for draft migration only. */
+  offTrack?: string;
+  /** DEPRECATED — old Q6–Q10. Keep for draft migration only. */
+  motivation?: string;
+  /** DEPRECATED — old Q6–Q10. Keep for draft migration only. */
+  autonomy?: string;
+  /** DEPRECATED — old Q6–Q10. Keep for draft migration only. */
+  comparison?: string;
 };
 
 type OnboardingAnswersContextValue = {

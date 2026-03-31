@@ -10,15 +10,18 @@ import {
 } from "@expo-google-fonts/inter";
 import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { useEffect, useState, useCallback } from "react";
+import { View, ActivityIndicator, AppState, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import { NavigationContainer, DefaultTheme, type Theme } from "@react-navigation/native";
 import { RootStack } from "./src/navigation/RootStack";
 import { COLORS } from "./src/constants/theme";
 import { AppProviders } from "./src/providers/AppProviders";
 import { supabase } from "@/utils/supabase";
 import { apiClient } from "./src/services/api";
+import { useAuthStore } from "./src/store/authStore";
+import { twinService, type GapMoment } from "./src/services/twin";
+import { GapMomentScreen } from "./src/screens/GapMomentScreen";
 
 // Suppress React 19 ref warning from dependencies (e.g. React Navigation) until they support ref-as-prop
 const originalError = console.error;
@@ -117,12 +120,47 @@ export default function App() {
 
   return (
     <AppProviders>
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <AppRootWithGapMoment navTheme={navTheme} />
+    </AppProviders>
+  );
+}
+
+function AppRootWithGapMoment({ navTheme }: { navTheme: Theme }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const [pendingMoment, setPendingMoment] = useState<GapMoment | null>(null);
+
+  const checkMoment = useCallback(async () => {
+    if (!isAuthenticated || isLoading) return;
+    try {
+      const moment = await twinService.getGapMoment();
+      if (moment) setPendingMoment(moment);
+    } catch {
+      // non-blocking
+    }
+  }, [isAuthenticated, isLoading]);
+
+  useEffect(() => {
+    void checkMoment();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void checkMoment();
+    });
+    return () => sub.remove();
+  }, [checkMoment]);
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={{ flex: 1 }}>
         <NavigationContainer theme={navTheme}>
           <StatusBar style="light" />
           <RootStack />
         </NavigationContainer>
-      </GestureHandlerRootView>
-    </AppProviders>
+        {pendingMoment ? (
+          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+            <GapMomentScreen moment={pendingMoment} onDismiss={() => setPendingMoment(null)} />
+          </View>
+        ) : null}
+      </View>
+    </GestureHandlerRootView>
   );
 }

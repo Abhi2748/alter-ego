@@ -11,6 +11,7 @@ Journal mission does NOT count toward streak requirement in any tier.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta, timezone
 
 from postgrest.types import CountMethod
@@ -247,6 +248,14 @@ async def process_streak(user_id: str) -> dict:
             }
         ).execute()
 
+    try:
+        from app.services.gap_moment_service import queue_gap_moment
+
+        if new_streak in (7, 14, 21, 30, 60, 90, 150):
+            await queue_gap_moment(user_id, "streak_milestone", str(new_streak))
+    except Exception:
+        pass
+
     animation_tier = get_animation_tier(new_streak)
 
     return {
@@ -259,6 +268,45 @@ async def process_streak(user_id: str) -> dict:
         "animation_tier": animation_tier,
         "leaderboard_just_unlocked": leaderboard_just_unlocked,
     }
+
+
+async def sync_streak_if_lapsed(user_id: str) -> bool:
+    """
+    Apply streak break when the last streak-earning calendar day is **before yesterday**
+    in the user's timezone.
+
+    - Streak is *not* broken at the start of "today" while the user can still complete
+      today's missions; it breaks only after a full local day has passed without an update.
+    - Safe to call on every app open (idempotent). Also used by the hourly scheduler so
+      the DB is not stuck on a stale streak until the next 1am job.
+    """
+    from app.services.mission_service import get_user_date
+
+    try:
+        user_result = (
+            supabase_admin.table("users")
+            .select("last_streak_date, timezone")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        user = user_result.data or {}
+        last_streak = user.get("last_streak_date")
+        if not last_streak:
+            return False
+
+        tz = user.get("timezone", "UTC") or "UTC"
+        today = get_user_date(tz)
+        yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+
+        # Lexicographic compare is valid for ISO YYYY-MM-DD
+        if str(last_streak) < str(yesterday):
+            await handle_streak_break(user_id)
+            return True
+        return False
+    except Exception as e:
+        logger.warning("sync_streak_if_lapsed failed user=%s: %s", user_id, str(e)[:200])
+        return False
 
 
 async def handle_streak_break(user_id: str) -> None:
@@ -294,7 +342,15 @@ async def handle_streak_break(user_id: str) -> None:
     if days_absent <= 0:
         return
 
+    old_streak = int(user.get("current_streak") or 0)
     supabase_admin.table("users").update({"pet_state": "sad", "current_streak": 0}).eq("id", user_id).execute()
+
+    try:
+        from app.services.gap_moment_service import queue_gap_moment
+
+        await queue_gap_moment(user_id, "streak_broken", str(old_streak))
+    except Exception:
+        pass
 
     if days_absent <= STREAK_FREEZE_DAYS:
         supabase_admin.table("users").update({"xp_frozen": True}).eq("id", user_id).execute()

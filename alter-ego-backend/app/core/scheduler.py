@@ -3,6 +3,7 @@ APScheduler setup for ALTER EGO background jobs.
 All jobs that run on a schedule are registered here.
 
 Per-user local time (users.timezone / IANA name):
+- twin_journal_midnight: local hour 0 (Twin journal for the calendar day that just ended)
 - daily_mission_reset, pet_unlock_check, twin_simulation, twin_recalibration: local hour 1
 - day_summary + power_score + scheduled mail: local hour 1 (batched in user_local_maintenance_job)
 - onboarding echo + contradiction (C1/C2): local Sunday hour 2 (same job loop)
@@ -51,6 +52,12 @@ def setup_scheduler():
         replace_existing=True,
     )
     scheduler.add_job(
+        twin_journal_midnight_job,
+        trigger=IntervalTrigger(minutes=60),
+        id="twin_journal_midnight",
+        replace_existing=True,
+    )
+    scheduler.add_job(
         user_local_maintenance_job,
         trigger=IntervalTrigger(minutes=60),
         id="user_local_maintenance",
@@ -74,6 +81,18 @@ def setup_scheduler():
         id="nudge_check",
         replace_existing=True,
     )
+    scheduler.add_job(
+        proactive_twin_message_job,
+        trigger=IntervalTrigger(minutes=60),
+        id="proactive_twin_message_job",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        twin_challenge_weekly_job,
+        trigger=IntervalTrigger(minutes=60),
+        id="twin_challenge_weekly",
+        replace_existing=True,
+    )
 
     return scheduler
 
@@ -82,14 +101,14 @@ async def pet_unlock_check_job():
     """
     Runs every hour. Only processes users whose local hour is 1 (1:00–1:59).
     Finds users who reached day 6 since registration and unlocks their pet.
-    Also handles streak breaks for users who missed yesterday.
+    Also applies streak breaks when the last streak day is before yesterday (local).
     """
     from datetime import datetime
 
     from app.core.constants import PET_UNLOCK_DAY
     from app.core.supabase_client import supabase_admin
-    from app.services.mission_service import get_days_since_registration, get_user_date
-    from app.services.streak_service import handle_streak_break
+    from app.services.mission_service import get_days_since_registration
+    from app.services.streak_service import sync_streak_if_lapsed
     from zoneinfo import ZoneInfo
 
     logger.info(json.dumps({"event": "pet_unlock_check_job_start"}))
@@ -143,10 +162,7 @@ async def pet_unlock_check_job():
                     )
                 )
 
-            last_streak_date = user.get("last_streak_date")
-            today = get_user_date(timezone)
-            if last_streak_date and str(last_streak_date) < str(today):
-                await handle_streak_break(user["id"])
+            if await sync_streak_if_lapsed(user["id"]):
                 break_count += 1
 
         except Exception as e:
@@ -346,6 +362,62 @@ async def twin_simulation_job():
             {
                 "event": "twin_simulation_job_done",
                 "success_count": success_count,
+            }
+        )
+    )
+
+
+async def twin_journal_midnight_job():
+    """
+    Runs every hour. Only processes users whose local hour is 0 (00:00–00:59).
+    Writes the Twin journal for the calendar day that just ended (yesterday).
+    """
+    from datetime import datetime
+
+    from zoneinfo import ZoneInfo
+
+    from app.core.supabase_client import supabase_admin
+    from app.services.twin_service import generate_journal_for_yesterday
+
+    logger.info(json.dumps({"event": "twin_journal_midnight_job_start"}))
+
+    users_result = (
+        supabase_admin.table("users")
+        .select("id, timezone")
+        .eq("onboarding_complete", True)
+        .execute()
+    )
+
+    count = 0
+    for user in users_result.data or []:
+        try:
+            timezone = user.get("timezone", "UTC") or "UTC"
+            tz = ZoneInfo(timezone)
+            local_now = datetime.now(tz)
+            local_hour = local_now.hour
+
+            if local_hour != 0:
+                continue
+
+            await generate_journal_for_yesterday(str(user["id"]))
+            count += 1
+        except Exception as e:
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "twin_journal_midnight_error",
+                        "user_id": str(user.get("id", "")),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
+            continue
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "twin_journal_midnight_job_done",
+                "count": count,
             }
         )
     )
@@ -653,4 +725,59 @@ async def nudge_check_job():
         )
     logger.info(json.dumps({"event": "nudge_check_job_done"}))
 
+
+async def proactive_twin_message_job():
+    """Hourly tick; implementation lives in `twin_service.proactive_twin_message_job`."""
+    from app.services.twin_service import proactive_twin_message_job as _run_proactive_twin
+
+    await _run_proactive_twin()
+
+
+async def twin_challenge_weekly_job():
+    """
+    Runs every hour. Only processes users whose local time is Sunday 00:00–00:59.
+    Generates a new weekly Twin Challenge for each user who doesn't have an active one.
+    Runs at the same local hour as twin_journal_midnight_job (midnight Sunday).
+    """
+    from datetime import datetime
+
+    from zoneinfo import ZoneInfo
+
+    from app.core.supabase_client import supabase_admin
+    from app.services.challenge_service import generate_weekly_challenge
+
+    logger.info(json.dumps({"event": "twin_challenge_weekly_job_start"}))
+
+    users_result = (
+        supabase_admin.table("users")
+        .select("id, timezone")
+        .eq("onboarding_complete", True)
+        .execute()
+    )
+
+    count = 0
+    for user in users_result.data or []:
+        try:
+            timezone_str = user.get("timezone", "UTC") or "UTC"
+            tz = ZoneInfo(timezone_str)
+            local_now = datetime.now(tz)
+
+            # Sunday = weekday 6, local midnight hour 0
+            if local_now.weekday() != 6 or local_now.hour != 0:
+                continue
+
+            await generate_weekly_challenge(str(user["id"]))
+            count += 1
+        except Exception as e:
+            logger.error(json.dumps({
+                "event": "twin_challenge_weekly_error",
+                "user_id": str(user.get("id", "")),
+                "error": str(e)[:200],
+            }))
+            continue
+
+    logger.info(json.dumps({
+        "event": "twin_challenge_weekly_job_done",
+        "count": count,
+    }))
 

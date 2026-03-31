@@ -84,7 +84,7 @@ export interface TwinStateResponse {
 
 /** GET /api/v1/twin/feed — Shadow Feed timeline */
 export interface FeedEntry {
-  entry_type: 'twin_completion' | 'user_completion' | 'observation' | 'day_summary';
+  entry_type: 'twin_completion' | 'user_completion' | 'user_incomplete' | 'observation' | 'day_summary';
   timestamp_iso: string;
   display_time: string;
   entry_date: string;
@@ -95,6 +95,7 @@ export interface FeedEntry {
   twin_note?: string | null;
   is_twin: boolean;
   is_user: boolean;
+  is_shared_interest?: boolean | null;
   observation_text?: string | null;
   summary_date_label?: string | null;
   summary_missions_done?: number | null;
@@ -111,6 +112,7 @@ export interface ShadowFeedResponse {
   today_user_done: number;
   has_more_today: boolean;
   pending_count: number;
+  end_of_day_insight?: string | null;
 }
 
 export async function fetchShadowFeed(daysBack = 3): Promise<ShadowFeedResponse> {
@@ -128,6 +130,9 @@ export interface TwinMessage {
   tone_rating?: 'positive' | 'neutral' | 'negative' | null;
   /** -1 / 0 / 1 from twin_messages (preferred when set) */
   message_rating?: number | null;
+  /** Twin-initiated (scheduler); shown with subtle affordance in chat */
+  is_proactive?: boolean | null;
+  is_read?: boolean | null;
 }
 
 export interface TwinChatHistoryResponse {
@@ -182,6 +187,37 @@ export interface TwinStripData {
   twin_accomplishments?: Array<{ text: string; time_label: string }> | null;
   /** Twin relationship arc phase (observer | challenger | mirror | rival | partner) */
   relationship_phase?: string | null;
+}
+
+export interface TwinChallenge {
+  id: string;
+  challenge_type: string;
+  challenge_text: string;
+  target_value: number;
+  current_value: number;
+  status: 'pending' | 'accepted' | 'completed' | 'failed' | 'declined';
+  issued_at: string;
+  accepted_at: string | null;
+  expires_at: string;
+  completed_at: string | null;
+  xp_reward: number;
+  days_remaining: number;
+}
+
+export interface GapMomentParticleConfig {
+  color: 'orange' | 'violet';
+  density: 'high' | 'medium' | 'low' | 'minimal';
+}
+
+export interface GapMoment {
+  id: string;
+  trigger_type: string;
+  trigger_value: string | null;
+  headline: string;
+  subtext: string;
+  accent_color: string;
+  particle_config: GapMomentParticleConfig;
+  mission_count: number | null;
 }
 
 // ── API calls ──────────────────────────────────────────────────────────────
@@ -281,5 +317,27 @@ export const twinService = {
 
   getShadowFeed: (daysBack = 3) =>
     apiClient.get<ShadowFeedResponse>(`/api/v1/twin/feed?days_back=${daysBack}`),
+
+  /** Mark proactive Twin lines read when chat opens (best-effort). */
+  markMessagesRead: async (): Promise<void> => {
+    try {
+      await apiClient.post('/api/v1/twin/chat/mark-read');
+    } catch {
+      // non-critical
+    }
+  },
+
+  getChallenge: () => apiClient.get<TwinChallenge | null>('/api/v1/twin/challenge'),
+
+  acceptChallenge: () =>
+    apiClient.post<{ ok: boolean; status: string | null }>('/api/v1/twin/challenge/accept'),
+
+  declineChallenge: () =>
+    apiClient.post<{ ok: boolean; status: string | null }>('/api/v1/twin/challenge/decline'),
+
+  getGapMoment: () => apiClient.get<GapMoment | null>('/api/v1/twin/gap-moment'),
+
+  dismissGapMoment: (id: string) =>
+    apiClient.post<{ ok: boolean }>('/api/v1/twin/gap-moment/dismiss', { id }),
 };
 

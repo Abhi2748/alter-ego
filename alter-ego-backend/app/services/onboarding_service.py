@@ -9,7 +9,11 @@ from fastapi import HTTPException
 
 from app.agents.agent_guardrails import check_crisis_content
 from app.core.supabase_client import supabase_admin
-from app.core.archetype import classify_archetype, get_archetype_data, get_initial_dna
+from app.core.archetype import (
+    classify_user_with_profiler,
+    get_archetype_data,
+    get_initial_dna,
+)
 from app.core.constants import (
     COMMITMENT_HORIZON_CONTEXT,
     INTEREST_LEVEL_MAP,
@@ -150,9 +154,9 @@ async def save_onboarding_step(user_id: str, question_key: str, answer_json: dic
     """
     Upserts the answer and updates any derived fields on the users table.
 
-    Q1=username, Q2=gender, Q3=age, Q4–Q10=archetype questions,
-    Q11=interests, Q12=quit_targets, Q13=daily_hours,
-    Q14=commitment_horizon, Q15=timezone (auto-detected).
+    Q1=username, Q2=gender, Q3=age, Q4–Q11=profiler questions,
+    Q12=interests, Q13=quit_targets, Q14=daily_hours,
+    Q15=commitment_horizon, Q16=timezone (auto-detected).
     """
     # Upsert onboarding answer
     supabase_admin.table("onboarding_answers").upsert(
@@ -195,7 +199,7 @@ async def save_onboarding_step(user_id: str, question_key: str, answer_json: dic
         ensure_user_row_exists(initial_username=username_value)
         supabase_admin.table("users").update({"username": username_value}).eq("id", user_id).execute()
 
-    elif question_key == "q13_hours":
+    elif question_key in ("q14_hours", "q13_hours"):
         ensure_user_row_exists()
         value = (answer_json or {}).get("value")
         try:
@@ -220,15 +224,15 @@ async def save_onboarding_step(user_id: str, question_key: str, answer_json: dic
             raise HTTPException(status_code=400, detail="Invalid age value")
         supabase_admin.table("users").update({"age": age}).eq("id", user_id).execute()
 
-    elif question_key in ("q15_timezone", "q11_timezone"):
-        # q11_timezone kept for backward compatibility with older clients
+    elif question_key in ("q16_timezone", "q15_timezone", "q11_timezone"):
+        # q11_timezone / q15_timezone kept for backward compatibility with older clients
         ensure_user_row_exists()
         tz = (answer_json or {}).get("value")
         if not isinstance(tz, str) or not tz.strip():
             raise HTTPException(status_code=400, detail="Invalid timezone value")
         supabase_admin.table("users").update({"timezone": tz.strip()}).eq("id", user_id).execute()
 
-    elif question_key == "q14_commitment":
+    elif question_key in ("q15_commitment", "q14_commitment"):
         ensure_user_row_exists()
         commitment_value = (answer_json or {}).get("value")
         if commitment_value in ("2_weeks", "1_month", "3_months", "however_long"):
@@ -342,25 +346,16 @@ async def complete_onboarding(user_id: str) -> dict:
         answers = {}
         notes.append(f"failed_to_load_answers: {str(e)}")
 
-    # Step 2 — Classify archetype
+    # Step 2 — Classify archetype (LLM profiler with deterministic fallback)
     archetype_key = "structured_climber"
+    base_dna = get_initial_dna(archetype_key)
     try:
-        archetype_input = {
-            k: answers[k]["value"]
-            for k in [
-                "q4_situation",
-                "q5_reason",
-                "q6_approach",
-                "q7_recovery",
-                "q8_motivation",
-                "q9_autonomy",
-                "q10_comparison",
-            ]
-            if k in answers and isinstance(answers[k], dict) and "value" in answers[k]
-        }
-        archetype_key = classify_archetype({k: str(v) for k, v in archetype_input.items()})
+        profiler_result = await classify_user_with_profiler(answers)
+        archetype_key = profiler_result["archetype"]
+        base_dna = profiler_result["dna"]
     except Exception as e:
         archetype_key = "structured_climber"
+        base_dna = get_initial_dna(archetype_key)
         notes.append(f"archetype_defaulted: {str(e)}")
 
     archetype_data = get_archetype_data(archetype_key)
@@ -368,9 +363,9 @@ async def complete_onboarding(user_id: str) -> dict:
     # Step 3 — Normalise interests and insert into interests table
     interests_created: list[str] = []
     interest_items: list[dict] = []
-    q11 = answers.get("q11_interests")
-    if isinstance(q11, dict):
-        interest_items = q11.get("interests") or []
+    q_interests = answers.get("q12_interests") or answers.get("q11_interests")
+    if isinstance(q_interests, dict):
+        interest_items = q_interests.get("interests") or []
     if not isinstance(interest_items, list):
         interest_items = []
 
@@ -452,9 +447,9 @@ async def complete_onboarding(user_id: str) -> dict:
     # Step 4 — Quit paths (HRT) via QuitProfileAgent
     quit_targets_created: list[str] = []
     quit_items: list[dict] = []
-    q12 = answers.get("q12_quits")
-    if isinstance(q12, dict):
-        quit_items = q12.get("quit_targets") or []
+    q_quits = answers.get("q13_quits") or answers.get("q12_quits")
+    if isinstance(q_quits, dict):
+        quit_items = q_quits.get("quit_targets") or []
     if not isinstance(quit_items, list):
         quit_items = []
 
@@ -502,8 +497,8 @@ async def complete_onboarding(user_id: str) -> dict:
 
     # Step 5 — Update users table
     try:
-        q14 = answers.get("q14_commitment", {})
-        ch = q14.get("value") if isinstance(q14, dict) else None
+        q_comm = answers.get("q15_commitment") or answers.get("q14_commitment", {})
+        ch = q_comm.get("value") if isinstance(q_comm, dict) else None
         user_update: dict = {
             "archetype": archetype_key,
             "onboarding_complete": True,
@@ -515,10 +510,10 @@ async def complete_onboarding(user_id: str) -> dict:
     except Exception as e:
         notes.append(f"users_update_failed: {str(e)}")
 
-    # Step 6 — Update discipline_dna (blend commitment horizon with archetype defaults)
+    # Step 6 — Update discipline_dna (blend commitment horizon with profiler or archetype defaults)
+    initial_dna = dict(base_dna)
     try:
-        initial_dna = get_initial_dna(archetype_key)
-        commitment_answer = answers.get("q14_commitment", {})
+        commitment_answer = answers.get("q15_commitment") or answers.get("q14_commitment", {})
         commitment_value = (
             commitment_answer.get("value", "however_long")
             if isinstance(commitment_answer, dict)
@@ -546,8 +541,7 @@ async def complete_onboarding(user_id: str) -> dict:
         if not existing.data:
             from app.services.strip_message_service import get_strip_message
 
-            _dna_tone = get_initial_dna(archetype_key)
-            _tone = str(_dna_tone.get("twin_tone_type", "rival")).lower()
+            _tone = str(initial_dna.get("twin_tone_type", "rival")).lower()
             if _tone not in ("rival", "philosopher", "silent_force"):
                 _tone = "rival"
             _day_one_strip = get_strip_message("neck_and_neck", _tone, None, "you")
@@ -579,7 +573,7 @@ async def complete_onboarding(user_id: str) -> dict:
     # Step 8 — Return archetype reveal data
     from app.core.constants import COMMITMENT_HORIZON_CONTEXT
 
-    commitment_answer = answers.get("q14_commitment", {})
+    commitment_answer = answers.get("q15_commitment") or answers.get("q14_commitment", {})
     commitment_value = (
         commitment_answer.get("value", "however_long")
         if isinstance(commitment_answer, dict)

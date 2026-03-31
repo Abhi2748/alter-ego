@@ -16,8 +16,10 @@ Update frequency (controlled by twin_message_frequency in discipline_dna):
 
 from __future__ import annotations
 
+import json
 import logging
 import random
+import re
 from datetime import datetime
 
 from app.core.supabase_client import supabase_admin
@@ -160,6 +162,92 @@ EVENT_MESSAGES = {
     },
 }
 
+# ── CONTEXT-AWARE TEMPLATES ──────────────────────────────────────────────
+# Used when today's data produces a specific observation.
+# Variables: {pillar} = skipped pillar name, {count} = skip count this week,
+#            {hour} = hour user finished, {twin_hour} = hour twin finished,
+#            {done} = missions done, {total} = missions total
+# guilt_orientation > 0.7: use _safe variants (no blame language)
+
+CONTEXT_MESSAGES = {
+    # User skipped a specific pillar (and Twin completed it)
+    "twin_done_user_skipped": {
+        "rival": [
+            "You skipped {pillar} again. {count} times this week.",
+            "{pillar} — you passed on it. I didn't.",
+            "I did {pillar} at {twin_hour}am. It took under 15 minutes.",
+            "{pillar} keeps getting skipped. The pattern is yours.",
+        ],
+        "rival_safe": [  # guilt_orientation > 0.7
+            "{pillar} didn't happen today. I completed it.",
+            "I finished {pillar}. You didn't today.",
+            "{pillar} — I got to it. You didn't.",
+        ],
+        "philosopher": [
+            "Skipping {pillar} this week {count} times. That's a pattern worth noticing.",
+            "The mission you keep skipping is the one that matters most.",
+            "{pillar} keeps getting moved to tomorrow.",
+        ],
+        "silent_force": [
+            "{pillar}. Again.",
+            "Skipped.",
+            "I did it.",
+        ],
+    },
+    # User completed everything today
+    "user_completed_all": {
+        "rival": [
+            "All of them today. Even the one you usually skip.",
+            "Clean day. The gap moved.",
+            "You finished everything. So did I. Earlier.",
+        ],
+        "philosopher": [
+            "Every mission today. That's what the data looks like when you show up.",
+            "Full completion. That's the version of you the rest of the week needs.",
+            "Everything done. Not a small thing.",
+        ],
+        "silent_force": [
+            "Done.",
+            "All of them.",
+            "Full day.",
+        ],
+    },
+    # User finished late, Twin finished early
+    "timing_gap": {
+        "rival": [
+            "You completed everything before {hour}pm. I was done by {twin_hour}am.",
+            "Same missions. You finished at {hour}. I was done hours earlier.",
+            "We both finished. I started where your day ended.",
+        ],
+        "philosopher": [
+            "Same missions completed. Different hours. That gap is worth thinking about.",
+            "The work got done. The timing tells a different story.",
+        ],
+        "silent_force": [
+            "Done late.",
+            "I was earlier.",
+            "Timing noted.",
+        ],
+    },
+    # User partially done, day still in progress
+    "partial_progress": {
+        "rival": [
+            "{done} of {total} so far. {remaining} still open.",
+            "You're at {done}/{total}. I finished mine.",
+            "{remaining} left. The day isn't over.",
+        ],
+        "philosopher": [
+            "{done} of {total} today. The remaining ones are still possible.",
+            "Partway through. That's further than zero.",
+        ],
+        "silent_force": [
+            "{done} done.",
+            "Still open.",
+            "Not finished.",
+        ],
+    },
+}
+
 
 def get_strip_message(
     gap_state: str,
@@ -186,6 +274,158 @@ def get_strip_message(
     return msg.replace("{username}", username)
 
 
+def _format_context_message(msg: str, **kwargs: object) -> str:
+    """Format only `{name}` placeholders present in msg; leaves text unchanged if none."""
+    keys = set(re.findall(r"\{(\w+)\}", msg))
+    if not keys:
+        return msg
+    return msg.format(**{k: kwargs[k] for k in keys})
+
+
+def _build_context_message(
+    gap_state: str,
+    tone_type: str,
+    guilt_orientation: float,
+    missions_completed_today: int,
+    missions_total_today: int,
+    skipped_pillars_today: list[str],
+    twin_pillar_done: set[str],
+    user_finish_hour: int | None,
+    twin_start_hour: int | None,
+    pillar_skip_counts: dict[str, int],
+) -> str | None:
+    """
+    Returns a context-specific strip message if today's data warrants one.
+    Returns None if no specific context applies — caller falls back to bank.
+    """
+    tone_key = normalize_strip_tone(tone_type)
+    high_guilt = guilt_orientation > 0.7
+
+    fmt_kwargs = {
+        "done": 0,
+        "total": 0,
+        "remaining": 0,
+        "hour": 0,
+        "twin_hour": 0,
+        "pillar": "",
+        "count": 0,
+    }
+
+    # Context 1 — User completed everything today
+    if missions_total_today > 0 and missions_completed_today >= missions_total_today:
+        bank_key = "user_completed_all"
+        pool = CONTEXT_MESSAGES[bank_key].get(
+            tone_key, CONTEXT_MESSAGES[bank_key].get("rival", [])
+        )
+        if pool:
+            msg = random.choice(pool)
+            # Timing variant: if user finished late AND twin started early
+            if (
+                user_finish_hour is not None
+                and twin_start_hour is not None
+                and user_finish_hour >= 18
+                and twin_start_hour <= 9
+                and tone_key in ("rival", "philosopher")
+            ):
+                timing_pool = CONTEXT_MESSAGES["timing_gap"].get(
+                    tone_key, CONTEXT_MESSAGES["timing_gap"].get("rival", [])
+                )
+                if timing_pool:
+                    msg = random.choice(timing_pool)
+                    fmt_kwargs.update(
+                        {
+                            "hour": user_finish_hour,
+                            "twin_hour": twin_start_hour,
+                            "done": missions_completed_today,
+                            "total": missions_total_today,
+                            "remaining": 0,
+                            "pillar": "",
+                            "count": 0,
+                        }
+                    )
+                    return _format_context_message(msg, **fmt_kwargs)
+            fmt_kwargs.update(
+                {
+                    "done": missions_completed_today,
+                    "total": missions_total_today,
+                    "remaining": 0,
+                    "hour": user_finish_hour or 0,
+                    "twin_hour": twin_start_hour or 0,
+                    "pillar": "",
+                    "count": 0,
+                }
+            )
+            return _format_context_message(msg, **fmt_kwargs)
+
+    # Context 2 — Twin did a mission that user skipped (specific pillar callout)
+    if skipped_pillars_today and twin_pillar_done:
+        skipped_and_twin_did = [
+            p for p in skipped_pillars_today if p in twin_pillar_done
+        ]
+        if skipped_and_twin_did:
+            target_pillar = max(
+                skipped_and_twin_did,
+                key=lambda p: pillar_skip_counts.get(p, 1),
+            )
+            skip_count = pillar_skip_counts.get(target_pillar, 1)
+            pillar_display = target_pillar.replace("_", " ").title()
+
+            if high_guilt:
+                pool = CONTEXT_MESSAGES["twin_done_user_skipped"].get(
+                    f"{tone_key}_safe",
+                    CONTEXT_MESSAGES["twin_done_user_skipped"].get("rival_safe", []),
+                )
+            else:
+                pool = CONTEXT_MESSAGES["twin_done_user_skipped"].get(
+                    tone_key,
+                    CONTEXT_MESSAGES["twin_done_user_skipped"].get("rival", []),
+                )
+
+            if pool:
+                msg = random.choice(pool)
+                fmt_kwargs.update(
+                    {
+                        "pillar": pillar_display,
+                        "count": skip_count,
+                        "twin_hour": twin_start_hour or 7,
+                        "done": missions_completed_today,
+                        "total": missions_total_today,
+                        "remaining": max(0, missions_total_today - missions_completed_today),
+                        "hour": user_finish_hour or 0,
+                    }
+                )
+                return _format_context_message(msg, **fmt_kwargs)
+
+    # Context 3 — Partial progress (user has done some but not all, day still open)
+    if (
+        missions_total_today > 0
+        and 0 < missions_completed_today < missions_total_today
+        and gap_state in ("slightly_behind", "significantly_behind", "neck_and_neck")
+    ):
+        remaining = missions_total_today - missions_completed_today
+        if remaining >= 2:
+            pool = CONTEXT_MESSAGES["partial_progress"].get(
+                tone_key,
+                CONTEXT_MESSAGES["partial_progress"].get("rival", []),
+            )
+            if pool:
+                msg = random.choice(pool)
+                fmt_kwargs.update(
+                    {
+                        "done": missions_completed_today,
+                        "total": missions_total_today,
+                        "remaining": remaining,
+                        "pillar": "",
+                        "count": 0,
+                        "hour": user_finish_hour or 0,
+                        "twin_hour": twin_start_hour or 0,
+                    }
+                )
+                return _format_context_message(msg, **fmt_kwargs)
+
+    return None
+
+
 async def update_strip_message(
     user_id: str,
     event: str | None = None,
@@ -193,14 +433,15 @@ async def update_strip_message(
 ) -> str | None:
     """
     Updates the strip message in twin_state based on current conditions.
-
-    Called:
-    - After twin simulation (daily, if frequency allows)
-    - On significant events (gap change, milestone, all missions complete)
-
-    Returns the new message or None if not updated.
+    Context-aware: checks today's mission data before falling back to banks.
     """
-    # Load required data
+    from datetime import date as date_cls
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    from app.services.mission_service import get_user_date
+
+    # ── Load twin state ──────────────────────────────────────────────────
     twin_result = (
         supabase_admin.table("twin_state")
         .select("current_gap_state, strip_message, last_strip_updated")
@@ -212,9 +453,10 @@ async def update_strip_message(
     if not twin:
         return None
 
+    # ── Load DNA (tone, frequency, guilt_orientation) ────────────────────
     dna_result = (
         supabase_admin.table("discipline_dna")
-        .select("twin_tone_type, twin_message_frequency")
+        .select("twin_tone_type, twin_message_frequency, guilt_orientation")
         .eq("user_id", user_id)
         .single()
         .execute()
@@ -223,24 +465,26 @@ async def update_strip_message(
     if not dna:
         return None
 
+    # ── Load user (username, timezone) ──────────────────────────────────
     user_result = (
         supabase_admin.table("users")
-        .select("username")
+        .select("username, timezone")
         .eq("id", user_id)
         .single()
         .execute()
     )
-    username = user_result.data.get("username", "you") if user_result.data else "you"
+    user_row = user_result.data or {}
+    username = user_row.get("username") or "you"
+    tz_str = str(user_row.get("timezone") or "UTC").strip() or "UTC"
 
     tone_type = normalize_strip_tone(dna.get("twin_tone_type", "rival"))
     frequency = dna.get("twin_message_frequency", "medium")
     gap_state = twin.get("current_gap_state", "neck_and_neck")
     last_updated = twin.get("last_strip_updated")
     strip_empty = not (twin.get("strip_message") or "").strip()
+    guilt_orientation = float(dna.get("guilt_orientation") or 0.0)
 
-    # Check if we should update based on frequency
-    # Events always trigger an update regardless of frequency
-    # Empty strip always gets a message (frequency only limits rotation when copy exists)
+    # ── Frequency gate (events and empty strip always pass through) ──────
     if event is None and last_updated and not strip_empty and not force:
         try:
             last_dt = datetime.fromisoformat(str(last_updated))
@@ -249,26 +493,148 @@ async def update_strip_message(
             days_since = 999
 
         if frequency == "high" and days_since < 1:
-            return None  # Already updated today
+            return None
         if frequency == "medium" and days_since < 2:
-            return None  # Update every 2-3 days
+            return None
         if frequency == "low" and days_since < 7:
-            return None  # Only on significant events for low frequency
+            return None
 
-    # Generate new message
-    new_message = get_strip_message(gap_state, tone_type, event, username)
+    # ── Event override (unchanged) ────────────────────────────────────────
+    if event and event in EVENT_MESSAGES:
+        new_message = get_strip_message(gap_state, tone_type, event, username)
+        supabase_admin.table("twin_state").update(
+            {
+                "strip_message": new_message,
+                "last_strip_updated": datetime.utcnow().isoformat(),
+            }
+        ).eq("user_id", user_id).execute()
+        return new_message
 
-    # Don't repeat the same message twice in a row (for non-event updates)
-    current_message = twin.get("strip_message", "") or ""
-    if event is None and new_message == current_message:
-        bank = STRIP_MESSAGES.get(gap_state, STRIP_MESSAGES["neck_and_neck"])
-        messages = bank.get(tone_type, bank.get("rival", ["Still here."]))
-        if len(messages) > 1:
-            remaining = [m for m in messages if m != current_message]
-            if remaining:
-                new_message = random.choice(remaining)
+    # ── Fetch today's context data ────────────────────────────────────────
+    new_message: str | None = None
 
-    # Store in twin_state
+    try:
+        today = get_user_date(tz_str)
+
+        user_missions = (
+            supabase_admin.table("missions")
+            .select("completed, core_pillar, completed_at, type")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .execute()
+            .data
+            or []
+        )
+
+        missions_total_today = len(user_missions)
+        missions_completed_today = sum(1 for m in user_missions if m.get("completed"))
+
+        user_finish_hour: int | None = None
+        completed_missions = [m for m in user_missions if m.get("completed") and m.get("completed_at")]
+        if completed_missions:
+            try:
+                completed_missions.sort(key=lambda m: str(m.get("completed_at") or ""), reverse=True)
+                raw_ts = completed_missions[0]["completed_at"]
+                dt = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+                try:
+                    local_dt = dt.astimezone(ZoneInfo(tz_str))
+                    user_finish_hour = local_dt.hour
+                except Exception:
+                    user_finish_hour = dt.hour
+            except Exception:
+                pass
+
+        user_skipped_pillars = {
+            str(m.get("core_pillar") or "").lower()
+            for m in user_missions
+            if not m.get("completed") and m.get("type") == "core" and m.get("core_pillar")
+        }
+
+        twin_log = (
+            supabase_admin.table("twin_mission_log")
+            .select("core_pillar, simulated_hour")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .execute()
+            .data
+            or []
+        )
+        twin_pillar_done = {
+            str(r.get("core_pillar") or "").lower()
+            for r in twin_log
+            if r.get("core_pillar")
+        }
+
+        twin_start_hour: int | None = None
+        if twin_log:
+            hours = [int(r.get("simulated_hour") or 99) for r in twin_log if r.get("simulated_hour") is not None]
+            if hours:
+                twin_start_hour = min(hours)
+
+        skipped_pillars_today = [p for p in user_skipped_pillars if p in twin_pillar_done and p]
+
+        pillar_skip_counts: dict[str, int] = {}
+        if skipped_pillars_today:
+            try:
+                week_ago = str(date_cls.fromisoformat(today) - timedelta(days=7))
+                week_missions = (
+                    supabase_admin.table("missions")
+                    .select("mission_date, completed, core_pillar")
+                    .eq("user_id", user_id)
+                    .eq("type", "core")
+                    .gte("mission_date", week_ago)
+                    .lte("mission_date", today)
+                    .execute()
+                    .data
+                    or []
+                )
+                for m in week_missions:
+                    p = str(m.get("core_pillar") or "").lower()
+                    if p and not m.get("completed"):
+                        pillar_skip_counts[p] = pillar_skip_counts.get(p, 0) + 1
+            except Exception:
+                pass
+
+        new_message = _build_context_message(
+            gap_state=gap_state,
+            tone_type=tone_type,
+            guilt_orientation=guilt_orientation,
+            missions_completed_today=missions_completed_today,
+            missions_total_today=missions_total_today,
+            skipped_pillars_today=skipped_pillars_today,
+            twin_pillar_done=twin_pillar_done,
+            user_finish_hour=user_finish_hour,
+            twin_start_hour=twin_start_hour,
+            pillar_skip_counts=pillar_skip_counts,
+        )
+
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "strip_context_fetch_error",
+                    "user_id": user_id,
+                    "error": str(e)[:200],
+                }
+            )
+        )
+
+    # ── Fallback to existing bank if no context message ──────────────────
+    if not new_message:
+        new_message = get_strip_message(gap_state, tone_type, None, username)
+
+        current_message = twin.get("strip_message", "") or ""
+        if new_message == current_message:
+            bank = STRIP_MESSAGES.get(gap_state, STRIP_MESSAGES["neck_and_neck"])
+            messages = bank.get(tone_type, bank.get("rival", ["Still here."]))
+            if len(messages) > 1:
+                remaining = [m for m in messages if m != current_message]
+                if remaining:
+                    new_message = random.choice(remaining)
+    else:
+        new_message = new_message.replace("{username}", username)
+
+    # ── Store ─────────────────────────────────────────────────────────────
     supabase_admin.table("twin_state").update(
         {
             "strip_message": new_message,

@@ -74,6 +74,63 @@ async def refresh_twin_gap_state(user_id: str) -> tuple[str | None, str]:
     return old_s, new_gs
 
 
+# ── ARCHETYPE PILLAR PREFERENCES ─────────────────────────────────────────────
+# Score 1–5: higher = Twin prefers this pillar (completes first when capacity limited)
+# Lower score = Twin skips this when below full capacity
+# Mirrors the psychological profile of each archetype.
+
+ARCHETYPE_PILLAR_PREFERENCE: dict[str, dict[str, int]] = {
+    "structured_climber": {
+        # Systems-first: sleep/movement are non-negotiable structure
+        "sleep": 5,
+        "movement": 5,
+        "no_phone": 4,
+        "hydration": 3,
+        "mindfulness": 2,
+    },
+    "lone_wolf": {
+        # Self-reliant: physical discipline + distraction removal
+        "movement": 5,
+        "no_phone": 5,
+        "sleep": 4,
+        "hydration": 3,
+        "mindfulness": 2,
+    },
+    "restless_creator": {
+        # Energy/mood first: mindfulness and movement, skips rigid habits
+        "mindfulness": 5,
+        "movement": 4,
+        "hydration": 3,
+        "sleep": 3,
+        "no_phone": 2,
+    },
+    "reluctant_achiever": {
+        # Low-friction first: hydration and mindfulness are easy; avoids movement
+        "hydration": 5,
+        "mindfulness": 4,
+        "sleep": 3,
+        "no_phone": 2,
+        "movement": 2,
+    },
+    "social_performer": {
+        # Visible/physical: movement and sleep for performance, skips internal habits
+        "movement": 5,
+        "sleep": 4,
+        "hydration": 4,
+        "no_phone": 3,
+        "mindfulness": 2,
+    },
+}
+
+_DEFAULT_PILLAR_PREFERENCE: dict[str, int] = {
+    "sleep": 4,
+    "movement": 4,
+    "hydration": 3,
+    "mindfulness": 3,
+    "no_phone": 3,
+}
+
+
 def _mission_local_hour_window(
     title: str,
     core_pillar: str | None,
@@ -88,9 +145,13 @@ def _mission_local_hour_window(
     p = (str(core_pillar or "")).lower()
     mt = (str(mission_type or "")).lower()
 
+    # ── Journal ─────────────────────────────────────────────────────────
+    # Evening reflection — never afternoon
     if is_journal_mission or "journal" in t or p == "journal":
-        return (14, 19)
+        return (20, 22)
 
+    # ── Sleep ────────────────────────────────────────────────────────────
+    # Sleep missions are always night
     if any(
         k in t
         for k in (
@@ -109,28 +170,45 @@ def _mission_local_hour_window(
     if p == "sleep" or ("sleep" in t and "phone" not in t):
         return (21, 23)
 
+    # ── Morning keywords (explicit) ──────────────────────────────────────
     if any(k in t for k in ("morning", "wake", "first thing", "sunrise")):
-        return (6, 10)
+        return (6, 8)
 
-    if any(k in t for k in ("hydration", "water", "glass of water")) and "before bed" not in t:
-        return (7, 11)
+    # ── Movement / Exercise ──────────────────────────────────────────────
+    # Twin is a morning person — done before most people wake up
+    if any(k in t for k in ("walk", "movement", "workout", "exercise", "gym", "steps", "run", "jog")):
+        return (6, 8)
+    if p == "movement":
+        return (6, 8)
 
-    if mt == "personal":
-        return (9, 20)
+    # ── Mindfulness / Meditation ─────────────────────────────────────────
+    # After morning movement — brief stillness window
+    if any(k in t for k in ("mindful", "meditat", "breath", "reflect", "stillness")):
+        return (7, 9)
+    if p in ("mindfulness", "meditation"):
+        return (7, 9)
 
-    if any(k in t for k in ("walk", "movement", "workout", "exercise", "gym", "steps")):
-        return (8, 14)
+    # ── Hydration ────────────────────────────────────────────────────────
+    # Spread throughout the day: morning start or midday top-up
+    # Using a wider window; hash-based selection will distribute naturally
+    if any(k in t for k in ("hydration", "water", "glass of water", "drink")) and "before bed" not in t:
+        return (8, 15)
 
-    if any(k in t for k in ("mindful", "meditat", "breath")) or p in ("mindfulness", "meditation"):
-        return (7, 11)
-
+    # ── No Phone / Screen ────────────────────────────────────────────────
+    # Afternoon focus window
     if "phone" in t or p == "no_phone" or "screen" in t:
-        return (10, 21)
+        return (13, 15)
 
+    # ── Interest / Resistance ────────────────────────────────────────────
+    # Late morning to early afternoon
     if mt in ("interest", "resistance"):
-        return (10, 20)
+        return (10, 14)
 
-    # Default: spread across working hours (not pre-dawn, not late night)
+    # ── Personal ─────────────────────────────────────────────────────────
+    if mt == "personal":
+        return (9, 18)
+
+    # ── Default ──────────────────────────────────────────────────────────
     return (8, 18)
 
 
@@ -174,6 +252,41 @@ def _assign_simulated_times_for_missions(
         out.append((r, h, minute))
     out.sort(key=lambda x: (x[1], x[2]))
     return out
+
+
+def _sort_missions_by_twin_preference(
+    missions: list[dict],
+    archetype: str,
+) -> list[dict]:
+    """
+    Sort missions so the Twin's preferred ones come first.
+    When the Twin operates below full capacity, it completes the top of
+    this list and skips the bottom — giving it consistent archetype-driven
+    preferences rather than random skipping.
+
+    Preference order:
+    1. Core pillar preference score (archetype-specific)
+    2. Difficulty: easy > medium > hard (Twin completes easier ones on lower-energy days)
+    3. Mission type: core > interest > resistance > personal
+    """
+    prefs = ARCHETYPE_PILLAR_PREFERENCE.get(
+        str(archetype or "").lower().replace(" ", "_"),
+        _DEFAULT_PILLAR_PREFERENCE,
+    )
+
+    difficulty_rank = {"easy": 3, "medium": 2, "hard": 1, "elite": 0}
+    type_rank = {"core": 4, "interest": 3, "resistance": 2, "personal": 1}
+
+    def _score(m: dict) -> tuple[int, int, int]:
+        pillar = str(m.get("core_pillar") or "").lower()
+        pillar_score = prefs.get(pillar, 3)  # default mid-preference
+        diff = str(m.get("difficulty") or "medium").lower()
+        diff_score = difficulty_rank.get(diff, 2)
+        mt = str(m.get("type") or "core").lower()
+        type_score = type_rank.get(mt, 1)
+        return (pillar_score, diff_score, type_score)
+
+    return sorted(missions, key=_score, reverse=True)
 
 
 async def record_twin_mission_log_from_daily_record(
@@ -533,6 +646,204 @@ def recalibrate_twin_base_rate(current_base_rate: float, user_completion_rate_re
     return round(max(0.60, min(0.90, new_rate)), 3)
 
 
+def compute_comeback_state(
+    twin_consecutive_absent: int,
+    twin_comeback_day: int,
+    user_earned_today: int,
+) -> tuple[int, int]:
+    """
+    Returns (new_consecutive_absent, new_comeback_day).
+    Called at start of simulation before XP is computed.
+    """
+    from app.core.constants import TWIN_COMEBACK_SCHEDULE, TWIN_COMEBACK_TRIGGER_DAYS
+
+    user_active = user_earned_today > 0
+
+    if not user_active:
+        # User absent — increment counter, no comeback active
+        return twin_consecutive_absent + 1, 0
+
+    # User is active today
+    if twin_comeback_day > 0:
+        # Advance comeback window
+        next_day = twin_comeback_day + 1
+        if next_day > len(TWIN_COMEBACK_SCHEDULE):
+            return 0, 0  # Comeback complete
+        return 0, next_day
+
+    if twin_consecutive_absent >= TWIN_COMEBACK_TRIGGER_DAYS:
+        # User just returned from long absence — start comeback day 1
+        return 0, 1
+
+    # Normal active day
+    return 0, 0
+
+
+def compute_twin_daily_xp(
+    days_active: int,
+    daily_cap: int,
+    twin_xp: int,
+    user_xp: int,
+    twin_yesterday_xp: int,
+    twin_comeback_day: int,
+    user_xp_last_7_days: list[int],
+    user_completion_rate_7d: float,
+) -> int:
+    """
+    Adaptive Shadow Model — returns integer XP for Twin today.
+    This is the ONLY function that determines Twin's daily XP budget.
+    """
+    import random as _rnd
+
+    from app.core.constants import (
+        TWIN_BOOTSTRAP_FLOOR_PCT,
+        TWIN_COMEBACK_SCHEDULE,
+        TWIN_GAP_ERROR_CORRECTION,
+        TWIN_GAP_HIGH_PERFORMER_FACTOR,
+        TWIN_GAP_HIGH_PERFORMER_THRESHOLD,
+        TWIN_GAP_MULTIPLIER_HARD_CAP,
+        TWIN_GAP_MULTIPLIER_SCHEDULE,
+        TWIN_GAP_STRUGGLING_FACTOR,
+        TWIN_GAP_STRUGGLING_THRESHOLD,
+        TWIN_MAX_GAP_MULTIPLIER,
+        TWIN_SMOOTHING_DOWN,
+        TWIN_SMOOTHING_UP,
+        TWIN_TARGET_GAP_CAP_MULTIPLIER,
+        TWIN_URGENCY_GAP_THRESHOLD_PCT,
+        TWIN_URGENCY_MULTIPLIER_BONUS,
+        TWIN_VARIANCE_HIGH,
+        TWIN_VARIANCE_LOW,
+        TWIN_XP_CEILING_PCT,
+        TWIN_XP_FLOOR_PCT,
+    )
+
+    ceiling = int(daily_cap * TWIN_XP_CEILING_PCT)
+    floor = int(daily_cap * TWIN_XP_FLOOR_PCT)
+
+    # ── COMEBACK WINDOW — overrides everything, skip all other steps ──────────
+    in_comeback = 0 < twin_comeback_day <= len(TWIN_COMEBACK_SCHEDULE)
+    if in_comeback:
+        fraction = TWIN_COMEBACK_SCHEDULE[twin_comeback_day - 1]
+        return max(floor, min(ceiling, int(daily_cap * fraction)))
+        # Note: smoothing deliberately skipped in comeback window
+
+    # ── STEP 1: Rolling average ───────────────────────────────────────────────
+    if days_active < 7 or len(user_xp_last_7_days) < 7:
+        total = sum(user_xp_last_7_days) if user_xp_last_7_days else 0
+        raw = total / max(len(user_xp_last_7_days), 1) if total else 0
+        avg = max(float(raw), daily_cap * TWIN_BOOTSTRAP_FLOOR_PCT)
+    else:
+        avg = sum(user_xp_last_7_days[-7:]) / 7.0
+
+    # ── STEP 2: Gap multiplier ────────────────────────────────────────────────
+    multiplier = 1.0
+    for mn, mx, m in TWIN_GAP_MULTIPLIER_SCHEDULE:
+        if mn <= days_active <= mx:
+            multiplier = m
+            break
+
+    if user_completion_rate_7d > TWIN_GAP_HIGH_PERFORMER_THRESHOLD:
+        multiplier *= TWIN_GAP_HIGH_PERFORMER_FACTOR
+    elif user_completion_rate_7d < TWIN_GAP_STRUGGLING_THRESHOLD:
+        multiplier *= TWIN_GAP_STRUGGLING_FACTOR
+
+    # Urgency boost: if user has pulled far ahead, Twin fights harder
+    user_gap = user_xp - twin_xp  # positive = user ahead
+    if user_gap > daily_cap * TWIN_URGENCY_GAP_THRESHOLD_PCT:
+        multiplier += TWIN_URGENCY_MULTIPLIER_BONUS
+
+    multiplier = min(multiplier, TWIN_GAP_MULTIPLIER_HARD_CAP)
+
+    # ── STEP 3: Target gap (positive = Twin wants to be ahead) ───────────────
+    target_gap = avg * multiplier
+    target_gap = min(target_gap, daily_cap * TWIN_TARGET_GAP_CAP_MULTIPLIER)
+
+    # ── STEP 4: Gap error correction ─────────────────────────────────────────
+    actual_gap = twin_xp - user_xp  # positive = Twin ahead, negative = user ahead
+    gap_error = target_gap - actual_gap
+    ideal = avg + (gap_error * TWIN_GAP_ERROR_CORRECTION)
+
+    # ── STEP 5: Human variance ────────────────────────────────────────────────
+    daily = ideal * _rnd.uniform(TWIN_VARIANCE_LOW, TWIN_VARIANCE_HIGH)
+
+    # ── STEP 6: Ceiling and floor ─────────────────────────────────────────────
+    daily = max(float(floor), min(float(ceiling), daily))
+
+    # ── STEP 7: Smoothing ─────────────────────────────────────────────────────
+    if twin_yesterday_xp > 0:
+        lo = twin_yesterday_xp * TWIN_SMOOTHING_DOWN
+        hi = twin_yesterday_xp * TWIN_SMOOTHING_UP
+        daily = max(lo, min(hi, daily))
+        daily = max(float(floor), min(float(ceiling), daily))  # re-apply after smooth
+
+    # ── STEP 8: Gap cap (Twin too far AHEAD of user) ──────────────────────────
+    projected_gap = (twin_xp + daily) - user_xp
+    max_gap = daily_cap * TWIN_MAX_GAP_MULTIPLIER
+    if projected_gap > max_gap:
+        capped = (user_xp + max_gap) - twin_xp
+        daily = max(float(floor), float(capped))
+
+    return int(round(daily))
+
+
+def update_twin_adaptive_state(
+    supabase,
+    user_id: str,
+    twin_xp_earned_today: int,
+    user_xp_earned_today: int,
+    new_comeback_day: int,
+    new_consecutive_absent: int,
+    today: str,
+    prev_rolling_avg: float,
+    prev_character_stage: int,
+    new_character_stage: int,
+    daily_cap: int,
+) -> None:
+    """
+    Writes new adaptive state columns to twin_state.
+    Called after twin_daily_record is written.
+    Silent on error — never blocks simulation.
+    """
+    import json as _json
+
+    from app.core.constants import DAILY_XP_CAPS
+
+    try:
+        # Stage transition: rescale rolling avg proportionally
+        new_rolling_avg = prev_rolling_avg
+        if new_character_stage != prev_character_stage:
+            try:
+                prev_s = max(1, min(6, int(prev_character_stage)))
+                new_s = max(1, min(6, int(new_character_stage)))
+                old_cap = DAILY_XP_CAPS[prev_s]
+                new_cap = DAILY_XP_CAPS[new_s]
+                if old_cap > 0 and prev_rolling_avg > 0:
+                    new_rolling_avg = prev_rolling_avg * (new_cap / old_cap)
+            except (IndexError, ZeroDivisionError, KeyError):
+                pass  # Keep old avg on error
+
+        supabase.table("twin_state").update(
+            {
+                "twin_rolling_avg_xp": new_rolling_avg,
+                "twin_yesterday_xp": twin_xp_earned_today,
+                "twin_comeback_day": new_comeback_day,
+                "twin_consecutive_absent": new_consecutive_absent,
+                "twin_last_active_date": today if user_xp_earned_today > 0 else None,
+            }
+        ).eq("user_id", user_id).execute()
+
+    except Exception as e:
+        logger.error(
+            _json.dumps(
+                {
+                    "event": "twin_adaptive_state_update_error",
+                    "user_id": user_id,
+                    "error": str(e)[:200],
+                }
+            )
+        )
+
+
 async def simulate_twin_day(user_id: str) -> dict:
     """
     Simulates the twin's day for a given user.
@@ -656,89 +967,116 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
         )
         return {"simulated": False, "reason": "no_missions_today"}
 
-    archetype = user.get("archetype", "structured_climber")
-    fallback_base = ARCHETYPE_RHYTHMS.get(archetype, DEFAULT_RHYTHM)["base_rate"]
-    base_rate = float(twin.get("consistency_ceiling", fallback_base) or fallback_base)
-
-    today_rate = get_twin_daily_rate(archetype, day_of_week, base_rate)
-
-    # ── Two-phase crossing recovery ──────────────────────────────────────────
-    from datetime import date as date_type, timedelta
-
     today_date = date_type.fromisoformat(today)
-    last_passed_at = twin.get("last_passed_at")
-    user_is_currently_ahead = int(user.get("total_xp", 0) or 0) > int(twin.get("twin_xp", 0) or 0)
 
-    if last_passed_at and user_is_currently_ahead:
-        try:
-            last_passed_date = date_type.fromisoformat(str(last_passed_at)[:10])
-            days_since_crossed = (today_date - last_passed_date).days
-        except Exception:
-            days_since_crossed = None
+    # ── Load adaptive state (Adaptive Shadow Model) ─────────────────────────────
+    twin_rolling_avg = float(twin.get("twin_rolling_avg_xp") or 0)
+    twin_yesterday_xp_v = int(twin.get("twin_yesterday_xp") or 0)
+    twin_comeback_day_v = int(twin.get("twin_comeback_day") or 0)
+    twin_consecutive_v = int(twin.get("twin_consecutive_absent") or 0)
 
-        if days_since_crossed is not None:
-            if days_since_crossed <= CROSSING_RECOVERY_DAYS:
-                today_rate = min(0.95, today_rate + CROSSING_RECOVERY_BOOST)
-                logger.debug(
-                    "simulate_twin_day: Phase 1 recovery active for user=%s day=%s/%s boosted_rate=%.3f",
-                    user_id,
-                    days_since_crossed,
-                    CROSSING_RECOVERY_DAYS,
-                    today_rate,
-                )
-            elif days_since_crossed > DORMANT_GAP_TRIGGER_DAYS:
-                from app.core.supabase_client import supabase_admin as _sb
+    _week_ago = str(today_date - timedelta(days=7))
 
-                seven_days_ago = str(today_date - timedelta(days=7))
-                user_streak_rows = (
-                    _sb.table("streak_log")
-                    .select("total_missions_done, total_missions")
-                    .eq("user_id", user_id)
-                    .gte("log_date", seven_days_ago)
-                    .execute()
-                    .data
-                    or []
-                )
+    _xp_rows = (
+        supabase_admin.table("xp_log")
+        .select("amount, log_date")
+        .eq("user_id", user_id)
+        .gte("log_date", _week_ago)
+        .lte("log_date", today)
+        .execute()
+        .data
+        or []
+    )
 
-                if user_streak_rows:
-                    total_done = sum(int(r.get("total_missions_done") or 0) for r in user_streak_rows)
-                    total_possible = sum(int(r.get("total_missions") or 0) for r in user_streak_rows)
-                    user_7d_avg = (total_done / total_possible) if total_possible > 0 else 0.70
-                else:
-                    user_7d_avg = 0.70
+    _daily_map: dict[str, int] = {}
+    for _r in _xp_rows:
+        _d = str(_r.get("log_date", ""))[:10]
+        _daily_map[_d] = _daily_map.get(_d, 0) + int(_r.get("amount") or 0)
 
-                phase2_rate = min(0.95, user_7d_avg + DORMANT_GAP_OFFSET)
-                today_rate = max(today_rate, phase2_rate)
+    user_xp_last_7 = [
+        _daily_map.get(str(today_date - timedelta(days=i)), 0) for i in range(6, -1, -1)
+    ]
+    user_xp_today_earned = _daily_map.get(today, 0)
 
-                logger.debug(
-                    "simulate_twin_day: Phase 2 dormant gap active for user=%s days_ahead=%s "
-                    "user_7d_avg=%.2f phase2_rate=%.3f final_rate=%.3f",
-                    user_id,
-                    days_since_crossed,
-                    user_7d_avg,
-                    phase2_rate,
-                    today_rate,
-                )
+    try:
+        _dna = (
+            supabase_admin.table("discipline_dna")
+            .select("completion_rate_7d")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
+        _cr = float(_dna.get("completion_rate_7d") or 50)
+        user_completion_7d = _cr / 100.0 if _cr > 1.0 else _cr
+    except Exception:
+        user_completion_7d = 0.5
 
-    # ── End of two-phase crossing recovery ───────────────────────────────────
+    _days_active = max(
+        0,
+        get_days_since_registration(
+            str(user.get("registration_date") or ""),
+            str(user.get("timezone") or "UTC"),
+        )
+        - 1,
+    )
+
+    _stage = int(user.get("character_stage") or 1)
+    _daily_cap = int(DAILY_XP_CAPS.get(max(1, min(6, _stage)), 100))
+
+    new_consecutive_absent, new_comeback_day = compute_comeback_state(
+        twin_consecutive_absent=twin_consecutive_v,
+        twin_comeback_day=twin_comeback_day_v,
+        user_earned_today=user_xp_today_earned,
+    )
+
+    twin_xp_budget = compute_twin_daily_xp(
+        days_active=_days_active,
+        daily_cap=_daily_cap,
+        twin_xp=int(twin.get("twin_xp") or 0),
+        user_xp=int(user.get("total_xp") or 0),
+        twin_yesterday_xp=twin_yesterday_xp_v,
+        twin_comeback_day=new_comeback_day,
+        user_xp_last_7_days=user_xp_last_7,
+        user_completion_rate_7d=user_completion_7d,
+    )
+
+    archetype = user.get("archetype", "structured_climber")
+    # Mission selection rate only (not used for XP budget)
+    rhythm = ARCHETYPE_RHYTHMS.get(archetype, DEFAULT_RHYTHM)
+    effective_base = rhythm["base_rate"]
+    is_weekday = day_of_week <= 5
+    if is_weekday:
+        effective_base += rhythm["weekday_boost"]
+    else:
+        effective_base -= rhythm["weekend_penalty"]
+    daily_variance = random.gauss(0, rhythm["variance"])
+    today_rate = round(max(0.45, min(0.95, effective_base + daily_variance)), 3)
 
     core_missions = [m for m in today_missions if m.get("type") == "core" and not m.get("is_journal_mission")]
     non_core_missions = [m for m in today_missions if m not in core_missions]
 
-    personal_ms = [m for m in non_core_missions if m.get("type") == "personal"]
-    rest_nc = [m for m in non_core_missions if m.get("type") != "personal"]
+    # Sort by archetype preference — Twin completes preferred missions first,
+    # skips least-preferred ones when operating below full capacity.
+    sorted_core = _sort_missions_by_twin_preference(core_missions, archetype)
+    sorted_non_core = _sort_missions_by_twin_preference(non_core_missions, archetype)
+
+    personal_ms = [m for m in sorted_non_core if m.get("type") == "personal"]
+    rest_nc = [m for m in sorted_non_core if m.get("type") != "personal"]
 
     core_rate = min(0.97, today_rate + 0.10)
-    core_target = round(len(core_missions) * core_rate)
-    non_core_target = round(len(non_core_missions) * today_rate)
-    non_core_target = min(len(non_core_missions), max(0, non_core_target))
+    core_target = round(len(sorted_core) * core_rate)
+    non_core_target = round(len(sorted_non_core) * today_rate)
+    non_core_target = min(len(sorted_non_core), max(0, non_core_target))
 
     if non_core_target > 0 and random.random() < 0.30:
         non_core_target = max(0, non_core_target - 1)
 
-    completed_core = core_missions[:core_target]
+    # Take from the top of the preference-sorted list
+    completed_core = sorted_core[:core_target]
 
-    nc_total = len(non_core_missions)
+    nc_total = len(sorted_non_core)
     if nc_total > 0 and non_core_target > 0:
         p_cap = len(personal_ms)
         p_take = min(p_cap, max(0, round(non_core_target * p_cap / nc_total))) if p_cap else 0
@@ -751,25 +1089,52 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
     all_missed = [m for m in today_missions if m not in all_completed]
 
     twin_stage = int(twin.get("twin_character_stage") or 1)
-    xp_cap = int(DAILY_XP_CAPS.get(twin_stage, 100))
     pf_cap = int(DAILY_PF_CAPS.get(twin_stage, 160))
 
-    raw_xp_earned = sum(int(m.get("xp_value") or 0) for m in all_completed)
-    raw_pf_earned = sum(int(m.get("pf_value") or 0) for m in all_completed)
-
-    xp_earned = min(xp_cap, raw_xp_earned)
-    pf_earned = min(pf_cap, raw_pf_earned)
+    completed_missions = all_completed
+    if completed_missions:
+        _raw_total = sum(int(m.get("xp_value") or 0) for m in completed_missions)
+        if twin_xp_budget <= 0:
+            xp_earned = 0
+            pf_earned = 0
+            for m in completed_missions:
+                m["_scaled_xp"] = 0
+        elif _raw_total > 0:
+            _scale = twin_xp_budget / _raw_total
+            xp_earned = 0
+            for m in completed_missions:
+                m["_scaled_xp"] = max(1, int(round(int(m.get("xp_value") or 0) * _scale)))
+                xp_earned += m["_scaled_xp"]
+            xp_earned = min(xp_earned, twin_xp_budget)
+            raw_pf_sum = sum(int(m.get("pf_value") or 0) for m in completed_missions)
+            pf_earned = min(pf_cap, int(round(raw_pf_sum * _scale)))
+        else:
+            n = len(completed_missions)
+            if n > 0:
+                base = twin_xp_budget // n
+                rem = twin_xp_budget - base * n
+                for i, m in enumerate(completed_missions):
+                    m["_scaled_xp"] = base + (1 if i < rem else 0)
+                xp_earned = twin_xp_budget
+            else:
+                xp_earned = 0
+            raw_pf_sum = sum(int(m.get("pf_value") or 0) for m in completed_missions)
+            pf_earned = min(pf_cap, raw_pf_sum)
+    else:
+        xp_earned = 0
+        pf_earned = 0
 
     logger.debug(
-        "simulate_twin_day debug: user_id=%s today_rate=%.3f total_missions=%s "
+        "simulate_twin_day debug: user_id=%s today_rate=%.3f twin_xp_budget=%s total_missions=%s "
         "core_target=%s non_core_target=%s xp_earned=%s daily_cap_applied=%s",
         user_id,
         today_rate,
+        twin_xp_budget,
         len(today_missions),
         core_target,
         non_core_target,
         xp_earned,
-        xp_cap,
+        _daily_cap,
     )
 
     new_twin_xp = int(twin.get("twin_xp") or 0) + xp_earned
@@ -809,6 +1174,20 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
         },
         on_conflict="user_id,record_date",
     ).execute()
+
+    update_twin_adaptive_state(
+        supabase=supabase_admin,
+        user_id=user_id,
+        twin_xp_earned_today=xp_earned,
+        user_xp_earned_today=user_xp_today_earned,
+        new_comeback_day=new_comeback_day,
+        new_consecutive_absent=new_consecutive_absent,
+        today=today,
+        prev_rolling_avg=twin_rolling_avg,
+        prev_character_stage=_stage,
+        new_character_stage=int(user.get("character_stage") or 1),
+        daily_cap=_daily_cap,
+    )
 
     await record_twin_mission_log_from_daily_record(
         user_id,
@@ -877,6 +1256,12 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
     }
     if user_passed_twin:
         twin_update["last_passed_at"] = datetime.utcnow().isoformat()
+        try:
+            from app.services.gap_moment_service import queue_gap_moment
+
+            await queue_gap_moment(user_id, "passed_twin")
+        except Exception:
+            pass
 
     supabase_admin.table("twin_state").update(twin_update).eq("user_id", user_id).execute()
 
@@ -1059,6 +1444,34 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
 
         twin_record = rows[0]
 
+        twin_log_rows = (
+            supabase_admin.table("twin_mission_log")
+            .select("core_pillar, mission_type, simulated_hour")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .execute()
+            .data
+            or []
+        )
+        twin_missions_completed_count = int(twin_record.get("missions_completed") or 0)
+        twin_missions_total_count = int(twin_record.get("missions_assigned") or 0)
+        twin_completed_pillars = list(
+            {
+                str(r.get("core_pillar") or "").lower()
+                for r in twin_log_rows
+                if r.get("core_pillar")
+            }
+        )
+        twin_started_hour: int | None = None
+        if twin_log_rows:
+            hours = [
+                int(r.get("simulated_hour") or 99)
+                for r in twin_log_rows
+                if r.get("simulated_hour") is not None
+            ]
+            if hours:
+                twin_started_hour = min(hours)
+
         user_res = (
             supabase_admin.table("users")
             .select("archetype, registration_date, timezone, current_streak")
@@ -1068,14 +1481,20 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         )
         journal_user = user_res.data or {}
 
-        twin_res = (
-            supabase_admin.table("twin_state")
-            .select("twin_streak")
-            .eq("user_id", user_id)
-            .single()
-            .execute()
-        )
-        journal_twin = twin_res.data or {}
+        journal_dna: dict = {}
+        try:
+            dna_res = (
+                supabase_admin.table("discipline_dna")
+                .select("narrative_seed, twin_streak")
+                .eq("user_id", user_id)
+                .single()
+                .execute()
+            )
+            journal_dna = dna_res.data or {}
+        except Exception:
+            journal_dna = {}
+        narrative_seed: str | None = journal_dna.get("narrative_seed") or None
+        twin_streak = int(journal_dna.get("twin_streak") or 0)
 
         tz = str(journal_user.get("timezone") or "UTC")
         reg_n = get_days_since_registration(str(journal_user.get("registration_date") or ""), tz)
@@ -1097,7 +1516,6 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         missions_total = len(um_rows)
         missions_completed = sum(1 for m in um_rows if m.get("completed"))
 
-        missed_titles = twin_record.get("missed_mission_titles") or []
         twin_xp_today = int(twin_record.get("xp_earned") or 0)
         xp_log_rows = (
             supabase_admin.table("xp_log")
@@ -1110,27 +1528,6 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         )
         user_xp_today = sum(int(r.get("amount") or 0) for r in xp_log_rows)
         user_streak = int(journal_user.get("current_streak") or 0)
-
-        skipped_types: list[str] = []
-        if missed_titles:
-            try:
-                titles = [str(t) for t in missed_titles[:10] if t]
-                if titles:
-                    missed_res = (
-                        supabase_admin.table("missions")
-                        .select("type, core_pillar, title")
-                        .eq("user_id", user_id)
-                        .eq("mission_date", today)
-                        .in_("title", titles)
-                        .execute()
-                    )
-                    for m in missed_res.data or []:
-                        t = m.get("core_pillar") or m.get("type") or ""
-                        t = str(t).strip()
-                        if t and t not in skipped_types:
-                            skipped_types.append(t)
-            except Exception:
-                pass
 
         completion_hour: int | None = None
         try:
@@ -1155,21 +1552,41 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         except Exception:
             pass
 
-        if completion_hour is None:
-            try:
-                log_res = (
-                    supabase_admin.table("twin_mission_log")
-                    .select("simulated_hour")
-                    .eq("user_id", user_id)
-                    .eq("mission_date", today)
-                    .order("simulated_hour", desc=True)
-                    .limit(1)
-                    .execute()
-                )
-                if log_res.data:
-                    completion_hour = int(log_res.data[0].get("simulated_hour") or 9)
-            except Exception:
-                pass
+        try:
+            prev_journals = (
+                supabase_admin.table("twin_journal")
+                .select("content")
+                .eq("user_id", user_id)
+                .order("entry_date", desc=True)
+                .limit(3)
+                .execute()
+                .data
+                or []
+            )
+            last_3_openings: list[str] = []
+            for j in prev_journals:
+                c = str(j.get("content") or "").strip()
+                if c:
+                    dot = c.find(". ")
+                    first = c[: dot + 1] if 0 < dot < 80 else c[:80]
+                    last_3_openings.append(first)
+        except Exception:
+            last_3_openings = []
+
+        try:
+            uj_res = (
+                supabase_admin.table("journal_entries")
+                .select("content")
+                .eq("user_id", user_id)
+                .eq("mission_date", today)
+                .limit(1)
+                .execute()
+            )
+            user_journal_entry: str | None = None
+            if uj_res.data:
+                user_journal_entry = str(uj_res.data[0].get("content") or "").strip() or None
+        except Exception:
+            user_journal_entry = None
 
         try:
             content = await asyncio.to_thread(
@@ -1177,13 +1594,20 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
                 archetype=archetype,
                 relationship_phase=relationship_phase,
                 days_active=days_active,
+                twin_missions_completed=twin_missions_completed_count,
+                twin_missions_total=twin_missions_total_count,
+                twin_completed_pillars=twin_completed_pillars,
+                twin_xp_today=twin_xp_today,
+                twin_streak=twin_streak,
+                twin_started_hour=twin_started_hour,
                 missions_completed=missions_completed,
                 missions_total=missions_total,
-                skipped_types=skipped_types,
-                completion_hour=completion_hour,
-                streak=user_streak,
-                twin_xp_today=twin_xp_today,
                 user_xp_today=user_xp_today,
+                user_streak=user_streak,
+                user_last_completion_hour=completion_hour,
+                narrative_seed=narrative_seed,
+                user_journal_entry=user_journal_entry,
+                last_3_openings=last_3_openings,
             )
         except Exception as e:
             logger.error(
@@ -1260,6 +1684,40 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
                     "event": "twin_journal_error",
                     "user_id": user_id,
                     "date": today,
+                    "error": str(e)[:200],
+                }
+            )
+        )
+
+
+async def generate_journal_for_yesterday(user_id: str) -> None:
+    """
+    Called at local midnight (00:00) to write the Twin's journal for the day
+    that just ended (yesterday from the perspective of the new day).
+    The 1am twin_simulation_job still calls generate_and_store_twin_journal as a fallback.
+    """
+    from datetime import date as date_type, timedelta
+
+    from app.services.mission_service import get_user_date
+
+    try:
+        user_row = (
+            supabase_admin.table("users")
+            .select("timezone")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        tz = str((user_row.data or {}).get("timezone") or "UTC").strip() or "UTC"
+        today = get_user_date(tz)
+        yesterday = str(date_type.fromisoformat(today) - timedelta(days=1))
+        await generate_and_store_twin_journal(user_id, yesterday)
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "journal_midnight_error",
+                    "user_id": user_id,
                     "error": str(e)[:200],
                 }
             )
@@ -1653,6 +2111,22 @@ async def recalibrate_twin(user_id: str) -> dict:
     }
 
 
+def _assemble_today_context(
+    missions_summary: str,
+    tone_topic: str,
+    tone_intent: str,
+    user_streak: int,
+    completed_count: int,
+    total_count: int,
+) -> str:
+    return (
+        f"{missions_summary} "
+        f"Streak: {user_streak} days. "
+        f"Tone topic: {tone_topic}; intent: {tone_intent}. "
+        f"Today progress: {completed_count}/{total_count} missions."
+    )
+
+
 async def send_twin_message(user_id: str, message: str) -> dict:
     """
     Handle a user message to their Twin: context, safety check, structured twin reply, persistence.
@@ -1675,11 +2149,29 @@ async def send_twin_message(user_id: str, message: str) -> dict:
 
 
 async def _send_twin_message_impl(user_id: str, message: str) -> dict:
+    import asyncio
+
+    from app.agents.agent_guardrails import sanitize_for_prompt, sanitize_username
+    from app.agents.memory_anchor_agent import classify_and_store_anchor
+    from app.agents.tone_detector import detect_tone
     from app.agents.twin_chat_agent import (
         SAFETY_RESPONSES,
+        build_conversation_messages,
         classify_message_safety,
-        generate_twin_response,
+        get_last_openings,
+        get_relationship_phase,
+        get_relevant_anchors,
+        get_tone_rating_summary,
+        _generate_twin_response_sync,
     )
+    from app.agents.twin_consistency_checker import check_consistency
+    from app.agents.twin_response_generator import (
+        _build_response_prompt,
+        build_conversation_history_text,
+        format_gap_percentage_label,
+        generate_twin_response_v2,
+    )
+    from app.core.constants import STAGE_NAMES
     from app.services.mission_service import get_days_since_registration, get_user_date
 
     now = datetime.now(timezone.utc).isoformat()
@@ -1707,16 +2199,17 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         "current_gap_state": "neck_and_neck",
         "twin_character_stage": 1,
         "twin_pet_stage": 0,
+        "twin_streak": 0,
     }
 
     char_res = (
         supabase_admin.table("users")
-        .select("total_xp, current_streak")
+        .select("total_xp, current_streak, character_stage")
         .eq("id", user_id)
         .limit(1)
         .execute()
     )
-    char = (char_res.data or [None])[0] or {"total_xp": 0, "current_streak": 0}
+    char = (char_res.data or [None])[0] or {"total_xp": 0, "current_streak": 0, "character_stage": 1}
 
     dna_result = supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id).execute()
     dna = dna_result.data[0] if dna_result.data else {
@@ -1762,15 +2255,22 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     if not interests:
         onboarding = (
             supabase_admin.table("onboarding_answers")
-            .select("answer_json")
+            .select("answer_json, question_key")
             .eq("user_id", user_id)
-            .eq("question_key", "q11_interests")
-            .limit(1)
+            .in_("question_key", ["q12_interests", "q11_interests"])
             .execute()
             .data
         )
+        row = None
         if onboarding:
-            raw = (onboarding[0].get("answer_json") or {}) if isinstance(onboarding[0], dict) else {}
+            for r in onboarding:
+                if isinstance(r, dict) and r.get("question_key") == "q12_interests":
+                    row = r
+                    break
+            if row is None:
+                row = onboarding[0] if isinstance(onboarding[0], dict) else None
+        if row:
+            raw = (row.get("answer_json") or {}) if isinstance(row, dict) else {}
             items = raw.get("interests") if isinstance(raw, dict) else []
             if isinstance(items, list):
                 for it in items:
@@ -1784,7 +2284,7 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         .select("role, content, created_at")
         .eq("user_id", user_id)
         .order("created_at", desc=True)
-        .limit(12)
+        .limit(15)
         .execute()
         .data
         or []
@@ -1877,6 +2377,30 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
                 }
             )
         )
+    elif safety.category == "jailbreak":
+        block_response = SAFETY_RESPONSES["jailbreak"]
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "twin_chat_safety_block",
+                    "user_id": user_id,
+                    "safety_category": "jailbreak",
+                    "message_preview": (message or "")[:50],
+                }
+            )
+        )
+    elif safety.category == "sexual":
+        block_response = SAFETY_RESPONSES["sexual"]
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "twin_chat_safety_block",
+                    "user_id": user_id,
+                    "safety_category": "sexual",
+                    "message_preview": (message or "")[:50],
+                }
+            )
+        )
     elif safety.category == "dependency" and safety.confidence > 0.8:
         block_response = SAFETY_RESPONSES["dependency"]
 
@@ -1919,25 +2443,9 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
             "safety_category": safety.category,
         }
 
-    twin_response = await generate_twin_response(
-        username=str(user.get("username") or "you"),
-        user_message=message,
-        chat_history=chat_history,
-        twin_xp=int(twin.get("twin_xp") or 0),
-        user_xp=int(char.get("total_xp") or 0),
-        gap_state=str(twin.get("current_gap_state") or "neck_and_neck"),
-        user_streak=int(char.get("current_streak") or 0),
-        tone_type=str(dna.get("twin_tone_type") or "rival"),
-        intensity=int(dna.get("twin_intensity") or 3),
-        archetype=str(user.get("archetype") or "structured_climber"),
-        interests=interests,
-        recent_missions_summary=missions_summary,
-        tone_preference_signal=float(dna.get("tone_preference_signal") or 0.5),
-        last_missed_type=last_missed,
-        days_active=days_active,
-        user_completion_rate_7d=completion_rate_7d,
-        twin_tone_override=twin_tone_override_active,
-    )
+    user_msg_safe = sanitize_for_prompt(message, max_len=500, field_name="user_message")
+    username_raw = str(user.get("username") or "you")
+    username_safe = sanitize_username(username_raw)
 
     user_ins = (
         supabase_admin.table("twin_messages")
@@ -1954,15 +2462,123 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     user_row = (user_ins.data or [None])[0] or {}
     user_message_id = user_row.get("id")
 
+    recent_msgs = chat_history[-3:] if chat_history else []
+    tone = await detect_tone(user_msg_safe, recent_msgs)
+
+    archetype = str(user.get("archetype") or "structured_climber")
+    narrative_seed = (dna.get("narrative_seed") or "").strip() or f"User archetype: {archetype}."
+    guilt_orientation = float(dna.get("guilt_orientation") or 0.5)
+    twin_relationship_style = str(dna.get("twin_relationship_style") or "mentor_rival")
+    archetype_confidence = float(dna.get("archetype_confidence") or 0.5)
+    twin_gap_behavior = str(dna.get("twin_gap_behavior") or "rubber_band")
+    tone_type = str(dna.get("twin_tone_type") or "rival")
+    intensity = int(dna.get("twin_intensity") or 3)
+
+    today_context = _assemble_today_context(
+        missions_summary=missions_summary,
+        tone_topic=tone.topic,
+        tone_intent=tone.intent,
+        user_streak=int(char.get("current_streak") or 0),
+        completed_count=completed_count,
+        total_count=total_count,
+    )
+    if twin_tone_override_active:
+        today_context += f"\nTemporary tone override: {twin_tone_override_active}."
+
+    rp = get_relationship_phase(days_active)
+    relationship_phase_section = (
+        f"{rp['label']}\n{rp['tone_modifier']}\n{rp.get('self_reference', '')}"
+    )
+
+    gap_state_str = str(twin.get("current_gap_state") or "neck_and_neck")
+    gap_pct = format_gap_percentage_label(
+        gap_state_str,
+        int(twin.get("twin_xp") or 0),
+        int(char.get("total_xp") or 0),
+    )
+
+    char_stage = int(char.get("character_stage") or 1)
+    user_stage_name = STAGE_NAMES[max(0, min(5, char_stage - 1))]
+    twin_char_stage = int(twin.get("twin_character_stage") or 1)
+    twin_stage_name = STAGE_NAMES[max(0, min(5, twin_char_stage - 1))]
+
+    conv_hist_text = build_conversation_history_text(chat_history, max_turns=10)
+
+    system_prompt = _build_response_prompt(
+        username=username_safe,
+        narrative_seed=narrative_seed,
+        archetype=archetype,
+        archetype_confidence=archetype_confidence,
+        twin_tone_type=tone_type,
+        twin_relationship_style=twin_relationship_style,
+        twin_intensity=intensity,
+        twin_gap_behavior=twin_gap_behavior,
+        gap_state=gap_state_str,
+        gap_percentage=gap_pct,
+        twin_xp=int(twin.get("twin_xp") or 0),
+        user_xp=int(char.get("total_xp") or 0),
+        twin_streak=int(twin.get("twin_streak") or 0),
+        user_streak=int(char.get("current_streak") or 0),
+        user_stage=user_stage_name,
+        twin_stage=twin_stage_name,
+        day_number=days_active,
+        today_context=today_context,
+        user_mood=tone.user_mood,
+        user_intent=tone.intent,
+        energy_level=tone.energy_level,
+        topic=tone.topic,
+        conversation_depth=tone.conversation_depth,
+        tone_rating_history=get_tone_rating_summary(user_id),
+        memory_anchors=get_relevant_anchors(user_id),
+        last_three_openings=get_last_openings(user_id),
+        conversation_history=conv_hist_text,
+        user_message=user_msg_safe,
+        relationship_phase_section=relationship_phase_section,
+        guilt_orientation=guilt_orientation,
+        requires_sensitivity=tone.requires_sensitivity,
+    )
+
+    conversation_messages = build_conversation_messages(chat_history, user_msg_safe)
+
+    response_text, conversation_note = await generate_twin_response_v2(
+        system_prompt, conversation_messages
+    )
+
+    check = await check_consistency(
+        twin_response=response_text,
+        user_message=user_msg_safe,
+        twin_tone_type=tone_type,
+        twin_relationship_style=twin_relationship_style,
+        guilt_orientation=guilt_orientation,
+        user_mood=tone.user_mood,
+        user_intent=tone.intent,
+        requires_sensitivity=tone.requires_sensitivity,
+    )
+
+    emotional_register = "twin_chat_v2"
+    if check.should_regenerate:
+        logger.warning(
+            "Twin consistency check requested regenerate: %s",
+            [i.model_dump() for i in (check.issues or [])],
+        )
+        fallback = await asyncio.to_thread(
+            _generate_twin_response_sync,
+            system_prompt,
+            conversation_messages,
+        )
+        response_text = fallback.response
+        conversation_note = fallback.conversation_note
+        emotional_register = str(getattr(fallback, "emotional_register", None) or "twin_chat_v2_regenerated")
+
     twin_ins = (
         supabase_admin.table("twin_messages")
         .insert(
             {
                 "user_id": user_id,
                 "role": "twin",
-                "content": twin_response.response,
-                "emotional_register": twin_response.emotional_register,
-                "conversation_note": twin_response.conversation_note,
+                "content": response_text,
+                "emotional_register": emotional_register,
+                "conversation_note": conversation_note,
                 "created_at": now,
             }
         )
@@ -1970,6 +2586,19 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     )
     twin_row = (twin_ins.data or [None])[0] or {}
     twin_msg_id = twin_row.get("id")
+
+    uid_str = str(user_message_id) if user_message_id else None
+    try:
+        asyncio.create_task(
+            classify_and_store_anchor(
+                user_id=user_id,
+                user_message=user_msg_safe,
+                twin_response=response_text,
+                source_message_id=uid_str,
+            )
+        )
+    except Exception as e:
+        logger.warning("memory anchor task schedule failed: %s", e)
 
     tid = str(twin_msg_id) if twin_msg_id else None
     uid = str(user_message_id) if user_message_id else None
@@ -1980,18 +2609,111 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
                 "event": "twin_chat_response",
                 "user_id": user_id,
                 "safety_category": str(safety.category),
-                "emotional_register": str(twin_response.emotional_register or ""),
+                "emotional_register": emotional_register,
             }
         )
     )
 
     return {
-        "response": twin_response.response,
-        "message": twin_response.response,
+        "response": response_text,
+        "message": response_text,
         "message_id": tid,
         "twin_message_id": tid,
         "user_message_id": uid,
-        "emotional_register": twin_response.emotional_register,
+        "emotional_register": emotional_register,
         "is_safety_response": False,
         "safety_category": None,
     }
+
+
+async def proactive_twin_message_job() -> None:
+    """
+    Hourly tick: for users in local hour 10, may send a proactive Twin line (max 3/week).
+    Triggers: all missions complete today, inactive 2+ days, or occasional random_thought.
+    """
+    import random
+    from datetime import date as date_cls, datetime
+
+    from zoneinfo import ZoneInfo
+
+    from app.agents.proactive_message_agent import (
+        build_proactive_context_and_send,
+        should_send_proactive,
+    )
+    from app.services.mission_service import get_user_date
+
+    logger.info(json.dumps({"event": "proactive_twin_message_job_start"}))
+
+    users_result = (
+        supabase_admin.table("users")
+        .select("id, timezone, last_active_date, character_stage")
+        .eq("onboarding_complete", True)
+        .execute()
+    )
+
+    sent = 0
+    for user in users_result.data or []:
+        user_id = user.get("id")
+        try:
+            tz_str = user.get("timezone") or "UTC"
+            try:
+                tz = ZoneInfo(tz_str)
+            except Exception:
+                tz = ZoneInfo("UTC")
+            local_now = datetime.now(tz)
+            if local_now.hour != 10:
+                continue
+
+            if int(user.get("character_stage") or 1) < 2:
+                continue
+
+            if not await should_send_proactive(str(user_id)):
+                continue
+
+            today = get_user_date(tz_str)
+            missions = (
+                supabase_admin.table("missions")
+                .select("completed")
+                .eq("user_id", user_id)
+                .eq("mission_date", today)
+                .execute()
+                .data
+                or []
+            )
+            total = len(missions)
+            done = sum(1 for m in missions if m.get("completed"))
+
+            trigger = None
+            if total > 0 and done == total:
+                trigger = "all_missions_complete"
+            else:
+                last_active = user.get("last_active_date")
+                if last_active:
+                    try:
+                        la = date_cls.fromisoformat(str(last_active)[:10])
+                        if (local_now.date() - la).days >= 2:
+                            trigger = "user_inactive"
+                    except Exception:
+                        pass
+                if trigger is None and random.random() < 0.08:
+                    trigger = "random_thought"
+
+            if trigger is None:
+                continue
+
+            text = await build_proactive_context_and_send(str(user_id), trigger)
+            if text:
+                sent += 1
+        except Exception as e:
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "proactive_twin_message_error",
+                        "user_id": str(user_id),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
+            continue
+
+    logger.info(json.dumps({"event": "proactive_twin_message_job_done", "sent": sent}))

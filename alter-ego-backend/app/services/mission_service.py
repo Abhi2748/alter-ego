@@ -52,7 +52,7 @@ from app.services.progression_service import (
     check_character_stage_progression,
     check_pet_stage_progression,
 )
-from app.services.streak_service import process_streak
+from app.services.streak_service import process_streak, sync_streak_if_lapsed
 
 
 def isoweekday_for_mission_date(mission_date: str) -> int:
@@ -478,7 +478,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         supabase_admin.table("users")
         .select(
             "total_xp, total_pf, character_stage, timezone, pet_stage, pet_unlocked, "
-            "current_streak, power_score"
+            "current_streak, power_score, absence_days"
         )
         .eq("id", user_id)
         .single()
@@ -605,12 +605,22 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
             }
         ).execute()
 
+    absence_before = int(user.get("absence_days") or 0)
     try:
         from app.services.absence_service import reset_absence
 
         reset_absence(supabase_admin, user_id, today)
     except Exception:
         logger.exception("reset_absence failed after mission complete user=%s", user_id)
+
+    try:
+        if absence_before >= 3:
+            from app.services.gap_moment_service import queue_gap_moment
+
+            absence_key = str(absence_before) if absence_before in (3, 5, 7) else "default"
+            await queue_gap_moment(user_id, "absence_return", absence_key)
+    except Exception:
+        pass
 
     # Update user totals
     supabase_admin.table("users").update({"total_xp": new_total_xp, "total_pf": new_total_pf}).eq("id", user_id).execute()
@@ -626,8 +636,24 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
 
     # Progression checks
     stage_evolved = await check_character_stage_progression(user_id, new_total_xp, character_stage)
-    pet_evolved = await check_pet_stage_progression(user_id, new_total_pf, pet_stage, bool(user.get("pet_unlocked")))
+    if stage_evolved:
+        try:
+            from app.services.gap_moment_service import queue_gap_moment
 
+            await queue_gap_moment(user_id, "stage_evolution")
+        except Exception:
+            pass
+
+    pet_evolved = await check_pet_stage_progression(user_id, new_total_pf, pet_stage, bool(user.get("pet_unlocked")))
+    if pet_evolved:
+        try:
+            from app.services.gap_moment_service import queue_gap_moment
+
+            await queue_gap_moment(user_id, "pet_evolution")
+        except Exception:
+            pass
+
+    await sync_streak_if_lapsed(user_id)
     streak_result = await process_streak(user_id)
 
     from app.services.power_score_service import calculate_power_score
@@ -744,6 +770,14 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
             all_complete_today = all(m.get("completed") for m in rows)
     except Exception:
         pass
+
+    if all_complete_today:
+        try:
+            from app.services.gap_moment_service import queue_gap_moment
+
+            await queue_gap_moment(user_id, "all_complete")
+        except Exception:
+            pass
 
     streak_milestone_hit = streak_result.get("milestone_reached") is not None
 

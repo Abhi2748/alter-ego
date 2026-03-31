@@ -5,7 +5,10 @@ Pure Python, no LLM. Used during onboarding.
 
 from __future__ import annotations
 
-from typing import Dict
+import logging
+from typing import Any, Dict
+
+logger = logging.getLogger("alter_ego.archetype")
 
 
 ARCHETYPE_KEYS = (
@@ -137,6 +140,128 @@ def get_initial_dna(archetype_key: str) -> dict:
         "twin_gap_behavior": archetype["twin_gap_behavior"],
         "twin_message_frequency": archetype["twin_message_frequency"],
         "calibration_count": 0,
+    }
+
+
+def _intensity_to_frequency(intensity: int) -> str:
+    """Map intensity 1-5 to message frequency for backward compat."""
+    if intensity <= 2:
+        return "low"
+    if intensity <= 3:
+        return "medium"
+    return "high"
+
+
+def _normalize_profiler_archetype(raw: str) -> str:
+    s = (raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if s in ARCHETYPE_KEYS:
+        return s
+    if s.startswith("the_") and s[4:] in ARCHETYPE_KEYS:
+        return s[4:]
+    return "structured_climber"
+
+
+def _normalize_twin_tone(raw: str) -> str:
+    t = (raw or "").strip().lower()
+    if t in ("rival", "philosopher", "silent_force"):
+        return t
+    if t == "silent":
+        return "silent_force"
+    return "philosopher"
+
+
+def _normalize_gap_behavior(raw: str) -> str:
+    g = (raw or "").strip().lower()
+    if g in ("rubber_band", "chase", "steady"):
+        return g
+    return "rubber_band"
+
+
+# --- NEW: LLM-powered profiler integration ---
+
+
+async def classify_user_with_profiler(answers: dict[str, Any]) -> dict:
+    """
+    New LLM-powered classification. Returns a dict with:
+    - archetype (str)
+    - All discipline_dna fields (dimensional scores)
+    - narrative_seed (str)
+
+    Falls back to deterministic classify_archetype() if LLM fails.
+    """
+    from app.agents.profile_verifier_agent import verify_profile
+    from app.agents.profiler_agent import profile_user
+
+    profile = await profile_user(answers)
+
+    if profile is None:
+        old_format: dict[str, str] = {}
+        for qkey, adata in answers.items():
+            if isinstance(adata, dict) and "value" in adata:
+                old_format[qkey] = str(adata.get("value", ""))
+
+        archetype = classify_archetype(old_format)
+        dna = get_initial_dna(archetype)
+        return {
+            "archetype": archetype,
+            "dna": dna,
+            "profiler_used": False,
+        }
+
+    profile = _coerce_profile_enums(profile)
+    profile_dict = profile.model_dump()
+    verification = await verify_profile(answers, profile_dict)
+
+    if not verification.is_valid and verification.issues:
+        logger.warning("Profile verification issues: %s", verification.issues)
+
+    dna = _dna_from_user_profile(profile)
+
+    return {
+        "archetype": profile.archetype,
+        "dna": dna,
+        "profiler_used": True,
+    }
+
+
+def _coerce_profile_enums(profile: Any) -> Any:
+    from app.agents.profiler_agent import UserProfile
+
+    if not isinstance(profile, UserProfile):
+        return profile
+    return profile.model_copy(
+        update={
+            "archetype": _normalize_profiler_archetype(profile.archetype),
+            "recommended_twin_tone": _normalize_twin_tone(profile.recommended_twin_tone),
+            "recommended_gap_behavior": _normalize_gap_behavior(profile.recommended_gap_behavior),
+        }
+    )
+
+
+def _dna_from_user_profile(profile: Any) -> dict:
+    return {
+        "twin_intensity": profile.recommended_intensity,
+        "twin_tone_type": _normalize_twin_tone(profile.recommended_twin_tone),
+        "twin_gap_behavior": _normalize_gap_behavior(profile.recommended_gap_behavior),
+        "twin_message_frequency": _intensity_to_frequency(profile.recommended_intensity),
+        "calibration_count": 0,
+        "archetype_confidence": profile.archetype_confidence,
+        "secondary_archetype": profile.secondary_archetype,
+        "execution_gap": profile.execution_gap,
+        "failure_resilience": profile.failure_resilience,
+        "external_validation_need": profile.external_validation_need,
+        "self_belief": profile.self_belief,
+        "structure_dependence": profile.structure_dependence,
+        "guilt_orientation": profile.guilt_orientation,
+        "competitive_drive": profile.competitive_drive,
+        "intrinsic_motivation": profile.intrinsic_motivation,
+        "self_talk_pattern": profile.self_talk_pattern,
+        "discipline_framing": profile.discipline_framing,
+        "emotional_starting_state": profile.emotional_starting_state,
+        "core_failure_pattern": profile.core_failure_pattern,
+        "success_pattern": profile.success_pattern,
+        "twin_relationship_style": profile.twin_relationship_style,
+        "narrative_seed": profile.narrative_seed or "",
     }
 
 

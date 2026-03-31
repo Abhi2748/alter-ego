@@ -42,7 +42,7 @@ export type OnboardingStackParamList = {
 
 export type MainTabParamList = {
   Home: { journalJustCompleted?: boolean } | undefined;
-  Feed: undefined;
+  Today: undefined;
   Twin: undefined;
   Report: undefined;
   Profile: undefined;
@@ -77,6 +77,8 @@ export type MainStackParamList = {
     missionId: string;
   };
   SigilScreen: undefined;
+  /** Full-screen gap moment — also used as overlay from App; optional stack route. */
+  GapMoment: undefined;
   Leaderboard: undefined;
 };
 

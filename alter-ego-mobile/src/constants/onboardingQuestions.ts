@@ -1,9 +1,16 @@
 /**
- * Onboarding Q1–Q14 visible; Q15 timezone is auto-saved after Q14 (no UI).
- * Username, gender, age, archetype Q4–Q10, interests, quits, hours, commitment horizon.
+ * Onboarding Q1–Q15 visible; Q16 timezone is auto-saved after Q15 (no UI).
+ * Username, gender, age, scenario Q4–Q11, interests, quits, hours, commitment horizon.
  */
 
-export type OnboardingInputType = "single" | "multi" | "slider" | "username" | "interests_add" | "quit_with_other";
+export type OnboardingInputType =
+  | "single"
+  | "multi"
+  | "slider"
+  | "username"
+  | "interests_add"
+  | "quit_with_other"
+  | "open_text";
 
 export type OnboardingQuestionConfig = {
   questionNumber: number;
@@ -13,6 +20,10 @@ export type OnboardingQuestionConfig = {
   answerKey: string;
   /** Slider only: [min, max, step] in hours */
   sliderRange?: [number, number, number];
+  /** Open text only */
+  placeholder?: string;
+  minLength?: number;
+  maxLength?: number;
 };
 
 /** Q2: value stored as 'male' | 'female' | 'other'. Other = user picks at end, defaults to Male. */
@@ -22,62 +33,52 @@ const Q2_OPTIONS = ["Male", "Female", "Other"];
 const Q3_OPTIONS = ["Under 18", "18–24", "25–34", "35–44", "45+"];
 
 const Q4_OPTIONS = [
-  "Grinding hard but staying inconsistent",
-  "Starting completely fresh",
-  "Trying to quit something that's holding me back",
-  "Looking to become a better version of myself",
-  "I'm in a solid season — I want to sharpen my edge and keep winning",
-];
-
-const Q5_OPTIONS = [
-  "I keep failing at habits and I'm tired of it",
-  "I want to become someone genuinely different",
-  "I want to prove to others that I can do this",
-  "I want to build something meaningful for my future",
-  "I want to level up and perform better",
+  "Rebuilding after a rough patch",
+  "Feeling stuck and want to break out",
+  "Things are fine but I want more",
+  "Starting something completely new",
+  "Honestly, kind of lost",
 ];
 
 const Q6_OPTIONS = [
-  "Plan it out properly before starting",
-  "Dive straight in and figure it out",
-  "Put it off until I can't anymore",
-  "Break it into the smallest possible steps",
-  "First I set up accountability — a check-in, partner, or hard deadline",
+  "I get up, no question",
+  "I bargain — 5 more minutes, then maybe go",
+  "I skip it and feel guilty all day",
+  "I skip it and don't think twice",
+  "Depends entirely on the day",
 ];
 
 const Q7_OPTIONS = [
-  "Feel guilty and spiral further",
-  "Shake it off and start again",
-  "Use it as fuel to come back harder",
-  "Pretend it didn't happen and move on",
-  "I lock in harder so I don't miss again",
+  "Reset and go harder tomorrow",
+  "Beat myself up but eventually get back",
+  "The streak's broken, so what's the point",
+  "Shrug it off — one day doesn't define me",
+  "I probably won't notice until later",
 ];
 
 const Q8_OPTIONS = [
-  "I could see the progress happening",
-  "I didn't want to let myself down",
-  "It was genuinely enjoyable",
-  "Someone was counting on me",
-  "Competing with others kept me sharp",
+  "Fired up — I'll prove them wrong",
+  "Hurt but it motivates me",
+  "Honestly, they're probably right",
+  "I don't care what they think",
+  "Annoyed — mind your own business",
 ];
 
 const Q9_OPTIONS = [
-  "Appreciate the structure — it helps",
-  "Feel a little annoyed by it",
-  "Depends entirely on who's telling me",
-  "I work best with a clear structure and plan",
-  "Fine by me — I do better when they stay involved and check I'm executing",
+  "I had someone pushing me or keeping me accountable",
+  "I wanted it badly enough that nothing else mattered",
+  "I had a clear plan and just followed the steps",
+  "External pressure — deadline, stakes, consequences",
+  "Honestly, I'm not sure I have",
 ];
 
 const Q10_OPTIONS = [
-  "I love it — competition drives me",
-  "Indifferent — I don't think about it",
-  "Mildly motivating when I'm ahead",
-  "Comparisons usually make me uncomfortable",
-  "I use comparison as a benchmark to improve",
+  "I start strong but fade after a couple weeks",
+  "I'm consistent but never push myself hard enough",
+  "I overthink everything and struggle to start",
+  "I do well with structure but rebel against strict rules",
+  "I need someone watching or I slack off",
 ];
-
-/** Q11: interests — no fixed options; "Add interest" flow with 3 sub-questions per interest. */
 
 /** Q12: quit — "Nothing right now" and "Something else" at the end; Something else last. */
 const Q12_OPTIONS = [
@@ -91,10 +92,10 @@ const Q12_OPTIONS = [
   "Something else",
 ];
 
-/** Q13: minimum guaranteed daily time — 0.5h–3h, step 0.5. Planner floor, not cap. */
-const Q13_SLIDER: [number, number, number] = [0.5, 3, 0.5];
+/** Q14: minimum guaranteed daily time — 0.5h–3h, step 0.5. Planner floor, not cap. */
+const Q14_SLIDER: [number, number, number] = [0.5, 3, 0.5];
 
-const Q14_OPTIONS = ["2 weeks", "1 month", "3 months", "However long it takes"];
+const Q15_OPTIONS = ["2 weeks", "1 month", "3 months", "However long it takes"];
 
 /** Interest level options for add-interest flow (self-reported). */
 export const INTEREST_LEVEL_OPTIONS = [
@@ -128,85 +129,99 @@ export const ONBOARDING_QUESTIONS: OnboardingQuestionConfig[] = [
   },
   {
     questionNumber: 4,
-    questionText: "What's your current situation?",
+    questionText: "What's going on in your life right now?",
     options: Q4_OPTIONS,
     inputType: "single",
     answerKey: "situation",
   },
   {
     questionNumber: 5,
-    questionText: "What actually brought you here?",
-    options: Q5_OPTIONS,
-    inputType: "single",
+    questionText: "Why are you here? Be honest — no wrong answer.",
+    options: [],
+    inputType: "open_text",
     answerKey: "reason",
+    placeholder: "I keep saying I'll start but never do",
+    minLength: 10,
+    maxLength: 500,
   },
   {
     questionNumber: 6,
-    questionText: "When you have a big task ahead, your first move is...",
+    questionText:
+      "It's 6AM. Your alarm goes off for the workout you planned. It's cold. Your bed is warm. What actually happens?",
     options: Q6_OPTIONS,
     inputType: "single",
-    answerKey: "taskApproach",
+    answerKey: "alarmScenario",
   },
   {
     questionNumber: 7,
-    questionText: "When you fall off track, you usually...",
+    questionText: "You've been consistent for 2 weeks. Then you miss a day. What happens next?",
     options: Q7_OPTIONS,
     inputType: "single",
-    answerKey: "offTrack",
+    answerKey: "missedDay",
   },
   {
     questionNumber: 8,
-    questionText: "The last time you were truly consistent, what kept you going?",
+    questionText: "Someone close to you says 'I don't think you'll stick with this.' What do you feel?",
     options: Q8_OPTIONS,
     inputType: "single",
-    answerKey: "motivation",
+    answerKey: "doubtResponse",
   },
   {
     questionNumber: 9,
-    questionText: "When someone tells you exactly what to do, you...",
+    questionText: "When you've succeeded at something hard before, what was the real reason?",
     options: Q9_OPTIONS,
     inputType: "single",
-    answerKey: "autonomy",
+    answerKey: "successPattern",
   },
   {
     questionNumber: 10,
-    questionText: "How do you feel about being compared to others?",
+    questionText: "Pick the one that sounds most like you:",
     options: Q10_OPTIONS,
     inputType: "single",
-    answerKey: "comparison",
+    answerKey: "failurePattern",
   },
   {
     questionNumber: 11,
+    questionText: "What does discipline actually mean to you?",
+    options: [],
+    inputType: "open_text",
+    answerKey: "disciplineMeaning",
+    placeholder: "Showing up even when I don't feel like it",
+    minLength: 8,
+    maxLength: 300,
+  },
+  {
+    questionNumber: 12,
     questionText: "What are you actually into?",
     options: [],
     inputType: "interests_add",
     answerKey: "interests",
   },
   {
-    questionNumber: 12,
+    questionNumber: 13,
     questionText: "Anything you want to quit or cut back on?",
     options: Q12_OPTIONS,
     inputType: "quit_with_other",
     answerKey: "quitTargets",
   },
   {
-    questionNumber: 13,
+    questionNumber: 14,
     questionText: "What's the minimum time you can guarantee every day?",
     options: [],
     inputType: "slider",
     answerKey: "dailyHours",
-    sliderRange: Q13_SLIDER,
+    sliderRange: Q14_SLIDER,
   },
   {
-    questionNumber: 14,
+    questionNumber: 15,
     questionText: "How long are you willing to commit before judging results?",
-    options: Q14_OPTIONS,
+    options: Q15_OPTIONS,
     inputType: "single",
     answerKey: "commitmentTimeline",
   },
 ];
 
-export const TOTAL_ONBOARDING_QUESTIONS = 14;
+export const TOTAL_ONBOARDING_QUESTIONS = 15;
 
 /** Map Q2 (gender) display label to stored value */
 export function genderOptionToValue(label: string): "male" | "female" | "other" {

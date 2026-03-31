@@ -14,7 +14,7 @@ const ICON_SIZE_TWIN = 26;
 
 const tabConfig: Record<string, { label: string; icon: keyof typeof Ionicons.glyphMap }> = {
   Home: { label: "Home", icon: "home-outline" },
-  Feed: { label: "Feed", icon: "radio-outline" },
+  Today: { label: "Today", icon: "radio-outline" },
   Twin: { label: "Twin", icon: "flash" },
   Report: { label: "Report", icon: "document-text-outline" },
   Profile: { label: "Profile", icon: "person-outline" },

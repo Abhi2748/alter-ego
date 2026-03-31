@@ -76,6 +76,41 @@ def _humanize_snake(s: str) -> str:
     return t if t else s
 
 
+def _merge_onboarding_aliases(answers: dict[str, str]) -> None:
+    """
+    Phase 1 renames: canonical keys (q12_*, q13_*, q14_*) inherit from legacy rows
+    when the new key is missing so echo/contradiction see one merged value.
+    """
+    pairs = (
+        ("q12_interests", "q11_interests"),
+        ("q13_quits", "q12_quits"),
+        ("q14_hours", "q13_hours"),
+    )
+    for new_k, old_k in pairs:
+        cur = (answers.get(new_k) or "").strip()
+        legacy = (answers.get(old_k) or "").strip()
+        merged = cur or legacy
+        if merged:
+            answers[new_k] = merged
+
+
+# Maps any stored question_key to a family id so we do not echo twice after renumbering.
+_ECHO_KEY_FAMILY: dict[str, str] = {
+    "q11_interests": "interests",
+    "q12_interests": "interests",
+    "q12_quits": "quits",
+    "q13_quits": "quits",
+    "q13_hours": "hours",
+    "q14_hours": "hours",
+}
+
+
+def _echo_family_id(question_key: str | None) -> str | None:
+    if not question_key:
+        return None
+    return _ECHO_KEY_FAMILY.get(question_key, question_key)
+
+
 def load_onboarding_answers(supabase: Any, user_id: str) -> dict[str, str]:
     """{question_key: display string}. Silent on error."""
     try:
@@ -94,6 +129,7 @@ def load_onboarding_answers(supabase: Any, user_id: str) -> dict[str, str]:
             s = _answer_json_to_string(raw)
             if s:
                 answers[str(key)] = _humanize_snake(s) if key.startswith("q") else s
+        _merge_onboarding_aliases(answers)
         return answers
     except Exception as e:
         logger.error(
@@ -112,8 +148,11 @@ def select_echo(
     """Returns (question_key, echo_type, rendered_text) or None."""
     from app.core.constants import ECHO_PRIORITY_KEYS, ONBOARDING_ECHO_TEMPLATES
 
+    last_f = _echo_family_id(last_key)
     for key in ECHO_PRIORITY_KEYS:
-        if key == last_key:
+        if last_key and (
+            key == last_key or _echo_family_id(key) == last_f
+        ):
             continue
         answer = str(answers.get(key, "") or "")[:100].strip()
         if not answer or len(answer) < 2:
@@ -295,7 +334,7 @@ async def fire_contradiction_for_user(
                 return True
 
             # 1b) Claimed daily hours (q13) ≥5 and completion <60%
-            hours_raw = answers.get("q13_hours", "").strip()
+            hours_raw = (answers.get("q14_hours") or answers.get("q13_hours") or "").strip()
             try:
                 hours_val = float(hours_raw.replace(",", "."))
             except (TypeError, ValueError):

@@ -37,6 +37,7 @@ from app.services.interest_path_service import (
 )
 from app.agents.interest_normaliser import normalise_interest
 from app.services.mission_service import get_user_date, sync_today_planner_missions
+from app.services.streak_service import sync_streak_if_lapsed
 
 router = APIRouter(prefix="/api/v1/profile", tags=["profile"])
 logger = logging.getLogger(__name__)
@@ -264,6 +265,8 @@ async def get_profile_overview(authorization: str = Header(None)):
 @router.get("/streak", response_model=dict)
 async def get_profile_streak(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
+
+    await sync_streak_if_lapsed(user_id)
 
     user_result = (
         supabase_admin.table("users")

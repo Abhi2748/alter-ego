@@ -59,6 +59,13 @@ class TwinResponse(BaseModel):
             "Null if nothing notable."
         ),
     )
+    opening_words: Optional[str] = Field(
+        default=None,
+        description=(
+            "The first 5 words of the response, for anti-repetition tracking. "
+            "Optional — may be omitted by the model."
+        ),
+    )
 
 
 class MessageSafetyClassification(BaseModel):
@@ -586,10 +593,10 @@ def build_conversation_messages(
 ) -> list[dict]:
     """
     chat_history: items with keys sender (user|twin) and message, oldest first.
-    Keep last 12 messages max.
+    Keep last 10 messages max (memory anchors are injected via system prompt).
     """
     messages: list[dict] = []
-    recent_history = chat_history[-12:] if len(chat_history) > 12 else chat_history
+    recent_history = chat_history[-10:] if len(chat_history) > 10 else chat_history
 
     for msg in recent_history:
         sender = msg.get("sender") or msg.get("role")
@@ -601,6 +608,103 @@ def build_conversation_messages(
 
     messages.append({"role": "user", "content": new_user_message})
     return messages
+
+
+def get_tone_rating_summary(user_id: str) -> str:
+    """Summarize the user's tone rating patterns for prompt injection."""
+    from app.core.supabase_client import supabase_admin
+
+    rows = (
+        supabase_admin.table("twin_tone_ratings")
+        .select("tone_type, rating")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(20)
+        .execute()
+        .data
+        or []
+    )
+
+    if not rows:
+        return "No tone ratings yet — this user hasn't rated any messages."
+
+    positive = sum(1 for r in rows if r.get("rating") == "positive")
+    negative = sum(1 for r in rows if r.get("rating") == "negative")
+    total = len(rows)
+
+    neg_by_tone: dict[str, int] = {}
+    for r in rows:
+        if r.get("rating") == "negative":
+            t = str(r.get("tone_type") or "unknown")
+            neg_by_tone[t] = neg_by_tone.get(t, 0) + 1
+
+    worst_tone = max(neg_by_tone, key=neg_by_tone.get) if neg_by_tone else None
+
+    summary = f"Last {total} ratings: {positive} positive, {negative} negative."
+    if worst_tone is not None:
+        summary += (
+            f" User dislikes '{worst_tone}' tone most ({neg_by_tone[worst_tone]} negative ratings)."
+        )
+    return summary
+
+
+def get_last_openings(user_id: str, count: int = 3) -> str:
+    """Get the first few words of the Twin's last N responses."""
+    from app.core.supabase_client import supabase_admin
+
+    rows = (
+        supabase_admin.table("twin_messages")
+        .select("content")
+        .eq("user_id", user_id)
+        .eq("role", "twin")
+        .order("created_at", desc=True)
+        .limit(count)
+        .execute()
+        .data
+        or []
+    )
+
+    if not rows:
+        return "(no previous responses)"
+
+    openings: list[str] = []
+    for r in rows:
+        content = str(r.get("content") or "")
+        words = content.split()[:6]
+        openings.append(" ".join(words) + "...")
+
+    return "\n".join(f"- {o}" for o in openings)
+
+
+def get_relevant_anchors(user_id: str, limit: int = 3) -> str:
+    """Fetch stored memory anchors for this user."""
+    from app.core.supabase_client import supabase_admin
+
+    try:
+        rows = (
+            supabase_admin.table("memory_anchors")
+            .select("anchor_type, summary, reference_phrase, emotional_weight")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return "(no memory anchors stored yet)"
+
+    if not rows:
+        return "(no memory anchors stored yet)"
+
+    anchors: list[str] = []
+    for r in rows:
+        weight = r.get("emotional_weight", "medium")
+        summary = r.get("summary", "")
+        phrase = r.get("reference_phrase", "")
+        anchors.append(f"[{weight}] {summary} (reference as: '{phrase}')")
+
+    return "\n".join(anchors)
 
 
 def _generate_twin_response_sync(

@@ -63,90 +63,25 @@ const PARTICLE_COLORS = ["#8B5CF6", "#6D28D9", "#A78BFA"] as const;
 const PARTICLE_SEED = 43;
 const PARTICLE_COUNT = 24;
 
-/** Backend question_key per step (Q15 timezone saved silently after Q14). */
+/** Backend question_key per step (Q16 timezone saved silently after Q15). */
 const QUESTION_KEYS: Record<number, string> = {
   1: "q1_username",
   2: "q2_gender",
   3: "q3_age",
   4: "q4_situation",
   5: "q5_reason",
-  6: "q6_approach",
-  7: "q7_recovery",
-  8: "q8_motivation",
-  9: "q9_autonomy",
-  10: "q10_comparison",
-  11: "q11_interests",
-  12: "q12_quits",
-  13: "q13_hours",
+  6: "q6_alarm",
+  7: "q7_missed_day",
+  8: "q8_doubt",
+  9: "q9_success",
+  10: "q10_failure",
+  11: "q11_discipline",
+  12: "q12_interests",
+  13: "q13_quits",
+  14: "q14_hours",
 };
 
-/**
- * Map onboarding UI labels (Q4–Q10) to backend scoring keys.
- * If a label is missing from the map, we fall back to raw label.
- */
-const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
-  q4_situation: {
-    "Grinding hard but staying inconsistent": "overwhelmed",
-    "Starting completely fresh": "rebuilding",
-    "Trying to quit something that's holding me back": "stuck",
-    "Looking to become a better version of myself": "ambitious",
-    "I'm in a solid season — I want to sharpen my edge and keep winning": "competitive",
-    "I've always been competitive and want to win this": "competitive",
-  },
-  q5_reason: {
-    "I keep failing at habits and I'm tired of it": "escape_habit",
-    "I want to become someone genuinely different": "prove_to_self",
-    "I want to prove to others that I can do this": "prove_to_others",
-    "I want to build something meaningful for my future": "build_something",
-    "I want to level up and perform better": "level_up",
-    // Backward compatibility for previously released copy variants.
-    "I need to quit something for good": "escape_habit",
-    "Someone showed me this": "level_up",
-  },
-  q6_approach: {
-    "Plan it out properly before starting": "systems_first",
-    "Dive straight in and figure it out": "jump_in",
-    "Put it off until I can't anymore": "depends_on_mood",
-    "Break it into the smallest possible steps": "research_first",
-    "First I set up accountability — a check-in, partner, or hard deadline":
-      "need_accountability",
-    "I need accountability to stay consistent": "need_accountability",
-  },
-  q7_recovery: {
-    "Feel guilty and spiral further": "guilt_spiral",
-    "Shake it off and start again": "restart_immediately",
-    "Use it as fuel to come back harder": "restart_immediately",
-    "Pretend it didn't happen and move on": "need_time",
-    "I lock in harder so I don't miss again": "dont_miss",
-  },
-  q8_motivation: {
-    "I could see the progress happening": "internal_standards",
-    "I didn't want to let myself down": "fear_of_regret",
-    "It was genuinely enjoyable": "curiosity",
-    "Someone was counting on me": "external_validation",
-    "Competing with others kept me sharp": "competition",
-  },
-  q9_autonomy: {
-    "Appreciate the structure — it helps": "guidance_welcome",
-    "Feel a little annoyed by it": "full_control",
-    "Depends entirely on who's telling me": "flexible",
-    "I work best with a clear structure and plan": "structured_plan",
-    "Fine by me — I do better when they stay involved and check I'm executing":
-      "accountability_partner",
-    "I need someone to check in and keep me accountable": "accountability_partner",
-    // Backward compatibility for previously released copy.
-    "Tune it out almost automatically": "full_control",
-  },
-  q10_comparison: {
-    "I love it — competition drives me": "drives_me",
-    "Indifferent — I don't think about it": "dont_care",
-    "Mildly motivating when I'm ahead": "motivates_briefly",
-    "Comparisons usually make me uncomfortable": "uncomfortable",
-    "I use comparison as a benchmark to improve": "use_as_benchmark",
-    // Backward compatibility for previously released copy.
-    "I'd rather just run my own race": "dont_care",
-  },
-};
+// LLM profiler reads raw answers; selected option text is sent as-is to the backend.
 
 const LEVEL_TO_API: Record<string, string> = {
   beginner: "still_figuring_it_out",
@@ -193,33 +128,19 @@ function buildStepPayload(
   }
   if (questionNum === 2) return { value: a.gender };
   if (questionNum === 3) return { value: ageRangeToInt(a.ageRange) };
-  if (questionNum >= 4 && questionNum <= 10) {
-    const key = QUESTION_KEYS[questionNum];
-    const rawValue =
-      questionNum === 4
-        ? a.situation
-        : questionNum === 5
-          ? a.reason
-          : questionNum === 6
-            ? a.taskApproach
-            : questionNum === 7
-              ? a.offTrack
-              : questionNum === 8
-                ? a.motivation
-                : questionNum === 9
-                  ? a.autonomy
-                  : a.comparison;
-    const mappedValue =
-      key && typeof rawValue === "string"
-        ? ARCHETYPE_ANSWER_MAP[key]?.[rawValue] ?? rawValue
-        : rawValue;
-    return { value: mappedValue };
-  }
-  if (questionNum === 11) {
+  if (questionNum === 4) return { value: a.situation };
+  if (questionNum === 5) return { value: a.reason };
+  if (questionNum === 6) return { value: a.alarmScenario };
+  if (questionNum === 7) return { value: a.missedDay };
+  if (questionNum === 8) return { value: a.doubtResponse };
+  if (questionNum === 9) return { value: a.successPattern };
+  if (questionNum === 10) return { value: a.failurePattern };
+  if (questionNum === 11) return { value: a.disciplineMeaning };
+  if (questionNum === 12) {
     const list = (a.interests ?? []).map(mapInterestToStepApi);
     return { interests: list };
   }
-  if (questionNum === 12) {
+  if (questionNum === 13) {
     const quits = (a.quitTargets ?? []).map((q) => ({
       name: q.name,
       raw_text: q.name,
@@ -231,7 +152,7 @@ function buildStepPayload(
     }));
     return { quit_targets: quits };
   }
-  if (questionNum === 13) return { value: a.dailyHours ?? 1 };
+  if (questionNum === 14) return { value: a.dailyHours ?? 1 };
   return null;
 }
 
@@ -414,6 +335,7 @@ export function OnboardingQuestionScreen() {
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [usernameChecking, setUsernameChecking] = useState(false);
   const [usernameFocused, setUsernameFocused] = useState(false);
+  const [openTextFocused, setOpenTextFocused] = useState(false);
   const [completingOnboarding, setCompletingOnboarding] = useState(false);
 
   const {
@@ -539,9 +461,9 @@ export function OnboardingQuestionScreen() {
     }
   }, [currentQuestionIndex, defaultUsername, getAnswer, updateAnswer]);
 
-  // Set default slider value when landing on Q13 so Next is enabled (default 1.0h)
+  // Set default slider value when landing on Q14 so Next is enabled (default 1.0h)
   useEffect(() => {
-    if (currentQuestionIndex !== 13 || !config?.sliderRange) return;
+    if (currentQuestionIndex !== 14 || !config?.sliderRange) return;
     const existing = getAnswer("dailyHours");
     if (existing === undefined) {
       updateAnswer("dailyHours", 1.0);
@@ -561,12 +483,18 @@ export function OnboardingQuestionScreen() {
   const isUsername = config?.inputType === "username";
   const isInterestsAdd = config?.inputType === "interests_add";
   const isQuitWithOther = config?.inputType === "quit_with_other";
+  const isOpenText = config?.inputType === "open_text";
 
   const hasAnswer = useCallback(() => {
     if (!config) return false;
     if (isUsername) {
       const u = (getAnswer("username") as string) ?? "";
       return u.trim().length > 0;
+    }
+    if (isOpenText) {
+      const text = (getAnswer(config.answerKey as keyof OnboardingAnswers) as string) ?? "";
+      const minLen = config.minLength ?? 1;
+      return text.trim().length >= minLen;
     }
     if (isInterestsAdd) {
       const items = (getAnswer("interests") as OnboardingInterest[] | undefined) ?? [];
@@ -590,6 +518,7 @@ export function OnboardingQuestionScreen() {
     isUsername,
     isInterestsAdd,
     isQuitWithOther,
+    isOpenText,
     currentAnswer,
     getAnswer,
     quitInputText,
@@ -624,18 +553,18 @@ export function OnboardingQuestionScreen() {
   }, [currentQuestionIndex, config, hasAnswer, transitionToIndex, getAnswer]);
 
   const handleFinalNext = useCallback(async () => {
-    if (currentQuestionIndex !== 14 || completingOnboarding || isCompleting) return;
+    if (currentQuestionIndex !== 15 || completingOnboarding || isCompleting) return;
     const label = getAnswer("commitmentTimeline") as string | undefined;
     const apiVal = commitmentLabelToApi(label);
     setCompletingOnboarding(true);
     try {
       await onboardingService.saveStep({
-        question_key: "q14_commitment",
+        question_key: "q15_commitment",
         answer_json: { value: apiVal },
       });
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
       await onboardingService.saveStep({
-        question_key: "q15_timezone",
+        question_key: "q16_timezone",
         answer_json: { value: tz },
       });
       const result = await completeOnboarding();
@@ -678,7 +607,7 @@ export function OnboardingQuestionScreen() {
       void checkUsernameAndProceed();
       return;
     }
-    if (currentQuestionIndex === 14) {
+    if (currentQuestionIndex === 15) {
       void handleFinalNext();
       return;
     }
@@ -731,7 +660,7 @@ export function OnboardingQuestionScreen() {
       const next = current.includes(option)
         ? current.filter((x) => x !== option)
         : [...current, option];
-      updateAnswer(key, next as OnboardingAnswers[typeof key]);
+      updateAnswer(key, next as unknown as OnboardingAnswers[typeof key]);
       if (config.answerKey === "interests" && option === "Something else" && next.indexOf("Something else") === -1) {
         updateAnswer("interestOther", "");
       }
@@ -827,8 +756,8 @@ export function OnboardingQuestionScreen() {
       const sliderVal = typeof answer === "number" ? answer : sliderRange[0];
       const noop = () => {};
 
-      const q13Value = c.questionNumber === 13 ? (typeof answer === "number" ? answer : 1.0) : sliderVal;
-      const q13Percent = c.questionNumber === 13 ? (q13Value - 0.5) / 2.5 : 0;
+      const q13Value = c.questionNumber === 14 ? (typeof answer === "number" ? answer : 1.0) : sliderVal;
+      const q13Percent = c.questionNumber === 14 ? (q13Value - 0.5) / 2.5 : 0;
       const words = c.questionText.trim().split(/\s+/);
       const splitAt =
         words.length <= 4
@@ -862,13 +791,13 @@ export function OnboardingQuestionScreen() {
             </View>
           ) : (
             <View style={styles.questionHeadingWrap}>
-              <Text style={[styles.questionHeadingTop, c.questionNumber === 12 && styles.questionHeadingCompact]}>
+              <Text style={[styles.questionHeadingTop, c.questionNumber === 13 && styles.questionHeadingCompact]}>
                 {headingTop}
               </Text>
               <MaskedView
                 style={styles.questionHeadingMask}
                 maskElement={
-                  <Text style={[styles.questionHeadingBottomMaskText, c.questionNumber === 12 && styles.questionHeadingCompact]}>
+                  <Text style={[styles.questionHeadingBottomMaskText, c.questionNumber === 13 && styles.questionHeadingCompact]}>
                     {headingBottom}
                   </Text>
                 }
@@ -882,7 +811,7 @@ export function OnboardingQuestionScreen() {
                   <Text
                     style={[
                       styles.questionHeadingBottomMaskText,
-                      c.questionNumber === 12 && styles.questionHeadingCompact,
+                      c.questionNumber === 13 && styles.questionHeadingCompact,
                       { opacity: 0 },
                     ]}
                   >
@@ -893,10 +822,40 @@ export function OnboardingQuestionScreen() {
             </View>
           )}
 
-          {c.questionNumber === 13 && (
+          {c.questionNumber === 14 && (
             <Text style={styles.q13Hint}>
               Even on your busiest day. This sets your mission floor — not a ceiling.
             </Text>
+          )}
+
+          {c.inputType === "open_text" && (
+            <View style={styles.openTextWrap}>
+              <TextInput
+                style={[
+                  styles.openTextInput,
+                  interactive && openTextFocused && styles.openTextInputFocused,
+                ]}
+                multiline
+                maxLength={c.maxLength ?? 500}
+                placeholder={c.placeholder ?? ""}
+                placeholderTextColor="#4B5563"
+                value={(answer as string) ?? ""}
+                onChangeText={(text) => {
+                  if (interactive) {
+                    updateAnswer(c.answerKey as keyof OnboardingAnswers, text);
+                  }
+                }}
+                editable={interactive}
+                textAlignVertical="top"
+                returnKeyType="default"
+                blurOnSubmit={false}
+                onFocus={interactive ? () => setOpenTextFocused(true) : noop}
+                onBlur={interactive ? () => setOpenTextFocused(false) : noop}
+              />
+              <Text style={styles.openTextCounter}>
+                {((answer as string) ?? "").length}/{c.maxLength ?? 500}
+              </Text>
+            </View>
           )}
 
           {c.inputType === "username" && (
@@ -1230,7 +1189,7 @@ export function OnboardingQuestionScreen() {
             </View>
           )}
 
-          {c.inputType === "slider" && c.questionNumber === 13 && (
+          {c.inputType === "slider" && c.questionNumber === 14 && (
             <View style={styles.q13Wrap}>
               <View style={styles.q13HeroCard} collapsable={false}>
                 <View style={styles.q13HeroAccent} pointerEvents="none">
@@ -1362,7 +1321,7 @@ export function OnboardingQuestionScreen() {
               </View>
             </View>
           )}
-          {c.inputType === "slider" && c.questionNumber !== 13 && (
+          {c.inputType === "slider" && c.questionNumber !== 14 && (
             <OnboardingSlider
               min={sliderRange[0]}
               max={sliderRange[1]}
@@ -1435,6 +1394,7 @@ export function OnboardingQuestionScreen() {
       usernameAvailable,
       usernameSuggestion,
       isCheckingUsername,
+      openTextFocused,
     ]
   );
 
@@ -1447,8 +1407,8 @@ export function OnboardingQuestionScreen() {
   }
 
   const isTransitioning = transitionToIndex !== null;
-  const isQ11NextDisabledUi =
-    currentQuestionIndex === 11 &&
+  const isQ12NextDisabledUi =
+    currentQuestionIndex === 12 &&
     !hasAnswer() &&
     !usernameChecking &&
     !completingOnboarding &&
@@ -1458,12 +1418,12 @@ export function OnboardingQuestionScreen() {
     <View style={styles.root}>
       <LinearGradient
         colors={
-          currentQuestionIndex === 11 ? ["#0D0F1A", "#07080F"] : ["#07080F", "#09091A", "#07080F"]
+          currentQuestionIndex === 12 ? ["#0D0F1A", "#07080F"] : ["#07080F", "#09091A", "#07080F"]
         }
-        locations={currentQuestionIndex === 11 ? [0, 1] : [0, 0.5, 1]}
+        locations={currentQuestionIndex === 12 ? [0, 1] : [0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
-        start={currentQuestionIndex === 11 ? { x: 0.08, y: 0 } : { x: 0, y: 0 }}
-        end={currentQuestionIndex === 11 ? { x: 0.92, y: 1 } : { x: 0, y: 1 }}
+        start={currentQuestionIndex === 12 ? { x: 0.08, y: 0 } : { x: 0, y: 0 }}
+        end={currentQuestionIndex === 12 ? { x: 0.92, y: 1 } : { x: 0, y: 1 }}
       />
       <View style={[StyleSheet.absoluteFill, styles.particleContainer]} pointerEvents="none">
         {particleConfigs.map((c, i) => (
@@ -1556,16 +1516,16 @@ export function OnboardingQuestionScreen() {
                   styles.buttonInner,
                   buttonAnimatedStyle,
                   (!hasAnswer() || usernameChecking || completingOnboarding || isCompleting) &&
-                    !isQ11NextDisabledUi &&
+                    !isQ12NextDisabledUi &&
                     styles.buttonInnerDisabled,
-                  isQ11NextDisabledUi && styles.buttonInnerQ11Disabled,
+                  isQ12NextDisabledUi && styles.buttonInnerQ11Disabled,
                 ]}
               >
                 <LinearGradient
                   colors={
                     usernameChecking || completingOnboarding || isCompleting
                       ? ["#5B21B6", "#8B5CF6"]
-                      : isQ11NextDisabledUi
+                      : isQ12NextDisabledUi
                         ? ["rgba(109,40,217,0.4)", "rgba(139,92,246,0.4)"]
                         : !hasAnswer()
                           ? ["rgba(42,48,80,0.40)", "rgba(42,48,80,0.40)"]
@@ -1576,7 +1536,7 @@ export function OnboardingQuestionScreen() {
                   style={[
                     styles.buttonGradient,
                     (!hasAnswer() || usernameChecking || completingOnboarding || isCompleting) &&
-                      !isQ11NextDisabledUi &&
+                      !isQ12NextDisabledUi &&
                       styles.buttonDisabled,
                   ]}
                 >
@@ -1710,6 +1670,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.danger,
     marginTop: SPACING.xs,
+  },
+  openTextWrap: {
+    width: "100%",
+    marginTop: SPACING.sm,
+  },
+  openTextInput: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 16,
+    color: COLORS.text,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.surface2,
+    borderRadius: RADIUS.card,
+    minHeight: 120,
+    paddingVertical: SPACING.cardPadding,
+    paddingHorizontal: SPACING.cardPadding,
+    textAlignVertical: "top",
+    lineHeight: 24,
+  },
+  openTextInputFocused: {
+    borderColor: "rgba(139,92,246,0.40)",
+  },
+  openTextCounter: {
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    color: COLORS.muted,
+    textAlign: "right",
+    marginTop: 6,
   },
   q11HeadlineBlock: {
     marginBottom: SPACING.xs,

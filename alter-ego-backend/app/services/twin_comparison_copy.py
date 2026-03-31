@@ -34,74 +34,130 @@ def build_comparison_line(
     twin_done_today: int,
     twin_total_today: int,
     week_heatmap: list[dict[str, Any]] | None,
+    days_user_ahead: int = 0,
 ) -> str:
     """
-    Short rivalry line: you vs Twin totals, gap, today — never the home strip voice.
+    1–3 sentence narrative about the rivalry gap — story-shaped, not a bare stat line.
+    `days_user_ahead`: days since last crossing (user passed Twin); 0 if never / unknown.
     """
-    gs = (gap_state or "neck_and_neck").strip()
-    xd = max(0, int(xp_difference or 0))
-    us = max(0, int(user_streak or 0))
-    ts = max(0, int(twin_streak or 0))
-    streak_delta = us - ts
+    try:
+        gs = (gap_state or "neck_and_neck").strip()
+        if gs not in ("user_ahead", "neck_and_neck", "slightly_behind", "significantly_behind"):
+            gs = "neck_and_neck"
 
-    uh = 0.0
-    th = 0.0
-    n = 0
-    for d in week_heatmap or []:
-        try:
-            uh += float(d.get("user_completion_rate") or 0)
-            th += float(d.get("twin_completion_rate") or 0)
-            n += 1
-        except (TypeError, ValueError):
-            continue
-    week_user = uh / n if n else 0.0
-    week_twin = th / n if n else 0.0
-    week_edge = week_user - week_twin
+        xd = max(0, int(xp_difference or 0))
+        us = max(0, int(user_streak or 0))
+        ts = max(0, int(twin_streak or 0))
+        streak_delta = us - ts
+        days_since_cross = max(0, int(days_user_ahead or 0))
 
-    ut = max(0, int(user_total_today or 0))
-    ud = max(0, int(user_done_today or 0))
-    tt = max(0, int(twin_total_today or 0))
-    td = max(0, int(twin_done_today or 0))
+        uh = 0.0
+        th = 0.0
+        n = 0
+        for d in week_heatmap or []:
+            try:
+                uh += float(d.get("user_completion_rate") or 0)
+                th += float(d.get("twin_completion_rate") or 0)
+                n += 1
+            except (TypeError, ValueError):
+                continue
+        week_user = uh / n if n else 0.0
+        week_twin = th / n if n else 0.0
+        week_edge = week_user - week_twin
 
-    def _fmt_xp(x: int) -> str:
-        return f"{max(0, int(x)):,}"
+        ut = max(0, int(user_total_today or 0))
+        ud = max(0, int(user_done_today or 0))
+        tt = max(0, int(twin_total_today or 0))
+        td = max(0, int(twin_done_today or 0))
 
-    pools: dict[str, list[str]] = {
-        "user_ahead": [
-            f"You lead on the lifetime ledger by {_fmt_xp(xd)} XP — Twin is still the version of you from a week ahead on behaviour, not on this total.",
-            f"Total XP: you {_fmt_xp(user_xp)}, Twin {_fmt_xp(twin_xp)}. You're ahead; the strip is about today's pace — here we're looking at the long score.",
-            f"Power Score {_fmt_xp(user_power_score)} vs {_fmt_xp(twin_power_score)} — you're in front. Streaks: {us}d to you vs {ts}d on Twin — the gap is the story, not the slogan.",
-            f"Ahead by {_fmt_xp(xd)} XP. Twin's streak sits at {ts} while yours is {us} — when you're winning the ledger, the fight is holding the line day to day.",
-        ],
-        "neck_and_neck": [
-            f"Neck and neck: {_fmt_xp(user_xp)} XP to {_fmt_xp(twin_xp)} — only {_fmt_xp(xd)} apart. Today {ud}/{ut} for you vs {td}/{tt} for Twin.",
-            f"The ledger is essentially tied (Δ {_fmt_xp(xd)} XP). This week you've averaged {week_user:.0%} completion vs Twin's {week_twin:.0%} — tiny edges compound.",
-            f"Matched on the long game. Streak {us} vs {ts}; Power {_fmt_xp(user_power_score)} vs {_fmt_xp(twin_power_score)}. One strong afternoon shifts the whole board.",
-            f"Close enough that {_fmt_xp(xd)} XP is noise — what matters is whether you finish today's list before Twin's simulated run does.",
-        ],
-        "slightly_behind": [
-            f"Twin leads by {_fmt_xp(xd)} XP overall — you're slightly behind on the total, not necessarily on today's discipline ({ud}/{ut} vs {td}/{tt}).",
-            f"Slightly behind: {_fmt_xp(twin_xp)} to {_fmt_xp(user_xp)}. Streak gap {streak_delta:+d} days vs Twin — close the ledger with consistency, not one hero day.",
-            f"The gap is {_fmt_xp(xd)} XP; Power Score {_fmt_xp(user_power_score)} vs {_fmt_xp(twin_power_score)}. Week pace: you {week_user:.0%} vs Twin {week_twin:.0%}"
-            + (f" — edge to you on the week." if week_edge > 0.03 else "."),
-            f"Behind by a slice — Twin {_fmt_xp(twin_xp)} XP. Your streak ({us}) vs Twin's ({ts}) still decides how fast that closes.",
-        ],
-        "significantly_behind": [
-            f"Twin is ahead by {_fmt_xp(xd)} XP on the lifetime track — that's the rivalry gap; your job is to win today ({ud}/{ut}) and let the trend bend.",
-            f"Large ledger gap: {_fmt_xp(twin_xp)} vs {_fmt_xp(user_xp)}. Streaks {ts} (Twin) vs {us} (you) — long climbs start with not skipping the small missions.",
-            f"Significantly behind on total XP; Power {_fmt_xp(user_power_score)} vs {_fmt_xp(twin_power_score)}. Weekly completion you {week_user:.0%} vs Twin {week_twin:.0%} — shrink the week first.",
-            f"The Twin isn't ahead on talk — they're ahead on {_fmt_xp(xd)} XP. Today's bar: {ud} of {ut} done; beat Twin's {td}/{tt} when it counts.",
-        ],
-    }
+        def _fmt_xp(x: int) -> str:
+            return f"{max(0, int(x)):,}"
 
-    key = gs if gs in pools else "neck_and_neck"
-    lines = pools[key]
-    i = _idx(user_id, today, f"cmp:{key}", len(lines))
-    line = lines[i]
-    # Light rotation on second visit same day: salt with hour would change too often; keep stable per day.
-    if week_edge > 0.08 and gs in ("slightly_behind", "significantly_behind"):
-        line += f" (Your last 7 days are stronger than Twin's on completion — {_fmt_xp(xd)} XP is old damage.)"
-    return line
+        both_finished_today = ut > 0 and tt > 0 and ud >= ut and td >= tt
+        time_story = ""
+        if both_finished_today and ud == ut and td == tt:
+            time_story = " Both of you cleared the board today — the difference is who stacked discipline earlier in the week, not who quit last."
+
+        # Narrative pools: distinct voice per gap state; inject temporal context when we have days_since_cross.
+        lead_days = (
+            f"You're in front for the first time in {days_since_cross} days. "
+            if user_is_ahead and days_since_cross > 0
+            else ""
+        )
+        behind_days = (
+            f"It's been {days_since_cross} days since you last held the lead on the ledger. "
+            if (not user_is_ahead) and days_since_cross > 0
+            else ""
+        )
+
+        pools: dict[str, list[str]] = {
+            "user_ahead": [
+                lead_days
+                + f"You're ahead on the lifetime score by {_fmt_xp(xd)} XP. Your Twin hasn't vanished — you simply out-ran their pace this season. "
+                f"Streaks read {us} days on you versus {ts} on them; hold the line and the story stays yours.",
+                f"The ledger favours you by {_fmt_xp(xd)} XP. That gap is earned — Power {_fmt_xp(user_power_score)} to {_fmt_xp(twin_power_score)}. "
+                f"This week you've averaged {week_user:.0%} completion to Twin's {week_twin:.0%}; when the week leans your way, the headline writes itself.",
+                f"For once the numbers agree with the feeling: you lead by {_fmt_xp(xd)} XP. Twin is still the older version of your discipline — "
+                f"today you proved you're not borrowing their pace anymore. {us}-day streak versus {ts} on their side.",
+                f"You're in front — {_fmt_xp(user_xp)} XP to {_fmt_xp(twin_xp)}. The rivalry isn't over; it's just waiting to see if you defend the lead tomorrow "
+                f"the way you earned it today ({ud}/{ut} done).",
+            ],
+            "neck_and_neck": [
+                f"The two of you are essentially tied — only {_fmt_xp(xd)} XP between {_fmt_xp(user_xp)} and {_fmt_xp(twin_xp)}. "
+                f"Neck and neck means the next week of small choices decides who owns the story. Today: {ud}/{ut} for you, {td}/{tt} for Twin.",
+                f"Close enough that the ledger could flip in an afternoon. Streak {us} vs {ts}; weekly completion you {week_user:.0%}, Twin {week_twin:.0%}. "
+                f"Power sits at {_fmt_xp(user_power_score)} versus {_fmt_xp(twin_power_score)} — whoever strings three honest days first pulls ahead.",
+                f"Matched on totals; the drama is pace. Δ {_fmt_xp(xd)} XP is noise until one of you breaks rhythm. "
+                f"Twin finished {td}/{tt} today; you hit {ud}/{ut}. Small edges compound — that's the whole plot.",
+                f"You're shadowboxing your own consistency. {_fmt_xp(xd)} XP apart; this week slightly favours "
+                + ("you on completion." if week_edge > 0 else "Twin on completion.")
+                + f" Either way, the next mission matters more than the last.",
+            ],
+            "slightly_behind": [
+                behind_days
+                + f"Twin sits {_fmt_xp(xd)} XP ahead on the long count — slightly behind, not buried. "
+                f"Your streak ({us}) versus theirs ({ts}) is where the comeback starts; win today and the trend bends.",
+                f"The ledger shows Twin ahead by {_fmt_xp(xd)} XP — a thin margin. "
+                f"Week pace: you {week_user:.0%}, Twin {week_twin:.0%}. "
+                + (
+                    "You're actually winning the last seven days on completion — the gap is yesterday's damage."
+                    if week_edge > 0.05
+                    else "Shrink the week first; the headline follows."
+                ),
+                f"Slightly behind means the story is still open. {_fmt_xp(twin_xp)} XP to {_fmt_xp(user_xp)}; Power {_fmt_xp(user_power_score)} vs {_fmt_xp(twin_power_score)}. "
+                f"Today's bar: {ud} of {ut} for you. Stack a few clean days and the margin stops feeling personal.",
+                f"Twin leads by {_fmt_xp(xd)} XP — enough to notice, not enough to quit. "
+                f"They logged {td}/{tt} today; you {ud}/{ut}. The rivalry rewards whoever shows up again tomorrow.",
+            ],
+            "significantly_behind": [
+                behind_days
+                + f"Twin is meaningfully ahead — {_fmt_xp(xd)} XP on the lifetime track. That's the size of the hole; "
+                f"climbing out starts with not skipping the small missions. Streaks: {ts} (Twin) vs {us} (you).",
+                f"The gap is wide: {_fmt_xp(twin_xp)} XP to {_fmt_xp(user_xp)}. This isn't a single bad day — it's a slope. "
+                f"Week completion you {week_user:.0%} versus Twin {week_twin:.0%}. Win the week before you chase the headline.",
+                f"Significantly behind on the ledger; Power {_fmt_xp(user_power_score)} to {_fmt_xp(twin_power_score)}. "
+                f"The Twin didn't cheat — they stacked more consistent days. Your job: one honest week, then another.",
+                f"{_fmt_xp(xd)} XP between you and parity. Twin finished {td}/{tt} today; you're at {ud}/{ut}. "
+                f"Long climbs start where you're standing — prove tomorrow belongs to you.",
+            ],
+        }
+
+        lines = pools[gs]
+        i = _idx(user_id, today, f"cmp:{gs}", len(lines))
+        line = lines[i]
+
+        if time_story and gs in ("neck_and_neck", "user_ahead", "slightly_behind"):
+            line = line.rstrip() + time_story
+
+        if week_edge > 0.08 and gs in ("slightly_behind", "significantly_behind"):
+            line += (
+                f" (Your last seven days are stronger than Twin's on completion — {_fmt_xp(xd)} XP is older damage catching up in the headline.)"
+            )
+
+        result = (line or "").strip()
+        return result or "Still here. Still watching."
+    except Exception:
+        return "Still here. Still watching."
 
 
 def build_rank_card_oracle(

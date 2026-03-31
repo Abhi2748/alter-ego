@@ -30,15 +30,9 @@ export function Sigil10({ size = 300 }: SigilProps) {
   const breatheA = useHtmlBreatheR(44, 2600, 1.04);
   const breatheB = useHtmlBreatheR(10, 1600, 1.1);
 
-  const pulseStyle = useAnimatedStyle(() => ({
+  const pulseAp = useAnimatedProps(() => ({
     opacity: pulseOp.value,
-    transform: [
-      { translateX: 170 },
-      { translateY: 170 },
-      { scale: pulseSc.value },
-      { translateX: -170 },
-      { translateY: -170 },
-    ],
+    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
   }));
   const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
   const outerCoreAp = useAnimatedProps(() => ({ r: breatheA.value }));

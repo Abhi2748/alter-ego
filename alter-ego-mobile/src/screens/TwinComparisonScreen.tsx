@@ -16,8 +16,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTwinState, useTwinStrip } from "@/hooks/useTwin";
+import { twinService } from "@/services/twin";
 import type { DayComparison, PillarDNA, TwinActivity, TwinComparisonOut } from "../utils/api";
 import { apiClient, isApiError } from "@/services/api";
 import { TwinComparisonShareCard } from "../components/TwinComparisonShareCard";
@@ -39,6 +40,7 @@ export type TwinJournalEntry = {
   relationship_phase: string;
   missions_completed: number;
   missions_total: number;
+  is_new?: boolean;
 };
 
 function localCalendarYmd(): string {
@@ -69,11 +71,322 @@ function formatJournalDateLabel(entryDate: string): string {
   }
 }
 
+function getDeltaPill(
+  userRate: number,
+  twinRate: number
+): { label: string; variant: "user" | "twin" | "even" } {
+  const diff = Math.round((userRate - twinRate) * 100);
+  if (Math.abs(diff) <= 5) return { label: "Even", variant: "even" };
+  if (diff > 0) return { label: `You +${diff}%`, variant: "user" };
+  return { label: `Twin +${Math.abs(diff)}%`, variant: "twin" };
+}
+
+function NarrativeConfrontation({ text }: { text: string }) {
+  return (
+    <View style={styles.confrontation}>
+      <LinearGradient
+        colors={["rgba(139,92,246,0.07)", "transparent"]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <Text style={styles.confrontationEyebrow}>THE GAP</Text>
+      <Text style={styles.confrontationText}>{text}</Text>
+    </View>
+  );
+}
+
+function JournalPreview({
+  entry,
+  onPress,
+}: {
+  entry: TwinJournalEntry;
+  onPress: () => void;
+}) {
+  const preview = (() => {
+    const c = entry.content ?? "";
+    const dot = c.indexOf(". ");
+    if (dot > 0 && dot < 120) return c.slice(0, dot + 1);
+    if (c.length > 120) return `${c.slice(0, 117)}...`;
+    return c;
+  })();
+
+  return (
+    <View style={styles.journalPreview}>
+      <View style={styles.journalPreviewHdr}>
+        <View style={styles.journalPreviewEyebrowRow}>
+          <View style={styles.journalPreviewDot} />
+          <Text style={styles.journalPreviewEyebrow}>Twin&apos;s Journal</Text>
+        </View>
+        <Text style={styles.journalPreviewDate}>{formatJournalDateLabel(entry.entry_date)}</Text>
+      </View>
+      <Text style={styles.journalPreviewText}>&ldquo;{preview}&rdquo;</Text>
+      <Pressable onPress={onPress} style={styles.journalReadMore}>
+        <Text style={styles.journalReadMoreText}>Read more →</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function TwinChallengeCard({
+  challenge,
+  onAccept,
+  onDecline,
+  loading,
+}: {
+  challenge: import("@/services/twin").TwinChallenge;
+  onAccept: () => void;
+  onDecline: () => void;
+  loading: boolean;
+}) {
+  const progressPct = Math.min(
+    100,
+    Math.round((challenge.current_value / Math.max(challenge.target_value, 1)) * 100)
+  );
+  const isPending = challenge.status === "pending";
+  const isAccepted = challenge.status === "accepted";
+  const isCompleted = challenge.status === "completed";
+
+  return (
+    <View style={challengeStyles.card}>
+      {/* Top shimmer line */}
+      <LinearGradient
+        colors={["transparent", "rgba(139,92,246,0.4)", "transparent"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={challengeStyles.topLine}
+        pointerEvents="none"
+      />
+
+      {/* Header */}
+      <View style={challengeStyles.header}>
+        <View style={challengeStyles.eyebrowRow}>
+          <View style={challengeStyles.pulseDot} />
+          <Text style={challengeStyles.eyebrow}>Twin Challenge</Text>
+        </View>
+        {isCompleted ? (
+          <Text style={challengeStyles.completedBadge}>Completed ✓</Text>
+        ) : (
+          <Text style={challengeStyles.timer}>
+            {challenge.days_remaining === 0
+              ? "Last day"
+              : `${challenge.days_remaining}d left`}
+          </Text>
+        )}
+      </View>
+
+      {/* Challenge text */}
+      <Text style={challengeStyles.text}>{challenge.challenge_text}</Text>
+
+      {/* Progress (only when accepted or completed) */}
+      {(isAccepted || isCompleted) ? (
+        <View style={challengeStyles.progressSection}>
+          <View style={challengeStyles.progressLabels}>
+            <Text style={challengeStyles.progressLabelLeft}>Progress</Text>
+            <Text style={challengeStyles.progressLabelRight}>
+              {challenge.current_value} / {challenge.target_value}
+            </Text>
+          </View>
+          <View style={challengeStyles.track}>
+            <View
+              style={[
+                challengeStyles.fill,
+                { width: `${progressPct}%` as any },
+                isCompleted && challengeStyles.fillCompleted,
+              ]}
+            />
+          </View>
+        </View>
+      ) : null}
+
+      {/* XP reward line */}
+      <Text style={challengeStyles.xpLine}>
+        Reward: +{challenge.xp_reward} Aether
+      </Text>
+
+      {/* Actions (only when pending) */}
+      {isPending ? (
+        <View style={challengeStyles.actions}>
+          <Pressable
+            style={[challengeStyles.btn, challengeStyles.btnAccept]}
+            onPress={onAccept}
+            disabled={loading}
+          >
+            <LinearGradient
+              colors={["#5B21B6", "#8B5CF6"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={challengeStyles.btnGradient}
+            >
+              <Text style={challengeStyles.btnAcceptText}>
+                {loading ? "…" : "Accept"}
+              </Text>
+            </LinearGradient>
+          </Pressable>
+          <Pressable
+            style={[challengeStyles.btn, challengeStyles.btnDecline]}
+            onPress={onDecline}
+            disabled={loading}
+          >
+            <Text style={challengeStyles.btnDeclineText}>Decline</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const challengeStyles = StyleSheet.create({
+  card: {
+    marginHorizontal: 14,
+    marginTop: 14,
+    backgroundColor: "rgba(139,92,246,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.2)",
+    borderRadius: 14,
+    padding: 14,
+    paddingTop: 16,
+    position: "relative",
+    overflow: "hidden",
+  },
+  topLine: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  eyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  pulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#8B5CF6",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#8B5CF6",
+        shadowOpacity: 0.9,
+        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 0 },
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  eyebrow: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.5,
+    color: "rgba(139,92,246,0.6)",
+    textTransform: "uppercase",
+  },
+  timer: {
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
+    color: "#4B5563",
+  },
+  completedBadge: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    color: "#22C55E",
+  },
+  text: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#E5E7EB",
+    lineHeight: 19,
+    marginBottom: 10,
+  },
+  progressSection: {
+    marginBottom: 8,
+  },
+  progressLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 5,
+  },
+  progressLabelLeft: {
+    fontSize: 10,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7280",
+  },
+  progressLabelRight: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    color: "#A78BFA",
+  },
+  track: {
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  fill: {
+    height: "100%",
+    borderRadius: 4,
+    backgroundColor: "#8B5CF6",
+  },
+  fillCompleted: {
+    backgroundColor: "#22C55E",
+  },
+  xpLine: {
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
+    color: "rgba(139,92,246,0.45)",
+    marginBottom: 2,
+  },
+  actions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+  btn: {
+    flex: 1,
+    height: 36,
+    borderRadius: 10,
+    overflow: "hidden",
+  },
+  btnAccept: {},
+  btnDecline: {
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnGradient: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnAcceptText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: "#FFFFFF",
+  },
+  btnDeclineText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: "#4B5563",
+  },
+});
+
 export function TwinComparisonScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const [shareVisible, setShareVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<"today" | "journal">("today");
+  const [journalSeen, setJournalSeen] = useState(false);
 
   const {
     data: twinData,
@@ -160,6 +473,48 @@ export function TwinComparisonScreen() {
     retry: 1,
   });
 
+  const queryClient = useQueryClient();
+
+  const { data: challengeData } = useQuery({
+    queryKey: ["twin", "challenge"],
+    queryFn: async () => {
+      try {
+        return await twinService.getChallenge();
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!twinData,
+    staleTime: 60 * 1000,
+    refetchOnMount: "always",
+  });
+
+  const [challengeLoading, setChallengeLoading] = useState(false);
+
+  const handleAcceptChallenge = async () => {
+    setChallengeLoading(true);
+    try {
+      await twinService.acceptChallenge();
+      await queryClient.invalidateQueries({ queryKey: ["twin", "challenge"] });
+    } catch {
+      // silent fail
+    } finally {
+      setChallengeLoading(false);
+    }
+  };
+
+  const handleDeclineChallenge = async () => {
+    setChallengeLoading(true);
+    try {
+      await twinService.declineChallenge();
+      await queryClient.invalidateQueries({ queryKey: ["twin", "challenge"] });
+    } catch {
+      // silent fail
+    } finally {
+      setChallengeLoading(false);
+    }
+  };
+
   useFocusEffect(
     useCallback(() => {
       if (activeTab === "journal" && twinData) {
@@ -167,6 +522,22 @@ export function TwinComparisonScreen() {
       }
     }, [activeTab, twinData, refetchJournal])
   );
+
+  const handleTabPress = useCallback((tab: "today" | "journal") => {
+    setActiveTab(tab);
+    if (tab === "journal") {
+      setJournalSeen(true);
+      void apiClient.post("/api/v1/twin/journal/mark-read").catch(() => {});
+    }
+  }, []);
+
+  const showJournalDot = useMemo(() => {
+    if (journalSeen) return false;
+    if (!journalData || journalData.length === 0) return false;
+    const latest = journalData[0];
+    const today = localCalendarYmd();
+    return latest.entry_date.slice(0, 10) === today;
+  }, [journalData, journalSeen]);
 
   const openTwinChat = () => {
     (navigation as any).navigate("TwinChat");
@@ -262,10 +633,7 @@ export function TwinComparisonScreen() {
         <Text style={styles.xpTwinLbl}>{twinXpTotal.toLocaleString()} XP</Text>
       </View>
 
-      <View style={styles.verdictCard}>
-        <Text style={styles.verdictEyebrow}>YOUR TWIN</Text>
-        <Text style={styles.verdictText}>&ldquo;{twinVerdict}&rdquo;</Text>
-      </View>
+      {twinVerdict ? <NarrativeConfrontation text={twinVerdict} /> : null}
 
       {weekHeatmap.length > 0 ? (
         <View style={styles.heatmapSection}>
@@ -321,34 +689,76 @@ export function TwinComparisonScreen() {
         </View>
       ) : null}
 
+      {challengeData &&
+      challengeData.status !== "declined" &&
+      challengeData.status !== "failed" ? (
+        <TwinChallengeCard
+          challenge={challengeData}
+          onAccept={handleAcceptChallenge}
+          onDecline={handleDeclineChallenge}
+          loading={challengeLoading}
+        />
+      ) : null}
+
       {pillarDna.length > 0 ? (
         <View style={styles.dnaSection}>
           <View style={styles.sectionHdr}>
             <Text style={styles.sectionTitle}>Discipline DNA</Text>
-            <Text style={styles.sectionSubtitle}>7-day avg · You vs Twin</Text>
+            <Text style={styles.sectionSubtitle}>7-day avg</Text>
           </View>
-          {pillarDna.map((row) => (
-            <View key={row.pillar} style={styles.dnaRow}>
-              <Text style={styles.dnaPillarLbl}>{row.pillar_label}</Text>
-              <View style={styles.dnaBars}>
-                <View style={styles.dnaBarTrack}>
+          {pillarDna.map((row) => {
+            const { label, variant } = getDeltaPill(row.user_rate, row.twin_rate);
+            const fillRate = Math.max(row.user_rate, row.twin_rate);
+            const fillColor =
+              variant === "user"
+                ? "rgba(249,115,22,0.55)"
+                : variant === "twin"
+                  ? "rgba(139,92,246,0.58)"
+                  : "rgba(107,114,128,0.35)";
+            return (
+              <View key={row.pillar} style={styles.dnaRow}>
+                <Text style={styles.dnaPillarLbl}>{row.pillar_label}</Text>
+                <View style={styles.dnaDeltaTrack}>
                   <View
-                    style={[styles.dnaBarFillUser, { width: `${Math.round(row.user_rate * 100)}%` }]}
+                    style={[
+                      styles.dnaDeltaFill,
+                      {
+                        width: `${Math.round(fillRate * 100)}%`,
+                        backgroundColor: fillColor,
+                      },
+                    ]}
                   />
                 </View>
-                <View style={styles.dnaBarTrack}>
-                  <View
-                    style={[styles.dnaBarFillTwin, { width: `${Math.round(row.twin_rate * 100)}%` }]}
-                  />
+                <View
+                  style={[
+                    styles.dnaDeltaPill,
+                    variant === "user" && styles.dnaDeltaPillUser,
+                    variant === "twin" && styles.dnaDeltaPillTwin,
+                    variant === "even" && styles.dnaDeltaPillEven,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.dnaDeltaPillText,
+                      variant === "user" && styles.dnaDeltaPillTextUser,
+                      variant === "twin" && styles.dnaDeltaPillTextTwin,
+                      variant === "even" && styles.dnaDeltaPillTextEven,
+                    ]}
+                  >
+                    {label}
+                  </Text>
                 </View>
               </View>
-              <View style={styles.dnaPcts}>
-                <Text style={styles.dnaPctUser}>{Math.round(row.user_rate * 100)}%</Text>
-                <Text style={styles.dnaPctTwin}>{Math.round(row.twin_rate * 100)}%</Text>
-              </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
+      ) : null}
+
+      {journalData && journalData.length > 0 ? (
+        <JournalPreview
+          entry={journalData[0]}
+          onPress={() => handleTabPress("journal")}
+        />
       ) : null}
     </>
   );
@@ -504,7 +914,7 @@ export function TwinComparisonScreen() {
       <View style={styles.sectionTabs}>
         <Pressable
           style={[styles.sectionTab, activeTab === "today" && styles.sectionTabActive]}
-          onPress={() => setActiveTab("today")}
+          onPress={() => handleTabPress("today")}
         >
           <Text
             style={[
@@ -517,7 +927,7 @@ export function TwinComparisonScreen() {
         </Pressable>
         <Pressable
           style={[styles.sectionTab, activeTab === "journal" && styles.sectionTabActive]}
-          onPress={() => setActiveTab("journal")}
+          onPress={() => handleTabPress("journal")}
         >
           <Text
             style={[
@@ -527,6 +937,7 @@ export function TwinComparisonScreen() {
           >
             Journal
           </Text>
+          {showJournalDot ? <View style={styles.journalNotifDot} /> : null}
         </Pressable>
       </View>
 
@@ -638,6 +1049,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1,
     borderColor: "transparent",
+    position: "relative",
   },
   sectionTabActive: {
     backgroundColor: "rgba(139,92,246,0.08)",
@@ -801,32 +1213,34 @@ const styles = StyleSheet.create({
     }),
   },
 
-  verdictCard: {
+  confrontation: {
     marginHorizontal: 14,
     marginTop: 10,
-    backgroundColor: "rgba(14,12,28,0.75)",
+    backgroundColor: "rgba(14,12,28,0.85)",
     borderWidth: 1,
-    borderColor: "rgba(42,48,80,0.35)",
-    borderLeftWidth: 2,
-    borderLeftColor: "#8B5CF6",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 13,
+    borderColor: "rgba(42,48,80,0.5)",
+    borderTopWidth: 2,
+    borderTopColor: "rgba(139,92,246,0.6)",
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    position: "relative",
+    overflow: "hidden",
   },
-  verdictEyebrow: {
-    fontSize: 8,
+  confrontationEyebrow: {
+    fontSize: 9,
     fontFamily: "Inter_700Bold",
-    color: "#8B5CF6",
     letterSpacing: 1.5,
+    color: "rgba(139,92,246,0.55)",
     textTransform: "uppercase",
-    marginBottom: 5,
+    marginBottom: 10,
   },
-  verdictText: {
-    fontSize: 12,
-    color: "rgba(196,181,253,0.85)",
-    fontStyle: "italic",
-    lineHeight: 17,
-    fontFamily: "Inter_400Regular",
+  confrontationText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: "#E5E7EB",
+    lineHeight: 22,
+    letterSpacing: -0.1,
   },
 
   sectionHdr: {
@@ -882,42 +1296,135 @@ const styles = StyleSheet.create({
   dnaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 9,
+    gap: 10,
+    marginBottom: 10,
   },
   dnaPillarLbl: {
     fontSize: 10,
     color: "#4B5563",
-    width: 68,
+    width: 72,
     flexShrink: 0,
   },
-  dnaBars: { flex: 1, gap: 2 },
-  dnaBarTrack: {
-    width: "100%",
+  dnaDeltaTrack: {
+    flex: 1,
     height: 4,
     backgroundColor: "rgba(255,255,255,0.04)",
     borderRadius: 4,
     overflow: "hidden",
   },
-  dnaBarFillUser: {
+  dnaDeltaFill: {
     height: "100%",
     borderRadius: 4,
-    backgroundColor: "rgba(229,231,235,0.38)",
   },
-  dnaBarFillTwin: {
-    height: "100%",
-    borderRadius: 4,
-    backgroundColor: "rgba(139,92,246,0.58)",
-  },
-  dnaPcts: {
-    flexDirection: "column",
-    alignItems: "flex-end",
-    gap: 2,
-    width: 32,
+  dnaDeltaPill: {
+    minWidth: 72,
+    height: 22,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
     flexShrink: 0,
+    paddingHorizontal: 6,
+    borderWidth: 1,
   },
-  dnaPctUser: { fontSize: 9, color: "rgba(229,231,235,0.35)" },
-  dnaPctTwin: { fontSize: 9, color: "rgba(139,92,246,0.55)" },
+  dnaDeltaPillUser: {
+    backgroundColor: "rgba(249,115,22,0.1)",
+    borderColor: "rgba(249,115,22,0.2)",
+  },
+  dnaDeltaPillTwin: {
+    backgroundColor: "rgba(139,92,246,0.1)",
+    borderColor: "rgba(139,92,246,0.2)",
+  },
+  dnaDeltaPillEven: {
+    backgroundColor: "rgba(107,114,128,0.1)",
+    borderColor: "rgba(107,114,128,0.15)",
+  },
+  dnaDeltaPillText: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.3,
+  },
+  dnaDeltaPillTextUser: { color: "#FB923C" },
+  dnaDeltaPillTextTwin: { color: "#A78BFA" },
+  dnaDeltaPillTextEven: { color: "#6B7280" },
+
+  journalPreview: {
+    marginHorizontal: 14,
+    marginTop: 14,
+    marginBottom: 4,
+    backgroundColor: "rgba(14,12,28,0.7)",
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.4)",
+    borderLeftWidth: 2,
+    borderLeftColor: "rgba(139,92,246,0.4)",
+    borderRadius: 14,
+    padding: 14,
+  },
+  journalPreviewHdr: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  journalPreviewEyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  journalPreviewDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#8B5CF6",
+    opacity: 0.7,
+  },
+  journalPreviewEyebrow: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 1.5,
+    color: "rgba(139,92,246,0.55)",
+    textTransform: "uppercase",
+  },
+  journalPreviewDate: {
+    fontSize: 9,
+    fontFamily: "Inter_500Medium",
+    color: "#374151",
+  },
+  journalPreviewText: {
+    fontSize: 12.5,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(229,231,235,0.65)",
+    lineHeight: 20,
+    fontStyle: "italic",
+  },
+  journalReadMore: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+  },
+  journalReadMoreText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: "#8B5CF6",
+  },
+
+  journalNotifDot: {
+    position: "absolute",
+    top: 5,
+    right: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#8B5CF6",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#8B5CF6",
+        shadowOpacity: 0.9,
+        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 0 },
+      },
+      android: { elevation: 3 },
+      default: {},
+    }),
+  },
 
   journalHdr: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8 },
   journalEyebrow: {

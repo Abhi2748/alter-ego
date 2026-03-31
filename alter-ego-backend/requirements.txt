@@ -15,6 +15,7 @@ apscheduler==3.10.4
 # openai 1.68+ requires numpy>=2; langchain 0.2.0 requires numpy<2 — cap below 1.68
 # instructor 1.5.x requires openai>=1.45
 openai>=1.45.0,<1.68.0
+anthropic>=0.40.0
 numpy>=1.26.0,<2
 # 1.6.4 requires tenacity>=9 (conflicts with langchain 0.2); 1.5.2 uses tenacity<9
 instructor==1.5.2

@@ -22,6 +22,7 @@ from app.services.mission_service import (
     sync_today_planner_missions,
     update_pillar_difficulty,
 )
+from app.services.streak_service import sync_streak_if_lapsed
 
 router = APIRouter(prefix="/api/v1/missions", tags=["missions"])
 logger = logging.getLogger(__name__)
@@ -252,6 +253,8 @@ class PersonalMissionCreateRequest(BaseModel):
 @router.get("/today", response_model=dict)
 async def get_missions_today(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
+
+    await sync_streak_if_lapsed(user_id)
 
     user_row = (
         supabase_admin.table("users")

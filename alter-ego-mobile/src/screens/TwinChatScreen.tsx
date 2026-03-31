@@ -26,6 +26,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { useTwinChatHistory, useSendTwinMessage, useRateTwinMessage } from "@/hooks/useTwin";
+import { twinService } from "@/services/twin";
 import { useUserStore } from "@/store/userStore";
 import Animated, {
   type SharedValue,
@@ -67,6 +68,7 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   rated?: boolean;
+  isProactive?: boolean;
 }
 
 function formatTime(iso: string): string {
@@ -344,9 +346,20 @@ export function TwinChatScreen() {
       }
 
       const showToneRow = !msg.rated;
+      const proactive = msg.isProactive;
       return (
         <View style={[styles.twinBubbleWrap, { marginTop }]}>
-          <View style={styles.twinBubble}>
+          <View
+            style={[
+              styles.twinBubble,
+              proactive && { borderColor: "rgba(192,132,252,0.45)", borderWidth: 1 },
+            ]}
+          >
+            {proactive ? (
+              <Text style={styles.proactiveLabel} accessibilityLabel="Unprompted message">
+                Unprompted
+              </Text>
+            ) : null}
             <View style={styles.twinBubbleAccentLine}>
               <LinearGradient
                 colors={["transparent", "rgba(139,92,246,0.50)", "transparent"]}
@@ -673,6 +686,13 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
+  },
+  proactiveLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    letterSpacing: 0.4,
+    color: MUTED,
+    marginBottom: 6,
   },
   twinBubbleAccentLine: {
     position: "absolute",

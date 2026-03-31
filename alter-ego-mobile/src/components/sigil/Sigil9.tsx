@@ -22,15 +22,9 @@ export function Sigil9({ size = 300 }: SigilProps) {
   const breatheOuter = useHtmlBreatheR(40, 2400, 1.05);
   const breatheInner = useHtmlBreatheR(7, 1800, 1.12);
 
-  const pulseStyle = useAnimatedStyle(() => ({
+  const pulseAp = useAnimatedProps(() => ({
     opacity: pulseOp.value,
-    transform: [
-      { translateX: 170 },
-      { translateY: 170 },
-      { scale: pulseSc.value },
-      { translateX: -170 },
-      { translateY: -170 },
-    ],
+    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
   }));
   const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
   const outerAp = useAnimatedProps(() => ({ r: breatheOuter.value }));

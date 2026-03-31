@@ -11,15 +11,9 @@ export function Sigil2({ size = 300 }: SigilProps) {
   const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulse(5000);
   const flicker = useHtmlFlickerFo(3500, 1, 0);
 
-  const pulseStyle = useAnimatedStyle(() => ({
+  const pulseAp = useAnimatedProps(() => ({
     opacity: pulseOp.value,
-    transform: [
-      { translateX: 170 },
-      { translateY: 170 },
-      { scale: pulseSc.value },
-      { translateX: -170 },
-      { translateY: -170 },
-    ],
+    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
   }));
   const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
 

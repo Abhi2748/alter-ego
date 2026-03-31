@@ -64,6 +64,45 @@ DAILY_PF_CAPS = {
     6: 800,
 }
 
+# ── ADAPTIVE SHADOW MODEL ─────────────────────────────────────────────────────
+
+TWIN_XP_CEILING_PCT = 0.93  # Twin never exceeds 93% of daily cap
+TWIN_XP_FLOOR_PCT = 0.20  # Twin always earns at least 20% of cap
+
+TWIN_MAX_GAP_MULTIPLIER = 3.0  # Twin can't be more than 3× cap ahead of user
+
+# Gap target schedule: (min_day_inclusive, max_day_inclusive, multiplier)
+TWIN_GAP_MULTIPLIER_SCHEDULE = [
+    (0, 3, 0.0),
+    (4, 7, 0.3),
+    (8, 14, 0.7),
+    (15, 9999, 1.0),
+]
+
+TWIN_GAP_HIGH_PERFORMER_THRESHOLD = 0.85  # completion rate above this
+TWIN_GAP_HIGH_PERFORMER_FACTOR = 0.8  # multiply gap target by this
+TWIN_GAP_STRUGGLING_THRESHOLD = 0.40  # completion rate below this
+TWIN_GAP_STRUGGLING_FACTOR = 1.3  # multiply gap target by this
+TWIN_GAP_MULTIPLIER_HARD_CAP = 2.5
+
+TWIN_TARGET_GAP_CAP_MULTIPLIER = 2.0  # never target gap > 2× cap
+
+TWIN_GAP_ERROR_CORRECTION = 0.3  # how aggressively Twin corrects
+TWIN_VARIANCE_LOW = 0.85
+TWIN_VARIANCE_HIGH = 1.15
+
+TWIN_SMOOTHING_DOWN = 0.70
+TWIN_SMOOTHING_UP = 1.30
+TWIN_BOOTSTRAP_FLOOR_PCT = 0.30  # min assumed avg for days < 7
+
+# Comeback window XP fractions per day (index 0 = day 1 of comeback)
+TWIN_COMEBACK_SCHEDULE = [0.22, 0.22, 0.22, 0.40, 0.60, 0.80]
+TWIN_COMEBACK_TRIGGER_DAYS = 3  # absent days needed to trigger
+
+# When user is THIS far ahead, Twin gets an urgency boost to stay relevant
+TWIN_URGENCY_GAP_THRESHOLD_PCT = 1.5  # user > 1.5× cap ahead
+TWIN_URGENCY_MULTIPLIER_BONUS = 0.5  # add this to gap multiplier
+
 # ── XP VALUES PER MISSION (CLAUDE §9) ─────────────────────────────────────
 
 # System-generated missions only — by type + difficulty. Single source of truth.
@@ -1183,7 +1222,8 @@ def get_twin_feed_note(
 
 
 # ── ONBOARDING ECHO SYSTEM (C1) ────────────────────────────────────────────
-# Keys MUST match onboarding_answers.question_key (e.g. q5_reason).
+# Keys MUST match onboarding_answers.question_key after alias merge in echo_service.
+# q5_reason is free text (Phase 1); templates must read naturally for sentences, not enum keys.
 # {answer} = rendered answer string; {days} = days_active from scheduler.
 
 ONBOARDING_ECHO_TEMPLATES: dict[str, list[dict]] = {
@@ -1197,7 +1237,7 @@ ONBOARDING_ECHO_TEMPLATES: dict[str, list[dict]] = {
             "template": "You told me when you go off track you {answer}. {days} days in, the pattern reads differently. Interesting.",
         },
     ],
-    "q13_hours": [
+    "q14_hours": [
         {
             "type": "strip",
             "template": "You said {answer} hours a day was on the table. The last week disagrees.",
@@ -1207,7 +1247,7 @@ ONBOARDING_ECHO_TEMPLATES: dict[str, list[dict]] = {
             "template": "You earmarked {answer} daily hours. {days} days in, the completions don't match that budget.",
         },
     ],
-    "q12_quits": [
+    "q13_quits": [
         {
             "type": "journal",
             "template": "You mentioned {answer}. Day {days}. I noticed you haven't brought it up. I have.",
@@ -1220,11 +1260,11 @@ ONBOARDING_ECHO_TEMPLATES: dict[str, list[dict]] = {
     "q5_reason": [
         {
             "type": "journal",
-            "template": "You said you were here because of {answer}. That was {days} days ago. The missions tell a different story about your actual priorities.",
+            "template": "You said you came here for this: \"{answer}\". That was {days} days ago. The missions tell a different story about your actual priorities.",
         },
         {
             "type": "strip",
-            "template": "You said you were here for {answer}. Still true?",
+            "template": "You wrote: \"{answer}\". Still true?",
         },
     ],
     "q4_situation": [
@@ -1257,8 +1297,8 @@ ONBOARDING_ECHO_TEMPLATES: dict[str, list[dict]] = {
 
 ECHO_PRIORITY_KEYS = [
     "q7_recovery",
-    "q13_hours",
-    "q12_quits",
+    "q14_hours",
+    "q13_quits",
     "q5_reason",
     "q4_situation",
     "q8_motivation",

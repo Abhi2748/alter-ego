@@ -1,8 +1,8 @@
 /**
  * Maps GET /api/v1/onboarding/progress answers back into OnboardingAnswers
- * and computes the first incomplete question (1–14) for resume-after-kill.
+ * and computes the first incomplete question (1–15) for resume-after-kill.
  *
- * Must stay in sync with save payloads in OnboardingQuestionScreen (QUESTION_KEYS + ARCHETYPE_ANSWER_MAP).
+ * Must stay in sync with save payloads in OnboardingQuestionScreen (QUESTION_KEYS).
  */
 
 import type {
@@ -12,88 +12,31 @@ import type {
 } from "@/context/OnboardingAnswersContext";
 import type { AwarenessLevel, QuitGoal } from "@/types/quits";
 
-/** Backend question_key per step (Q15 timezone saved with Q14 submit). */
+/** Backend question_key per step (Q16 timezone saved with Q15 submit). */
 const QUESTION_KEYS: Record<number, string> = {
   1: "q1_username",
   2: "q2_gender",
   3: "q3_age",
   4: "q4_situation",
   5: "q5_reason",
+  6: "q6_alarm",
+  7: "q7_missed_day",
+  8: "q8_doubt",
+  9: "q9_success",
+  10: "q10_failure",
+  11: "q11_discipline",
+  12: "q12_interests",
+  13: "q13_quits",
+  14: "q14_hours",
+};
+
+/** Legacy keys (pre–profiler redesign) for resume on older drafts. */
+const LEGACY_SCENARIO_KEYS: Record<number, string> = {
   6: "q6_approach",
   7: "q7_recovery",
   8: "q8_motivation",
   9: "q9_autonomy",
   10: "q10_comparison",
-  11: "q11_interests",
-  12: "q12_quits",
-  13: "q13_hours",
-};
-
-/**
- * Same mapping as OnboardingQuestionScreen — UI label → API scoring value.
- * For labels that share one API value, list the current copy first so resume
- * hydration shows the latest wording.
- */
-const ARCHETYPE_ANSWER_MAP: Record<string, Record<string, string>> = {
-  q4_situation: {
-    "Grinding hard but staying inconsistent": "overwhelmed",
-    "Starting completely fresh": "rebuilding",
-    "Trying to quit something that's holding me back": "stuck",
-    "Looking to become a better version of myself": "ambitious",
-    "I'm in a solid season — I want to sharpen my edge and keep winning":
-      "competitive",
-    "I've always been competitive and want to win this": "competitive",
-  },
-  q5_reason: {
-    "I keep failing at habits and I'm tired of it": "escape_habit",
-    "I want to become someone genuinely different": "prove_to_self",
-    "I want to prove to others that I can do this": "prove_to_others",
-    "I want to build something meaningful for my future": "build_something",
-    "I want to level up and perform better": "level_up",
-    "I need to quit something for good": "escape_habit",
-    "Someone showed me this": "level_up",
-  },
-  q6_approach: {
-    "Plan it out properly before starting": "systems_first",
-    "Dive straight in and figure it out": "jump_in",
-    "Put it off until I can't anymore": "depends_on_mood",
-    "Break it into the smallest possible steps": "research_first",
-    "First I set up accountability — a check-in, partner, or hard deadline":
-      "need_accountability",
-    "I need accountability to stay consistent": "need_accountability",
-  },
-  q7_recovery: {
-    "Feel guilty and spiral further": "guilt_spiral",
-    "Shake it off and start again": "restart_immediately",
-    "Use it as fuel to come back harder": "restart_immediately",
-    "Pretend it didn't happen and move on": "need_time",
-    "I lock in harder so I don't miss again": "dont_miss",
-  },
-  q8_motivation: {
-    "I could see the progress happening": "internal_standards",
-    "I didn't want to let myself down": "fear_of_regret",
-    "It was genuinely enjoyable": "curiosity",
-    "Someone was counting on me": "external_validation",
-    "Competing with others kept me sharp": "competition",
-  },
-  q9_autonomy: {
-    "Appreciate the structure — it helps": "guidance_welcome",
-    "Feel a little annoyed by it": "full_control",
-    "Depends entirely on who's telling me": "flexible",
-    "I work best with a clear structure and plan": "structured_plan",
-    "Fine by me — I do better when they stay involved and check I'm executing":
-      "accountability_partner",
-    "I need someone to check in and keep me accountable": "accountability_partner",
-    "Tune it out almost automatically": "full_control",
-  },
-  q10_comparison: {
-    "I love it — competition drives me": "drives_me",
-    "Indifferent — I don't think about it": "dont_care",
-    "Mildly motivating when I'm ahead": "motivates_briefly",
-    "Comparisons usually make me uncomfortable": "uncomfortable",
-    "I use comparison as a benchmark to improve": "use_as_benchmark",
-    "I'd rather just run my own race": "dont_care",
-  },
 };
 
 const API_TO_LEVEL: Record<string, "beginner" | "intermediate" | "advanced"> = {
@@ -101,16 +44,6 @@ const API_TO_LEVEL: Record<string, "beginner" | "intermediate" | "advanced"> = {
   getting_the_hang_of_it: "intermediate",
   pretty_solid: "advanced",
 };
-
-function invertArchetypeMap(qKey: string): Record<string, string> {
-  const m = ARCHETYPE_ANSWER_MAP[qKey];
-  const inv: Record<string, string> = {};
-  if (!m) return inv;
-  for (const [label, apiVal] of Object.entries(m)) {
-    if (!(apiVal in inv)) inv[apiVal] = label;
-  }
-  return inv;
-}
 
 function strVal(j: Record<string, unknown> | undefined): string | undefined {
   const v = j?.value;
@@ -194,6 +127,17 @@ function mapQuitFromApi(raw: unknown): OnboardingQuitTarget | null {
   };
 }
 
+const Q4_TO_11_CLIENT: Record<number, keyof OnboardingAnswers> = {
+  4: "situation",
+  5: "reason",
+  6: "alarmScenario",
+  7: "missedDay",
+  8: "doubtResponse",
+  9: "successPattern",
+  10: "failurePattern",
+  11: "disciplineMeaning",
+};
+
 /**
  * Hydrate client answers from server `answers` map (question_key → answer_json).
  */
@@ -211,32 +155,21 @@ export function serverProgressToClientAnswers(
   const age = numVal(answers.q3_age);
   if (age !== undefined) out.ageRange = intToAgeRange(age);
 
-  for (let q = 4; q <= 10; q++) {
-    const key = QUESTION_KEYS[q];
-    const inv = invertArchetypeMap(key);
-    const stored = strVal(answers[key]);
+  for (let q = 4; q <= 11; q++) {
+    const primaryKey = QUESTION_KEYS[q];
+    const legacyKey = LEGACY_SCENARIO_KEYS[q];
+    let stored = strVal(answers[primaryKey]);
+    if (!stored && legacyKey) {
+      stored = strVal(answers[legacyKey]);
+    }
     if (!stored) continue;
-    const label = inv[stored] ?? stored;
-    const answerKey =
-      q === 4
-        ? "situation"
-        : q === 5
-          ? "reason"
-          : q === 6
-            ? "taskApproach"
-            : q === 7
-              ? "offTrack"
-              : q === 8
-                ? "motivation"
-                : q === 9
-                  ? "autonomy"
-                  : "comparison";
-    (out as Record<string, unknown>)[answerKey] = label;
+    const clientKey = Q4_TO_11_CLIENT[q];
+    (out as Record<string, unknown>)[clientKey] = stored;
   }
 
-  const q11 = answers.q11_interests;
-  if (q11 && typeof q11 === "object") {
-    const list = (q11 as { interests?: unknown }).interests;
+  const qInterests = answers.q12_interests ?? answers.q11_interests;
+  if (qInterests && typeof qInterests === "object") {
+    const list = (qInterests as { interests?: unknown }).interests;
     if (Array.isArray(list)) {
       const interests: OnboardingInterest[] = [];
       for (const item of list) {
@@ -247,9 +180,9 @@ export function serverProgressToClientAnswers(
     }
   }
 
-  const q12 = answers.q12_quits;
-  if (q12 && typeof q12 === "object") {
-    const list = (q12 as { quit_targets?: unknown }).quit_targets;
+  const qQuits = answers.q13_quits ?? answers.q12_quits;
+  if (qQuits && typeof qQuits === "object") {
+    const list = (qQuits as { quit_targets?: unknown }).quit_targets;
     if (Array.isArray(list)) {
       const quits: OnboardingQuitTarget[] = [];
       for (const item of list) {
@@ -260,10 +193,10 @@ export function serverProgressToClientAnswers(
     }
   }
 
-  const hours = numVal(answers.q13_hours);
+  const hours = numVal(answers.q14_hours) ?? numVal(answers.q13_hours);
   if (hours !== undefined) out.dailyHours = hours;
 
-  const c = strVal(answers.q14_commitment);
+  const c = strVal(answers.q15_commitment) ?? strVal(answers.q14_commitment);
   if (c) out.commitmentTimeline = commitmentApiToLabel(c);
 
   return out;
@@ -273,7 +206,7 @@ function isStepComplete(
   step: number,
   answers: Record<string, Record<string, unknown>>
 ): boolean {
-  if (step < 1 || step > 13) return false;
+  if (step < 1 || step > 14) return false;
   const key = QUESTION_KEYS[step];
   const j = answers[key];
   if (!j || typeof j !== "object") return false;
@@ -281,20 +214,27 @@ function isStepComplete(
   if (step === 1) return !!strVal(j)?.trim();
   if (step === 2) return !!strVal(j);
   if (step === 3) return numVal(j) !== undefined;
-  if (step >= 4 && step <= 10) return !!strVal(j);
-  if (step === 11) {
+  if (step >= 4 && step <= 11) {
+    const legacy = LEGACY_SCENARIO_KEYS[step];
+    const v = strVal(j) ?? (legacy ? strVal(answers[legacy]) : undefined);
+    if (!v?.trim()) return false;
+    if (step === 5) return v.trim().length >= 10;
+    if (step === 11) return v.trim().length >= 8;
+    return true;
+  }
+  if (step === 12) {
     const interests = (j as { interests?: unknown }).interests;
     return Array.isArray(interests) && interests.length >= 1;
   }
-  if (step === 12) {
+  if (step === 13) {
     return Array.isArray((j as { quit_targets?: unknown }).quit_targets);
   }
-  if (step === 13) return numVal(j) !== undefined;
+  if (step === 14) return numVal(j) !== undefined;
   return false;
 }
 
 /**
- * First question index (1–14) to show, or `null` if user should leave onboarding for Main.
+ * First question index (1–15) to show, or `null` if user should leave onboarding for Main.
  */
 export function getResumeQuestionNumber(
   answers: Record<string, Record<string, unknown>>,
@@ -302,10 +242,9 @@ export function getResumeQuestionNumber(
 ): number | null {
   if (onboardingComplete) return null;
 
-  for (let n = 1; n <= 13; n++) {
+  for (let n = 1; n <= 14; n++) {
     if (!isStepComplete(n, answers)) return n;
   }
 
-  // Q14 / complete-onboarding retry
-  return 14;
+  return 15;
 }

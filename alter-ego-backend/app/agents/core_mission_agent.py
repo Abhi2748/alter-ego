@@ -166,6 +166,8 @@ async def generate_core_missions(
     last_core_missions: list[str],
     *,
     recovery_pillars_today: list[str] | None = None,
+    pillar_streaks: dict | None = None,
+    pillar_completion_hour: dict | None = None,
 ) -> CoreMissionBatch:
     pillars_today = (
         list(recovery_pillars_today)
@@ -188,6 +190,34 @@ async def generate_core_missions(
     anti_lines = [f"  - {m}" for m in (last_core_missions or [])[-6:]]
     anti_repeat = "\n".join(anti_lines) if anti_lines else "  None"
 
+    # ── Per-pillar context (streak + break + time pattern) ─────────────────
+    context_lines: list[str] = []
+    streaks = pillar_streaks or {}
+    hours = pillar_completion_hour or {}
+
+    for pillar in pillars_today:
+        streak = int(streaks.get(pillar, 0) or 0)
+        hour_pattern = str(hours.get(pillar, "") or "")
+        parts: list[str] = []
+
+        if streak > 1:
+            parts.append(f"{streak}-day streak")
+        elif streak == 0:
+            parts.append("streak reset yesterday")
+
+        if hour_pattern:
+            parts.append(f"usually completes in the {hour_pattern}")
+
+        if parts:
+            context_lines.append(f"  - {pillar.upper()}: {', '.join(parts)}")
+
+    pillar_context_str = (
+        "PILLAR CONTEXT (use to vary phrasing — reference streak or time naturally):\n"
+        + "\n".join(context_lines)
+        if context_lines
+        else ""
+    )
+
     user_message = f"""Generate today's core missions for this user.
 
 ARCHETYPE: {archetype}
@@ -198,8 +228,17 @@ PILLARS TO INCLUDE (exactly {len(pillars_today)} missions, one per pillar, same 
 TIER SPECS (follow difficulty per line):
 {chr(10).join(pillar_specs)}
 
+{pillar_context_str}
+
 PREVIOUS MISSION TITLES (vary phrasing; do not copy):
 {anti_repeat}
+
+PHRASING GUIDE:
+- If a pillar has a streak > 1: reference it naturally. e.g. "Movement. Day 23. You know the drill — 20 minutes."
+- If streak == 0 (reset yesterday): acknowledge briefly, forward-only. e.g. "The streak reset. Today is day 1. 10 minutes."
+- If pillar has a time pattern: reference it. e.g. "Your afternoon phone break. 15 minutes."
+- Day 1-3: keep phrasing simple and encouraging. No streak references.
+- Never guilt. Never "you missed" or "you failed".
 
 Return exactly {len(pillars_today)} missions with pillars: {", ".join(pillars_today)}."""
 

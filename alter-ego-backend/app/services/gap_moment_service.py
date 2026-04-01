@@ -76,9 +76,51 @@ GAP_MOMENT_COPY: dict[str, dict[str, tuple[str, str]]] = {
             "A week gone.\n{a}I didn't stop.{/a}",
             "Seven days of your work\nstill waiting.",
         ),
+        "freeze_used": (
+            "Your streak freeze saved you.\n{a}The count went down.{/a}",
+            "The streak didn't break.\nYou earned that protection.",
+        ),
         "default": (
             "You were gone.\n{a}I wasn't.{/a}",
             "The gap is real now.\nSo is closing it.",
+        ),
+    },
+    "interest_milestone": {
+        "phase_foundation": (
+            "Foundation complete.\n{a}Building begins.",
+            "What felt unfamiliar is now the floor.\nThe next phase is harder. That's the point.",
+        ),
+        "phase_building": (
+            "Building phase done.\n{a}You're applying now.",
+            "You moved past the basics.\nThis is where most people stop.",
+        ),
+        "phase_applying": (
+            "Applying phase complete.\n{a}One phase left.",
+            "You've used the skill under pressure.\nMastery is the finish line.",
+        ),
+        "25pct": (
+            "Quarter of the way.\n{a}Here's what you've covered.",
+            "A quarter of the arc complete.\nKeep going.",
+        ),
+        "50pct": (
+            "Halfway.\n{a}Your Twin noticed.",
+            "The second half is where it gets real.",
+        ),
+        "sessions_25": (
+            "25 sessions.\n{a}That's a practice now.",
+            "Not a phase. Not a test run.\nAn actual practice.",
+        ),
+        "sessions_100": (
+            "100 sessions of this.\n{a}That's not a hobby.",
+            "That's a practice.\nMost people never get here.",
+        ),
+        "goal": (
+            "Goal reached.\n{a}The arc is complete.",
+            "What you built here is yours.\nThe skill doesn't disappear when the arc ends.",
+        ),
+        "default": (
+            "Milestone reached.\n{a}Keep going.",
+            "",
         ),
     },
     "passed_twin": {
@@ -328,5 +370,6 @@ def _particles_for_trigger(trigger_type: str) -> dict:
         "passed_twin": {"color": "orange", "density": "high"},
         "stage_evolution": {"color": "violet", "density": "medium"},
         "pet_evolution": {"color": "violet", "density": "low"},
+        "interest_milestone": {"color": "violet", "density": "low"},
     }
     return configs.get(trigger_type, {"color": "violet", "density": "low"})

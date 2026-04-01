@@ -1,5 +1,5 @@
 /**
- * Onboarding Q11 — 3-step bottom sheet: Level → Goal → Schedule.
+ * Onboarding Q11 — 4-step bottom sheet: Level → Goal → Timeline → Schedule.
  * Triggered by + button or quick-pick chip. Adds OnboardingInterest on complete.
  */
 
@@ -22,6 +22,14 @@ import type { OnboardingInterest } from "../context/OnboardingAnswersContext";
 
 const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
+const TIMELINE_OPTIONS: { value: string; label: string; sub: string }[] = [
+  { value: "no_deadline", label: "No fixed deadline", sub: "Open practice — no arc pressure" },
+  { value: "1_month", label: "About 1 month", sub: "Short sprint" },
+  { value: "3_months", label: "About 3 months", sub: "Typical skill-building window" },
+  { value: "6_months", label: "About 6 months", sub: "Steady long arc" },
+  { value: "1_year", label: "About a year", sub: "Big goal on the horizon" },
+];
+
 const LEVEL_OPTIONS: { label: string; sub: string; value: "beginner" | "intermediate" | "advanced" }[] = [
   { label: "Still figuring it out", sub: "Just starting, mostly beginner", value: "beginner" },
   { label: "Getting the hang of it", sub: "Some experience, building consistency", value: "intermediate" },
@@ -35,7 +43,7 @@ type Props = {
   interestName: string;
 };
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 
 export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: Props) {
   const insets = useSafeAreaInsets();
@@ -43,6 +51,7 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
   const [level, setLevel] = useState<"beginner" | "intermediate" | "advanced" | null>(null);
   const [goal, setGoal] = useState("");
   const [schedule, setSchedule] = useState<number[]>([]);
+  const [timeline, setTimeline] = useState<string>("no_deadline");
 
   useEffect(() => {
     if (visible) {
@@ -50,6 +59,7 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
       setLevel(null);
       setGoal("");
       setSchedule([]);
+      setTimeline("no_deadline");
     }
   }, [visible, interestName]);
 
@@ -78,9 +88,10 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
       level,
       goal: goal.trim(),
       schedule: schedule.length > 0 ? schedule : [0, 2, 4],
+      target_timeline: timeline,
     });
     onClose();
-  }, [interestName, level, goal, schedule, onAdd, onClose]);
+  }, [interestName, level, goal, schedule, timeline, onAdd, onClose]);
 
   if (!visible) return null;
 
@@ -100,7 +111,7 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
         <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]} onStartShouldSetResponder={() => true}>
           <View style={styles.dragHandle} />
           <View style={styles.dots}>
-            {[1, 2, 3].map((i) => (
+            {[1, 2, 3, 4].map((i) => (
               <View
                 key={i}
                 style={[styles.dot, i === step && styles.dotActive]}
@@ -109,7 +120,7 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
           </View>
           <View style={styles.headerRow}>
             <Text style={styles.headerLabel}>
-              STEP {step} OF 3 · <Text style={styles.headerName}>{interestName.trim() || "Interest"}</Text>
+              STEP {step} OF 4 · <Text style={styles.headerName}>{interestName.trim() || "Interest"}</Text>
             </Text>
             <Pressable onPress={handleClose} style={styles.closeBtn}>
               <Ionicons name="close" size={12} color="#6B7280" />
@@ -203,6 +214,54 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
             {step === 3 && (
               <>
                 <Pressable onPress={() => setStep(2)} style={styles.backLink}>
+                  <Text style={styles.backLinkText}>← Back</Text>
+                </Pressable>
+                <Text style={styles.question}>When do you want to reach your goal?</Text>
+                <Text style={styles.hint}>Sets how your learning arc is structured. You can change this later.</Text>
+
+                <View style={styles.radioGroup}>
+                  {TIMELINE_OPTIONS.map((opt) => (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => setTimeline(opt.value)}
+                      style={[styles.radioCard, timeline === opt.value && styles.radioCardSelected]}
+                    >
+                      {timeline === opt.value && (
+                        <View style={styles.accentBar}>
+                          <LinearGradient
+                            colors={["#8B5CF6", "#5B21B6"]}
+                            style={StyleSheet.absoluteFill}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 0, y: 1 }}
+                          />
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.radioLabel, timeline === opt.value && styles.radioLabelSelected]}>
+                          {opt.label}
+                        </Text>
+                        <Text style={styles.radioSub}>{opt.sub}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Pressable onPress={() => setStep(4)} style={styles.primaryBtn}>
+                  <LinearGradient
+                    colors={["#5B21B6", "#8B5CF6"]}
+                    style={styles.primaryBtnGrad}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <Text style={styles.primaryBtnLabel}>Next</Text>
+                  </LinearGradient>
+                </Pressable>
+              </>
+            )}
+
+            {step === 4 && (
+              <>
+                <Pressable onPress={() => setStep(3)} style={styles.backLink}>
                   <Text style={styles.backLinkText}>← Back</Text>
                 </Pressable>
                 <Text style={styles.question}>Which days will you show up?</Text>

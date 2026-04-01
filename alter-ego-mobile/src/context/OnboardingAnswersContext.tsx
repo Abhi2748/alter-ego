@@ -13,6 +13,8 @@ export type OnboardingInterest = {
   level: "beginner" | "intermediate" | "advanced";
   goal: string;
   schedule: number[]; // 0=Mon … 6=Sun; we convert to ["mon","wed","fri"] for API
+  /** Learning arc timeline — matches profile create interest */
+  target_timeline?: string; // "1_month" | "3_months" | "6_months" | "1_year" | "no_deadline"
 };
 
 /** One quit target from Q12 — full object for Planner. */

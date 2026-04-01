@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import type { BottomSheetModal } from "@gorhom/bottom-sheet";
-import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, Modal } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   useAnimatedStyle,
@@ -11,13 +11,13 @@ import Animated, {
 } from "react-native-reanimated";
 import {
   useInterests,
-  useCompleteQuest,
-  useMarkCriterion,
   useUpdateDifficulty,
   useUpdateSchedule,
   useChangeGoal,
   useDeleteInterest,
   useCreateInterest,
+  usePauseInterest,
+  useResumeInterest,
 } from "@/hooks/useInterests";
 import type { InterestInsight, InterestPathDisplay } from "@/types/interestPath";
 import { InterestCard } from "@/components/profile/InterestCard";
@@ -27,6 +27,7 @@ import { ScheduleSheet } from "@/components/profile/interest/ScheduleSheet";
 import { ChangeGoalFlow } from "@/components/profile/interest/ChangeGoalFlow";
 import { DeleteModal } from "@/components/profile/interest/DeleteModal";
 import { InsightModal } from "@/components/profile/interest/InsightModal";
+import { InterestDetailScreen } from "@/screens/InterestDetailScreen";
 import { getErrorMessage, isApiError } from "@/services/api";
 import { AddInterestSheet } from "@/components/AddInterestSheet";
 
@@ -51,13 +52,13 @@ function SkeletonCard() {
 
 export function InterestsTab() {
   const { data, isLoading, isError, refetch, isFetching } = useInterests();
-  const completeQuest = useCompleteQuest();
-  const markCriterion = useMarkCriterion();
   const updateDifficulty = useUpdateDifficulty();
   const updateSchedule = useUpdateSchedule();
   const changeGoal = useChangeGoal();
   const deleteInterest = useDeleteInterest();
   const createInterest = useCreateInterest();
+  const pauseInterest = usePauseInterest();
+  const resumeInterest = useResumeInterest();
 
   const manageSheetRef = useRef<BottomSheetModal>(null);
   const difficultySheetRef = useRef<BottomSheetModal>(null);
@@ -65,7 +66,7 @@ export function InterestsTab() {
   const suppressManagePathClear = useRef(false);
 
   const [managedPath, setManagedPath] = useState<InterestPathDisplay | null>(null);
-  const [completingKey, setCompletingKey] = useState<string | null>(null);
+  const [detailPath, setDetailPath] = useState<InterestPathDisplay | null>(null);
   const [toast, setToast] = useState<{ msg: string; kind: "err" | "ok" } | null>(null);
   const [goalFlowOpen, setGoalFlowOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -78,6 +79,8 @@ export function InterestsTab() {
   const [addInterestOpen, setAddInterestOpen] = useState(false);
 
   const paths = data?.paths ?? [];
+  const activePaths = paths.filter((p) => !p.arc_paused);
+  const pausedPaths = paths.filter((p) => p.arc_paused);
 
   const openAddInterest = useCallback(() => setAddInterestOpen(true), []);
 
@@ -106,37 +109,24 @@ export function InterestsTab() {
     setTimeout(() => setToast(null), 3200);
   };
 
-  const handleComplete = async (pathId: string, questId: string) => {
-    const key = `${pathId}:${questId}`;
-    setCompletingKey(key);
+  const handlePause = async (pathId: string) => {
     try {
-      const res = await completeQuest.mutateAsync({ pathId, questId });
-      if (res?.insight?.title) {
-        const path = paths.find((p) => p.path_id === pathId);
-        setInsightPayload({
-          title: res.insight.title,
-          body: res.insight.body,
-          color: path?.color_hex ?? "#8B5CF6",
-        });
-        setInsightOpen(true);
-      }
-    } catch {
-      setToast({ msg: "Couldn't complete quest. Try again.", kind: "err" });
-      setTimeout(() => setToast(null), 3200);
-    } finally {
-      setCompletingKey(null);
+      await pauseInterest.mutateAsync({ interestId: pathId });
+      setToast({ msg: "Arc paused. Missions will stop until you resume.", kind: "ok" });
+      setTimeout(() => setToast(null), 2800);
+    } catch (e) {
+      showError(e);
     }
   };
 
-  const handleMark = (pathId: string, questId: string, idx: number) => {
-    const path = paths.find((p) => p.path_id === pathId);
-    const q = path?.quests.find((x) => x.id === questId);
-    if (!q) return;
-    const next = !q.criteria_done[idx];
-    markCriterion.mutate(
-      { pathId, questId, index: idx, done: next },
-      { onError: (e) => showError(e) }
-    );
+  const handleResume = async (pathId: string) => {
+    try {
+      await resumeInterest.mutateAsync(pathId);
+      setToast({ msg: "Arc resumed. Missions will appear tomorrow.", kind: "ok" });
+      setTimeout(() => setToast(null), 2800);
+    } catch (e) {
+      showError(e);
+    }
   };
 
   const handleInsightTap = (ins: InterestInsight, colorHex: string) => {
@@ -243,17 +233,32 @@ export function InterestsTab() {
           </View>
         ) : null}
 
-        {paths.map((p) => (
-          <InterestCard
-            key={p.path_id}
-            path={p}
-            completingKey={completingKey}
-            onManage={openManage}
-            onCompleteQuest={handleComplete}
-            onMarkCriterion={handleMark}
-            onInsightTap={handleInsightTap}
-          />
+        {activePaths.map((p) => (
+          <Pressable key={p.path_id} onPress={() => setDetailPath(p)}>
+            <InterestCard path={p} onManage={openManage} onInsightTap={handleInsightTap} />
+          </Pressable>
         ))}
+
+        {pausedPaths.length > 0 ? (
+          <>
+            <View style={styles.pausedDivider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerLabel}>Paused</Text>
+              <View style={styles.dividerLine} />
+            </View>
+            {pausedPaths.map((p) => (
+              <View key={p.path_id} style={{ position: "relative" }}>
+                <Pressable onPress={() => setDetailPath(p)}>
+                  <InterestCard path={p} onManage={openManage} onInsightTap={handleInsightTap} />
+                </Pressable>
+                <Pressable style={styles.resumeBtn} onPress={() => void handleResume(p.path_id)}>
+                  <Text style={styles.resumeBtnText}>Resume →</Text>
+                </Pressable>
+              </View>
+            ))}
+          </>
+        ) : null}
+
         <Pressable style={styles.addDashed} onPress={openAddInterest}>
           <Text style={styles.addDashedPlus}>+</Text>
           <Text style={styles.addDashedTxt}>Add New Interest</Text>
@@ -285,6 +290,10 @@ export function InterestsTab() {
           dismissManageThen(() => scheduleSheetRef.current?.present())
         }
         onChangeGoal={() => dismissManageThen(() => setGoalFlowOpen(true))}
+        onPause={() => {
+          if (!managedPath) return;
+          dismissManageThen(() => void handlePause(managedPath.path_id));
+        }}
         onDelete={() => dismissManageThen(() => setDeleteOpen(true))}
       />
 
@@ -366,6 +375,48 @@ export function InterestsTab() {
         title={insightPayload?.title ?? ""}
         body={insightPayload?.body ?? ""}
       />
+
+      <Modal visible={!!detailPath} animationType="slide" presentationStyle="pageSheet">
+        {detailPath ? (
+          <InterestDetailScreen
+            path={detailPath}
+            onClose={() => setDetailPath(null)}
+            onPause={() => {
+              void handlePause(detailPath.path_id);
+              setDetailPath(null);
+            }}
+            onResume={() => {
+              void handleResume(detailPath.path_id);
+              setDetailPath(null);
+            }}
+            onChangeSchedule={() => {
+              const p = detailPath;
+              setDetailPath(null);
+              setTimeout(() => {
+                if (p) {
+                  setManagedPath(p);
+                  scheduleSheetRef.current?.present();
+                }
+              }, 400);
+            }}
+            onChangeTimeline={() => {
+              setDetailPath(null);
+              setToast({ msg: "Use Manage → Change timeline from profile soon.", kind: "ok" });
+              setTimeout(() => setToast(null), 2800);
+            }}
+            onChangeGoal={() => {
+              const p = detailPath;
+              setDetailPath(null);
+              setTimeout(() => {
+                if (p) {
+                  setManagedPath(p);
+                  setGoalFlowOpen(true);
+                }
+              }, 400);
+            }}
+          />
+        ) : null}
+      </Modal>
     </View>
   );
 }
@@ -465,4 +516,34 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   toastOkTxt: { color: "#C4B5FD", fontSize: 12, textAlign: "center" },
+  pausedDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginVertical: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(42,48,80,0.3)",
+  },
+  dividerLabel: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    color: "#2A3050",
+  },
+  resumeBtn: {
+    position: "absolute",
+    bottom: 20,
+    right: 22,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  resumeBtnText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: "rgba(139,92,246,0.5)",
+  },
 });

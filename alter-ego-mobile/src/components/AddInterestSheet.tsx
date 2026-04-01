@@ -17,7 +17,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import type { PostInterestPayload } from "../utils/api";
+import type { PostInterestPayload } from "@/utils/api";
 
 const SHEET_BG = "#111623";
 const BORDER = "rgba(42,48,80,0.50)";
@@ -33,6 +33,18 @@ const LEVEL_OPTIONS = [
   { value: "Still figuring it out", title: "Still figuring it out", sub: "Just starting, mostly beginner" },
   { value: "Getting the hang of it", title: "Getting the hang of it", sub: "Some experience, building consistency" },
   { value: "Pretty solid", title: "Pretty solid", sub: "Consistent practice, ready for harder stuff" },
+];
+
+const TIMELINE_OPTIONS: {
+  value: NonNullable<PostInterestPayload["target_timeline"]>;
+  title: string;
+  sub: string;
+}[] = [
+  { value: "no_deadline", title: "No fixed deadline", sub: "Open practice — arc adapts to your pace" },
+  { value: "1_month", title: "About 1 month", sub: "Short sprint" },
+  { value: "3_months", title: "About 3 months", sub: "Typical skill-building window" },
+  { value: "6_months", title: "About 6 months", sub: "Steady long arc" },
+  { value: "1_year", title: "About a year", sub: "Big goal on the horizon" },
 ];
 
 interface AddInterestSheetProps {
@@ -57,6 +69,9 @@ export function AddInterestSheet({
   const [level, setLevel] = useState<string | null>(null);
   const [goalDescription, setGoalDescription] = useState("");
   const [scheduleDays, setScheduleDays] = useState<number[]>([]);
+  const [targetTimeline, setTargetTimeline] = useState<NonNullable<PostInterestPayload["target_timeline"]>>(
+    "no_deadline"
+  );
   const [saving, setSaving] = useState(false);
 
   const canNext1 = interestDescription.trim().length > 0;
@@ -93,6 +108,7 @@ export function AddInterestSheet({
         interest_level: level ?? "Still figuring it out",
         goal_description: goalDescription.trim(),
         schedule_days: scheduleDays,
+        target_timeline: targetTimeline,
       });
       onSuccess(); // close sheet + refetch
     } catch (e) {
@@ -277,7 +293,34 @@ export function AddInterestSheet({
 
             {step === 4 && (
               <>
-                <Text style={styles.question}>Which days will you show up?</Text>
+                <Text style={styles.question}>What&apos;s your target timeline?</Text>
+                <Text style={styles.hint}>We use this to plan your learning arc — you can change it later.</Text>
+                {TIMELINE_OPTIONS.map((opt) => (
+                  <Pressable
+                    key={opt.value}
+                    onPress={() => setTargetTimeline(opt.value)}
+                    style={[
+                      styles.radioCard,
+                      targetTimeline === opt.value && styles.radioCardSelected,
+                    ]}
+                  >
+                    <View style={styles.radioTextCol}>
+                      <Text
+                        style={[
+                          styles.radioTitle,
+                          targetTimeline === opt.value && styles.radioTitleSelected,
+                        ]}
+                      >
+                        {opt.title}
+                      </Text>
+                      <Text style={styles.radioSub}>{opt.sub}</Text>
+                    </View>
+                    <View style={[styles.radioDot, targetTimeline === opt.value && styles.radioDotSelected]}>
+                      {targetTimeline === opt.value && <View style={styles.radioDotInner} />}
+                    </View>
+                  </Pressable>
+                ))}
+                <Text style={[styles.question, { marginTop: 8 }]}>Which days will you show up?</Text>
                 <Text style={styles.hint}>Missions are only assigned on selected days.</Text>
                 <View style={styles.dayGrid}>
                   {DAY_LABELS.map((label, idx) => (

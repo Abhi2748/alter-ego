@@ -24,11 +24,15 @@ import type { QuitTarget, QuitTargetInput } from "@/types/quits";
 import {
   useQuits,
   useLogFrequency,
+  useLogCheckin,
   useAdvancePhase,
   useDeleteQuit,
   useUpdateTriggerProfile,
   useCreateQuitPath,
 } from "@/hooks/useQuits";
+import { SlipContextPicker } from "@/components/profile/SlipContextPicker";
+import { WeeklyUrgeCard } from "@/components/WeeklyUrgeCard";
+import { QuitDetailScreen } from "@/screens/QuitDetailScreen";
 import { QuitCard } from "@/components/profile/QuitCard";
 import { QuitManageSheet } from "@/components/profile/QuitManageSheet";
 import { QuitInsightModal } from "@/components/profile/QuitInsightModal";
@@ -66,6 +70,7 @@ export function QuitsTab() {
   const { data: targetsRaw = [], isLoading, isError, isFetching, refetch } = useQuits();
   const targets = targetsRaw as QuitTarget[];
   const logMutation = useLogFrequency();
+  const logCheckin = useLogCheckin();
   const advanceMutation = useAdvancePhase();
   const deleteMutation = useDeleteQuit();
   const updateProfileMutation = useUpdateTriggerProfile();
@@ -83,6 +88,9 @@ export function QuitsTab() {
   const [addNameDraft, setAddNameDraft] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [advancingPathId, setAdvancingPathId] = useState<string | null>(null);
+  const [slipPickerVisible, setSlipPickerVisible] = useState(false);
+  const [slipPickerPath, setSlipPickerPath] = useState<QuitTarget | null>(null);
+  const [detailTarget, setDetailTarget] = useState<QuitTarget | null>(null);
   const editingPathIdRef = useRef<string | null>(null);
   /** True after submitting a new quit (not profile edit) until the list includes the path or error/timeout. */
   const [creatingQuitPath, setCreatingQuitPath] = useState(false);
@@ -97,11 +105,61 @@ export function QuitsTab() {
   }, []);
 
   const onFrequencyLog = useCallback(
-    (pathId: string, count: number) => {
-      logMutation.mutate({ pathId, count });
+    async (pathId: string, count: number) => {
+      await logMutation.mutateAsync({ pathId, count });
+      const target = targets.find((t) => t.path_id === pathId);
+      if (target && count > 0) {
+        setSlipPickerPath(target);
+        setSlipPickerVisible(true);
+      }
     },
-    [logMutation]
+    [logMutation, targets]
   );
+
+  const handleSlipSave = useCallback(
+    (tags: string[], freeText?: string) => {
+      if (!slipPickerPath) return;
+      setSlipPickerVisible(false);
+      const context_tags = tags.map((t) => t.toLowerCase().replace(/\s+/g, "_"));
+      logCheckin.mutate({
+        pathId: slipPickerPath.path_id,
+        body: {
+          checkin_type: "slip_context",
+          context_tags,
+          free_text: freeText,
+        },
+      });
+      setSlipPickerPath(null);
+    },
+    [slipPickerPath, logCheckin]
+  );
+
+  const handleSlipSkip = useCallback(() => {
+    setSlipPickerVisible(false);
+    setSlipPickerPath(null);
+  }, []);
+
+  const handleUrgeCheckSave = useCallback(
+    (pathId: string, level: string) => {
+      logCheckin.mutate({
+        pathId,
+        body: {
+          checkin_type: "weekly_urge",
+          urge_level: level as
+            | "barely_noticed"
+            | "manageable"
+            | "hard"
+            | "nearly_gave_in"
+            | "slipped",
+        },
+      });
+    },
+    [logCheckin]
+  );
+
+  const handleUrgeCheckDismiss = useCallback((_pathId: string) => {
+    // Reappears until weekly check-in is logged
+  }, []);
 
   const handleProfileComplete = useCallback(
     (profile: QuitTargetInput) => {
@@ -265,6 +323,17 @@ export function QuitsTab() {
                 counsellor.
               </Text>
             </View>
+            {targets
+              .filter((t) => t.weekly_urge_pending && t.status === "active")
+              .map((t) => (
+                <WeeklyUrgeCard
+                  key={`urge-${t.path_id}`}
+                  habitName={t.habit_name}
+                  pathId={t.path_id}
+                  onSave={handleUrgeCheckSave}
+                  onDismiss={handleUrgeCheckDismiss}
+                />
+              ))}
             {targets.map((t) => (
               <QuitCard
                 key={t.path_id}
@@ -286,6 +355,7 @@ export function QuitsTab() {
                   });
                 }}
                 advancing={advancingPathId === t.path_id}
+                onCardPress={() => setDetailTarget(t)}
               />
             ))}
             {creatingQuitPath || createMutation.isPending ? (
@@ -381,6 +451,65 @@ export function QuitsTab() {
           </View>
         </View>
       </Modal>
+
+      <SlipContextPicker
+        visible={slipPickerVisible}
+        habitName={slipPickerPath?.habit_name ?? ""}
+        onSave={handleSlipSave}
+        onSkip={handleSlipSkip}
+      />
+
+      <QuitDetailScreen
+        visible={!!detailTarget}
+        target={detailTarget}
+        onClose={() => setDetailTarget(null)}
+        onInsightPress={(title, body) => setInsight({ title, body })}
+        onLogSlip={() => {
+          const t = detailTarget;
+          setDetailTarget(null);
+          setTimeout(() => {
+            if (t) {
+              setSlipPickerPath(t);
+              setSlipPickerVisible(true);
+            }
+          }, 350);
+        }}
+        onAdvancePhase={() => {
+          const t = detailTarget;
+          if (!t) return;
+          setAdvancingPathId(t.path_id);
+          advanceMutation.mutate(t.path_id, {
+            onSettled: () => setAdvancingPathId(null),
+            onSuccess: (data) => {
+              setDetailTarget(null);
+              const ins =
+                data && typeof data === "object" && "insight" in data
+                  ? (data as { insight?: { title: string; body: string } }).insight
+                  : undefined;
+              if (ins?.title && ins?.body) setInsight({ title: ins.title, body: ins.body });
+            },
+            onError: () => setAdvancingPathId(null),
+          });
+        }}
+        onUpdateTriggers={() => {
+          const t = detailTarget;
+          setDetailTarget(null);
+          setTimeout(() => {
+            if (t) {
+              setManageTarget(t);
+              manageRef.current?.present();
+            }
+          }, 350);
+        }}
+        onDelete={() => {
+          const t = detailTarget;
+          setDetailTarget(null);
+          setTimeout(() => {
+            if (t) setDeleteTarget(t);
+          }, 350);
+        }}
+        advancing={!!(detailTarget && advancingPathId === detailTarget.path_id)}
+      />
 
       <Modal visible={addNameModal} transparent animationType="fade">
         <Pressable style={styles.nameModalBackdrop} onPress={() => setAddNameModal(false)}>

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.auth import get_user_id_from_token
+from app.core.supabase_client import supabase_admin
 from app.services.quit_service import (
     advance_phase,
     create_quit_path,
@@ -30,6 +31,17 @@ class CreateQuitPathRequest(BaseModel):
     trigger_contexts: list[str] = Field(default_factory=list)
     awareness_level: str = "semi_conscious"
     quit_goal: str = "stop_completely"
+
+
+class CheckinBody(BaseModel):
+    """Quit path check-in payload. All fields optional; service validates and stores."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    checkin_type: str | None = None
+    context_tags: list[str] | None = None
+    urge_level: str | None = None
+    free_text: str | None = None
 
 
 @router.get("")
@@ -112,3 +124,75 @@ async def update_trigger(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/{path_id}/checkin")
+async def log_checkin(
+    path_id: str,
+    body: CheckinBody,
+    authorization: str = Header(None),
+):
+    """
+    Store a trigger check-in. All fields optional — partial data is stored as-is.
+    Never blocks: if checkin_type is invalid or data is empty, store nothing and return ok.
+    """
+    user_id = get_user_id_from_token(authorization)
+    try:
+        from app.services.quit_checkin_service import store_checkin
+
+        await store_checkin(
+            user_id=user_id,
+            quit_path_id=path_id,
+            checkin_type=body.checkin_type,
+            context_tags=body.context_tags or [],
+            urge_level=body.urge_level,
+            free_text=body.free_text,
+        )
+    except Exception:
+        pass  # Never block on check-in failure
+    return {"ok": True}
+
+
+@router.get("/{path_id}/trigger-profile")
+async def get_trigger_profile(path_id: str, authorization: str = Header(None)):
+    """Returns the living trigger profile for a quit path."""
+    user_id = get_user_id_from_token(authorization)
+    res = (
+        supabase_admin.table("quit_paths")
+        .select("trigger_contexts")
+        .eq("id", path_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Not found")
+    row = rows[0]
+    from app.services.quit_service import _build_living_trigger_profile
+
+    return _build_living_trigger_profile(
+        path_id=path_id,
+        original_contexts=row.get("trigger_contexts") or [],
+    )
+
+
+@router.get("/{path_id}/urge-trend")
+async def get_urge_trend(path_id: str, authorization: str = Header(None)):
+    """Returns weekly urge levels over time for charting."""
+    user_id = get_user_id_from_token(authorization)
+    res = (
+        supabase_admin.table("quit_paths")
+        .select("id")
+        .eq("id", path_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Not found")
+    from app.services.quit_service import _build_living_trigger_profile
+
+    profile = _build_living_trigger_profile(path_id=path_id, original_contexts=[])
+    return {"urge_trend": profile["urge_trend"]}

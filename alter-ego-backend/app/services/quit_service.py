@@ -19,9 +19,141 @@ from app.core.constants import (
     mission_xp_for_type,
 )
 from app.core.supabase_client import supabase_admin
+from app.services.arc_service import ARC_PHASE_LABELS
 from app.services.mission_service import get_user_date
 
 logger = logging.getLogger(__name__)
+
+
+def _build_living_trigger_profile(
+    path_id: str,
+    original_contexts: list[str],
+) -> dict:
+    """
+    Aggregates quit_checkins data into a living trigger profile.
+    Falls back to original trigger_contexts if no check-in data exists.
+    Returns:
+    {
+        "top_triggers": [{"tag": str, "count": int}],  # sorted by count desc, max 6
+        "urge_trend": [{"week_label": str, "level": int}],  # last 5 weeks, level 1-5
+        "last_slip_context": [str] | None,
+        "has_checkin_data": bool,
+        "weekly_urge_pending": bool,  # True if no weekly_urge in last 7 days
+    }
+    """
+    try:
+        from datetime import date as date_cls, timedelta
+
+        today = date_cls.today()
+
+        # ── Aggregate context_tags from slip_context checkins ──────────────
+        slip_rows = (
+            supabase_admin.table("quit_checkins")
+            .select("context_tags, created_at")
+            .eq("quit_path_id", path_id)
+            .eq("checkin_type", "slip_context")
+            .order("created_at", desc=True)
+            .limit(30)
+            .execute()
+            .data
+            or []
+        )
+
+        tag_counts: dict[str, int] = {}
+        last_slip_context: list[str] | None = None
+        for row in slip_rows:
+            tags = row.get("context_tags") or []
+            if isinstance(tags, list):
+                if last_slip_context is None and tags:
+                    last_slip_context = tags
+                for tag in tags:
+                    t = str(tag).strip().lower()
+                    if t:
+                        tag_counts[t] = tag_counts.get(t, 0) + 1
+
+        has_checkin_data = bool(tag_counts)
+
+        # Fall back to original contexts if no check-in data
+        if not has_checkin_data and original_contexts:
+            top_triggers = [{"tag": c, "count": 0} for c in original_contexts[:6]]
+        else:
+            top_triggers = sorted(
+                [{"tag": k, "count": v} for k, v in tag_counts.items()],
+                key=lambda x: -x["count"],
+            )[:6]
+
+        # ── Urge trend from weekly_urge checkins ───────────────────────────
+        # Map urge_level text → int (1=barely_noticed, 5=slipped)
+        URGE_LEVEL_MAP = {
+            "barely_noticed": 1,
+            "manageable": 2,
+            "hard": 3,
+            "nearly_gave_in": 4,
+            "slipped": 5,
+        }
+
+        urge_rows = (
+            supabase_admin.table("quit_checkins")
+            .select("urge_level, created_at")
+            .eq("quit_path_id", path_id)
+            .eq("checkin_type", "weekly_urge")
+            .order("created_at", desc=False)
+            .limit(5)
+            .execute()
+            .data
+            or []
+        )
+
+        urge_trend: list[dict] = []
+        for i, row in enumerate(urge_rows):
+            level_text = str(row.get("urge_level") or "manageable").lower()
+            level_int = URGE_LEVEL_MAP.get(level_text, 2)
+            # Label as W1, W2... relative to first check-in
+            urge_trend.append({"week_label": f"W{i+1}", "level": level_int})
+
+        # Pad to show at least current "now" point
+        if not urge_trend:
+            urge_trend = []  # no data yet — frontend handles empty state
+
+        # ── Weekly urge pending check ──────────────────────────────────────
+        seven_days_ago = (today - timedelta(days=7)).isoformat()
+        recent_weekly = (
+            supabase_admin.table("quit_checkins")
+            .select("id")
+            .eq("quit_path_id", path_id)
+            .eq("checkin_type", "weekly_urge")
+            .gte("created_at", seven_days_ago)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        weekly_urge_pending = len(recent_weekly) == 0
+
+        return {
+            "top_triggers": top_triggers,
+            "urge_trend": urge_trend,
+            "last_slip_context": last_slip_context,
+            "has_checkin_data": has_checkin_data,
+            "weekly_urge_pending": weekly_urge_pending,
+        }
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "living_trigger_profile_error",
+                    "path_id": str(path_id),
+                    "error": str(e)[:200],
+                }
+            )
+        )
+        return {
+            "top_triggers": [{"tag": c, "count": 0} for c in (original_contexts or [])[:6]],
+            "urge_trend": [],
+            "last_slip_context": None,
+            "has_checkin_data": False,
+            "weekly_urge_pending": False,
+        }
 
 
 def _get_initials(name: str) -> str:
@@ -280,11 +412,61 @@ async def generate_quit_missions_for_today(
     phase_started_dt = datetime.fromisoformat(str(phase_started).replace("Z", "+00:00"))
     days_in_phase = (datetime.now(timezone.utc) - phase_started_dt).days
 
+    # Fetch living trigger profile for richer mission generation
+    living_profile = _build_living_trigger_profile(
+        path_id=path_id,
+        original_contexts=path.get("trigger_contexts") or [],
+    )
+    # Use check-in derived top triggers if available, else fall back to path contexts
+    effective_trigger_contexts = (
+        [t["tag"] for t in living_profile["top_triggers"]]
+        if living_profile["has_checkin_data"]
+        else (path.get("trigger_contexts") or [])
+    )
+
+    # Fetch user's active interests for cross-reference
+    user_interests: list[dict] = []
+    try:
+        interests_res = (
+            supabase_admin.table("interests")
+            .select("normalised_name, current_arc_phase, sessions_completed, arc_paused, is_active")
+            .eq("user_id", user_id)
+            .eq("is_active", True)
+            .eq("arc_paused", False)
+            .limit(4)
+            .execute()
+            .data
+            or []
+        )
+        for row in interests_res:
+            r = dict(row)
+            cap = str(r.get("current_arc_phase") or "")
+            r["arc_phase_label"] = ARC_PHASE_LABELS.get(cap, cap.replace("_", " ").title() if cap else "")
+            user_interests.append(r)
+    except Exception:
+        pass
+
+    # Fetch guilt_orientation from discipline_dna
+    guilt_orientation: float = 0.0
+    try:
+        dna_row = (
+            supabase_admin.table("discipline_dna")
+            .select("guilt_orientation")
+            .eq("user_id", user_id)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
+        guilt_orientation = float(dna_row.get("guilt_orientation") or 0.0)
+    except Exception:
+        pass
+
     batch = await generate_quit_missions(
         habit_name=path["habit_name"],
         underlying_need=path["underlying_need"],
         current_phase=path["current_phase"],
-        trigger_contexts=path.get("trigger_contexts") or [],
+        trigger_contexts=effective_trigger_contexts,
         awareness_level=path["awareness_level"],
         competing_response=path.get("competing_response") or "",
         phase_1_focus=path.get("phase_1_focus") or "",
@@ -293,6 +475,9 @@ async def generate_quit_missions_for_today(
         frequency_baseline=path.get("frequency_baseline"),
         days_in_phase=days_in_phase,
         archetype=archetype,
+        living_trigger_profile=living_profile,
+        user_interests=user_interests,
+        guilt_orientation=guilt_orientation,
     )
 
     missions: list[dict] = []
@@ -528,6 +713,12 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
         )
         freq_today = int(today_log[0]["count"]) if today_log else int(path.get("frequency_today") or 0)
 
+        # Living trigger profile (aggregated check-in data)
+        living_profile = _build_living_trigger_profile(
+            path_id=pid,
+            original_contexts=path.get("trigger_contexts") or [],
+        )
+
         created_day = str(path["created_at"])[:10]
         try:
             days_active = (date.fromisoformat(today) - date.fromisoformat(created_day)).days
@@ -580,6 +771,11 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
                 "referral_message": path.get("referral_message") or "",
                 "phase_missions_completed": phase_done,
                 "total_phase_days": 14,
+                "top_triggers": living_profile["top_triggers"],
+                "urge_trend": living_profile["urge_trend"],
+                "last_slip_context": living_profile["last_slip_context"],
+                "has_checkin_data": living_profile["has_checkin_data"],
+                "weekly_urge_pending": living_profile["weekly_urge_pending"],
             }
         )
 

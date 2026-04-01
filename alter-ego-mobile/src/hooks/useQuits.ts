@@ -4,8 +4,10 @@ import {
   createQuitPath,
   deleteQuit,
   fetchQuits,
+  logCheckin,
   logFrequency,
   updateTriggerProfile,
+  type CheckinBody,
   type CreateQuitPathBody,
 } from "@/services/quits";
 import { MISSION_KEYS } from "@/hooks/useMissions";
@@ -28,6 +30,15 @@ export function useLogFrequency() {
   return useMutation({
     mutationFn: ({ pathId, count }: { pathId: string; count: number }) =>
       logFrequency(pathId, count),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QUIT_KEYS.all }),
+  });
+}
+
+export function useLogCheckin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ pathId, body }: { pathId: string; body: CheckinBody }) =>
+      logCheckin(pathId, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: QUIT_KEYS.all }),
   });
 }

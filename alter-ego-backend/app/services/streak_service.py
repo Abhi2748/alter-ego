@@ -11,6 +11,7 @@ Journal mission does NOT count toward streak requirement in any tier.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 
@@ -18,6 +19,8 @@ from postgrest.types import CountMethod
 
 from app.core.supabase_client import supabase_admin
 from app.services.mission_row_utils import mission_row_completed
+
+logger = logging.getLogger(__name__)
 
 
 def evaluate_streak_requirement(completed_missions: list[dict], streak_tier: str) -> bool:
@@ -343,6 +346,56 @@ async def handle_streak_break(user_id: str) -> None:
         return
 
     old_streak = int(user.get("current_streak") or 0)
+
+    # ── Check for earned streak freeze inventory ───────────────────────────
+    # User-earned freezes (from interest milestones etc.) are consumed before
+    # applying the streak break. Separate from the automatic STREAK_FREEZE_DAYS
+    # grace period which applies to everyone.
+    try:
+        freeze_row = (
+            supabase_admin.table("users")
+            .select("streak_freeze_count")
+            .eq("id", user_id)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
+        freeze_count = int(freeze_row.get("streak_freeze_count") or 0)
+        if freeze_count > 0:
+            # Consume one freeze — streak is preserved
+            supabase_admin.table("users").update(
+                {"streak_freeze_count": freeze_count - 1}
+            ).eq("id", user_id).execute()
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "streak_freeze_consumed",
+                        "user_id": user_id,
+                        "freezes_remaining": freeze_count - 1,
+                    }
+                )
+            )
+            # Queue a gap moment so user knows their freeze was used
+            try:
+                from app.services.gap_moment_service import queue_gap_moment
+
+                await queue_gap_moment(user_id, "absence_return", "freeze_used")
+            except Exception:
+                pass
+            return  # Streak break cancelled — exit early
+    except Exception as e:
+        logger.error(
+            json.dumps(
+                {
+                    "event": "streak_freeze_check_error",
+                    "user_id": user_id,
+                    "error": str(e)[:200],
+                }
+            )
+        )
+        # If freeze check fails, proceed with normal streak break
+
     supabase_admin.table("users").update({"pet_state": "sad", "current_streak": 0}).eq("id", user_id).execute()
 
     try:

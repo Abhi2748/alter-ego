@@ -6,6 +6,13 @@ export interface CreateInterestPayload {
   interest_level: string;
   goal_description: string;
   schedule_days: number[];
+  target_timeline?:
+    | '1_month'
+    | '3_months'
+    | '6_months'
+    | '1_year'
+    | 'no_deadline'
+    | null;
 }
 
 export interface MirrorObservation {
@@ -92,5 +99,24 @@ export const profileService = {
 
   deleteInterest: (interestId: string) =>
     apiClient.delete<{ success: boolean }>(`/api/v1/profile/interests/${interestId}`),
+
+  pauseInterest: (interestId: string, reason?: string) =>
+    apiClient.post<{ ok: boolean; arc_paused: boolean }>(
+      `/api/v1/profile/interests/${interestId}/pause`,
+      { reason: reason ?? 'user_requested' }
+    ),
+
+  resumeInterest: (interestId: string) =>
+    apiClient.post<{ ok: boolean; arc_paused: boolean }>(
+      `/api/v1/profile/interests/${interestId}/resume`,
+      {}
+    ),
+
+  updateInterestTimeline: (interestId: string, target_timeline: string) =>
+    apiClient.put<{
+      ok: boolean;
+      new_arc_phase: string;
+      total_planned_sessions: number | null;
+    }>(`/api/v1/profile/interests/${interestId}/timeline`, { target_timeline }),
 };
 

@@ -696,6 +696,14 @@ export type PostInterestPayload = {
   interest_level: string;
   goal_description: string;
   schedule_days: number[];
+  /** Arc planning — matches POST /api/v1/profile/interests `target_timeline` */
+  target_timeline?:
+    | "1_month"
+    | "3_months"
+    | "6_months"
+    | "1_year"
+    | "no_deadline"
+    | null;
 };
 
 export async function postInterest(

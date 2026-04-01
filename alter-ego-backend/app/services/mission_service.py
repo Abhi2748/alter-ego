@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter, defaultdict
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -314,6 +315,86 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
                 if cap_rank.get(cur, 0) > c:
                     pillar_difficulties[pk] = cap
 
+    # Per-pillar streaks + typical completion hour (Phase 3 context for core agent)
+    pillar_streaks: dict[str, int] = {}
+    pillar_completion_hour: dict[str, str] = {}
+    try:
+        streak_cutoff = (mday - timedelta(days=30)).isoformat()
+        streak_rows = (
+            supabase_admin.table("missions")
+            .select("core_pillar, mission_date, completed, is_journal_mission")
+            .eq("user_id", user_id)
+            .eq("type", "core")
+            .gte("mission_date", streak_cutoff)
+            .lte("mission_date", mission_date)
+            .order("mission_date", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        by_pillar: dict[str, list[dict]] = defaultdict(list)
+        for row in streak_rows:
+            if row.get("is_journal_mission"):
+                continue
+            p = str(row.get("core_pillar") or "")
+            if p:
+                by_pillar[p].append(row)
+        mission_day = mday
+        for pillar, rows in by_pillar.items():
+            dates_completed = {
+                str(row["mission_date"])
+                for row in rows
+                if row.get("completed")
+            }
+            streak = 0
+            check_date = mission_day - timedelta(days=1)
+            while str(check_date) in dates_completed:
+                streak += 1
+                check_date -= timedelta(days=1)
+            pillar_streaks[pillar] = streak
+    except Exception:
+        pass
+
+    try:
+        hour_rows = (
+            supabase_admin.table("missions")
+            .select("core_pillar, completed_at")
+            .eq("user_id", user_id)
+            .eq("type", "core")
+            .eq("completed", True)
+            .eq("is_journal_mission", False)
+            .not_.is_("completed_at", "null")
+            .order("completed_at", desc=True)
+            .limit(70)
+            .execute()
+            .data
+            or []
+        )
+        pillar_hours: dict[str, list[int]] = defaultdict(list)
+        for row in hour_rows:
+            p = str(row.get("core_pillar") or "")
+            cat = str(row.get("completed_at") or "")
+            if p and cat and p != "journal":
+                try:
+                    dt = datetime.fromisoformat(cat.replace("Z", "+00:00"))
+                    pillar_hours[p].append(dt.hour)
+                except Exception:
+                    pass
+        for pillar, hours_list in pillar_hours.items():
+            if hours_list:
+                buckets: list[str] = []
+                for h in hours_list:
+                    if 5 <= h <= 11:
+                        buckets.append("morning")
+                    elif 12 <= h <= 16:
+                        buckets.append("afternoon")
+                    elif 17 <= h <= 22:
+                        buckets.append("evening")
+                if buckets:
+                    pillar_completion_hour[pillar] = Counter(buckets).most_common(1)[0][0]
+    except Exception:
+        pass
+
     batch = await generate_core_missions(
         archetype=archetype,
         days_active=days_active,
@@ -321,6 +402,8 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
         recent_pillar_completions=pillar_rates,
         last_core_missions=last_mission_texts,
         recovery_pillars_today=recovery_pillars_today,
+        pillar_streaks=pillar_streaks,
+        pillar_completion_hour=pillar_completion_hour,
     )
 
     journal_cfg = next(m for m in CORE_MISSIONS if m.get("is_journal_mission"))

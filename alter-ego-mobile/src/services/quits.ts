@@ -52,6 +52,11 @@ export interface QuitTarget {
   referral_message: string;
   phase_missions_completed?: number;
   total_phase_days?: number;
+  top_triggers?: Array<{ tag: string; count: number }>;
+  urge_trend?: Array<{ week_label: string; level: number }>;
+  last_slip_context?: string[] | null;
+  has_checkin_data?: boolean;
+  weekly_urge_pending?: boolean;
 }
 
 export interface CreateQuitPathBody {
@@ -94,3 +99,21 @@ export const updateTriggerProfile = (
     trigger_contexts,
     awareness_level,
   });
+
+export interface CheckinBody {
+  checkin_type: "slip_context" | "weekly_urge" | "phase_transition";
+  context_tags?: string[];
+  urge_level?: "barely_noticed" | "manageable" | "hard" | "nearly_gave_in" | "slipped";
+  free_text?: string;
+}
+
+export const logCheckin = (pathId: string, body: CheckinBody) =>
+  apiClient.post<{ ok: boolean }>(`/api/v1/quits/${pathId}/checkin`, body);
+
+export const fetchTriggerProfile = (pathId: string) =>
+  apiClient.get(`/api/v1/quits/${pathId}/trigger-profile`);
+
+export const fetchUrgeTrend = (pathId: string) =>
+  apiClient.get<{ urge_trend: Array<{ week_label: string; level: number }> }>(
+    `/api/v1/quits/${pathId}/urge-trend`
+  );

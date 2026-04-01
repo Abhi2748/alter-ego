@@ -496,6 +496,13 @@ async def twin_recalibration_job():
                     )
                 )
 
+            try:
+                from app.services.arc_service import run_adaptive_replanning_for_user
+
+                await run_adaptive_replanning_for_user(user["id"])
+            except Exception:
+                pass
+
         except Exception as e:
             logger.error(
                 json.dumps(

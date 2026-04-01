@@ -23,13 +23,19 @@ from app.core.constants import (
 
 logger = logging.getLogger(__name__)
 
-# Only {mission_text} is a format placeholder; JSON braces must be doubled for str.format.
+# Placeholders: mission_text, execution_gap_rounded, daily_mission_count, core_failure_pattern
+# JSON braces in the template must be doubled for str.format.
 PERSONAL_MISSION_TIER_PROMPT = """
 You are estimating the effort required for a personal mission a user wants to add.
 
 The user wrote: "{mission_text}"
 
-Estimate the effort tier based on these criteria:
+USER CONTEXT:
+- Execution gap: {execution_gap_rounded} (0=acts immediately, 1.0=struggles to start)
+- Missions already today: {daily_mission_count}
+- Core failure pattern: {core_failure_pattern}
+
+TIER DEFINITIONS:
 
 EASY:
 - Under 15 minutes
@@ -55,10 +61,24 @@ MULTIDAY:
   "Finish the project proposal"
 - Only classify as multiday if the task obviously spans multiple days
 
+ADJUSTMENT RULES (apply AFTER base tier):
+1. If execution_gap > 0.7 AND base tier is "easy": upgrade to "medium".
+   Starting is hard for this user — even simple tasks carry friction.
+2. If execution_gap > 0.7 AND mission involves starting something ("finish", "begin",
+   "start", "write", "build", "send"): upgrade one tier (easy→medium, medium→hard).
+3. If daily_mission_count >= 8: downgrade one tier (hard→medium, medium→easy).
+   User already has a full plate — be realistic.
+4. If core_failure_pattern is "analysis_paralysis" AND mission involves a decision,
+   document, or proposal: upgrade one tier.
+5. If core_failure_pattern is "avoidance" AND mission involves something uncomfortable
+   (difficult conversation, application, confrontation): upgrade one tier.
+6. Never upgrade above "hard". Never downgrade below "easy".
+7. Multiday is never affected by adjustments — it stays multiday based on task scope only.
+
 Return ONLY valid JSON (no markdown fences):
 {{
   "tier": "easy|medium|hard|multiday",
-  "reasoning": "One sentence explaining why this tier",
+  "reasoning": "One sentence explaining the tier including any adjustment applied",
   "estimated_minutes": 20,
   "multiday_days": null
 }}
@@ -97,7 +117,12 @@ def _personal_xp_pf(tier: str) -> tuple[int, int]:
     return PERSONAL_MISSION_XP_BY_TIER["medium"], pf_map["medium"]
 
 
-async def estimate_personal_mission_tier(mission_text: str) -> dict:
+async def estimate_personal_mission_tier(
+    mission_text: str,
+    execution_gap: float = 0.5,
+    daily_mission_count: int = 0,
+    core_failure_pattern: str = "",
+) -> dict:
     """
     Estimates effort tier for a user-created personal mission.
 
@@ -122,7 +147,12 @@ async def estimate_personal_mission_tier(mission_text: str) -> dict:
             max_tokens=300,
             api_key=os.environ["OPENAI_API_KEY"],
         )
-        prompt = PERSONAL_MISSION_TIER_PROMPT.format(mission_text=mission_text)
+        prompt = PERSONAL_MISSION_TIER_PROMPT.format(
+            mission_text=mission_text,
+            execution_gap_rounded=round(execution_gap, 2),
+            daily_mission_count=daily_mission_count,
+            core_failure_pattern=core_failure_pattern or "none identified",
+        )
         response = await llm.ainvoke([SystemMessage(content=prompt)])
         data = _parse_json_response(str(response.content))
         tier = _normalize_tier(data.get("tier"))
@@ -135,8 +165,14 @@ async def estimate_personal_mission_tier(mission_text: str) -> dict:
         else:
             multiday_days = None
 
-        xp, pf = _personal_xp_pf(tier)
         reasoning = str(data.get("reasoning") or "Tier estimated from your mission text.")
+
+        # Hard rule: high execution gap + full plate → cap at medium if LLM said hard
+        if execution_gap > 0.8 and daily_mission_count >= 8 and tier == "hard":
+            tier = "medium"
+            reasoning = "Adjusted to medium — full mission load today with high execution gap."
+
+        xp, pf = _personal_xp_pf(tier)
         try:
             est_min = int(data.get("estimated_minutes") or 25)
         except (TypeError, ValueError):

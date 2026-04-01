@@ -82,6 +82,12 @@ export interface QuitTarget {
   need_description?: string;
   requires_professional_referral?: boolean;
   referral_message?: string;
+  /** Check-in derived fields (living trigger profile) */
+  top_triggers?: Array<{ tag: string; count: number }>;
+  urge_trend?: Array<{ week_label: string; level: number }>;
+  last_slip_context?: string[] | null;
+  has_checkin_data?: boolean;
+  weekly_urge_pending?: boolean;
 }
 
 /** Q12 profile sheet output + onboarding payload. */

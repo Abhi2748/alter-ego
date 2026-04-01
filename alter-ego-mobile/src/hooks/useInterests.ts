@@ -113,3 +113,40 @@ export function useDeleteInterest() {
     },
   });
 }
+
+export function usePauseInterest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ interestId, reason }: { interestId: string; reason?: string }) =>
+      profileService.pauseInterest(interestId, reason),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.interests });
+    },
+  });
+}
+
+export function useResumeInterest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (interestId: string) => profileService.resumeInterest(interestId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.interests });
+    },
+  });
+}
+
+export function useUpdateTimeline() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      interestId,
+      target_timeline,
+    }: {
+      interestId: string;
+      target_timeline: string;
+    }) => profileService.updateInterestTimeline(interestId, target_timeline),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.interests });
+    },
+  });
+}

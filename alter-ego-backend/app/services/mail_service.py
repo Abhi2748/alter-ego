@@ -7,11 +7,26 @@ Stored in app_mails table — displayed as inbox in Profile.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 
 from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
+
+
+def _format_mail_text(text: str, data: dict | None) -> str:
+    """Apply template_data only to `{name}` placeholders present in text (ignores extra keys in data)."""
+    if not data:
+        return text
+    names = list(dict.fromkeys(re.findall(r"\{(\w+)\}", text)))
+    if not names:
+        return text
+    kwargs = {k: data.get(k, "") for k in names}
+    try:
+        return text.format(**kwargs)
+    except Exception:
+        return text
 
 MAIL_CONTENT = {
     "welcome": {
@@ -159,6 +174,36 @@ Keep going.
 
 — ALTER EGO""",
     },
+    "interest_week_one": {
+        "subject": "One week of {interest_name}",
+        "body": """Most people quit at session 3. You've completed 7. The arc continues.
+
+— ALTER EGO""",
+    },
+    "interest_halfway": {
+        "subject": "Halfway there",
+        "body": """50% of your {interest_name} journey done. Your Twin noticed.
+
+— ALTER EGO""",
+    },
+    "interest_phase_complete": {
+        "subject": "{interest_name}: {old_phase} phase complete",
+        "body": """You've moved into the {new_phase} phase. What you practiced in {old_phase} is now the foundation.
+
+— ALTER EGO""",
+    },
+    "interest_not_engaged": {
+        "subject": "Your {interest_name} journey",
+        "body": """You haven't practiced {interest_name} much lately. Three options: adjust your schedule, change your goal, or pause for now. Your progress is saved either way.
+
+— ALTER EGO""",
+    },
+    "interest_timeline_adjusted": {
+        "subject": "Your {interest_name} timeline updated",
+        "body": """Your {interest_name} journey has been adjusted to {new_date}. The missions will adapt — no need to rush. Your progress so far is real.
+
+— ALTER EGO""",
+    },
 }
 
 
@@ -172,19 +217,15 @@ async def send_app_mail(
         logger.warning("send_app_mail: unknown mail_type '%s'", mail_type)
         return False
 
-    body = content["body"]
-    if template_data:
-        try:
-            body = body.format(**template_data)
-        except KeyError as e:
-            logger.warning("send_app_mail: missing template key %s for %s", e, mail_type)
+    subject = _format_mail_text(content["subject"], template_data)
+    body = _format_mail_text(content["body"], template_data)
 
     try:
         supabase_admin.table("app_mails").insert(
             {
                 "user_id": user_id,
                 "mail_type": mail_type,
-                "subject": content["subject"],
+                "subject": subject,
                 "body_markdown": body,
                 "sent_at": datetime.utcnow().isoformat(),
             }

@@ -111,12 +111,16 @@ function commitmentLabelToApi(
 
 function mapInterestToStepApi(i: OnboardingInterest) {
   const days = i.schedule?.length ? i.schedule.map((d) => d + 1) : [1, 2, 3, 4, 5, 6, 7];
-  return {
+  const row: Record<string, unknown> = {
     raw_text: i.name,
     level_text: LEVEL_TO_API[i.level] || "still_figuring_it_out",
     goal: i.goal || null,
     active_days: days,
   };
+  if (i.target_timeline) {
+    row.target_timeline = i.target_timeline;
+  }
+  return row;
 }
 
 function buildStepPayload(

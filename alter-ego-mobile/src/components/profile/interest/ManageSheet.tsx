@@ -16,6 +16,7 @@ export type ManageSheetProps = {
   onChangeDifficulty: () => void;
   onChangeSchedule: () => void;
   onChangeGoal: () => void;
+  onPause: () => void;
   onDelete: () => void;
 };
 
@@ -26,6 +27,7 @@ export function ManageSheet({
   onChangeDifficulty,
   onChangeSchedule,
   onChangeGoal,
+  onPause,
   onDelete,
 }: ManageSheetProps) {
   const renderBackdrop = useCallback(
@@ -85,6 +87,17 @@ export function ManageSheet({
           <View style={styles.col}>
             <Text style={styles.rowTitle}>Change Goal</Text>
             <Text style={styles.rowDesc}>Resets your current path</Text>
+          </View>
+          <Text style={styles.chev}>›</Text>
+        </Pressable>
+
+        <Pressable style={styles.row} onPress={onPause}>
+          <View style={[styles.iconBox, { backgroundColor: "rgba(75,85,99,0.2)" }]}>
+            <Text style={styles.iconEmoji}>⏸</Text>
+          </View>
+          <View style={styles.col}>
+            <Text style={[styles.rowTitle, { color: "#4B5563" }]}>Pause Arc</Text>
+            <Text style={styles.rowDesc}>Stops new interest missions until you resume</Text>
           </View>
           <Text style={styles.chev}>›</Text>
         </Pressable>

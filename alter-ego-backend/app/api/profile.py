@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from difflib import SequenceMatcher
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException
@@ -36,6 +36,7 @@ from app.services.interest_path_service import (
     schedule_abbrev,
 )
 from app.agents.interest_normaliser import normalise_interest
+from app.services.arc_service import ARC_PHASE_LABELS
 from app.services.mission_service import get_user_date, sync_today_planner_missions
 from app.services.streak_service import sync_streak_if_lapsed
 
@@ -558,6 +559,16 @@ async def get_profile_interests(authorization: str = Header(None)):
         if not isinstance(active_days, list):
             active_days = [1, 2, 3, 4, 5, 6, 7]
 
+        tp = interest.get("total_planned_sessions")
+        sc = int(interest.get("sessions_completed") or 0)
+        progress_pct = None
+        if tp:
+            try:
+                progress_pct = round((sc / max(int(tp), 1)) * 100, 1)
+            except Exception:
+                progress_pct = None
+
+        cap = str(interest.get("current_arc_phase") or "no_deadline")
         results.append({
             "id": interest["id"],
             "name": interest.get("normalised_name"),
@@ -574,6 +585,13 @@ async def get_profile_interests(authorization: str = Header(None)):
             "ui_path": ui_path,
             "schedule_abbrev": schedule_abbrev([int(d) for d in active_days if isinstance(d, (int, float))]),
             "difficulty_label": difficulty_label(tier),
+            "sessions_completed": sc,
+            "total_planned_sessions": interest.get("total_planned_sessions"),
+            "current_arc_phase": cap,
+            "arc_phase_label": ARC_PHASE_LABELS.get(cap, "Open Practice"),
+            "target_date": interest.get("target_date"),
+            "arc_paused": bool(interest.get("arc_paused")),
+            "progress_pct": progress_pct,
         })
 
     return {"interests": results}
@@ -606,6 +624,7 @@ class InterestCreateBody(BaseModel):
     interest_level: str = ""
     goal_description: str = Field(..., min_length=10, max_length=4000)
     schedule_days: list[int] = Field(..., min_length=1)
+    target_timeline: str | None = None  # "1_month" | "3_months" | "6_months" | "1_year" | "no_deadline" | None
 
 
 @router.post("/interests", response_model=dict)
@@ -695,6 +714,41 @@ async def post_profile_interest(body: InterestCreateBody, authorization: str = H
     if ins.data and isinstance(ins.data, list) and ins.data[0].get("id"):
         new_id = str(ins.data[0]["id"])
 
+    # Arc initialization — compute total_planned_sessions and initial arc phase
+    from app.services.arc_service import compute_arc_phase, compute_total_sessions
+
+    try:
+        timeline_key = str(body.target_timeline or "no_deadline")
+        valid_timelines = {"1_month", "3_months", "6_months", "1_year", "no_deadline"}
+        if timeline_key not in valid_timelines:
+            timeline_key = "no_deadline"
+
+        days_per_week = len(set(active_days)) if isinstance(active_days, list) else 5
+
+        total_sessions_plan = compute_total_sessions(timeline_key, days_per_week)
+        initial_arc_phase = compute_arc_phase(0, total_sessions_plan)
+
+        arc_update: dict = {
+            "current_arc_phase": initial_arc_phase,
+            "sessions_completed": 0,
+            "arc_phase_session": 1,
+        }
+        if total_sessions_plan is not None:
+            weeks_map = {"1_month": 4, "3_months": 13, "6_months": 26, "1_year": 52}
+            weeks = weeks_map.get(timeline_key)
+            if weeks:
+                target_date = date.today() + timedelta(weeks=weeks)
+                arc_update["target_date"] = target_date.isoformat()
+                arc_update["original_target_date"] = target_date.isoformat()
+            arc_update["total_planned_sessions"] = total_sessions_plan
+
+        if new_id:
+            supabase_admin.table("interests").update(arc_update).eq("id", new_id).eq(
+                "user_id", user_id
+            ).execute()
+    except Exception:
+        pass  # Arc init failure never breaks interest creation
+
     try:
         tz_res = (
             supabase_admin.table("users")
@@ -710,6 +764,95 @@ async def post_profile_interest(body: InterestCreateBody, authorization: str = H
         logger.warning("post_profile_interest: planner sync failed: %s", e)
 
     return {"success": True, "interest_id": new_id}
+
+
+class InterestPauseBody(BaseModel):
+    reason: str | None = None  # "user_requested" or None
+
+
+class InterestTimelineBody(BaseModel):
+    target_timeline: str  # "1_month" | "3_months" | "6_months" | "1_year" | "no_deadline"
+
+
+@router.post("/interests/{interest_id}/pause", response_model=dict)
+async def pause_interest_arc(
+    interest_id: str,
+    body: InterestPauseBody,
+    authorization: str = Header(None),
+):
+    """Pause arc generation for this interest. No missions generated while paused."""
+    user_id = get_user_id_from_token(authorization)
+    _interest_owned_row(user_id, interest_id)
+
+    supabase_admin.table("interests").update(
+        {
+            "arc_paused": True,
+            "arc_paused_at": datetime.now(dt_timezone.utc).isoformat(),
+            "arc_paused_reason": body.reason or "user_requested",
+        }
+    ).eq("id", interest_id).eq("user_id", user_id).execute()
+    return {"ok": True, "arc_paused": True}
+
+
+@router.post("/interests/{interest_id}/resume", response_model=dict)
+async def resume_interest_arc(
+    interest_id: str,
+    authorization: str = Header(None),
+):
+    """Resume a paused interest arc."""
+    user_id = get_user_id_from_token(authorization)
+    _interest_owned_row(user_id, interest_id)
+    supabase_admin.table("interests").update(
+        {
+            "arc_paused": False,
+            "arc_paused_at": None,
+            "arc_paused_reason": None,
+        }
+    ).eq("id", interest_id).eq("user_id", user_id).execute()
+    return {"ok": True, "arc_paused": False}
+
+
+@router.put("/interests/{interest_id}/timeline", response_model=dict)
+async def update_interest_timeline(
+    interest_id: str,
+    body: InterestTimelineBody,
+    authorization: str = Header(None),
+):
+    """Update the target timeline for an interest and recalculate arc sessions."""
+    user_id = get_user_id_from_token(authorization)
+    row = _interest_owned_row(user_id, interest_id)
+
+    from app.services.arc_service import compute_arc_phase, compute_total_sessions
+
+    valid_timelines = {"1_month", "3_months", "6_months", "1_year", "no_deadline"}
+    timeline_key = body.target_timeline
+    if timeline_key not in valid_timelines:
+        raise HTTPException(status_code=400, detail="Invalid timeline value")
+
+    active_days = row.get("active_days") or [1, 2, 3, 4, 5, 6, 7]
+    days_per_week = len(set(active_days)) if isinstance(active_days, list) else 5
+    total_sessions = compute_total_sessions(timeline_key, days_per_week)
+    sessions_done = int(row.get("sessions_completed") or 0)
+    new_arc_phase = compute_arc_phase(sessions_done, total_sessions)
+
+    update: dict = {
+        "current_arc_phase": new_arc_phase,
+        "total_planned_sessions": total_sessions,
+        "timeline_adjusted_count": int(row.get("timeline_adjusted_count") or 0) + 1,
+    }
+
+    weeks_map = {"1_month": 4, "3_months": 13, "6_months": 26, "1_year": 52}
+    weeks = weeks_map.get(timeline_key)
+    if weeks:
+        target_date = date.today() + timedelta(weeks=weeks)
+        update["target_date"] = target_date.isoformat()
+    else:
+        update["target_date"] = None
+
+    supabase_admin.table("interests").update(update).eq("id", interest_id).eq(
+        "user_id", user_id
+    ).execute()
+    return {"ok": True, "new_arc_phase": new_arc_phase, "total_planned_sessions": total_sessions}
 
 
 class InterestCriterionPatch(BaseModel):

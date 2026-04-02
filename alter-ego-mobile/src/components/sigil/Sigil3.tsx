@@ -2,22 +2,26 @@ import React from "react";
 import Svg, { Circle, G, Path } from "react-native-svg";
 import { useAnimatedProps } from "react-native-reanimated";
 import { useHtmlSvgPulse, useHtmlFlickerFo, useHtmlBreatheR } from "./SigilAnimations";
-import { AnimatedG, AnimatedCircle } from "./sigilSvg";
-import type { SigilProps } from "./sigilTypes";
+import { svgAdapters, AnimatedG, AnimatedCircle } from "./sigilSvg";
+import { DEFAULT_SIGIL_SIZE, type SigilProps } from "./sigilTypes";
 import { HtmlFloatDot } from "./sigilHtmlPrimitives";
-import { RotatingG } from "./rotateCenter";
+import { RotatingG, centerScaleMatrix } from "./rotateCenter";
 
-export function Sigil3({ size = 300 }: SigilProps) {
+export function Sigil3({ size = DEFAULT_SIGIL_SIZE }: SigilProps) {
   const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulse(4000);
   const flicker = useHtmlFlickerFo(2500, 1, 0);
   const breatheR = useHtmlBreatheR(36, 3000, 1.06);
 
-  const pulseAp = useAnimatedProps(() => ({
-    opacity: pulseOp.value,
-    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
-  }));
-  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
-  const ringAp = useAnimatedProps(() => ({ r: breatheR.value }));
+  const pulseAp = useAnimatedProps(
+    () => ({
+      opacity: pulseOp.value,
+      transform: centerScaleMatrix(pulseSc.value),
+    }),
+    [],
+    svgAdapters
+  );
+  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }), [], svgAdapters);
+  const ringAp = useAnimatedProps(() => ({ r: breatheR.value }), [], svgAdapters);
 
   return (
     <Svg width={size} height={size} viewBox="0 0 340 340">

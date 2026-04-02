@@ -2,13 +2,13 @@ import React from "react";
 import Svg, { Circle, Ellipse, G, Line, Polygon } from "react-native-svg";
 import { useAnimatedProps } from "react-native-reanimated";
 import { useHtmlSvgPulseS, useHtmlFlickerFo, useHtmlBreatheR } from "./SigilAnimations";
-import { AnimatedG, AnimatedCircle } from "./sigilSvg";
-import type { SigilProps } from "./sigilTypes";
-import { RotatingG } from "./rotateCenter";
+import { svgAdapters, AnimatedG, AnimatedCircle } from "./sigilSvg";
+import { DEFAULT_SIGIL_SIZE, type SigilProps } from "./sigilTypes";
+import { RotatingG, centerScaleMatrix } from "./rotateCenter";
 
 function Corona10({ r, sw, fo, dly }: { r: number; sw: number; fo: number; dly: number }) {
   const op = useHtmlFlickerFo(2600, fo, dly);
-  const ap = useAnimatedProps(() => ({ opacity: op.value }));
+  const ap = useAnimatedProps(() => ({ opacity: op.value }), [], svgAdapters);
   return (
     <AnimatedCircle
       cx={170}
@@ -24,19 +24,23 @@ function Corona10({ r, sw, fo, dly }: { r: number; sw: number; fo: number; dly: 
 
 const RAY_COLORS = ["#FFFFFF", "#FDE68A", "#FCD34D"];
 
-export function Sigil10({ size = 300 }: SigilProps) {
+export function Sigil10({ size = DEFAULT_SIGIL_SIZE }: SigilProps) {
   const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulseS(1800);
   const flicker = useHtmlFlickerFo(1200, 1, 0);
   const breatheA = useHtmlBreatheR(44, 2600, 1.04);
   const breatheB = useHtmlBreatheR(10, 1600, 1.1);
 
-  const pulseAp = useAnimatedProps(() => ({
-    opacity: pulseOp.value,
-    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
-  }));
-  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
-  const outerCoreAp = useAnimatedProps(() => ({ r: breatheA.value }));
-  const innerCoreAp = useAnimatedProps(() => ({ r: breatheB.value }));
+  const pulseAp = useAnimatedProps(
+    () => ({
+      opacity: pulseOp.value,
+      transform: centerScaleMatrix(pulseSc.value),
+    }),
+    [],
+    svgAdapters
+  );
+  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }), [], svgAdapters);
+  const outerCoreAp = useAnimatedProps(() => ({ r: breatheA.value }), [], svgAdapters);
+  const innerCoreAp = useAnimatedProps(() => ({ r: breatheB.value }), [], svgAdapters);
 
   return (
     <Svg width={size} height={size} viewBox="0 0 340 340">

@@ -54,6 +54,9 @@ export type MainStackParamList = {
   SettingsProfile: undefined;
   AccountSettings: undefined;
   ContactUs: undefined;
+  /** Community feedback board */
+  CommunityBoard: undefined;
+  NewPost: undefined;
   /** In-app FAQ from GET /api/v1/settings/faq */
   SettingsFaq: undefined;
   MailInbox: undefined;

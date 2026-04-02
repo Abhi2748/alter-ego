@@ -66,6 +66,7 @@ interface UserState {
   updateStage: (newStage: number, newStageName: string) => void;
   updatePetStage: (newPetStage: number, newPetName: string) => void;
   incrementUnreadMail: () => void;
+  updateAvatarUrl: (url: string | null) => void;
   clearProfile: () => void;
 }
 
@@ -195,6 +196,12 @@ export const useUserStore = create<UserState>((set, get) => ({
         unread_mail_count: profile.unread_mail_count + 1,
       },
     });
+  },
+
+  updateAvatarUrl: (url) => {
+    const profile = get().profile;
+    if (!profile) return;
+    set({ profile: { ...profile, profile_photo_url: url } });
   },
 
   clearProfile: () => set({ profile: null, error: null }),

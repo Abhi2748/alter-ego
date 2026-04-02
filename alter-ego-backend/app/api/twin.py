@@ -44,6 +44,8 @@ from app.services.twin_service import (
     ensure_twin_simulated_for_today,
     get_home_strip_context,
     get_twin_xp_comparison,
+    mission_ids_for_revealed_twin_logs,
+    partition_twin_mission_log_by_reveal,
     refresh_twin_gap_state,
     send_twin_message,
 )
@@ -117,6 +119,9 @@ class TwinJournalEntryOut(BaseModel):
     relationship_phase: str
     missions_completed: int
     missions_total: int
+    """Twin's simulated missions that day (for header badge — not the user's completion rate)."""
+    twin_missions_completed: int = 0
+    twin_missions_total: int = 0
     archetype: str | None = None
     created_at: str
     is_new: bool = False
@@ -652,7 +657,7 @@ async def get_twin_strip(authorization: str = Header(None)):
         user_active_today = False
 
     context["status_line"] = get_twin_status_line(user_local_hour, user_active_today)
-    xp_data = get_twin_xp_comparison(user_id, today)
+    xp_data = get_twin_xp_comparison(user_id, today, tz_str)
     context["user_xp_today"] = xp_data["user_xp_today"]
     context["twin_xp_today"] = xp_data["twin_xp_today"]
 
@@ -703,6 +708,19 @@ async def get_twin_journal(
 
     await ensure_twin_journal_backfilled(user_id)
 
+    try:
+        u_tz = (
+            supabase_admin.table("users")
+            .select("timezone")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        tz_str = str((u_tz.data or {}).get("timezone") or "UTC").strip() or "UTC"
+    except Exception:
+        tz_str = "UTC"
+    today_local = get_user_date(tz_str)
+
     result = (
         supabase_admin.table("twin_journal")
         .select(
@@ -711,13 +729,15 @@ async def get_twin_journal(
         )
         .eq("user_id", user_id)
         .order("entry_date", desc=True)
-        .limit(limit)
+        .limit(limit * 2)
         .execute()
     )
 
-    rows = result.data or []
+    rows = [r for r in (result.data or []) if str(r.get("entry_date", ""))[:10] < today_local]
+
     dates = sorted({str(r.get("entry_date", ""))[:10] for r in rows if r.get("entry_date")})
     counts_by_date: dict[str, tuple[int, int]] = {}
+    twin_counts_by_date: dict[str, tuple[int, int]] = {}
     if dates:
         try:
             all_m = (
@@ -742,6 +762,26 @@ async def get_twin_journal(
                 )
         except Exception:
             counts_by_date = {}
+        try:
+            trows = (
+                supabase_admin.table("twin_daily_record")
+                .select("record_date, missions_completed, missions_assigned")
+                .eq("user_id", user_id)
+                .in_("record_date", dates)
+                .execute()
+                .data
+                or []
+            )
+            for tr in trows:
+                d = str(tr.get("record_date", ""))[:10]
+                if not d:
+                    continue
+                twin_counts_by_date[d] = (
+                    int(tr.get("missions_completed") or 0),
+                    int(tr.get("missions_assigned") or 0),
+                )
+        except Exception:
+            twin_counts_by_date = {}
 
     out: list[TwinJournalEntryOut] = []
     for r in rows:
@@ -760,6 +800,7 @@ async def get_twin_journal(
         mt = int(r.get("missions_total") or 0)
         if ed in counts_by_date:
             mc, mt = counts_by_date[ed]
+        tmc, tmt = twin_counts_by_date.get(ed, (0, 0))
         out.append(
             TwinJournalEntryOut(
                 id=str(r.get("id", "")),
@@ -768,11 +809,15 @@ async def get_twin_journal(
                 relationship_phase=str(r.get("relationship_phase") or "observer"),
                 missions_completed=mc,
                 missions_total=mt,
+                twin_missions_completed=tmc,
+                twin_missions_total=tmt,
                 archetype=r.get("archetype"),
                 created_at=created_at_s,
                 is_new=False,
             )
         )
+        if len(out) >= limit:
+            break
 
     last_viewed: datetime | None = None
     try:
@@ -997,7 +1042,6 @@ async def get_shadow_feed(
             tz = ZoneInfo("UTC")
 
         now_local = datetime.now(tz)
-        current_hour = now_local.hour
         today = get_user_date(tz_str)
         anchor = date_cls.fromisoformat(today)
         past_start = str(anchor - timedelta(days=days_back))
@@ -1014,11 +1058,9 @@ async def get_shadow_feed(
             or []
         )
 
-        revealed_twin = [r for r in twin_today if int(r.get("simulated_hour") or 0) <= current_hour]
-        pending_twin = [r for r in twin_today if int(r.get("simulated_hour") or 0) > current_hour]
-        if not revealed_twin and twin_today:
-            revealed_twin = list(twin_today)
-            pending_twin = []
+        revealed_twin, pending_twin = partition_twin_mission_log_by_reveal(
+            twin_today, now_local, anchor, tz
+        )
 
         user_today = (
             supabase_admin.table("missions")
@@ -1043,6 +1085,17 @@ async def get_shadow_feed(
             or []
         )
 
+        missions_today_all = (
+            supabase_admin.table("missions")
+            .select("title, type, core_pillar")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .execute()
+            .data
+            or []
+        )
+        title_to_m = {str(m.get("title") or "").strip().lower(): m for m in missions_today_all}
+
         xp_today_rows = (
             supabase_admin.table("xp_log")
             .select("amount")
@@ -1056,7 +1109,7 @@ async def get_shadow_feed(
 
         twin_daily_rows = (
             supabase_admin.table("twin_daily_record")
-            .select("record_date, missions_completed, missions_assigned, xp_earned")
+            .select("record_date, missions_completed, missions_assigned, xp_earned, missed_mission_titles")
             .eq("user_id", user_id)
             .gte("record_date", past_start)
             .lte("record_date", today)
@@ -1091,8 +1144,13 @@ async def get_shadow_feed(
         )
         journal_by_date = {str(j.get("entry_date", ""))[:10]: (j.get("content") or "") for j in twin_journals}
 
-        twin_xp_today = int(today_twin_rec.get("xp_earned") or 0)
-        twin_done_today = int(today_twin_rec.get("missions_completed") or 0)
+        twin_xp_total = int(today_twin_rec.get("xp_earned") or 0)
+        n_twin_log = len(twin_today)
+        n_twin_revealed = len(revealed_twin)
+        twin_xp_today = (
+            int(round(twin_xp_total * (n_twin_revealed / n_twin_log))) if n_twin_log > 0 else 0
+        )
+        twin_done_today = n_twin_revealed
         user_done_today = len(user_today)
 
         twin_titles_done = {str(r.get("mission_title") or "").lower() for r in revealed_twin}
@@ -1200,6 +1258,28 @@ async def get_shadow_feed(
                     core_pillar=m.get("core_pillar"),
                     is_twin=False,
                     is_user=True,
+                    is_shared_interest=False,
+                )
+            )
+
+        missed_raw = (today_twin_rec or {}).get("missed_mission_titles") or []
+        missed_titles: list = missed_raw if isinstance(missed_raw, list) else []
+        for i, raw_title in enumerate(missed_titles):
+            tstr = str(raw_title or "").strip()
+            if not tstr:
+                continue
+            mm = title_to_m.get(tstr.lower())
+            entries.append(
+                FeedEntry(
+                    entry_type="twin_incomplete",
+                    timestamp_iso=f"{today}T23:56:{min(59, i):02d}",
+                    display_time="",
+                    entry_date=today,
+                    mission_title=tstr,
+                    mission_type=(mm.get("type") if mm else None) or "core",
+                    core_pillar=mm.get("core_pillar") if mm else None,
+                    is_twin=True,
+                    is_user=False,
                     is_shared_interest=False,
                 )
             )
@@ -1384,12 +1464,40 @@ async def _build_twin_state_response(user_id: str) -> dict:
     )
     twin_record = twin_today[0] if twin_today else None
 
-    week_heatmap: list[dict] = []
-    pillar_dna: list[dict] = []
+    tz_name_state = (user.get("timezone", "UTC") or "UTC").strip() or "UTC"
+    try:
+        tz_state = ZoneInfo(tz_name_state)
+    except Exception:
+        tz_state = ZoneInfo("UTC")
+    now_local_state = datetime.now(tz_state)
     try:
         anchor = date_cls.fromisoformat(today)
     except Exception:
         anchor = date_cls.today()
+
+    twin_log_rows_state = (
+        supabase_admin.table("twin_mission_log")
+        .select("mission_title, mission_type, core_pillar, simulated_hour, completed_at")
+        .eq("user_id", user_id)
+        .eq("mission_date", today)
+        .execute()
+        .data
+        or []
+    )
+    revealed_twin_logs, _pending_twin_logs = partition_twin_mission_log_by_reveal(
+        twin_log_rows_state, now_local_state, anchor, tz_state
+    )
+    revealed_titles_lower = {str(r.get("mission_title") or "").strip().lower() for r in revealed_twin_logs}
+    n_twin_log_all = len(twin_log_rows_state)
+    n_twin_revealed = len(revealed_twin_logs)
+    twin_xp_today_full = int(twin_record.get("xp_earned") or 0) if twin_record else 0
+    twin_xp_today_revealed = (
+        int(round(twin_xp_today_full * (n_twin_revealed / n_twin_log_all))) if n_twin_log_all > 0 else 0
+    )
+    revealed_mission_ids = mission_ids_for_revealed_twin_logs(user_id, today, revealed_twin_logs)
+
+    week_heatmap: list[dict] = []
+    pillar_dna: list[dict] = []
     week_dates = [anchor - timedelta(days=i) for i in range(6, -1, -1)]
     week_start = str(week_dates[0])
 
@@ -1439,9 +1547,9 @@ async def _build_twin_state_response(user_id: str) -> dict:
             twin_done = int(twin_rec.get("missions_completed") or 0)
             twin_rate = (twin_done / twin_total) if twin_total > 0 else 0.0
 
-            if d_str == today and twin_total == 0 and twin_record:
+            if d_str == today and twin_record:
                 twin_total = int(twin_record.get("missions_assigned") or 0)
-                twin_done = int(twin_record.get("missions_completed") or 0)
+                twin_done = n_twin_revealed
                 twin_rate = (twin_done / twin_total) if twin_total > 0 else 0.0
 
             week_heatmap.append(
@@ -1496,7 +1604,7 @@ async def _build_twin_state_response(user_id: str) -> dict:
 
         twin_pillar_missions = (
             supabase_admin.table("twin_mission_log")
-            .select("core_pillar, mission_date")
+            .select("core_pillar, mission_date, mission_title")
             .eq("user_id", user_id)
             .gte("mission_date", week_start)
             .lte("mission_date", today)
@@ -1524,6 +1632,10 @@ async def _build_twin_state_response(user_id: str) -> dict:
             if p not in pillar_order:
                 continue
             d = str(m.get("mission_date") or "")[:10]
+            if d == today:
+                mt = str(m.get("mission_title") or "").strip().lower()
+                if mt not in revealed_titles_lower:
+                    continue
             key = (p, d)
             if key in twin_pillar_seen:
                 continue
@@ -1570,7 +1682,7 @@ async def _build_twin_state_response(user_id: str) -> dict:
     twin_timeline = build_twin_day_timeline(
         user_id,
         today,
-        twin_record.get("completed_mission_ids") if twin_record else None,
+        revealed_mission_ids if revealed_mission_ids else None,
         user.get("timezone", "UTC") or "UTC",
     )
 
@@ -1630,7 +1742,7 @@ async def _build_twin_state_response(user_id: str) -> dict:
         twin_power_score=int(twin_power_score),
         user_done_today=sum(1 for m in user_missions if m.get("completed")),
         user_total_today=len(user_missions),
-        twin_done_today=int(twin_record["missions_completed"]) if twin_record else 0,
+        twin_done_today=n_twin_revealed,
         twin_total_today=int(twin_record["missions_assigned"]) if twin_record else 0,
         week_heatmap=week_heatmap,
         days_user_ahead=days_user_ahead,
@@ -1676,10 +1788,10 @@ async def _build_twin_state_response(user_id: str) -> dict:
             "streak": twin.get("twin_streak", 0),
             "power_score": int(twin_power_score),
             "gap_state": twin.get("current_gap_state", "neck_and_neck"),
-            "missions_completed_today": twin_record["missions_completed"] if twin_record else 0,
+            "missions_completed_today": n_twin_revealed,
             "missions_total_today": twin_record["missions_assigned"] if twin_record else 0,
             "missed_mission_titles": twin_record["missed_mission_titles"] if twin_record else [],
-            "xp_earned_today": twin_record["xp_earned"] if twin_record else 0,
+            "xp_earned_today": twin_xp_today_revealed,
         },
         "gap": {
             "xp_difference": abs(user.get("total_xp", 0) - twin.get("twin_xp", 0)),

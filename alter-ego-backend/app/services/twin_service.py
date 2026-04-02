@@ -1360,7 +1360,8 @@ async def ensure_twin_journal_backfilled(user_id: str) -> None:
         today = get_user_date(tz)
         anchor = date_type.fromisoformat(today)
 
-        order: list[str] = [str(anchor - timedelta(days=i)) for i in range(1, 8)] + [today]
+        # Do not backfill "today" — same rule as generate_and_store_twin_journal (released after midnight).
+        order: list[str] = [str(anchor - timedelta(days=i)) for i in range(1, 8)]
         seen: set[str] = set()
         filled = 0
         max_fill = 3
@@ -1416,7 +1417,7 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
     from app.agents.twin_chat_agent import get_relationship_phase
     from app.agents.twin_journal_agent import generate_twin_journal_entry
     from app.core.constants import TWIN_JOURNAL_FALLBACKS
-    from app.services.mission_service import get_days_since_registration
+    from app.services.mission_service import get_days_since_registration, get_user_date
 
     try:
         existing = (
@@ -1428,6 +1429,19 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
             .execute()
         )
         if existing.data:
+            return
+
+        tz_row = (
+            supabase_admin.table("users")
+            .select("timezone")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        tz = str((tz_row.data or {}).get("timezone") or "UTC").strip() or "UTC"
+        # Journal for calendar day D is written only after D ends (midnight job uses "yesterday").
+        # Never generate for the user's current local date — avoids wrong mission/XP snapshots.
+        if today == get_user_date(tz):
             return
 
         rec_res = (
@@ -1724,6 +1738,75 @@ async def generate_journal_for_yesterday(user_id: str) -> None:
         )
 
 
+def parse_twin_mission_log_local_dt(
+    row: dict,
+    anchor: date_type,
+    tz: ZoneInfo,
+) -> datetime:
+    """Local datetime when the twin is treated as having completed this mission (simulation schedule)."""
+    ca = row.get("completed_at")
+    if ca:
+        try:
+            raw = str(ca).replace("Z", "+00:00")
+            sim_dt = datetime.fromisoformat(raw)
+            if sim_dt.tzinfo is None:
+                sim_dt = sim_dt.replace(tzinfo=timezone.utc)
+            return sim_dt.astimezone(tz)
+        except Exception:
+            pass
+    hour = int(row.get("simulated_hour") or 0)
+    return datetime(anchor.year, anchor.month, anchor.day, hour, 0, 0, tzinfo=tz)
+
+
+def partition_twin_mission_log_by_reveal(
+    rows: list[dict],
+    now_local: datetime,
+    anchor: date_type,
+    tz: ZoneInfo,
+) -> tuple[list[dict], list[dict]]:
+    """
+    Split twin_mission_log rows into missions whose simulated time has passed (revealed)
+    vs still in the future today (pending). Uses full completed_at (minute precision), not hour-only.
+    """
+    revealed: list[dict] = []
+    pending: list[dict] = []
+    for r in rows:
+        dt = parse_twin_mission_log_local_dt(r, anchor, tz)
+        if now_local >= dt:
+            revealed.append(r)
+        else:
+            pending.append(r)
+    key_fn = lambda x: parse_twin_mission_log_local_dt(x, anchor, tz).isoformat()
+    revealed.sort(key=key_fn)
+    pending.sort(key=key_fn)
+    return revealed, pending
+
+
+def mission_ids_for_revealed_twin_logs(
+    user_id: str,
+    today: str,
+    revealed_rows: list[dict],
+) -> list[str]:
+    """Map revealed twin_mission_log rows to today's mission ids in schedule order."""
+    if not revealed_rows:
+        return []
+    mres = (
+        supabase_admin.table("missions")
+        .select("id, title")
+        .eq("user_id", user_id)
+        .eq("mission_date", today)
+        .execute()
+    )
+    by_title = {str(r.get("title") or "").strip().lower(): r for r in (mres.data or []) if r.get("title")}
+    ordered: list[str] = []
+    for row in revealed_rows:
+        tk = str(row.get("mission_title") or "").strip().lower()
+        m = by_title.get(tk)
+        if m and m.get("id"):
+            ordered.append(str(m["id"]))
+    return ordered
+
+
 def build_twin_day_timeline(
     user_id: str,
     today: str,
@@ -1810,12 +1893,16 @@ def build_twin_day_timeline(
     return timeline
 
 
-def get_twin_xp_comparison(user_id: str, today: str) -> dict:
+def get_twin_xp_comparison(user_id: str, today: str, timezone_str: str) -> dict:
     """
-    Returns user's XP earned today vs Twin's XP earned today.
-    Uses xp_log for user XP and twin_daily_record for Twin XP.
-    Returns {"user_xp_today": int, "twin_xp_today": int} or
-    {"user_xp_today": None, "twin_xp_today": None} on error.
+    Returns user's XP earned today vs Twin's XP earned *so far* today (same rules as /twin/state).
+
+    User: sum of xp_log for `today` (only real completions).
+
+    Twin: twin_daily_record may already hold the full simulated day total; we only count XP for
+    missions whose simulated local time has passed (partition_twin_mission_log_by_reveal), using
+    the same proration as the Twin Comparison screen — so at 1am the strip does not show Twin's
+    full-day XP bar while the day is still unfolding.
     """
     try:
         user_result = (
@@ -1827,6 +1914,30 @@ def get_twin_xp_comparison(user_id: str, today: str) -> dict:
         )
         user_xp = sum(int(r.get("amount") or 0) for r in (user_result.data or []))
 
+        tz_name = (timezone_str or "UTC").strip() or "UTC"
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        now_local = datetime.now(tz)
+        try:
+            anchor = date_type.fromisoformat(today)
+        except Exception:
+            anchor = now_local.date()
+
+        twin_log_rows = (
+            supabase_admin.table("twin_mission_log")
+            .select("mission_title, mission_type, core_pillar, simulated_hour, completed_at")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+            .execute()
+            .data
+            or []
+        )
+        revealed, _pending = partition_twin_mission_log_by_reveal(
+            twin_log_rows, now_local, anchor, tz
+        )
+
         twin_result = (
             supabase_admin.table("twin_daily_record")
             .select("xp_earned")
@@ -1835,7 +1946,12 @@ def get_twin_xp_comparison(user_id: str, today: str) -> dict:
             .execute()
         )
         twin_rows = twin_result.data or []
-        twin_xp = int(twin_rows[0].get("xp_earned") or 0) if twin_rows else 0
+        twin_xp_full = int(twin_rows[0].get("xp_earned") or 0) if twin_rows else 0
+        n_all = len(twin_log_rows)
+        n_rev = len(revealed)
+        twin_xp = (
+            int(round(twin_xp_full * (n_rev / n_all))) if n_all > 0 else 0
+        )
 
         return {"user_xp_today": user_xp, "twin_xp_today": twin_xp}
 

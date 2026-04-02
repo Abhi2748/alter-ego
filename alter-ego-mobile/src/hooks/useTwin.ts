@@ -21,6 +21,9 @@ export function useTwinState() {
     staleTime: 30 * 1000,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
+    /** Twin's "today" XP prorates as simulated missions unlock by time — refresh periodically. */
+    refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: false,
   });
 }
 

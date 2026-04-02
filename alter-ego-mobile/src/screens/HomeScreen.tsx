@@ -143,6 +143,15 @@ const CONTENT_PADDING_BOTTOM = 96;
 const JOURNAL_FAB_BOTTOM_GAP = 8;
 const SCROLL_PADDING_H = 16;
 
+/** Device local YYYY-MM-DD — fallback before /profile/streak returns `calendar_date`. */
+function formatDeviceLocalYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function asMissionArray(raw: unknown): Mission[] {
   if (!Array.isArray(raw)) return [];
   return raw.filter(
@@ -376,7 +385,6 @@ export function HomeScreen() {
     setEvolutionOverlayVisible(true);
   }, []);
 
-  const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
   const [deleteSheetVisible, setDeleteSheetVisible] = useState(false);
   const [missionToDelete, setMissionToDelete] = useState<Mission | null>(null);
   const [removeSuccessToast, setRemoveSuccessToast] = useState(false);
@@ -535,36 +543,55 @@ export function HomeScreen() {
         : "idle";
 
   const streakHeatmap = streakProfile?.heatmap ?? [];
+  const heatmapEligibleSince =
+    (streakProfile as { heatmap_eligible_since?: string | null } | undefined)?.heatmap_eligible_since ?? null;
   const heatmapByDate = useMemo(() => new Map(streakHeatmap.map((r) => [r.date, r])), [streakHeatmap]);
-  // Treat the most recent heatmap date as "today" (backend anchors to the user's local calendar).
-  const anchorDateStr = streakHeatmap.length
-    ? streakHeatmap[streakHeatmap.length - 1].date
-    : new Date().toISOString().slice(0, 10);
-  const anchorParts = anchorDateStr.split("-").map((x) => Number(x));
-  const ay = anchorParts[0];
-  const am = anchorParts[1];
-  const ad = anchorParts[2];
-  let anchorUTCDate = new Date(Date.UTC(ay, am - 1, ad));
-  if (!Number.isFinite(anchorUTCDate.getTime())) {
-    const t = new Date();
-    anchorUTCDate = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()));
-  }
-  const calendarAnchorStr = anchorUTCDate.toISOString().slice(0, 10);
-  // Mon–Sun indices: Mon=0 ... Sun=6
-  const anchorMonBased = (anchorUTCDate.getUTCDay() + 6) % 7;
+  /**
+   * "Today" for the strip must match backend missions/streak (get_user_date). Using the heatmap's last row
+   * breaks after midnight: that row is often still yesterday until streak_log exists — then the real today
+   * was misclassified as "future" and the today ring disappeared.
+   */
+  const calendarAnchorStr = useMemo(() => {
+    const raw = (streakProfile as { calendar_date?: string } | null | undefined)?.calendar_date;
+    if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) {
+      return raw.trim();
+    }
+    return formatDeviceLocalYmd();
+  }, [streakProfile]);
+  const anchorUTCDate = useMemo(() => {
+    const anchorParts = calendarAnchorStr.split("-").map((x) => Number(x));
+    const ay = anchorParts[0];
+    const am = anchorParts[1];
+    const ad = anchorParts[2];
+    let d = new Date(Date.UTC(ay, am - 1, ad));
+    if (!Number.isFinite(d.getTime())) {
+      const t = new Date();
+      d = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()));
+    }
+    return d;
+  }, [calendarAnchorStr]);
+  // Mon–Sun week containing calendarAnchorStr (Mon=0 … Sun=6).
   const weekDates = useMemo(() => {
+    const anchorMonBased = (anchorUTCDate.getUTCDay() + 6) % 7;
     return Array.from({ length: 7 }).map((_, i) => {
       const d = new Date(anchorUTCDate);
       d.setUTCDate(d.getUTCDate() - anchorMonBased + i);
       return d.toISOString().slice(0, 10);
     });
-  }, [anchorUTCDate, anchorMonBased]);
-  const weekDotType = weekDates.map((dateStr) => {
-    const row = heatmapByDate.get(dateStr);
-    if (row?.maintained) return "done" as const;
-    if (dateStr === calendarAnchorStr) return "today" as const;
-    return "pending" as const;
-  });
+  }, [anchorUTCDate]);
+  /** Mon–Sun dots vs calendar anchor (user TZ): today = ring until streak earned, then solid orange; past miss = empty; future = dim. */
+  const weekDotType = useMemo(() => {
+    return weekDates.map((dateStr) => {
+      const row = heatmapByDate.get(dateStr);
+      if (dateStr > calendarAnchorStr) return "future" as const;
+      if (heatmapEligibleSince && dateStr < heatmapEligibleSince) return "inactive" as const;
+      if (dateStr === calendarAnchorStr) {
+        return row?.maintained === true ? ("today_done" as const) : ("today" as const);
+      }
+      if (row?.maintained === true) return "done" as const;
+      return "missed" as const;
+    });
+  }, [weekDates, heatmapByDate, calendarAnchorStr, heatmapEligibleSince]);
 
   useEffect(() => {
     streakOverlayTokenRef.current = null;
@@ -769,8 +796,8 @@ export function HomeScreen() {
         ) : null}
         <View style={styles.topBarRow}>
           <View style={styles.avatarWrap}>
-            {profilePhotoUri ? (
-              <Image source={{ uri: profilePhotoUri }} style={styles.avatarImg} resizeMode="cover" />
+            {profile?.profile_photo_url ? (
+              <Image source={{ uri: profile.profile_photo_url }} style={styles.avatarImg} resizeMode="cover" />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarInitial}>
@@ -796,16 +823,23 @@ export function HomeScreen() {
         <View style={styles.streakRight}>
           <Text style={styles.weekLabel}>This week</Text>
           <View style={styles.weekDotsRow}>
-            {weekDotType.map((status, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.weekDot,
-                  status === "done" ? styles.weekDotDone : null,
-                  status === "today" ? styles.weekDotToday : null,
-                ]}
-              />
-            ))}
+            {weekDotType.map((status, i) =>
+              status === "today" ? (
+                <View key={`${weekDates[i]}-today`} style={styles.weekDotTodayRingOuter}>
+                  <View style={styles.weekDotTodayRingInner} />
+                </View>
+              ) : (
+                <View
+                  key={weekDates[i]}
+                  style={[
+                    styles.weekDot,
+                    status === "done" || status === "today_done" ? styles.weekDotDone : null,
+                    status === "missed" ? styles.weekDotMissed : null,
+                    status === "inactive" ? styles.weekDotInactive : null,
+                  ]}
+                />
+              )
+            )}
           </View>
         </View>
       </View>
@@ -1357,15 +1391,38 @@ const styles = StyleSheet.create({
   },
   weekDotDone: {
     backgroundColor: EMBER,
+    borderWidth: 0,
     shadowColor: "rgba(249,115,22,0.45)",
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
     elevation: 4,
   },
-  weekDotToday: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1.5,
-    borderColor: EMBER,
+  /** Start of anchor day — orange ring only (nested; border-only is unreliable on RN). */
+  weekDotTodayRingOuter: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: EMBER,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  weekDotTodayRingInner: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "rgba(12,10,20,0.98)",
+  },
+  /** Past day, streak not earned — empty (no orange). */
+  weekDotMissed: {
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  /** Before account existed in week strip. */
+  weekDotInactive: {
+    backgroundColor: "rgba(255,255,255,0.02)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.04)",
   },
 
   scroll: { flex: 1 },

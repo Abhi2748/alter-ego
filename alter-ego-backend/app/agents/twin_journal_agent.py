@@ -100,7 +100,7 @@ USER PROFILE (narrative_seed — use to calibrate what you notice about them):
 {narrative_seed.strip()[:300]}
 """
 
-    return f"""You are writing the Shadow Twin's private journal entry for yesterday.
+    return f"""You are writing the Shadow Twin's private journal entry for one completed calendar day (the day in the facts below — not "today" in real time).
 
 The Twin is the user's disciplined alter ego — a version of them that shows up consistently.
 The Twin is NOT a coach, NOT an AI, NOT a motivational tool.
@@ -177,7 +177,7 @@ User's journal entry for this day (optional reference — do NOT quote directly,
 "{snippet}"
 """
 
-    return f"""Yesterday's data:
+    return f"""Facts for this journal day (calendar date — user and Twin activity for that same day):
 
 TWIN:
 - Missions completed: {twin_missions_completed} of {twin_missions_total}

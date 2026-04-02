@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.core.constants import PET_NAMES, STAGE_NAMES
@@ -395,4 +395,246 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
             + (f" — evolution milestone this week ({pet_evolved})" if pet_evolved else ""),
             "gap": f"Twin gap: {gap_xp} XP ({gap_state})",
         },
+    }
+
+
+def _week_contains_ts(
+    week_start: date, week_end: date, ts_val: str | None
+) -> bool:
+    if not ts_val:
+        return False
+    try:
+        ts = datetime.fromisoformat(str(ts_val).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        d = ts.date()
+        return week_start <= d <= week_end
+    except Exception:
+        return False
+
+
+async def assemble_enriched_context(
+    user_id: str, week_start: date, week_end: date
+) -> dict[str, Any]:
+    """
+    Gathers cross-system context for the Phase 4 report agent upgrade.
+    Returns a dict merged into the report prompt. Fails silently on each sub-query.
+    """
+    ws = week_start.isoformat()
+    we = week_end.isoformat()
+
+    narrative_seed: str | None = None
+    discipline_framing = "behavior"
+    guilt_orientation = 0.0
+
+    try:
+        dna_res = (
+            supabase_admin.table("discipline_dna")
+            .select(
+                "narrative_seed, discipline_framing, guilt_orientation, "
+                "external_validation_need, self_belief, execution_gap, core_failure_pattern"
+            )
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        row_a = (dna_res.data or [None])[0] or {}
+        narrative_seed = row_a.get("narrative_seed")
+        discipline_framing = str(row_a.get("discipline_framing") or "behavior")
+        guilt_orientation = float(row_a.get("guilt_orientation") or 0.0)
+    except Exception:
+        pass
+
+    interest_arcs: list[dict[str, Any]] = []
+    try:
+        int_res = (
+            supabase_admin.table("interests")
+            .select(
+                "id, normalised_name, user_goal, interest_path_state, "
+                "current_arc_phase, sessions_completed, total_planned_sessions, is_active"
+            )
+            .eq("user_id", user_id)
+            .eq("is_active", True)
+            .execute()
+        )
+        interests = int_res.data or []
+        miss_res = (
+            supabase_admin.table("missions")
+            .select("interest_id, completed, mission_date, type")
+            .eq("user_id", user_id)
+            .eq("type", "interest")
+            .gte("mission_date", ws)
+            .lte("mission_date", we)
+            .execute()
+        )
+        missions_i = miss_res.data or []
+        counts: dict[str, int] = {}
+        for m in missions_i:
+            if not m.get("completed"):
+                continue
+            iid = m.get("interest_id")
+            if not iid:
+                continue
+            key = str(iid)
+            counts[key] = counts.get(key, 0) + 1
+
+        for it in interests:
+            iid = str(it.get("id") or "")
+            if not iid:
+                continue
+            name = str(it.get("normalised_name") or "Interest")
+            sessions_week = counts.get(iid, 0)
+            arc_phase = str(it.get("current_arc_phase") or "")
+            goal = it.get("user_goal")
+            progress_pct: float | None = None
+            try:
+                tot = int(it.get("total_planned_sessions") or 0)
+                sess = int(it.get("sessions_completed") or 0)
+                if tot > 0:
+                    progress_pct = round(100.0 * sess / tot, 1)
+            except Exception:
+                progress_pct = None
+            interest_arcs.append(
+                {
+                    "interest_name": name,
+                    "sessions_completed_this_week": sessions_week,
+                    "arc_phase": arc_phase,
+                    "goal": goal,
+                    "progress_pct": progress_pct,
+                }
+            )
+    except Exception:
+        interest_arcs = []
+
+    quit_progress: list[dict[str, Any]] = []
+    try:
+        qp_res = (
+            supabase_admin.table("quit_paths")
+            .select(
+                "habit_name, current_phase, phase_started_at, status"
+            )
+            .eq("user_id", user_id)
+            .in_("status", ["active", "paused", "maintenance"])
+            .execute()
+        )
+        now_utc = datetime.now(timezone.utc)
+        for q in qp_res.data or []:
+            habit_name = str(q.get("habit_name") or "")
+            phase = str(q.get("current_phase") or "")
+            started = q.get("phase_started_at")
+            days_in_phase: int | None = None
+            if started:
+                try:
+                    pst = datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+                    if pst.tzinfo is None:
+                        pst = pst.replace(tzinfo=timezone.utc)
+                    days_in_phase = max(0, (now_utc - pst).days)
+                except Exception:
+                    days_in_phase = None
+            quit_progress.append(
+                {
+                    "habit_name": habit_name,
+                    "current_phase": phase,
+                    "days_in_phase": days_in_phase,
+                    "phase": phase,
+                }
+            )
+    except Exception:
+        quit_progress = []
+
+    twin_challenge: dict[str, Any] = {"challenge_exists": False}
+    try:
+        ch_res = (
+            supabase_admin.table("twin_challenges")
+            .select(
+                "challenge_text, status, issued_at, current_value, target_value"
+            )
+            .eq("user_id", user_id)
+            .execute()
+        )
+        for ch in ch_res.data or []:
+            issued_at = ch.get("issued_at")
+            if not _week_contains_ts(week_start, week_end, issued_at):
+                continue
+            twin_challenge = {
+                "challenge_exists": True,
+                "challenge_description": ch.get("challenge_text"),
+                "status": ch.get("status"),
+                "progress_made": (
+                    f"{ch.get('current_value', 0)}/{ch.get('target_value', 0)}"
+                    if ch.get("target_value") is not None
+                    else None
+                ),
+            }
+            break
+    except Exception:
+        twin_challenge = {"challenge_exists": False}
+
+    memory_anchors: list[dict[str, Any]] = []
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        ma_res = (
+            supabase_admin.table("memory_anchors")
+            .select("reference_phrase, summary, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(10)
+            .execute()
+        )
+        for a in ma_res.data or []:
+            ca = a.get("created_at")
+            if not ca:
+                continue
+            try:
+                cat = datetime.fromisoformat(str(ca).replace("Z", "+00:00"))
+                if cat.tzinfo is None:
+                    cat = cat.replace(tzinfo=timezone.utc)
+                if cat < cutoff:
+                    continue
+            except Exception:
+                continue
+            memory_anchors.append(
+                {
+                    "reference_phrase": str(a.get("reference_phrase") or ""),
+                    "summary": str(a.get("summary") or ""),
+                    "created_at_iso": str(ca),
+                }
+            )
+            if len(memory_anchors) >= 3:
+                break
+    except Exception:
+        memory_anchors = []
+
+    prev_wins_openings: list[str] = []
+    prev_twin_openings: list[str] = []
+    try:
+        wr_res = (
+            supabase_admin.table("weekly_reports")
+            .select("wins_opening, twin_opening")
+            .eq("user_id", user_id)
+            .lt("week_start", ws)
+            .order("week_start", desc=True)
+            .limit(2)
+            .execute()
+        )
+        for r in wr_res.data or []:
+            wo = r.get("wins_opening")
+            if wo:
+                prev_wins_openings.append(str(wo).strip())
+            to = r.get("twin_opening")
+            if to:
+                prev_twin_openings.append(str(to).strip())
+    except Exception:
+        pass
+
+    return {
+        "narrative_seed": narrative_seed,
+        "discipline_framing": discipline_framing,
+        "guilt_orientation": guilt_orientation,
+        "interest_arcs": interest_arcs,
+        "quit_progress": quit_progress,
+        "twin_challenge": twin_challenge,
+        "memory_anchors": memory_anchors,
+        "prev_wins_openings": prev_wins_openings,
+        "prev_twin_openings": prev_twin_openings,
     }

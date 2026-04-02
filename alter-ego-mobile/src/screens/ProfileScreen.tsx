@@ -89,20 +89,19 @@ const PROFILE_NAV_ROWS: {
   Icon: React.FC;
   iconWrap: "violet" | "ember" | "journey" | "quits";
 }[] = [
-  { kind: "sigil", label: "Aether Sigil", Icon: AetherSigilIcon, iconWrap: "violet" },
-  {
-    kind: "stack",
-    key: "ProfileAbilities",
-    label: "Abilities",
-    Icon: () => <Text style={{ fontSize: 18 }}>⚡</Text>,
-    iconWrap: "violet",
-  },
   {
     kind: "stack",
     key: "ProfileStreak",
     label: "Streak",
     Icon: () => <Text style={{ fontSize: 18 }}>🔥</Text>,
     iconWrap: "ember",
+  },
+  {
+    kind: "stack",
+    key: "ProfileAbilities",
+    label: "Abilities",
+    Icon: () => <Text style={{ fontSize: 18 }}>⚡</Text>,
+    iconWrap: "violet",
   },
   {
     kind: "stack",
@@ -115,6 +114,7 @@ const PROFILE_NAV_ROWS: {
     ),
     iconWrap: "violet",
   },
+  { kind: "sigil", label: "Aether Sigil", Icon: AetherSigilIcon, iconWrap: "violet" },
   {
     kind: "leaderboard",
     label: "Leaderboard",
@@ -258,10 +258,8 @@ export function ProfileScreen() {
       >
         {/* Hero card — full width zone */}
         <View style={styles.hero}>
-          {/* Radial atmosphere */}
-          <View style={styles.heroRadial} pointerEvents="none" />
           <LinearGradient
-            colors={["#0D0A20", "#09091A"]}
+            colors={["#09091A", "#07080F"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={styles.heroGradient}
@@ -362,14 +360,6 @@ export function ProfileScreen() {
               </>
             )}
           </View>
-
-          {/* Bottom edge line */}
-          <LinearGradient
-            colors={["transparent", "rgba(139,92,246,0.25)", "transparent"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.heroBottomLine}
-          />
         </View>
 
         <View style={[styles.navSection, { paddingHorizontal: 16 }]}>
@@ -520,16 +510,7 @@ const styles = StyleSheet.create({
   hero: {
     width: "100%",
     position: "relative",
-  },
-  heroRadial: {
-    position: "absolute",
-    top: 0,
-    left: "5%",
-    right: "5%",
-    height: 280,
-    backgroundColor: "rgba(80,20,160,0.22)",
-    borderRadius: 9999,
-    transform: [{ scaleX: 1.8 }, { scaleY: 1.2 }],
+    overflow: "hidden",
   },
   heroGradient: {
     ...StyleSheet.absoluteFillObject,
@@ -537,10 +518,6 @@ const styles = StyleSheet.create({
   heroContent: {
     position: "relative",
     paddingBottom: 16,
-  },
-  heroBottomLine: {
-    height: 1,
-    width: "100%",
   },
   profilePic: {
     width: 42,

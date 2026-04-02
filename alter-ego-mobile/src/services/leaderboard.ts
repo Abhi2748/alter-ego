@@ -11,6 +11,7 @@ export type LeaderboardEntryApi = {
   pet_name?: string | null;
   current_streak: number;
   is_current_user?: boolean;
+  avatar_url?: string | null;
 };
 
 export type LeaderboardResponse = {

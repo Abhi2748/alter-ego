@@ -69,7 +69,6 @@ function SkeletonRow() {
       <View style={styles.rankCircle} />
       <View style={styles.thumbArea}>
         <View style={styles.characterCircle} />
-        <View style={styles.petCircle} />
       </View>
       <View style={styles.nameBar} />
       <View style={styles.scoreBar} />
@@ -125,25 +124,16 @@ const styles = StyleSheet.create({
     marginRight: SPACING.sm,
   },
   thumbArea: {
-    width: 54,
-    height: 54,
+    width: 48,
+    height: 48,
     marginRight: SPACING.sm,
-    alignItems: "flex-end",
-    justifyContent: "flex-end",
+    alignItems: "center",
+    justifyContent: "center",
   },
   characterCircle: {
-    position: "absolute",
-    left: 0,
-    top: 0,
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: COLORS.surface2,
-  },
-  petCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
     backgroundColor: COLORS.surface2,
   },
   nameBar: {

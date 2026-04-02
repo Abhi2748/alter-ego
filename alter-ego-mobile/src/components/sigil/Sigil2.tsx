@@ -2,20 +2,30 @@ import React from "react";
 import Svg, { Circle, Path } from "react-native-svg";
 import { useAnimatedProps } from "react-native-reanimated";
 import { useHtmlSvgPulse, useHtmlFlickerFo } from "./SigilAnimations";
-import { AnimatedG, AnimatedCircle } from "./sigilSvg";
-import type { SigilProps } from "./sigilTypes";
+import { svgAdapters, AnimatedG, AnimatedCircle } from "./sigilSvg";
+import { DEFAULT_SIGIL_SIZE, type SigilProps } from "./sigilTypes";
 import { HtmlFloatDot } from "./sigilHtmlPrimitives";
-import { RotatingG } from "./rotateCenter";
+import { RotatingG, centerScaleMatrix } from "./rotateCenter";
 
-export function Sigil2({ size = 300 }: SigilProps) {
+/** Set `true` briefly to verify rotation/dots pipeline (~3× faster spins); keep `false` in production. */
+const DEBUG_SIGIL2_EXAGGERATE_MOTION = false;
+function sigil2RotMs(ms: number) {
+  return DEBUG_SIGIL2_EXAGGERATE_MOTION ? Math.max(2000, Math.round(ms / 3)) : ms;
+}
+
+export function Sigil2({ size = DEFAULT_SIGIL_SIZE }: SigilProps) {
   const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulse(5000);
   const flicker = useHtmlFlickerFo(3500, 1, 0);
 
-  const pulseAp = useAnimatedProps(() => ({
-    opacity: pulseOp.value,
-    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
-  }));
-  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
+  const pulseAp = useAnimatedProps(
+    () => ({
+      opacity: pulseOp.value,
+      transform: centerScaleMatrix(pulseSc.value),
+    }),
+    [],
+    svgAdapters
+  );
+  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }), [], svgAdapters);
 
   return (
     <Svg width={size} height={size} viewBox="0 0 340 340">
@@ -75,7 +85,7 @@ export function Sigil2({ size = 300 }: SigilProps) {
         <HtmlFloatDot cx={60} cy={170} r={3.5} fill="#93C5FD" fo={0.22} durMs={13000} delayMs={4000} />
         <HtmlFloatDot cx={288} cy={170} r={3} fill="#60A5FA" fo={0.2} durMs={11000} delayMs={2500} />
 
-        <RotatingG durationMs={18000} reverse>
+        <RotatingG durationMs={sigil2RotMs(18000)} reverse>
           <Circle
             cx={170}
             cy={170}

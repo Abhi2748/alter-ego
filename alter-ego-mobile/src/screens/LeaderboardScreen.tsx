@@ -50,30 +50,17 @@ const STAGE_NAMES = [
   "The Sovereign",
 ];
 
-const PET_EMOJI: Record<number, string> = {
-  0: "🐻",
-  1: "🐻",
-  2: "🐱",
-  3: "🦊",
-  4: "🐺",
-  5: "🐆",
-  6: "🐈‍⬛",
-  7: "🦅",
-  8: "🐉",
-};
-
 export interface LeaderboardEntry {
   rank: number;
   user_id: string;
   username: string;
   stage: number;
   stage_title: string;
-  pet_stage: number;
   streak: number;
   power_score: number;
   is_own_row: boolean;
   character_image_url: string | null;
-  pet_image_url: string | null;
+  avatar_url: string | null;
 }
 
 function mapEntryApi(e: LeaderboardEntryApi): LeaderboardEntry {
@@ -84,12 +71,11 @@ function mapEntryApi(e: LeaderboardEntryApi): LeaderboardEntry {
     username: e.username ?? "—",
     stage,
     stage_title: e.character_stage_name ?? STAGE_NAMES[stage - 1] ?? "The Awakened",
-    pet_stage: Math.min(8, Math.max(0, e.pet_stage ?? 0)),
     streak: e.current_streak ?? 0,
     power_score: e.power_score ?? 0,
     is_own_row: Boolean(e.is_current_user),
-    character_image_url: null,
-    pet_image_url: null,
+    character_image_url: e.avatar_url ?? null,
+    avatar_url: e.avatar_url ?? null,
   };
 }
 
@@ -142,7 +128,6 @@ const TOP3_CONFIG: Record<
     avatarBg: readonly [string, string];
     avatarBorder: string;
     avatarShadow: string;
-    petBg: string;
   }
 > = {
   1: {
@@ -158,7 +143,6 @@ const TOP3_CONFIG: Record<
     avatarBg: ["rgba(90,70,15,0.9)", "rgba(45,35,8,1)"],
     avatarBorder: "rgba(255,215,0,0.45)",
     avatarShadow: "rgba(255,215,0,0.18)",
-    petBg: "rgba(32,26,6,0.95)",
   },
   2: {
     bgColors: ["rgba(18,20,30,0.95)", "rgba(14,16,24,0.98)"],
@@ -173,7 +157,6 @@ const TOP3_CONFIG: Record<
     avatarBg: ["rgba(40,40,60,0.9)", "rgba(20,20,35,1)"],
     avatarBorder: "rgba(180,180,200,0.3)",
     avatarShadow: "rgba(160,160,180,0.12)",
-    petBg: "rgba(18,18,28,0.95)",
   },
   3: {
     bgColors: ["rgba(24,16,10,0.95)", "rgba(16,12,8,0.98)"],
@@ -188,7 +171,6 @@ const TOP3_CONFIG: Record<
     avatarBg: ["rgba(60,35,15,0.9)", "rgba(30,18,8,1)"],
     avatarBorder: "rgba(180,100,40,0.3)",
     avatarShadow: "rgba(180,100,40,0.10)",
-    petBg: "rgba(22,14,6,0.95)",
   },
 };
 
@@ -259,9 +241,6 @@ function Top3Row({
                 <Text style={styles.top3StageNum}>{entry.stage}</Text>
               )}
             </LinearGradient>
-            <View style={[styles.top3PetDot, { backgroundColor: config.petBg }]}>
-              <Text style={styles.top3PetEmoji}>{PET_EMOJI[entry.pet_stage] ?? PET_EMOJI[1]}</Text>
-            </View>
           </View>
           <View style={styles.top3Info}>
             <Text style={styles.top3Username} numberOfLines={1} ellipsizeMode="tail">{entry.username}</Text>
@@ -351,9 +330,6 @@ function StandardRow({
                 <Text style={styles.standardStageNum}>{entry.stage}</Text>
               )}
             </LinearGradient>
-            <View style={[styles.standardPetDot, isOwnRow && styles.ownPetDot]}>
-              <Text style={styles.standardPetEmoji}>{PET_EMOJI[entry.pet_stage] ?? PET_EMOJI[1]}</Text>
-            </View>
           </View>
           <View style={styles.standardInfo}>
             <Text style={[styles.standardUsername, isOwnRow && styles.ownUsername]} numberOfLines={1} ellipsizeMode="tail">{entry.username}</Text>
@@ -412,12 +388,11 @@ export function LeaderboardScreen() {
           username: me.username ?? "You",
           stage,
           stage_title: STAGE_NAMES[stage - 1] ?? "The Awakened",
-          pet_stage: 0,
           streak: 0,
           power_score: me.power_score ?? 0,
           is_own_row: true,
           character_image_url: null,
-          pet_image_url: null,
+          avatar_url: null,
         };
         list = [...mapped, ownRow];
       }
@@ -756,21 +731,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "rgba(229,231,235,0.7)",
   },
-  top3PetDot: {
-    position: "absolute",
-    bottom: -3,
-    right: -5,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: SCREEN_BG,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  top3PetEmoji: {
-    fontSize: 14,
-  },
   top3Info: {
     flex: 1,
     minWidth: 0,
@@ -896,26 +856,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "rgba(167,139,250,0.7)",
-  },
-  standardPetDot: {
-    position: "absolute",
-    bottom: -2,
-    right: -4,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.surface2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ownPetDot: {
-    backgroundColor: COLORS.surface,
-    borderColor: COLORS.surface2,
-  },
-  standardPetEmoji: {
-    fontSize: 10,
   },
   standardInfo: {
     flex: 1,

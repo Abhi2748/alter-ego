@@ -36,16 +36,19 @@ async def run_agent(
     temperature: float = 0.5,
     max_tokens: int = 1200,
     context_label: str = "agent",
+    model: str | None = None,
 ) -> T:
     """
     Run a single-turn structured completion. Uses a thread pool because the
     OpenAI + instructor client is synchronous.
     """
 
+    model_name = model or MODEL
+
     def _call() -> T:
         client = get_instructor_client()
         return client.chat.completions.create(
-            model=MODEL,
+            model=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
             response_model=response_model,

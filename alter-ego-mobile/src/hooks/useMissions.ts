@@ -20,6 +20,7 @@ import { useUserStore } from "@/store/userStore";
 import { PROFILE_KEYS } from "@/hooks/useProfile";
 import { STATS_KEYS } from "@/hooks/useStats";
 import { SIGIL_KEYS } from "@/hooks/useSigil";
+import { triggerMissionCompletionHaptic } from "@/utils/haptics";
 
 // Query keys — centralised so invalidation works correctly
 export const MISSION_KEYS = {
@@ -76,6 +77,8 @@ export async function applyMissionCompletionSideEffects(
   result: CompleteMissionResponse
 ) {
   if (result.already_completed) return;
+
+  void triggerMissionCompletionHaptic(result);
 
   const { profile, fetchProfile } = useUserStore.getState();
   if (!profile) {

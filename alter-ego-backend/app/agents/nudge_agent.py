@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.constants import (
-    NUDGE_DAILY_CAPS,
+    MILESTONE_MESSAGES,
+    MILESTONE_MESSAGES_GUILT_SAFE,
     NUDGE_EARLIEST_HOUR_LOCAL,
     NUDGE_LATEST_HOUR_LOCAL,
     PET_NAMES,
@@ -25,6 +26,7 @@ from app.core.constants import (
 )
 from app.core.supabase_client import supabase_admin
 from app.agents.base import run_agent
+from app.services.contact_coordination import can_contact_user, proactive_sent_today, record_contact
 
 logger = logging.getLogger(__name__)
 
@@ -37,93 +39,6 @@ ARCHETYPE_DEFAULT_NUDGE_HOURS = {
 }
 DEFAULT_NUDGE_HOUR = 20
 
-MILESTONE_MESSAGES = {
-    "stage_2": {
-        "title": "Your Twin",
-        "body": "Stage 2. The Focused. You got here. Don't stop now.",
-    },
-    "stage_3": {
-        "title": "Your Twin",
-        "body": "The Burning. Stage 3. Most people never reach this. I have been here.",
-    },
-    "stage_4": {
-        "title": "Your Twin",
-        "body": "Stage 4. The Relentless. This is uncommon. So am I.",
-    },
-    "stage_5": {
-        "title": "Your Twin",
-        "body": "The Formidable. Stage 5. I didn't think you'd make it here.",
-    },
-    "stage_6": {
-        "title": "Your Twin",
-        "body": "The Sovereign. We're the same now. Almost.",
-    },
-    "pet_stage_2": {
-        "title": "Your Twin",
-        "body": "Your companion evolved. It reflects who you've become.",
-    },
-    "pet_stage_3": {
-        "title": "Your Twin",
-        "body": "Fox. Your companion is growing. So is the gap.",
-    },
-    "pet_stage_4": {
-        "title": "Your Twin",
-        "body": "Wolf. Your companion matches your discipline now.",
-    },
-    "pet_stage_5": {
-        "title": "Your Twin",
-        "body": "Snow Leopard. Rare. So is reaching this.",
-    },
-    "pet_stage_6": {
-        "title": "Your Twin",
-        "body": "Panther. Your companion is formidable. Are you keeping up?",
-    },
-    "pet_stage_7": {
-        "title": "Your Twin",
-        "body": "Griffin. Your companion has outpaced most people who started.",
-    },
-    "pet_stage_8": {
-        "title": "Your Twin",
-        "body": "Dragon. A full year of showing up. I was here every day too.",
-    },
-    "pet_unlock": {
-        "title": "Your Twin",
-        "body": "Your companion arrived. It dims when you disappear.",
-    },
-    "streak_3": {
-        "title": "Your Twin",
-        "body": "3 days. The leaderboard is open. The gap is real.",
-    },
-    "streak_7": {
-        "title": "Your Twin",
-        "body": "7 days. One full week. I've completed every one of mine.",
-    },
-    "streak_14": {
-        "title": "Your Twin",
-        "body": "14 days. Two weeks. Most people quit before this.",
-    },
-    "streak_30": {
-        "title": "Your Twin",
-        "body": "30 days. One month. This is no longer a coincidence.",
-    },
-    "streak_60": {
-        "title": "Your Twin",
-        "body": "60 days. Two months. The gap between us tells the story.",
-    },
-    "streak_100": {
-        "title": "Your Twin",
-        "body": "100 days. The identity is set. I've been watching.",
-    },
-    "streak_200": {
-        "title": "Your Twin",
-        "body": "200 days. This is who you are now. I always knew.",
-    },
-    "streak_365": {
-        "title": "Your Twin",
-        "body": "A full year. Every day you could have stopped. You didn't. Neither did I.",
-    },
-}
-
 NUDGE_A_SYSTEM_PROMPT = """You write push notification text for ALTER EGO.
 
 The notification is the Twin speaking — a version of the user that has been more consistent.
@@ -132,31 +47,58 @@ Match the assigned tone exactly.
 ## TONES
 
 RIVAL: Competitive, cold, declarative. Short. Facts about the gap. Never warm.
-
 PHILOSOPHER: Reflective, principled. Process or compounding. Never preachy.
+SILENT FORCE: Minimal. Often 3-8 words. Restraint is the message.
 
-SILENT FORCE: Minimal. Often 3–8 words. Restraint is the message.
+## CHAIN OF THOUGHT (internal reasoning — do not output this section)
+THINK (1-2 sentences): What is the most compelling reason for this specific user to open the
+app RIGHT NOW? What single data point would motivate them given their framing and current state?
+Then generate the notification.
+
+## FRAMING RULES (discipline_framing provided in user message)
+identity:   Reference who they are becoming. "The person you're becoming doesn't skip today."
+behavior:   Reference specific actions and numbers. "3 missions left. 10 minutes each."
+control:    Reference what they control vs. what slipped. "8 days decided. Keep deciding."
+freedom:    Reference what they are building freedom from.
+endurance:  Reference how long they have persisted. Use day counts and streak counts.
+punishment: CRITICAL — reframe toward growth. Never reinforce punishment mindset.
+
+## GUILT GUARDRAIL
+guilt_orientation is provided in the user message as a float 0.0–1.0.
+If guilt_orientation > 0.7:
+  NEVER use: "you missed", "you didn't", "you failed", "don't let yourself down", "you should have"
+  ALWAYS use forward-looking language only: "tomorrow is open", "the next session is waiting",
+  "pick up where you left off", "still moving", "the streak continues"
+
+## FEW-SHOT EXAMPLES
+identity-framing, 15-day streak, guilt_orientation 0.3, tone rival:
+→ "Day 15. The person you're becoming doesn't skip today."
+
+behavior-framing, 3 missions left, guilt_orientation 0.8, tone philosopher:
+→ "3 missions left. The next one takes 10 minutes."
+
+control-framing, quit streak 8 days, guilt_orientation 0.4, tone silent_force:
+→ "8 days without social media. You decided this. Keep deciding."
 
 ## TRIGGERS
-
-streak_warning: Streak at risk, user has not opened app. Hours until midnight given.
-re_engagement: Missed yesterday, streak intact. Soft return. Pet or gap, not the miss.
+streak_warning: Streak at risk. User has not opened app. Hours until midnight given.
+re_engagement: Missed yesterday, streak intact. Soft return. Reference pet or gap, not the miss.
 pet_nudge: Pet is sad. State the fact.
-milestone_approaching: 1–2 days from streak milestone. Anticipation, not pressure.
+milestone_approaching: 1-2 days from streak milestone. Anticipation, not pressure.
 momentum: Strong streak, all missions done yesterday. Acknowledge without congratulating.
 
 ## RULES
-1. Max 90 characters
+1. Max 100 characters
 2. No exclamation marks
 3. No emojis
 4. Never "you should", "you need to", "make sure to"
-5. Do not start with the same first word as any of the last 3 nudges listed
+5. Do not start with the same first word as any of the last 5 nudges listed
 6. Use real data from the user message — no placeholders
 """
 
 
 class NudgeText(BaseModel):
-    notification_body: str = Field(..., max_length=90)
+    notification_body: str = Field(..., max_length=100)
 
     @field_validator("notification_body")
     @classmethod
@@ -164,7 +106,7 @@ class NudgeText(BaseModel):
         t = (v or "").strip()
         if "!" in t:
             raise ValueError("exclamation marks not allowed")
-        if len(t) > 90:
+        if len(t) > 100:
             raise ValueError("notification too long")
         return t
 
@@ -174,6 +116,11 @@ QUIT_NUDGE_SYSTEM = """You write one quit-target intervention push for ALTER EGO
 Arrive at urge time. Positive replacement action only — never "don't", "avoid", "resist".
 Reference replacement or need. 1–2 sentences. Max 110 characters. No exclamation marks. No emojis.
 Do not repeat the core observation from the last 3 lines listed.
+
+  GUILT GUARDRAIL: If the user message specifies guilt_orientation > 0.7, NEVER use phrases
+  like "you slipped", "you missed", "you failed", "don't let yourself down".
+  Instead use ONLY positive replacement framing: "your replacement is ready",
+  "one more moment", "the streak continues", "the next one is waiting".
 """
 
 
@@ -189,6 +136,18 @@ class QuitNudgeText(BaseModel):
         if len(t) > 110:
             raise ValueError("notification too long")
         return t
+
+
+def _days_since_ts(ts: str | None) -> int:
+    if not ts:
+        return 0
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=dt_timezone.utc)
+        return max(0, (datetime.now(dt_timezone.utc) - dt).days)
+    except Exception:
+        return 0
 
 
 def _normalize_tone(raw: str | None) -> str:
@@ -221,7 +180,7 @@ def _get_fallback_nudge(trigger: str, tone: str, streak: int, pet_name: str) -> 
         ("momentum", "silent_force"): f"{streak} days. Still moving.",
     }
     body = fallbacks.get((trigger, tone), f"{streak} days. Show up.")
-    return body[:90] if len(body) > 90 else body
+    return body[:100] if len(body) > 100 else body
 
 
 async def generate_nudge(
@@ -236,10 +195,19 @@ async def generate_nudge(
     hours_until_midnight: int | None,
     milestone_days: int | None,
     milestone_name: str | None,
-    last_3_nudges: list[str],
+    last_3_nudges: list[str] | None = None,
+    discipline_framing: str = "behavior",
+    guilt_orientation: float = 0.0,
+    interest_context: str = "",
+    quit_context: str = "",
+    challenge_context: str = "",
+    last_5_nudges: list[str] | None = None,
 ) -> NudgeText:
     tone = _normalize_tone(tone_type)
-    last_nudges_str = "\n".join(f'  - "{n}"' for n in last_3_nudges) if last_3_nudges else "  None"
+    anti = last_5_nudges if last_5_nudges is not None else (last_3_nudges or [])
+    last_nudges_str = (
+        "\n".join(f'  - "{n}"' for n in anti) if anti else "  None"
+    )
 
     trigger_context = {
         "streak_warning": (
@@ -260,19 +228,32 @@ async def generate_nudge(
         ),
     }.get(trigger, f"Trigger: {trigger}. Streak: {streak}.")
 
+    additional_lines = "\n".join(
+        [
+            f"- {interest_context}" if interest_context else "- No active interests",
+            f"- {quit_context}" if quit_context else "- No active quit paths",
+            f"- {challenge_context}" if challenge_context else "- No active challenge",
+        ]
+    )
+
     user_message = f"""Write ONE push notification for this user.
 
 TRIGGER: {trigger}
 TONE: {tone}
 CHARACTER STAGE: {character_stage_name}
 
-USER DATA:
-{trigger_context}
+USER DATA: {trigger_context}
 
-LAST 3 NUDGES SENT (do not repeat structure or opening word):
+DISCIPLINE FRAMING: {discipline_framing}
+GUILT ORIENTATION: {guilt_orientation} (above 0.7 = forward-looking language only, no guilt phrases)
+
+ADDITIONAL CONTEXT:
+{additional_lines}
+
+LAST 5 NUDGES SENT (do not repeat structure or opening word):
 {last_nudges_str}
 
-Max 90 characters. No exclamation marks."""
+Max 100 characters. No exclamation marks."""
 
     result = await run_agent(
         system_prompt=NUDGE_A_SYSTEM_PROMPT,
@@ -300,6 +281,23 @@ async def send_category_c_notification(user_id: str, milestone_type: str) -> Non
     content = MILESTONE_MESSAGES.get(milestone_type)
     if not content:
         return
+
+    try:
+        dna_r = (
+            supabase_admin.table("discipline_dna")
+            .select("guilt_orientation")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        guilt_orientation = float(((dna_r.data or [{}])[0]).get("guilt_orientation") or 0.0)
+    except Exception:
+        guilt_orientation = 0.0
+
+    if guilt_orientation > 0.7:
+        guilt_safe = MILESTONE_MESSAGES_GUILT_SAFE.get(milestone_type)
+        if guilt_safe:
+            content = guilt_safe
 
     user_result = (
         supabase_admin.table("users")
@@ -376,19 +374,10 @@ async def _process_category_a_user(user: dict) -> int:
     )
     dna = dna_result.data or {}
     frequency = dna.get("twin_message_frequency", "medium")
-    daily_cap = NUDGE_DAILY_CAPS.get(frequency, 2)
 
-    nudge_result = (
-        supabase_admin.table("nudge_log")
-        .select("id", count="exact")
-        .eq("user_id", user_id)
-        .gte("sent_at", f"{today}T00:00:00")
-        .execute()
-    )
-    nudges_today = getattr(nudge_result, "count", None)
-    if nudges_today is None:
-        nudges_today = len(nudge_result.data or [])
-    if nudges_today >= daily_cap:
+    if await proactive_sent_today(user_id, timezone_str):
+        return 0
+    if not await can_contact_user(user_id, timezone_str):
         return 0
 
     days_since_reg = _days_since(str(user.get("registration_date", today)))
@@ -426,6 +415,7 @@ async def _process_category_a_user(user: dict) -> int:
             "nudge_category": "A",
         }
     ).execute()
+    await record_contact(user_id, "nudge", timezone_str)
     return 1
 
 
@@ -473,24 +463,118 @@ async def _determine_category_a_trigger(
 async def _generate_category_a_nudge(
     user_id: str, user: dict, dna: dict, trigger: str, today: str, local_hour: int
 ) -> str:
-    last_nudges = (
-        supabase_admin.table("nudge_log")
-        .select("nudge_text")
-        .eq("user_id", user_id)
-        .order("sent_at", desc=True)
-        .limit(3)
-        .execute()
-        .data
-        or []
-    )
-    last_texts = [str(n.get("nudge_text") or "") for n in last_nudges if n.get("nudge_text")]
-    while len(last_texts) < 3:
-        last_texts.append("None")
+    try:
+        profiler_result = (
+            supabase_admin.table("discipline_dna")
+            .select("discipline_framing, guilt_orientation, narrative_seed")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        profiler = (profiler_result.data or [None])[0] or {}
+        discipline_framing = str(profiler.get("discipline_framing") or "behavior")
+        guilt_orientation = float(profiler.get("guilt_orientation") or 0.0)
+    except Exception:
+        discipline_framing = "behavior"
+        guilt_orientation = 0.0
 
-    twin_result = (
-        supabase_admin.table("twin_state").select("twin_xp").eq("user_id", user_id).single().execute()
-    )
-    twin = twin_result.data or {}
+    try:
+        interests_result = (
+            supabase_admin.table("interests")
+            .select("normalised_name, current_arc_phase, sessions_completed")
+            .eq("user_id", user_id)
+            .eq("is_active", True)
+            .order("sessions_completed", desc=True)
+            .limit(1)
+            .execute()
+        )
+        top_interest = (interests_result.data or [None])[0] or {}
+        nm = top_interest.get("normalised_name") or ""
+        interest_context = (
+            f"Interest: {nm} (phase: {top_interest.get('current_arc_phase', '')}, "
+            f"{int(top_interest.get('sessions_completed') or 0)} sessions)"
+            if nm
+            else ""
+        )
+    except Exception:
+        interest_context = ""
+
+    try:
+        quit_result = (
+            supabase_admin.table("quit_paths")
+            .select("habit_name, current_phase, phase_started_at")
+            .eq("user_id", user_id)
+            .in_("status", ["active", "paused", "referral_only"])
+            .limit(1)
+            .execute()
+        )
+        top_quit = (quit_result.data or [None])[0] or {}
+        hn = top_quit.get("habit_name")
+        qdays = _days_since_ts(top_quit.get("phase_started_at"))
+        quit_context = (
+            f"Quit: {qdays} days in phase on {hn} (phase: {top_quit.get('current_phase', '')})"
+            if hn
+            else ""
+        )
+    except Exception:
+        quit_context = ""
+
+    try:
+        challenge_result = (
+            supabase_admin.table("twin_challenges")
+            .select("challenge_text, status, expires_at, issued_at")
+            .eq("user_id", user_id)
+            .in_("status", ["accepted", "pending"])
+            .order("issued_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        challenge_row = (challenge_result.data or [None])[0] or {}
+        ct = challenge_row.get("challenge_text")
+        dr = "?"
+        ex = challenge_row.get("expires_at")
+        if ex:
+            try:
+                exdt = datetime.fromisoformat(str(ex).replace("Z", "+00:00"))
+                if exdt.tzinfo is None:
+                    exdt = exdt.replace(tzinfo=dt_timezone.utc)
+                dr = str(max(0, (exdt - datetime.now(dt_timezone.utc)).days))
+            except Exception:
+                dr = "?"
+        challenge_context = (
+            f"Twin Challenge: {ct} ({dr} days left)"
+            if ct
+            else ""
+        )
+    except Exception:
+        challenge_context = ""
+
+    try:
+        last_nudges_5 = (
+            supabase_admin.table("nudge_log")
+            .select("nudge_text")
+            .eq("user_id", user_id)
+            .order("sent_at", desc=True)
+            .limit(5)
+            .execute()
+            .data
+            or []
+        )
+        last_texts_5 = [str(n.get("nudge_text") or "") for n in last_nudges_5 if n.get("nudge_text")]
+    except Exception:
+        last_texts_5 = []
+
+    try:
+        twin_result = (
+            supabase_admin.table("twin_state")
+            .select("twin_xp")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        twin = (twin_result.data or [None])[0] or {}
+    except Exception:
+        twin = {}
     stage = user.get("character_stage", 1) or 1
     pet_stage = user.get("pet_stage", 0) or 0
     streak = user.get("current_streak", 0) or 0
@@ -510,16 +594,25 @@ async def _generate_category_a_nudge(
 
     try:
         nudge = await generate_nudge(
+            user_id=user_id,
             trigger=trigger,
             tone_type=str(tone),
             streak=int(streak),
             pet_name=pet_name,
-            character_stage_name=STAGE_NAMES[int(stage) - 1] if 1 <= stage <= len(STAGE_NAMES) else "The Awakened",
+            character_stage_name=STAGE_NAMES[int(stage) - 1]
+            if 1 <= stage <= len(STAGE_NAMES)
+            else "The Awakened",
             gap_xp=int(gap_xp),
             hours_until_midnight=hours_left if trigger == "streak_warning" else None,
             milestone_days=milestone_days if trigger == "milestone_approaching" else None,
             milestone_name=milestone_name if trigger == "milestone_approaching" else None,
-            last_3_nudges=last_texts[:3],
+            last_3_nudges=[],
+            discipline_framing=discipline_framing,
+            guilt_orientation=guilt_orientation,
+            interest_context=interest_context,
+            quit_context=quit_context,
+            challenge_context=challenge_context,
+            last_5_nudges=last_texts_5[:5],
         )
         return nudge.notification_body
     except Exception as e:
@@ -542,6 +635,7 @@ async def generate_quit_intervention_nudge(
     tone_type: str,
     quit_target: dict,
     last_texts: list[str],
+    guilt_orientation: float = 0.0,
 ) -> str:
     ctx = quit_target.get("trigger_contexts") or []
     if isinstance(ctx, list):
@@ -565,6 +659,7 @@ Replacement: {replacement_str or "Take a walk, drink water, one slow breath"}
 Frequency today: {quit_target.get("frequency_today", 0)}
 Phase: {quit_target.get("current_phase", "mapping")}
 Tone: {_normalize_tone(tone_type)}
+guilt_orientation: {guilt_orientation}
 
 Last 3 for this target (vary):
 {anti}
@@ -632,6 +727,18 @@ async def _process_category_b_user(user: dict) -> int:
     )
     dna = dna_result.data or {}
 
+    try:
+        dna_profiler = (
+            supabase_admin.table("discipline_dna")
+            .select("guilt_orientation")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        guilt_orientation = float(((dna_profiler.data or [{}])[0]).get("guilt_orientation") or 0.0)
+    except Exception:
+        guilt_orientation = 0.0
+
     sent = 0
     for qt in quit_targets:
         intervention_hour = qt.get("intervention_hour")
@@ -688,6 +795,7 @@ async def _process_category_b_user(user: dict) -> int:
             tone_type=str(dna.get("twin_tone_type", "rival")),
             quit_target=qt,
             last_texts=last_texts[:3],
+            guilt_orientation=guilt_orientation,
         )
         if nudge_text and user.get("push_token"):
             await _send_push_notification(

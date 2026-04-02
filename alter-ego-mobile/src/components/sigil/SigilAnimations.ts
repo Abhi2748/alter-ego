@@ -135,7 +135,7 @@ export function useGlowPulse(durationMs: number, minOp = 0.6, maxOp = 1.0, delay
       );
       scale.value = withRepeat(
         withSequence(
-          withTiming(1.12, { duration: durationMs / 2, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1.035, { duration: durationMs / 2, easing: Easing.inOut(Easing.ease) }),
           withTiming(1.0, { duration: durationMs / 2, easing: Easing.inOut(Easing.ease) })
         ),
         -1,
@@ -149,5 +149,55 @@ export function useGlowPulse(durationMs: number, minOp = 0.6, maxOp = 1.0, delay
     start();
     return undefined;
   }, [durationMs, minOp, maxOp, delayMs]);
+  return { opacity, scale };
+}
+
+/** HTML-like ambient-breathe / canvas-glow timing; subtle scale so glow stays locked to canvas */
+const PRESET_DEFAULTS: Record<
+  string,
+  { duration: number; minOp: number; maxOp: number; minSc: number; maxSc: number }
+> = {
+  ambient: { duration: 5000, minOp: 0.52, maxOp: 0.88, minSc: 0.992, maxSc: 1.028 },
+  glow1: { duration: 4000, minOp: 0.58, maxOp: 1.0, minSc: 0.985, maxSc: 1.038 },
+  glow2: { duration: 6000, minOp: 0.5, maxOp: 0.92, minSc: 0.98, maxSc: 1.032 },
+  halo: { duration: 3200, minOp: 0.55, maxOp: 0.95, minSc: 0.988, maxSc: 1.042 },
+};
+
+export function useRadialGlowPulse(
+  preset: "ambient" | "glow1" | "glow2" | "halo",
+  durationMs?: number,
+  delayMs = 0
+) {
+  const def0 = PRESET_DEFAULTS[preset] ?? PRESET_DEFAULTS.glow1;
+  const opacity = useSharedValue(def0.minOp);
+  const scale = useSharedValue(1.0);
+  useEffect(() => {
+    const p = PRESET_DEFAULTS[preset] ?? PRESET_DEFAULTS.glow1;
+    const dur = durationMs ?? p.duration;
+    const start = () => {
+      opacity.value = withRepeat(
+        withSequence(
+          withTiming(p.maxOp, { duration: dur / 2, easing: Easing.inOut(Easing.ease) }),
+          withTiming(p.minOp, { duration: dur / 2, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        false
+      );
+      scale.value = withRepeat(
+        withSequence(
+          withTiming(p.maxSc, { duration: dur / 2, easing: Easing.inOut(Easing.ease) }),
+          withTiming(p.minSc, { duration: dur / 2, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        false
+      );
+    };
+    if (delayMs > 0) {
+      const t = setTimeout(start, delayMs);
+      return () => clearTimeout(t);
+    }
+    start();
+    return undefined;
+  }, [preset, durationMs, delayMs]);
   return { opacity, scale };
 }

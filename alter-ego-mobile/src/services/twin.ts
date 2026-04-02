@@ -84,7 +84,13 @@ export interface TwinStateResponse {
 
 /** GET /api/v1/twin/feed — Shadow Feed timeline */
 export interface FeedEntry {
-  entry_type: 'twin_completion' | 'user_completion' | 'user_incomplete' | 'observation' | 'day_summary';
+  entry_type:
+    | 'twin_completion'
+    | 'twin_incomplete'
+    | 'user_completion'
+    | 'user_incomplete'
+    | 'observation'
+    | 'day_summary';
   timestamp_iso: string;
   display_time: string;
   entry_date: string;

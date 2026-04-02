@@ -1276,6 +1276,10 @@ ONBOARDING_ECHO_TEMPLATES: dict[str, list[dict]] = {
             "type": "strip",
             "template": "You framed it as {answer}. The week didn't forget.",
         },
+        {
+            "type": "strip",
+            "template": "You came here {answer}. {days} days later, the foundation looks different. Your Twin sees it too.",
+        },
     ],
     "q8_motivation": [
         {
@@ -1293,16 +1297,60 @@ ONBOARDING_ECHO_TEMPLATES: dict[str, list[dict]] = {
             "template": "You said you work by {answer}. {days} days in, your completion timestamps tell another story.",
         },
     ],
+    "q6_alarm": [
+        {
+            "type": "strip",
+            "template": "You told us you bargain with the alarm. Your Movement streak says you've stopped bargaining. {days} days and counting.",
+        },
+        {
+            "type": "journal",
+            "template": "You said you bargain — '5 more minutes.' {days} days of completions say the bargaining is losing. Interesting shift.",
+        },
+    ],
+    "q7_missed_day": [
+        {
+            "type": "strip",
+            "template": "You said after a miss you {answer}. The data says you came back. That's the pattern now.",
+        },
+        {
+            "type": "journal",
+            "template": "You said you {answer} after missing a day. You missed and came back the next morning. That's not the old pattern. That's growth.",
+        },
+    ],
+    "q9_success": [
+        {
+            "type": "strip",
+            "template": "You said you succeed when {answer}. Your Twin has been here for {days} days. Is it working?",
+        },
+        {
+            "type": "journal",
+            "template": "You said you succeed when {answer}. {days} days in — the completion data has an opinion.",
+        },
+    ],
+    "q11_discipline": [
+        {
+            "type": "strip",
+            "template": "You defined discipline as: '{answer}'. {days} days later — still your definition?",
+        },
+        {
+            "type": "journal",
+            "template": "You wrote that discipline means '{answer}'. {days} days of data. The definition holds, or it doesn't.",
+        },
+    ],
 }
 
 ECHO_PRIORITY_KEYS = [
     "q7_recovery",
+    "q7_missed_day",
+    "q4_situation",
     "q14_hours",
     "q13_quits",
     "q5_reason",
-    "q4_situation",
+    "q9_success",
     "q8_motivation",
     "q6_approach",
+    "q6_alarm",
+    "q11_discipline",
 ]
 
 # ── CONTRADICTION LOG (C2) ─────────────────────────────────────────────────
@@ -1349,6 +1397,220 @@ CONTRADICTION_TEMPLATES = {
             "Your archetype is {archetype}. Your schedule for the last two weeks looks like the opposite. "
             "Not wrong — just worth noticing."
         ),
+    },
+    "execution_gap_closing": {
+        "condition": "execution_gap was high at onboarding but 30-day completion is now high",
+        "template": (
+            "When you started, the gap between wanting and doing was wide. "
+            "Your last 30 days say it's closing. {rate}% completion. "
+            "That gap has a name now — it's shrinking."
+        ),
+    },
+    "self_belief_evolution": {
+        "condition": "self_belief was low at onboarding but streak is now significant",
+        "template": (
+            "When you joined, you weren't sure you could do this. "
+            "{days} days later, the streak speaks for itself. "
+            "The uncertainty you started with isn't the uncertainty you have now."
+        ),
+    },
+    "failure_pattern_broken": {
+        "condition": "core_failure_pattern was fade_after_start but user persisted past day 30",
+        "template": (
+            "You said you fade after the first couple weeks. "
+            "It's day {day}. You didn't fade. "
+            "The pattern you described at the start isn't the pattern you're living."
+        ),
+    },
+    "interest_commitment": {
+        "condition": "user has an interest arc and has been consistent",
+        "template": (
+            "You set a goal for {interest}. You're still showing up for it. "
+            "That's not a phase — that's a practice."
+        ),
+    },
+    "quit_transformation": {
+        "condition": "user has a quit path in maintenance phase",
+        "template": (
+            "You started by wanting to quit {habit}. "
+            "Now you're maintaining a life without it. "
+            "That's not quitting — that's transforming."
+        ),
+    },
+}
+
+# Category C milestone pushes (default). nudge_agent uses MILESTONE_MESSAGES_GUILT_SAFE when guilt_orientation > 0.7.
+MILESTONE_MESSAGES = {
+    "stage_2": {
+        "title": "Your Twin",
+        "body": "Stage 2. The Focused. You got here. Don't stop now.",
+    },
+    "stage_3": {
+        "title": "Your Twin",
+        "body": "The Burning. Stage 3. Most people never reach this. I have been here.",
+    },
+    "stage_4": {
+        "title": "Your Twin",
+        "body": "Stage 4. The Relentless. This is uncommon. So am I.",
+    },
+    "stage_5": {
+        "title": "Your Twin",
+        "body": "The Formidable. Stage 5. I didn't think you'd make it here.",
+    },
+    "stage_6": {
+        "title": "Your Twin",
+        "body": "The Sovereign. We're the same now. Almost.",
+    },
+    "pet_stage_2": {
+        "title": "Your Twin",
+        "body": "Your companion evolved. It reflects who you've become.",
+    },
+    "pet_stage_3": {
+        "title": "Your Twin",
+        "body": "Fox. Your companion is growing. So is the gap.",
+    },
+    "pet_stage_4": {
+        "title": "Your Twin",
+        "body": "Wolf. Your companion matches your discipline now.",
+    },
+    "pet_stage_5": {
+        "title": "Your Twin",
+        "body": "Snow Leopard. Rare. So is reaching this.",
+    },
+    "pet_stage_6": {
+        "title": "Your Twin",
+        "body": "Panther. Your companion is formidable. Are you keeping up?",
+    },
+    "pet_stage_7": {
+        "title": "Your Twin",
+        "body": "Griffin. Your companion has outpaced most people who started.",
+    },
+    "pet_stage_8": {
+        "title": "Your Twin",
+        "body": "Dragon. A full year of showing up. I was here every day too.",
+    },
+    "pet_unlock": {
+        "title": "Your Twin",
+        "body": "Your companion arrived. It dims when you disappear.",
+    },
+    "streak_3": {
+        "title": "Your Twin",
+        "body": "3 days. The leaderboard is open. The gap is real.",
+    },
+    "streak_7": {
+        "title": "Your Twin",
+        "body": "7 days. One full week. I've completed every one of mine.",
+    },
+    "streak_14": {
+        "title": "Your Twin",
+        "body": "14 days. Two weeks. Most people quit before this.",
+    },
+    "streak_30": {
+        "title": "Your Twin",
+        "body": "30 days. One month. This is no longer a coincidence.",
+    },
+    "streak_60": {
+        "title": "Your Twin",
+        "body": "60 days. Two months. The gap between us tells the story.",
+    },
+    "streak_100": {
+        "title": "Your Twin",
+        "body": "100 days. The identity is set. I've been watching.",
+    },
+    "streak_200": {
+        "title": "Your Twin",
+        "body": "200 days. This is who you are now. I always knew.",
+    },
+    "streak_365": {
+        "title": "Your Twin",
+        "body": "A full year. Every day you could have stopped. You didn't. Neither did I.",
+    },
+}
+
+MILESTONE_MESSAGES_GUILT_SAFE = {
+    "stage_2": {
+        "title": "Your Twin",
+        "body": "Stage 2. You got here. The next one is already in motion.",
+    },
+    "stage_3": {
+        "title": "Your Twin",
+        "body": "The Burning. Stage 3. You're still moving. So am I.",
+    },
+    "stage_4": {
+        "title": "Your Twin",
+        "body": "Stage 4. The Relentless. The work brought you here.",
+    },
+    "stage_5": {
+        "title": "Your Twin",
+        "body": "The Formidable. Stage 5. You kept showing up.",
+    },
+    "stage_6": {
+        "title": "Your Twin",
+        "body": "The Sovereign. The work speaks for itself.",
+    },
+    "pet_stage_2": {
+        "title": "Your Twin",
+        "body": "Your companion evolved. Keep going.",
+    },
+    "pet_stage_3": {
+        "title": "Your Twin",
+        "body": "Fox. Your companion is growing with you.",
+    },
+    "pet_stage_4": {
+        "title": "Your Twin",
+        "body": "Wolf. Consistency built this.",
+    },
+    "pet_stage_5": {
+        "title": "Your Twin",
+        "body": "Snow Leopard. Rare. You got here.",
+    },
+    "pet_stage_6": {
+        "title": "Your Twin",
+        "body": "Panther. Keep moving.",
+    },
+    "pet_stage_7": {
+        "title": "Your Twin",
+        "body": "Griffin. You've come a long way.",
+    },
+    "pet_stage_8": {
+        "title": "Your Twin",
+        "body": "Dragon. A full year. You did it.",
+    },
+    "pet_unlock": {
+        "title": "Your Twin",
+        "body": "Your companion arrived. It grows when you show up.",
+    },
+    "streak_3": {
+        "title": "Your Twin",
+        "body": "3 days. The leaderboard is open.",
+    },
+    "streak_7": {
+        "title": "Your Twin",
+        "body": "7 days. One full week of showing up.",
+    },
+    "streak_14": {
+        "title": "Your Twin",
+        "body": "14 days. The pattern is forming.",
+    },
+    "streak_30": {
+        "title": "Your Twin",
+        "body": "30 days. One month. This is real.",
+    },
+    "streak_60": {
+        "title": "Your Twin",
+        "body": "60 days. Two months of showing up.",
+    },
+    "streak_100": {
+        "title": "Your Twin",
+        "body": "100 days. The identity is forming.",
+    },
+    "streak_200": {
+        "title": "Your Twin",
+        "body": "200 days. This is who you are now.",
+    },
+    "streak_365": {
+        "title": "Your Twin",
+        "body": "A full year. Every day you showed up.",
     },
 }
 

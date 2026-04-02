@@ -21,9 +21,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
+import { readAsStringAsync, EncodingType } from "expo-file-system/legacy";
 import { supabase } from "@/utils/supabase";
-import { apiClient } from "@/services/api";
+import { apiClient, getErrorMessage, isAuthError } from "@/services/api";
 import { onboardingService } from "@/services/onboarding";
+import { useUserStore } from "@/store/userStore";
+import * as ImageManipulator from "expo-image-manipulator";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const SURFACE = "#111623";
@@ -39,6 +42,31 @@ const VERY_DIM = "#2D3146";
 /** Matches backend validate_username: 3–20, lowercase letters, digits, underscore */
 const USERNAME_REGEX = /^[a-z0-9_]{3,20}$/;
 
+/** RN often returns 0-byte bodies from fetch(localUri).blob(); read file as base64 fallback. */
+async function loadImageBytesForUpload(uri: string): Promise<ArrayBuffer> {
+  const res = await fetch(uri);
+  const buf = await res.arrayBuffer();
+  if (buf.byteLength > 0) return buf;
+  const base64 = await readAsStringAsync(uri, { encoding: EncodingType.Base64 });
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function describePhotoError(e: unknown): string {
+  const msg = getErrorMessage(e);
+  if (/row-level security|RLS|violates.*policy|new row violates/i.test(msg)) {
+    return 'Upload was blocked by Storage rules. In Supabase, create the public bucket "avatars" and run migration 042_storage_avatars_bucket.sql.';
+  }
+  if (/bucket not found|Bucket not found|No such bucket/i.test(msg)) {
+    return 'Storage bucket "avatars" is missing. Create it in Supabase (public read) or run migration 042.';
+  }
+  if (msg && msg.length > 0 && msg.length < 220) return msg;
+  return "Could not update photo. Try again.";
+}
+
 export function ProfileEditScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -49,6 +77,8 @@ export function ProfileEditScreen() {
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const updateAvatarUrl = useUserStore((s) => s.updateAvatarUrl);
 
   const uNorm = username.trim().toLowerCase();
   const hasChanges = uNorm !== initialUsername.trim().toLowerCase();
@@ -65,14 +95,16 @@ export function ProfileEditScreen() {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.access_token) return;
-      const me = await apiClient.get<{ username?: string }>(
-        "/api/v1/profile/overview"
-      );
+      const me = await apiClient.get<{
+        username?: string;
+        profile_photo_url?: string | null;
+      }>("/api/v1/profile/overview");
       const u = (me.username ?? "").replace(/^@/, "").toLowerCase();
       setUsername(u);
       setInitialUsername(u);
-      setPhotoUri(null);
-      setInitialPhotoUri(null);
+      const existingUrl = me.profile_photo_url ?? null;
+      setPhotoUri(existingUrl);
+      setInitialPhotoUri(existingUrl);
     } catch (_) {
       setUsername("");
     } finally {
@@ -96,33 +128,64 @@ export function ProfileEditScreen() {
         mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 1,
       });
-      if (!result.canceled && result.assets?.[0]?.uri) {
-        const uri = result.assets[0].uri;
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.user?.id) return;
-        const ext = uri.split(".").pop() ?? "jpg";
-        const path = `avatars/${session.user.id}/${Date.now()}.${ext}`;
-        const body = await (await fetch(uri)).blob();
-        const { error } = await supabase.storage.from("profiles").upload(path, body, {
-          contentType: `image/${ext}`,
-          upsert: true,
-        });
-        if (error) throw error;
-        const { data: urlData } = supabase.storage.from("profiles").getPublicUrl(path);
-        setPhotoUri(urlData.publicUrl);
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user?.id) return;
+      if (session.user.id === "guest-user" || session.access_token === "guest") {
+        Alert.alert("Sign in required", "Sign in with a full account to upload a profile photo.");
+        return;
       }
+
+      let uploadUri = result.assets[0].uri;
+      try {
+        const manipulated = await ImageManipulator.manipulateAsync(
+          uploadUri,
+          [{ resize: { width: 400, height: 400 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        uploadUri = manipulated.uri;
+      } catch {
+        // Resize optional if manipulator fails; upload picker output
+      }
+
+      const path = `${session.user.id}/avatar.jpg`;
+      const imageBytes = await loadImageBytesForUpload(uploadUri);
+      if (imageBytes.byteLength === 0) {
+        throw new Error("Could not read the image file.");
+      }
+
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(path, imageBytes, { contentType: "image/jpeg", upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+
+      const finalUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+
+      setPhotoUri(finalUrl);
+
+      await apiClient.patch("/api/v1/profile/avatar", { avatar_url: finalUrl });
+      updateAvatarUrl(finalUrl);
+      setInitialPhotoUri(finalUrl);
     } catch (e) {
       if (String(e).includes("expo-image-picker")) {
         Alert.alert("Coming soon", "Install expo-image-picker to change your photo.");
+      } else if (String(e).includes("expo-image-manipulator")) {
+        Alert.alert("Coming soon", "Install expo-image-manipulator to change your photo.");
+      } else if (isAuthError(e)) {
+        Alert.alert("Session expired", "Please sign in again, then try your photo.");
       } else {
-        Alert.alert("Error", "Could not update photo.");
+        Alert.alert("Error", describePhotoError(e));
       }
     }
-  }, []);
+  }, [updateAvatarUrl]);
 
   const validateUsername = useCallback(async (value: string) => {
     const v = value.trim().toLowerCase();
@@ -259,7 +322,7 @@ export function ProfileEditScreen() {
           )}
         </View>
         <Text style={styles.fieldHint}>
-          Lowercase letters, numbers, underscores · 3–20 characters. Photo is not synced to the server yet.
+          Lowercase letters, numbers, underscores · 3–20 characters.
         </Text>
         {usernameError ? <Text style={styles.errorText}>{usernameError}</Text> : null}
 

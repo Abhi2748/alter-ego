@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useSharedValue,
@@ -21,10 +21,14 @@ export interface SpGainToastProps {
   onFinish: () => void;
 }
 
+/** Clears top bar (~56) + padding; avoid overlap that reads as “clipped” rows. */
+const TOAST_TOP_BELOW_HEADER = 72;
+
 export function SpGainToast({ gains, footerNote, onFinish }: SpGainToastProps) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const opacity = useSharedValue(0);
-  const translateY = useSharedValue(-10);
+  const translateY = useSharedValue(0);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
@@ -57,20 +61,31 @@ export function SpGainToast({ gains, footerNote, onFinish }: SpGainToastProps) {
     };
   }, [gains, footerNote, onFinish, opacity, translateY]);
 
+  const toastWidth = Math.min(windowWidth * 0.78, 320);
+
   return (
     <Animated.View
       pointerEvents="none"
       style={[
         styles.wrap,
-        { top: insets.top + 52, left: 12 },
+        {
+          top: insets.top + TOAST_TOP_BELOW_HEADER,
+          left: 12,
+          width: toastWidth,
+        },
         animatedStyle,
       ]}
     >
       <View style={styles.box}>
         {gains.map((g, i) => {
           const s = STATS[g.statKey];
+          const isLastRow = i === gains.length - 1;
           return (
-            <View key={`${g.statKey}-${i}`} style={styles.row}>
+            <View
+              key={`${g.statKey}-${i}`}
+              style={[styles.row, !isLastRow && styles.rowSpacing]}
+              collapsable={false}
+            >
               <View
                 style={[
                   styles.dot,
@@ -99,16 +114,18 @@ const styles = StyleSheet.create({
   wrap: {
     position: "absolute",
     zIndex: 2000,
-    maxWidth: "78%",
+    alignSelf: "flex-start",
+    overflow: "visible",
   },
   box: {
     backgroundColor: "#141824",
     borderWidth: 1,
     borderColor: "#2A3050",
     borderRadius: 10,
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    gap: 3,
+    alignSelf: "stretch",
+    overflow: "visible",
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.7,
@@ -118,7 +135,12 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
+    minHeight: 22,
+    width: "100%",
     gap: 6,
+  },
+  rowSpacing: {
+    marginBottom: 5,
   },
   dot: {
     width: 5,
@@ -134,13 +156,15 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   labelSp: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
     fontSize: 9,
     fontWeight: "500",
     color: "#6B7280",
   },
   footerNote: {
-    marginTop: 2,
+    marginTop: 6,
     fontSize: 11,
     color: "rgba(167,139,250,0.7)",
     fontStyle: "italic",

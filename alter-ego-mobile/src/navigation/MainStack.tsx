@@ -8,6 +8,8 @@ import { SettingsScreen } from "../screens/SettingsScreen";
 import { ProfileEditScreen } from "../screens/ProfileEditScreen";
 import { AccountScreen } from "../screens/AccountScreen";
 import { ContactUsScreen } from "../screens/ContactUsScreen";
+import { CommunityBoardScreen } from "../screens/CommunityBoardScreen";
+import { NewPostScreen } from "../screens/NewPostScreen";
 import { SettingsFaqScreen } from "../screens/SettingsFaqScreen";
 import { MailInboxScreen } from "../screens/MailInboxScreen";
 import { ToneHistoryScreen } from "../screens/ToneHistoryScreen";
@@ -55,6 +57,8 @@ export function MainStack() {
         <Stack.Screen name="SettingsProfile" component={ProfileEditScreen} />
         <Stack.Screen name="AccountSettings" component={AccountScreen} />
         <Stack.Screen name="ContactUs" component={ContactUsScreen} />
+        <Stack.Screen name="CommunityBoard" component={CommunityBoardScreen} />
+        <Stack.Screen name="NewPost" component={NewPostScreen} />
         <Stack.Screen name="SettingsFaq" component={SettingsFaqScreen} />
         <Stack.Screen name="MailInbox" component={MailInboxScreen} />
         <Stack.Screen name="ToneHistory" component={ToneHistoryScreen} />

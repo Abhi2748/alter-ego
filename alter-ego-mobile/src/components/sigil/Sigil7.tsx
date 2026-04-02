@@ -2,9 +2,9 @@ import React from "react";
 import Svg, { Circle, Ellipse, G, Path } from "react-native-svg";
 import { useAnimatedProps } from "react-native-reanimated";
 import { useHtmlSvgPulseS, useHtmlFlickerFo, useHtmlBreatheR } from "./SigilAnimations";
-import { AnimatedG, AnimatedCircle } from "./sigilSvg";
-import type { SigilProps } from "./sigilTypes";
-import { RotatingG } from "./rotateCenter";
+import { svgAdapters, AnimatedG, AnimatedCircle } from "./sigilSvg";
+import { DEFAULT_SIGIL_SIZE, type SigilProps } from "./sigilTypes";
+import { RotatingG, centerScaleMatrix } from "./rotateCenter";
 
 function ShockRing({
   r,
@@ -20,7 +20,7 @@ function ShockRing({
   stroke: string;
 }) {
   const op = useHtmlFlickerFo(3000, fo, delayMs);
-  const ap = useAnimatedProps(() => ({ opacity: op.value }));
+  const ap = useAnimatedProps(() => ({ opacity: op.value }), [], svgAdapters);
   return (
     <AnimatedCircle
       cx={170}
@@ -36,17 +36,21 @@ function ShockRing({
 
 const SPIKE_PATH = "M170 170 L176 128 L171 128 L178 86";
 
-export function Sigil7({ size = 300 }: SigilProps) {
+export function Sigil7({ size = DEFAULT_SIGIL_SIZE }: SigilProps) {
   const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulseS(2500);
   const flicker = useHtmlFlickerFo(1600, 1, 0);
   const breatheCore = useHtmlBreatheR(38, 2000, 1.06);
 
-  const pulseAp = useAnimatedProps(() => ({
-    opacity: pulseOp.value,
-    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
-  }));
-  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
-  const coreAp = useAnimatedProps(() => ({ r: breatheCore.value }));
+  const pulseAp = useAnimatedProps(
+    () => ({
+      opacity: pulseOp.value,
+      transform: centerScaleMatrix(pulseSc.value),
+    }),
+    [],
+    svgAdapters
+  );
+  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }), [], svgAdapters);
+  const coreAp = useAnimatedProps(() => ({ r: breatheCore.value }), [], svgAdapters);
 
   return (
     <Svg width={size} height={size} viewBox="0 0 340 340">

@@ -158,6 +158,10 @@ def _first_local_calendar_date_from_registration(iso_ts: str | None, tz_str: str
         return None
 
 
+class AvatarUrlBody(BaseModel):
+    avatar_url: str = Field(..., max_length=600)
+
+
 @router.get("/overview", response_model=dict)
 async def get_profile_overview(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
@@ -169,7 +173,7 @@ async def get_profile_overview(authorization: str = Header(None)):
             "pet_stage, pet_unlocked, total_pf, current_streak, "
             "longest_streak, power_score, registration_date, "
             "leaderboard_unlocked, email_connected, subscription_tier, "
-            "return_reason"
+            "return_reason, avatar_url"
         )
         .eq("id", user_id)
         .single()
@@ -260,7 +264,31 @@ async def get_profile_overview(authorization: str = Header(None)):
         "twin_tone_type": str(dna_row.get("twin_tone_type") or "rival"),
         "twin_intensity": int(dna_row.get("twin_intensity") or 3),
         "return_reason": user.get("return_reason"),
+        "profile_photo_url": user.get("avatar_url"),
     }
+
+
+@router.patch("/avatar", response_model=dict)
+async def update_avatar_url(body: AvatarUrlBody, authorization: str = Header(None)):
+    """
+    Stores the public Supabase Storage URL for the user's avatar.
+    The frontend uploads directly to Storage; this endpoint just records the URL.
+    """
+    user_id = get_user_id_from_token(authorization)
+    supabase_admin.table("users").update({"avatar_url": body.avatar_url}).eq(
+        "id", user_id
+    ).execute()
+    return {"success": True, "avatar_url": body.avatar_url}
+
+
+@router.delete("/avatar", response_model=dict)
+async def delete_avatar_url(authorization: str = Header(None)):
+    """Clears the user's avatar URL (resets to initials placeholder)."""
+    user_id = get_user_id_from_token(authorization)
+    supabase_admin.table("users").update({"avatar_url": None}).eq(
+        "id", user_id
+    ).execute()
+    return {"success": True}
 
 
 @router.get("/streak", response_model=dict)
@@ -272,7 +300,8 @@ async def get_profile_streak(authorization: str = Header(None)):
     user_result = (
         supabase_admin.table("users")
         .select(
-            "current_streak, longest_streak, streak_requirement_tier, timezone"
+            "current_streak, longest_streak, streak_requirement_tier, timezone, "
+            "registration_date"
         )
         .eq("id", user_id)
         .single()
@@ -307,11 +336,26 @@ async def get_profile_streak(authorization: str = Header(None)):
     if reg_start:
         rows = [r for r in rows if str(r.get("log_date") or "") >= reg_start]
 
+    # All-time days with at least one mission done (since registration); not limited to 52 weeks.
+    overall_q = (
+        supabase_admin.table("streak_log")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .gt("total_missions_done", 0)
+    )
+    if reg_start:
+        overall_q = overall_q.gte("log_date", reg_start)
+    overall_res = overall_q.execute()
+    overall_active_days = int(getattr(overall_res, "count", None) or 0)
+
     return {
         "current_streak": user.get("current_streak", 0),
         "longest_streak": user.get("longest_streak", 0),
         "streak_requirement_tier": user.get("streak_requirement_tier", "tier_1"),
+        # User's logical calendar date (timezone-aware). Heatmap last row can lag before streak_log exists for "today".
+        "calendar_date": str(anchor),
         "heatmap_eligible_since": reg_start,
+        "overall_active_days": overall_active_days,
         "heatmap": [
             {
                 "date": r["log_date"],

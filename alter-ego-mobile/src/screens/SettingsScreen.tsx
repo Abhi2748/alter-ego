@@ -99,6 +99,28 @@ function IconContactUs() {
   );
 }
 
+function IconCommunityBoard() {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+      <Path
+        d="M9 2.5L3.5 5v4.5c0 3.2 2.1 6.2 5.5 7.5 3.4-1.3 5.5-4.3 5.5-7.5V5L9 2.5Z"
+        stroke="#8B5CF6"
+        strokeWidth={1.4}
+        strokeLinejoin="round"
+        fill="rgba(109,40,217,0.15)"
+      />
+      <Path
+        d="M6.5 8.5l1.8 1.8 3.2-3.2"
+        stroke="#E5E7EB"
+        strokeWidth={1.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </Svg>
+  );
+}
+
 function IconSubscription() {
   return (
     <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
@@ -272,9 +294,19 @@ type RowItemProps = {
   danger?: boolean;
   showDivider?: boolean;
   rightAccessory?: React.ReactNode;
+  /** Renders after the label (e.g. NEW badge) */
+  labelEnd?: React.ReactNode;
 };
 
-function RowItem({ icon, label, onPress, danger, showDivider, rightAccessory }: RowItemProps) {
+function RowItem({
+  icon,
+  label,
+  onPress,
+  danger,
+  showDivider,
+  rightAccessory,
+  labelEnd,
+}: RowItemProps) {
   return (
     <>
       {showDivider && <View style={styles.rowDivider} />}
@@ -287,9 +319,12 @@ function RowItem({ icon, label, onPress, danger, showDivider, rightAccessory }: 
         ]}
       >
         <View style={[styles.iconBox, danger && styles.iconBoxDanger]}>{icon}</View>
-        <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]} numberOfLines={1}>
-          {label}
-        </Text>
+        <View style={styles.rowLabelRow}>
+          <Text style={[styles.rowLabel, danger && styles.rowLabelDanger]} numberOfLines={1}>
+            {label}
+          </Text>
+          {labelEnd}
+        </View>
         {rightAccessory}
         <Ionicons
           name="chevron-forward"
@@ -459,6 +494,17 @@ export function SettingsScreen() {
             onPress={() => nav.navigate?.("ContactUs")}
             showDivider
           />
+          <RowItem
+            icon={<IconCommunityBoard />}
+            label="Community Board"
+            onPress={() => nav.navigate?.("CommunityBoard")}
+            showDivider
+            labelEnd={
+              <View style={styles.newBadge}>
+                <Text style={styles.newBadgeText}>NEW</Text>
+              </View>
+            }
+          />
           {!IS_CLOSED_BETA ? (
             <RowItem
               icon={<IconSubscription />}
@@ -582,11 +628,31 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(127,29,29,0.15)",
     borderColor: "rgba(239,68,68,0.20)",
   },
+  rowLabelRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+  },
   rowLabel: {
     flex: 1,
     fontSize: 14,
     fontFamily: "Inter_500Medium",
     color: "#E5E7EB",
+  },
+  newBadge: {
+    backgroundColor: "#8B5CF6",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    flexShrink: 0,
+  },
+  newBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "white",
+    letterSpacing: 1,
   },
   rowLabelDanger: {
     color: "#F87171",

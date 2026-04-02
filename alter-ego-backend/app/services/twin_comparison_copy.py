@@ -146,6 +146,33 @@ def build_comparison_line(
         i = _idx(user_id, today, f"cmp:{gs}", len(lines))
         line = lines[i]
 
+        # While either side still has missions left for today, avoid "finished / logged" language — Twin sim
+        # can show partial progress (e.g. 8/12) before the user's day is done.
+        today_in_progress = (ut > 0 and ud < ut) or (tt > 0 and td < tt)
+        if today_in_progress:
+            line = (
+                line.replace(
+                    f"Twin finished {td}/{tt} today",
+                    f"Twin is at {td}/{tt} so far today",
+                )
+                .replace(
+                    f"They logged {td}/{tt} today",
+                    f"Twin is at {td}/{tt} so far today",
+                )
+                .replace(
+                    f"Twin finished {td}/{tt} today; you're at {ud}/{ut}.",
+                    f"Twin is at {td}/{tt} so far today; you're at {ud}/{ut}.",
+                )
+                .replace(
+                    f"you hit {ud}/{ut}",
+                    f"you're at {ud}/{ut} so far",
+                )
+                .replace(
+                    f"They logged {td}/{tt} today; you {ud}/{ut}.",
+                    f"Twin is at {td}/{tt} so far today; you're at {ud}/{ut} so far.",
+                )
+            )
+
         if time_story and gs in ("neck_and_neck", "user_ahead", "slightly_behind"):
             line = line.rstrip() + time_story
 

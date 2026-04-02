@@ -10,19 +10,22 @@ B30: Day summary — ~01:00 local with other nightly maintenance, daily_summarie
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import date, datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional, TypeVar
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+T = TypeVar("T", bound=BaseModel)
+
 from app.agents.base import run_agent
 from app.core.supabase_client import supabase_admin
 from app.services.mission_service import local_completed_week_bounds
-from app.services.report_service import assemble_weekly_data
+from app.services.report_service import assemble_enriched_context, assemble_weekly_data
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +106,7 @@ class SystemVoiceReport(BaseModel):
         return self
 
 
-SYSTEM_VOICE_PROMPT = """You write the 'Your Wins' and 'Where You Slipped' sections of a weekly discipline report.
+SYSTEM_VOICE_PROMPT_CORE = """You write the 'Your Wins' and 'Where You Slipped' sections of a weekly discipline report.
 
 VOICE: System voice. Neutral. Factual. No editorial.
 - Direct and specific. Numbers are your friends.
@@ -129,13 +132,187 @@ Do not make the same core observation (find a different angle even if the patter
 """
 
 
+def _system_voice_guilt_block(guilt_orientation: float) -> str:
+    if guilt_orientation <= 0.7:
+        return ""
+    return """
+GUILT_ORIENTATION GUARDRAIL (hard rule):
+If guilt_orientation > 0.7: NEVER use guilt language. Forbidden phrases: "you failed", "you missed",
+"you let yourself down", "disappointing", "you didn't", "you couldn't". Use ONLY forward-looking language:
+"the next session is waiting", "tomorrow is open", "pick up where you left off".
+"""
+
+
+def build_system_voice_prompt(discipline_framing: str, guilt_orientation: float) -> str:
+    gf = (discipline_framing or "behavior").strip() or "behavior"
+    return f"""STEP 1 — THINK (do not output this):
+What was the story of this week? Was it a growth week, a struggle week, a maintenance week,
+or a breakthrough week? What is the ONE thing that defines this week?
+
+STEP 2 — FRAME (do not output this):
+The user's discipline_framing is: {gf}
+Frame ALL narrative language using the rules below.
+
+STEP 3 — GENERATE: Write each section using the framing and specific data.
+
+DISCIPLINE_FRAMING RULES (inject into narrative):
+  identity:    Talk about who the user is becoming. "This week showed who you're becoming."
+  behavior:    Talk about actions and numbers. "87% completion. 5 of 7 days. That's execution."
+  control:     Talk about what the user controlled vs what slipped. "You controlled your mornings 6/7 days."
+  freedom:     Talk about what the user is free from. "Another week without X pulling you back."
+  endurance:   Talk about how long the user has persisted. Reference time elapsed.
+  punishment:  CRITICAL GUARDRAIL — NEVER reinforce punishment mindset. Gently reframe toward growth.
+               "The 2 you missed aren't failures — they're data. You know what to fix."
+
+FEW-SHOT EXAMPLES:
+
+  Example 1 (identity-framing, growth week, 87% completion, 30-day streak, passed Twin):
+  wins: ["30 days. The identity is no longer theoretical.", "You passed your Twin in XP this week. The gap flipped."]
+  slipped: null
+  keep_watching: "Difficulty increases next week. The system noticed."
+
+  Example 2 (behavior-framing, struggle week, 52% completion, streak broken, 2 quit slips):
+  wins: ["7 of 13 missions completed Tuesday — your highest single-day output this week."]
+  slipped: ["Streak reset. All missed sessions were evenings — the pattern is evenings.", "2 quit check-ins flagged urge spikes."]
+  keep_watching: null
+
+  Example 3 (control-framing, steady week, 75% completion, interest arc Phase 1 completed):
+  wins: ["You controlled your mornings 5 of 7 days.", "Guitar arc Phase 1 complete — you said you'd do it, and the data agrees."]
+  slipped: ["Wednesday and Thursday were zero-completion days. Both were evenings."]
+  keep_watching: null
+
+{_system_voice_guilt_block(guilt_orientation)}
+{SYSTEM_VOICE_PROMPT_CORE}
+"""
+
+
+async def _call_claude_with_fallback(
+    system_prompt: str,
+    user_message: str,
+    response_model: type[T],
+    temperature: float = 0.7,
+    max_tokens: int = 800,
+    context_label: str = "",
+) -> Any:
+    """
+    Tries Claude Sonnet first, then GPT-4o, then GPT-4o-mini (existing run_agent).
+    Uses instructor for structured output on all paths.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if api_key:
+        try:
+            import instructor
+            from anthropic import AsyncAnthropic
+
+            client = instructor.from_anthropic(AsyncAnthropic(api_key=api_key))
+            return await client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+                response_model=response_model,
+            )
+        except Exception as e:
+            logger.warning(
+                "Claude report path failed context=%s: %s", context_label or "report", e
+            )
+
+    try:
+        return await run_agent(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            response_model=response_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            context_label=f"{context_label}:gpt4o",
+            model="gpt-4o",
+        )
+    except Exception as e:
+        logger.warning("GPT-4o report path failed context=%s: %s", context_label, e)
+
+    return await run_agent(
+        system_prompt=system_prompt,
+        user_message=user_message,
+        response_model=response_model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        context_label=f"{context_label}:mini",
+    )
+
+
+def _fmt_interest_arcs_block(interest_arcs: list) -> str:
+    if not interest_arcs:
+        return "None active"
+    lines = []
+    for a in interest_arcs:
+        if not isinstance(a, dict):
+            continue
+        lines.append(
+            f"- {a.get('interest_name')}: {a.get('sessions_completed_this_week')} sessions this week, "
+            f"arc phase: {a.get('arc_phase')}"
+        )
+    return "\n".join(lines) if lines else "None active"
+
+
+def _fmt_quit_progress_block(quit_progress: list) -> str:
+    if not quit_progress:
+        return "None tracked"
+    lines = []
+    for q in quit_progress:
+        if not isinstance(q, dict):
+            continue
+        dip = q.get("days_in_phase")
+        dip_s = f"{dip} days in this phase" if dip is not None else "days in phase unknown"
+        lines.append(
+            f"- {q.get('habit_name')}: phase {q.get('current_phase')}, {dip_s}"
+        )
+    return "\n".join(lines) if lines else "None tracked"
+
+
+def _fmt_twin_challenge_block(twin_challenge: dict) -> str:
+    tc = twin_challenge or {}
+    if tc.get("challenge_exists"):
+        return (
+            f"Challenge: {tc.get('challenge_description')} — Status: {tc.get('status')}"
+        )
+    return "No active challenge"
+
+
+def _fmt_memory_anchors_block(memory_anchors: list) -> str:
+    if not memory_anchors:
+        return "None"
+    lines = []
+    for a in memory_anchors:
+        if not isinstance(a, dict):
+            continue
+        lines.append(f"- '{a.get('reference_phrase')}': {a.get('summary')}")
+    return "\n".join(lines) if lines else "None"
+
+
 async def generate_system_voice_sections(
     weekly_data: dict,
     previous_wins_w1: list[str],
     previous_wins_w2: list[str],
     previous_slipped_w1: list[str],
     previous_slipped_w2: list[str],
+    discipline_framing: str = "behavior",
+    guilt_orientation: float = 0.0,
+    narrative_seed: str | None = None,
+    interest_arcs: list | None = None,
+    quit_progress: list | None = None,
+    twin_challenge: dict | None = None,
+    memory_anchors: list | None = None,
+    prev_report_wins_openings: list[str] | None = None,
+    prev_report_twin_openings: list[str] | None = None,
 ) -> SystemVoiceReport:
+    interest_arcs = interest_arcs or []
+    quit_progress = quit_progress or []
+    twin_challenge = twin_challenge or {}
+    memory_anchors = memory_anchors or []
+    prev_report_wins_openings = prev_report_wins_openings or []
+    prev_report_twin_openings = prev_report_twin_openings or []
+
     prev = ""
     if previous_wins_w1:
         prev += "\nLast week wins:\n" + "\n".join(f"  - {w}" for w in previous_wins_w1)
@@ -145,6 +322,14 @@ async def generate_system_voice_sections(
         prev += "\nLast week slipped:\n" + "\n".join(f"  - {s}" for s in previous_slipped_w1)
     if previous_slipped_w2:
         prev += "\nTwo weeks ago slipped:\n" + "\n".join(f"  - {s}" for s in previous_slipped_w2)
+    if prev_report_wins_openings:
+        prev += "\nPrevious report wins_opening lines:\n" + "\n".join(
+            f"  - {w}" for w in prev_report_wins_openings
+        )
+    if prev_report_twin_openings:
+        prev += "\nPrevious report twin_opening lines:\n" + "\n".join(
+            f"  - {w}" for w in prev_report_twin_openings
+        )
 
     d = weekly_data
     skipped_detail = (
@@ -152,6 +337,15 @@ async def generate_system_voice_sections(
         if d.get("most_skipped_mission_title")
         else f"type {d['most_skipped_type'] or 'none'} ({d['most_skipped_count']} incomplete)"
     )
+
+    interest_arcs_str = _fmt_interest_arcs_block(interest_arcs)
+    quit_progress_str = _fmt_quit_progress_block(quit_progress)
+    challenge_str = _fmt_twin_challenge_block(twin_challenge)
+    anchors_str = _fmt_memory_anchors_block(memory_anchors)
+
+    seed_line = ""
+    if narrative_seed:
+        seed_line = f"\nNARRATIVE SEED (context only): {narrative_seed}\n"
 
     user_message = f"""Write the Wins and Slipped sections for this user's weekly report.
 
@@ -174,11 +368,28 @@ WEEK DATA:
 - Streak events: {', '.join(d['streak_events']) if d['streak_events'] else 'none'}
 
 {prev if prev else 'No previous weeks available.'}
+{seed_line}
+INTEREST ARCS:
+{interest_arcs_str}
+
+QUIT PROGRESS:
+{quit_progress_str}
+
+TWIN CHALLENGE THIS WEEK:
+{challenge_str}
+
+MEMORY ANCHORS (reference only if directly relevant — never force):
+{anchors_str}
+
+DISCIPLINE FRAMING: {discipline_framing}
+GUILT ORIENTATION: {guilt_orientation} (above 0.7 = never use guilt language)
 
 Find what is specifically and actually true. 1 real win beats 3 hollow ones."""
 
-    return await run_agent(
-        system_prompt=SYSTEM_VOICE_PROMPT,
+    system_prompt = build_system_voice_prompt(discipline_framing, guilt_orientation)
+
+    return await _call_claude_with_fallback(
+        system_prompt=system_prompt,
         user_message=user_message,
         response_model=SystemVoiceReport,
         temperature=0.6,
@@ -259,6 +470,9 @@ Twin closing example: "Next week."
 4. Never guilt — no "you let me down", no "disappointing"
 5. twin_closing must always be shorter than twin_paragraph — it is the landing
 6. Do not open twin_paragraph with the same word as the previous two weeks' openings
+
+GUILT GUARDRAIL: If guilt_orientation > 0.7, never use any language implying the user let the
+Twin down, failed the Twin, or disappointed the Twin. The Twin observes; it does not shame.
 """
 
 
@@ -287,7 +501,17 @@ async def generate_twin_voice_sections(
     intensity: int,
     previous_twin_openings: list[str],
     pending_difficulty_note: Optional[str] = None,
+    discipline_framing: str = "behavior",
+    guilt_orientation: float = 0.0,
+    narrative_seed: str | None = None,
+    interest_arcs: list | None = None,
+    quit_progress: list | None = None,
+    twin_challenge: dict | None = None,
 ) -> TwinVoiceReport:
+    interest_arcs = interest_arcs or []
+    quit_progress = quit_progress or []
+    twin_challenge = twin_challenge or {}
+
     tone_key = tone_type.lower().replace("-", "_").replace(" ", "_")
     tone_header = {
         "rival": "RIVAL",
@@ -328,6 +552,13 @@ async def generate_twin_voice_sections(
             + str(pending_difficulty_note)
         )
 
+    interest_arcs_str = _fmt_interest_arcs_block(interest_arcs)
+    quit_progress_str = _fmt_quit_progress_block(quit_progress)
+    challenge_str = _fmt_twin_challenge_block(twin_challenge)
+    seed_line = f"NARRATIVE SEED: {narrative_seed}\n" if narrative_seed else ""
+
+    guilt_line = f"guilt_orientation={guilt_orientation} (if >0.7, apply GUILT GUARDRAIL in system prompt)\n"
+
     user_message = (
         f"""Write the Twin sections for this weekly report.
 
@@ -343,20 +574,100 @@ WEEK SUMMARY FOR TWIN TO RESPOND TO:
 - Difficulty change next week: {d.get('difficulty_change_next_week') or 'none'}
 {pending_block}
 
+INTEREST ARCS THIS WEEK:
+{interest_arcs_str}
+
+QUIT PROGRESS:
+{quit_progress_str}
+
+TWIN CHALLENGE:
+{challenge_str}
+
+DISCIPLINE FRAMING: {discipline_framing}
+{guilt_line}{seed_line}
 PREVIOUS TWIN PARAGRAPH OPENINGS (do not start twin_paragraph with the same first word):
 {prev_openings}
 
 The Twin responds to what this week means for the rivalry. It does not recap the data."""
     )
 
-    return await run_agent(
-        system_prompt=TWIN_VOICE_PROMPT,
+    twin_system = TWIN_VOICE_PROMPT
+    if guilt_orientation > 0.7:
+        twin_system = (
+            twin_system
+            + "\n\nACTIVE: guilt_orientation > 0.7 — apply GUILT GUARDRAIL strictly.\n"
+        )
+
+    return await _call_claude_with_fallback(
+        system_prompt=twin_system,
         user_message=user_message,
         response_model=TwinVoiceReport,
         temperature=0.75,
         max_tokens=400,
         context_label=f"Report:TwinVoice:{tone_key}",
     )
+
+
+class VerifierResult(BaseModel):
+    passes: bool
+    failed_checks: list[str] = Field(default_factory=list)
+
+
+async def _verify_report(
+    system_sections: SystemVoiceReport,
+    twin_sections: TwinVoiceReport,
+    weekly_data: dict,
+    discipline_framing: str,
+    guilt_orientation: float,
+    tone_type: str,
+) -> tuple[bool, list[str]]:
+    """
+    Returns True if report passes all checks. Returns False if it fails.
+    On failure: logs which check failed. Does NOT raise — caller decides to regenerate.
+    """
+    try:
+        system_prompt = (
+            "You are a report quality checker for ALTER EGO. Verify the report meets all rules. "
+            "Return passes=True only if ALL checks pass."
+        )
+        user_message = f"""CHECK THE FOLLOWING WEEKLY REPORT (structured):
+
+SYSTEM VOICE (wins/slipped/keep_watching/theme):
+{json.dumps(system_sections.model_dump(), default=str)}
+
+TWIN VOICE (twin_paragraph, twin_closing, next_week):
+{json.dumps(twin_sections.model_dump(), default=str)}
+
+WEEK DATA (facts for this week, excerpt):
+{json.dumps({k: weekly_data.get(k) for k in ("missions_completed", "missions_total", "completion_rate", "current_streak", "gap_xp", "best_day", "hardest_day")}, default=str)}
+
+discipline_framing={discipline_framing}
+guilt_orientation={guilt_orientation}
+tone_type={tone_type}
+
+CHECK 1: Do the wins reference SPECIFIC data from this week? (not generic "you did well")
+CHECK 2: Does the slipped section identify a SPECIFIC pattern or area? (not generic) — if slipped is empty/null for a near-perfect week, that is OK.
+CHECK 3: Does the framing match discipline_framing={discipline_framing}?
+CHECK 4: If guilt_orientation > 0.7, does ANY section contain forbidden phrases?
+         Forbidden: "you failed", "you missed", "you let yourself down", "disappointing"
+CHECK 5: Is the twin paragraph in character for tone_type={tone_type}?
+
+Return passes=false and list failed_checks with short labels like "CHECK 1" if any check fails."""
+
+        res = await run_agent(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            response_model=VerifierResult,
+            temperature=0.0,
+            max_tokens=400,
+            context_label="Report:Verifier",
+        )
+        if res.passes:
+            return True, []
+        return False, list(res.failed_checks or [])
+    except Exception as e:
+        logger.warning("_verify_report error (treating as pass): %s", e)
+        return True, []
 
 
 # ── Master weekly report ───────────────────────────────────────────────────
@@ -391,9 +702,14 @@ async def generate_weekly_report(
 
     weekly_data = await assemble_weekly_data(user_id, week_start_d, week_end_d)
 
+    enriched = await assemble_enriched_context(user_id, week_start_d, week_end_d)
+
     dna_result = (
         supabase_admin.table("discipline_dna")
-        .select("twin_tone_type, twin_intensity, pending_difficulty_change")
+        .select(
+            "twin_tone_type, twin_intensity, pending_difficulty_change, "
+            "narrative_seed, discipline_framing, guilt_orientation"
+        )
         .eq("user_id", user_id)
         .limit(1)
         .execute()
@@ -402,6 +718,16 @@ async def generate_weekly_report(
     tone_type = str(dna_row.get("twin_tone_type") or "rival")
     intensity = int(dna_row.get("twin_intensity") or 3)
     pending_note = dna_row.get("pending_difficulty_change")
+    discipline_framing = str(
+        dna_row.get("discipline_framing")
+        or enriched.get("discipline_framing")
+        or "behavior"
+    )
+    _go = dna_row.get("guilt_orientation")
+    guilt_orientation = float(
+        _go if _go is not None else enriched.get("guilt_orientation", 0.0)
+    )
+    narrative_seed = dna_row.get("narrative_seed") or enriched.get("narrative_seed")
 
     prev_reports = (
         supabase_admin.table("weekly_reports")
@@ -434,6 +760,15 @@ async def generate_weekly_report(
             previous_wins_w2=prev_wins_w2,
             previous_slipped_w1=prev_slipped_w1,
             previous_slipped_w2=prev_slipped_w2,
+            discipline_framing=discipline_framing,
+            guilt_orientation=guilt_orientation,
+            narrative_seed=narrative_seed,
+            interest_arcs=enriched.get("interest_arcs") or [],
+            quit_progress=enriched.get("quit_progress") or [],
+            twin_challenge=enriched.get("twin_challenge") or {},
+            memory_anchors=enriched.get("memory_anchors") or [],
+            prev_report_wins_openings=enriched.get("prev_wins_openings") or [],
+            prev_report_twin_openings=enriched.get("prev_twin_openings") or [],
         )
     except Exception as e:
         logger.error("Report SystemVoiceAgent failed for %s: %s", user_id, e)
@@ -446,10 +781,85 @@ async def generate_weekly_report(
             intensity=intensity,
             previous_twin_openings=prev_twin_openings,
             pending_difficulty_note=pending_note,
+            discipline_framing=discipline_framing,
+            guilt_orientation=guilt_orientation,
+            narrative_seed=narrative_seed,
+            interest_arcs=enriched.get("interest_arcs") or [],
+            quit_progress=enriched.get("quit_progress") or [],
+            twin_challenge=enriched.get("twin_challenge") or {},
         )
     except Exception as e:
         logger.error("Report TwinVoiceAgent failed for %s: %s", user_id, e)
         twin_sections = None
+
+    try:
+        if system_sections and twin_sections:
+            ok, failed = await _verify_report(
+                system_sections,
+                twin_sections,
+                weekly_data,
+                discipline_framing,
+                guilt_orientation,
+                tone_type,
+            )
+            if not ok and failed:
+                logger.warning(
+                    "Report verification failed user=%s checks=%s", user_id, failed
+                )
+                failed_joined = " ".join(failed).lower()
+                regen_twin = "check 5" in failed_joined
+                try:
+                    if regen_twin:
+                        twin_sections = await generate_twin_voice_sections(
+                            weekly_data=weekly_data,
+                            tone_type=tone_type,
+                            intensity=intensity,
+                            previous_twin_openings=prev_twin_openings,
+                            pending_difficulty_note=pending_note,
+                            discipline_framing=discipline_framing,
+                            guilt_orientation=guilt_orientation,
+                            narrative_seed=narrative_seed,
+                            interest_arcs=enriched.get("interest_arcs") or [],
+                            quit_progress=enriched.get("quit_progress") or [],
+                            twin_challenge=enriched.get("twin_challenge") or {},
+                        )
+                    else:
+                        system_sections = await generate_system_voice_sections(
+                            weekly_data=weekly_data,
+                            previous_wins_w1=prev_wins_w1,
+                            previous_wins_w2=prev_wins_w2,
+                            previous_slipped_w1=prev_slipped_w1,
+                            previous_slipped_w2=prev_slipped_w2,
+                            discipline_framing=discipline_framing,
+                            guilt_orientation=guilt_orientation,
+                            narrative_seed=narrative_seed,
+                            interest_arcs=enriched.get("interest_arcs") or [],
+                            quit_progress=enriched.get("quit_progress") or [],
+                            twin_challenge=enriched.get("twin_challenge") or {},
+                            memory_anchors=enriched.get("memory_anchors") or [],
+                            prev_report_wins_openings=enriched.get("prev_wins_openings")
+                            or [],
+                            prev_report_twin_openings=enriched.get("prev_twin_openings")
+                            or [],
+                        )
+                    ok2, failed2 = await _verify_report(
+                        system_sections,
+                        twin_sections,
+                        weekly_data,
+                        discipline_framing,
+                        guilt_orientation,
+                        tone_type,
+                    )
+                    if not ok2 and failed2:
+                        logger.warning(
+                            "Report verification failed again user=%s checks=%s",
+                            user_id,
+                            failed2,
+                        )
+                except Exception as regen_e:
+                    logger.warning("Report regeneration after verify failed: %s", regen_e)
+    except Exception as ver_e:
+        logger.debug("Report verification skipped: %s", ver_e)
 
     d = weekly_data
     wins = (
@@ -566,6 +976,8 @@ Core done:          {core_done}/5
 Streak count:       {streak_count} days
 XP earned:          {xp_earned}
 Notable events:     {notable_events}
+DISCIPLINE FRAMING: {discipline_framing}
+NARRATIVE SEED:     {narrative_seed}
 
 RULES:
 - Factual, not motivational. Never say "great job" or "well done".
@@ -576,6 +988,11 @@ RULES:
 - Maximum 2 sentences.
 - Plain text only — no JSON, no markdown, no quotes.
 - Write in second person past tense: "You completed..." not "The user..."
+- DISCIPLINE FRAMING: apply the framing language to the generated sentence — keep it to 1-2 sentences max.
+  identity → "You showed up as the person you're becoming."
+  behavior → "5 of 6 missions completed. Movement skipped."
+  control → "You controlled your morning. Evening slipped."
+  (Use the spirit of these examples; do not copy verbatim if the data contradicts.)
 """
 
 
@@ -639,6 +1056,23 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
         or []
     )
 
+    discipline_framing = "behavior"
+    narrative_seed: str | None = None
+    try:
+        dna_ds = (
+            supabase_admin.table("discipline_dna")
+            .select("discipline_framing, narrative_seed")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        dr = (dna_ds.data or [None])[0] or {}
+        discipline_framing = str(dr.get("discipline_framing") or "behavior")
+        narrative_seed = dr.get("narrative_seed")
+    except Exception:
+        discipline_framing = "behavior"
+        narrative_seed = None
+
     completed = sum(1 for m in missions if m.get("completed"))
     total = len(missions)
     core_done = sum(
@@ -655,8 +1089,10 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
     notable_str = ", ".join(notable) if notable else "None"
 
     # Fingerprint: when any of these change, regenerate the LLM summary.
+    ns = narrative_seed or ""
     stats_fingerprint = (
-        f"{completed}|{total}|{core_done}|{xp_earned}|{streak_count}|{notable_str}"
+        f"{completed}|{total}|{core_done}|{xp_earned}|{streak_count}|{notable_str}|"
+        f"{discipline_framing}|{ns}"
     )
 
     existing = (
@@ -690,6 +1126,8 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
         streak_count=streak_count,
         xp_earned=xp_earned,
         notable_events=notable_str,
+        discipline_framing=discipline_framing,
+        narrative_seed=narrative_seed or "None",
     )
 
     llm = ChatOpenAI(

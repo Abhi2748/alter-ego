@@ -1,17 +1,18 @@
 /**
  * Journal Calendar — Monthly calendar showing days with entries. Spec §4.
  * From List → ••• → Calendar. Tap day with entry → Editor (read_only); tap today (no entry) → Editor (new).
+ * Grid layout matches ProfileStreakScreen: fixed cell width + explicit rows (flexWrap + gap breaks 7 columns).
  */
 
-import React, { useState, useMemo, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
+import { View, Text, StyleSheet, Pressable, Dimensions, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import { Platform } from "react-native";
 import { useJournalList } from "@/hooks/useJournal";
+import { useUserStore } from "@/store/userStore";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const TEXT_PRIMARY = "#E5E7EB";
@@ -23,27 +24,42 @@ const CARD_BG = "rgba(14,13,28,0.85)";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function dateToKey(d: Date): string {
-  return d.toISOString().slice(0, 10);
+function dateToKey(y: number, monthZero: number, day: number): string {
+  const m = String(monthZero + 1).padStart(2, "0");
+  const d = String(day).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
-function getDaysInMonth(year: number, month: number): (string | null)[] {
-  const first = new Date(year, month, 1);
-  const last = new Date(year, month + 1, 0);
-  const startPad = first.getDay();
-  const days: (string | null)[] = Array(startPad).fill(null);
-  for (let d = 1; d <= last.getDate(); d++) {
-    days.push(dateToKey(new Date(year, month, d)));
-  }
-  return days;
+function parseRegistrationMonth(reg: string | undefined | null): { y: number; m: number } | null {
+  if (!reg || typeof reg !== "string") return null;
+  const dt = new Date(reg.slice(0, 10) + "T12:00:00");
+  if (Number.isNaN(dt.getTime())) return null;
+  return { y: dt.getFullYear(), m: dt.getMonth() };
+}
+
+/** Same pattern as ProfileStreakScreen: (width − 6×gap) / 7 so seven columns + gaps fit exactly. */
+function useCalendarCellSize() {
+  return useMemo(() => {
+    const screenWidth = Dimensions.get("window").width;
+    const cardInnerWidth = screenWidth - 16 * 2 - 16 * 2;
+    const calendarGap = 3;
+    const cellSize = (cardInnerWidth - 6 * calendarGap) / 7;
+    return { cellSize, calendarGap };
+  }, []);
 }
 
 export function JournalCalendarScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const profile = useUserStore((s) => s.profile);
+  const joinMonth = useMemo(
+    () => parseRegistrationMonth(profile?.registration_date),
+    [profile?.registration_date]
+  );
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth());
   const { data, refetch } = useJournalList();
+  const { cellSize, calendarGap } = useCalendarCellSize();
 
   const entriesByDate = useMemo(() => {
     const map = new Map<string, { id: string }>();
@@ -57,16 +73,48 @@ export function JournalCalendarScreen() {
     }, [refetch])
   );
 
+  useEffect(() => {
+    if (!joinMonth) return;
+    if (year < joinMonth.y || (year === joinMonth.y && month < joinMonth.m)) {
+      setYear(joinMonth.y);
+      setMonth(joinMonth.m);
+    }
+  }, [joinMonth, year, month]);
+
   const monthLabel = useMemo(() => {
     const d = new Date(year, month, 1);
     return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
   }, [year, month]);
 
-  const days = useMemo(() => getDaysInMonth(year, month), [year, month]);
-  const todayKey = dateToKey(new Date());
-  const isCurrentMonth = year === new Date().getFullYear() && month === new Date().getMonth();
+  const daysInViewMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayViewMonth = new Date(year, month, 1).getDay();
+
+  const viewMonthRows = useMemo(() => {
+    const empties: (number | null)[] = Array(firstDayViewMonth).fill(null);
+    const days = Array.from({ length: daysInViewMonth }, (_, i) => i + 1);
+    const cells: (number | null)[] = [...empties, ...days];
+    const rows: (number | null)[][] = [];
+    for (let i = 0; i < cells.length; i += 7) {
+      rows.push(cells.slice(i, i + 7));
+    }
+    const lastRow = rows[rows.length - 1];
+    if (lastRow && lastRow.length < 7) {
+      rows[rows.length - 1] = [...lastRow, ...Array(7 - lastRow.length).fill(null)];
+    }
+    return rows;
+  }, [year, month, firstDayViewMonth, daysInViewMonth]);
+
+  const tNow = new Date();
+  const todayKey = dateToKey(tNow.getFullYear(), tNow.getMonth(), tNow.getDate());
+
+  const isCurrentMonth =
+    year === new Date().getFullYear() && month === new Date().getMonth();
+
+  const atEarliestMonth =
+    joinMonth != null && year === joinMonth.y && month === joinMonth.m;
 
   const prevMonth = () => {
+    if (atEarliestMonth) return;
     if (month === 0) {
       setMonth(11);
       setYear((y) => y - 1);
@@ -100,7 +148,6 @@ export function JournalCalendarScreen() {
         mission_date: dateStr,
       });
     }
-    // past day, no entry: no action
   };
 
   return (
@@ -121,8 +168,12 @@ export function JournalCalendarScreen() {
         <View style={styles.monthRow}>
           <Text style={styles.monthLabel}>{monthLabel}</Text>
           <View style={styles.navRow}>
-            <Pressable onPress={prevMonth} style={styles.navBtn}>
-              <Ionicons name="chevron-back" size={13} color={MUTED} />
+            <Pressable
+              onPress={prevMonth}
+              style={[styles.navBtn, atEarliestMonth && styles.navBtnDisabled]}
+              disabled={atEarliestMonth}
+            >
+              <Ionicons name="chevron-back" size={13} color={atEarliestMonth ? DIM : MUTED} />
             </Pressable>
             <Pressable onPress={nextMonth} style={styles.navBtn} disabled={isCurrentMonth}>
               <Ionicons name="chevron-forward" size={13} color={MUTED} />
@@ -130,37 +181,65 @@ export function JournalCalendarScreen() {
           </View>
         </View>
         <View style={styles.weekdayRow}>
-          {DAY_NAMES.map((d) => (
-            <Text key={d} style={styles.weekdayLabel}>
+          {DAY_NAMES.map((d, i) => (
+            <Text
+              key={d}
+              style={[
+                styles.weekdayLabel,
+                { width: cellSize, marginRight: i < 6 ? calendarGap : 0 },
+              ]}
+            >
               {d.toUpperCase()}
             </Text>
           ))}
         </View>
-        <View style={styles.grid}>
-          {days.map((dateStr, i) => (
-            <View key={i} style={styles.cell}>
-              {dateStr ? (
-                <Pressable
-                  style={[
-                    styles.dayCell,
-                    dateStr === todayKey && styles.dayCellToday,
-                  ]}
-                  onPress={() => handleDayPress(dateStr)}
-                >
-                  <Text
-                    style={[
-                      styles.dayNum,
-                      dateStr === todayKey && styles.dayNumToday,
-                      entriesByDate.has(dateStr) && dateStr !== todayKey && styles.dayNumHasEntry,
-                    ]}
+        <View style={styles.calendarGrid}>
+          {viewMonthRows.map((row, rowIndex) => (
+            <View key={rowIndex} style={[styles.calendarRow, { marginBottom: calendarGap }]}>
+              {row.map((day, colIndex) => {
+                const isEmpty = day === null;
+                const dateStr =
+                  !isEmpty && day !== null
+                    ? dateToKey(year, month, day)
+                    : "";
+                const key = rowIndex * 7 + colIndex;
+
+                return (
+                  <View
+                    key={key}
+                    style={{
+                      width: cellSize,
+                      marginRight: colIndex < 6 ? calendarGap : 0,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                   >
-                    {new Date(dateStr + "T12:00:00").getDate()}
-                  </Text>
-                  {entriesByDate.has(dateStr) && (
-                    <View style={[styles.dot, dateStr === todayKey && styles.dotToday]} />
-                  )}
-                </Pressable>
-              ) : null}
+                    {!isEmpty && dateStr ? (
+                      <Pressable
+                        style={[
+                          styles.dayCell,
+                          { width: cellSize, height: cellSize, borderRadius: cellSize / 2 },
+                          dateStr === todayKey && styles.dayCellToday,
+                        ]}
+                        onPress={() => handleDayPress(dateStr)}
+                      >
+                        <Text
+                          style={[
+                            styles.dayNum,
+                            dateStr === todayKey && styles.dayNumToday,
+                            entriesByDate.has(dateStr) && dateStr !== todayKey && styles.dayNumHasEntry,
+                          ]}
+                        >
+                          {day}
+                        </Text>
+                        {entriesByDate.has(dateStr) && (
+                          <View style={[styles.dot, dateStr === todayKey && styles.dotToday]} />
+                        )}
+                      </Pressable>
+                    ) : null}
+                  </View>
+                );
+              })}
             </View>
           ))}
         </View>
@@ -217,29 +296,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  navBtnDisabled: { opacity: 0.35 },
   weekdayRow: {
     flexDirection: "row",
     marginBottom: 6,
   },
   weekdayLabel: {
-    flex: 1,
     fontSize: 9,
     fontWeight: "600",
     color: DIM,
     textAlign: "center",
     letterSpacing: 0.3,
   },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 3 },
-  cell: {
-    width: "14.28%",
-    aspectRatio: 1,
-    justifyContent: "center",
+  calendarGrid: {},
+  calendarRow: {
+    flexDirection: "row",
     alignItems: "center",
   },
   dayCell: {
-    width: "100%",
-    aspectRatio: 1,
-    borderRadius: 9999,
     justifyContent: "center",
     alignItems: "center",
     position: "relative",

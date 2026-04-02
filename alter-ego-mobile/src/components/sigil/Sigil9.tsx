@@ -2,13 +2,13 @@ import React from "react";
 import Svg, { Circle, Ellipse, G, Line, Polygon } from "react-native-svg";
 import { useAnimatedProps } from "react-native-reanimated";
 import { useHtmlSvgPulseS, useHtmlFlickerFo, useHtmlBreatheR } from "./SigilAnimations";
-import { AnimatedG, AnimatedCircle } from "./sigilSvg";
-import type { SigilProps } from "./sigilTypes";
-import { RotatingG } from "./rotateCenter";
+import { svgAdapters, AnimatedG, AnimatedCircle } from "./sigilSvg";
+import { DEFAULT_SIGIL_SIZE, type SigilProps } from "./sigilTypes";
+import { RotatingG, centerScaleMatrix } from "./rotateCenter";
 
 function CoronaRing({ r, sw, fo, dly, stroke }: { r: number; sw: number; fo: number; dly: number; stroke: string }) {
   const op = useHtmlFlickerFo(2800, fo, dly);
-  const ap = useAnimatedProps(() => ({ opacity: op.value }));
+  const ap = useAnimatedProps(() => ({ opacity: op.value }), [], svgAdapters);
   return (
     <AnimatedCircle cx={170} cy={170} r={r} stroke={stroke} strokeWidth={sw} fill="none" animatedProps={ap} />
   );
@@ -16,19 +16,23 @@ function CoronaRing({ r, sw, fo, dly, stroke }: { r: number; sw: number; fo: num
 
 const RAY_COLORS = ["#FFFFFF", "#FDE68A", "#FCD34D"];
 
-export function Sigil9({ size = 300 }: SigilProps) {
+export function Sigil9({ size = DEFAULT_SIGIL_SIZE }: SigilProps) {
   const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulseS(2000);
   const flicker = useHtmlFlickerFo(1400, 1, 0);
   const breatheOuter = useHtmlBreatheR(40, 2400, 1.05);
   const breatheInner = useHtmlBreatheR(7, 1800, 1.12);
 
-  const pulseAp = useAnimatedProps(() => ({
-    opacity: pulseOp.value,
-    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
-  }));
-  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
-  const outerAp = useAnimatedProps(() => ({ r: breatheOuter.value }));
-  const innerAp = useAnimatedProps(() => ({ r: breatheInner.value }));
+  const pulseAp = useAnimatedProps(
+    () => ({
+      opacity: pulseOp.value,
+      transform: centerScaleMatrix(pulseSc.value),
+    }),
+    [],
+    svgAdapters
+  );
+  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }), [], svgAdapters);
+  const outerAp = useAnimatedProps(() => ({ r: breatheOuter.value }), [], svgAdapters);
+  const innerAp = useAnimatedProps(() => ({ r: breatheInner.value }), [], svgAdapters);
 
   return (
     <Svg width={size} height={size} viewBox="0 0 340 340">

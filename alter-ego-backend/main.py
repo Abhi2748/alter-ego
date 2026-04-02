@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.api.auth import router as auth_router
+from app.api.feedback import router as feedback_router
 from app.api.leaderboard import router as leaderboard_router
 from app.api.mail import router as mail_router
 from app.api.mirror import router as mirror_router
@@ -20,6 +21,7 @@ app = FastAPI(title="ALTER EGO API", version="1.0.0")
 
 # Only routers built in the current build
 app.include_router(auth_router)
+app.include_router(feedback_router)
 app.include_router(onboarding_router)
 app.include_router(missions_router)
 app.include_router(twin_router)

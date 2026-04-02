@@ -1,6 +1,6 @@
 /**
  * Twin Comparison Screen — Tab 3. Today + Journal tabs.
- * Arena, lifetime XP strip, verdict, 7-day heatmap, pillar DNA; Twin journal when API exists.
+ * Arena, today's XP strip (matches Twin strip / state reveal rules), verdict, heatmap, pillar DNA.
  */
 
 import React, { useCallback, useMemo, useState } from "react";
@@ -38,8 +38,12 @@ export type TwinJournalEntry = {
   entry_date: string;
   content: string;
   relationship_phase: string;
+  /** User missions that day (reference). */
   missions_completed: number;
   missions_total: number;
+  /** Twin's simulated missions — shown in the journal card header. */
+  twin_missions_completed?: number;
+  twin_missions_total?: number;
   is_new?: boolean;
 };
 
@@ -543,8 +547,9 @@ export function TwinComparisonScreen() {
     (navigation as any).navigate("TwinChat");
   };
 
-  const userXpTotal = twinData?.user.total_xp ?? 0;
-  const twinXpTotal = twinData?.twin.twin_xp ?? 0;
+  /** Today's XP only — same prorated reveal logic as Home strip and /twin/state (not lifetime totals). */
+  const userXpToday = twinData?.user.xp_earned_today ?? 0;
+  const twinXpToday = twinData?.twin.xp_earned_today ?? 0;
 
   const weekHeatmap: DayComparison[] = twinData?.week_heatmap ?? [];
   const pillarDna: PillarDNA[] = twinData?.pillar_dna ?? [];
@@ -554,9 +559,9 @@ export function TwinComparisonScreen() {
     stripData?.strip_message?.trim() ||
     (loading && !twinData ? "…" : DEFAULT_TWIN_VERDICT);
 
-  const xpMax = Math.max(userXpTotal, twinXpTotal, 1);
-  const userXpPct = Math.min((userXpTotal / xpMax) * 100, 100);
-  const twinXpPct = Math.min((twinXpTotal / xpMax) * 100, 100);
+  const xpMax = Math.max(userXpToday, twinXpToday, 1);
+  const userXpPct = Math.min((userXpToday / xpMax) * 100, 100);
+  const twinXpPct = Math.min((twinXpToday / xpMax) * 100, 100);
 
   const userStage = Math.min(Math.max(twinData?.user.character_stage ?? 1, 1), 6);
   const twinStage = Math.min(Math.max(twinData?.twin.character_stage ?? 1, 1), 6);
@@ -610,27 +615,30 @@ export function TwinComparisonScreen() {
         </View>
       </View>
 
-      <View style={styles.xpStrip}>
-        <Text style={styles.xpYouLbl}>{userXpTotal.toLocaleString()} XP</Text>
-        <View style={styles.xpTrack}>
-          <View style={[styles.xpFillTwin, { width: `${twinXpPct}%` }]} />
-          <View style={[styles.xpFillUser, { width: `${userXpPct}%` }]} />
-          <View
-            style={[
-              styles.xpMarker,
-              styles.xpMarkerUser,
-              { left: `${Math.max(0, userXpPct - 1.5)}%` },
-            ]}
-          />
-          <View
-            style={[
-              styles.xpMarker,
-              styles.xpMarkerTwin,
-              { left: `${Math.max(0, twinXpPct - 1.5)}%` },
-            ]}
-          />
+      <View style={styles.xpStripWrap}>
+        <Text style={styles.xpStripCaption}>Today's XP</Text>
+        <View style={styles.xpStrip}>
+          <Text style={styles.xpYouLbl}>{userXpToday.toLocaleString()} XP</Text>
+          <View style={styles.xpTrack}>
+            <View style={[styles.xpFillTwin, { width: `${twinXpPct}%` }]} />
+            <View style={[styles.xpFillUser, { width: `${userXpPct}%` }]} />
+            <View
+              style={[
+                styles.xpMarker,
+                styles.xpMarkerUser,
+                { left: `${Math.max(0, userXpPct - 1.5)}%` },
+              ]}
+            />
+            <View
+              style={[
+                styles.xpMarker,
+                styles.xpMarkerTwin,
+                { left: `${Math.max(0, twinXpPct - 1.5)}%` },
+              ]}
+            />
+          </View>
+          <Text style={styles.xpTwinLbl}>{twinXpToday.toLocaleString()} XP</Text>
         </View>
-        <Text style={styles.xpTwinLbl}>{twinXpTotal.toLocaleString()} XP</Text>
       </View>
 
       {twinVerdict ? <NarrativeConfrontation text={twinVerdict} /> : null}
@@ -785,8 +793,8 @@ export function TwinComparisonScreen() {
             <View style={styles.journalAccent} />
             <Text style={styles.journalDate}>
               {formatJournalDateLabel(entry.entry_date)}
-              {entry.missions_total > 0
-                ? ` · ${entry.missions_completed}/${entry.missions_total}`
+              {(entry.twin_missions_total ?? 0) > 0
+                ? ` · ${entry.twin_missions_completed ?? 0}/${entry.twin_missions_total}`
                 : ""}
             </Text>
             <Text style={styles.journalText}>&ldquo;{entry.content}&rdquo;</Text>
@@ -1142,14 +1150,25 @@ const styles = StyleSheet.create({
     bottom: 12,
   },
 
+  xpStripWrap: {
+    backgroundColor: "rgba(9,9,26,0.55)",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(42,48,80,0.2)",
+    paddingTop: 6,
+    paddingBottom: 9,
+  },
+  xpStripCaption: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7280",
+    letterSpacing: 0.4,
+    paddingHorizontal: 18,
+    marginBottom: 4,
+  },
   xpStrip: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 18,
-    paddingVertical: 9,
-    backgroundColor: "rgba(9,9,26,0.55)",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(42,48,80,0.2)",
     gap: 10,
   },
   xpYouLbl: {
@@ -1267,10 +1286,11 @@ const styles = StyleSheet.create({
   heatmapSection: { marginHorizontal: 14, marginTop: 14 },
   heatmapGrid: {
     flexDirection: "row",
-    gap: 4,
     alignItems: "flex-end",
+    justifyContent: "space-between",
   },
-  heatmapDay: { flex: 1, alignItems: "center", gap: 3 },
+  /** No gap + flex:1 — gap caused the 7th column to wrap (Sat looked “missing”). */
+  heatmapDay: { flex: 1, minWidth: 0, alignItems: "center", gap: 3 },
   heatmapBarWrap: {
     width: "100%",
     minHeight: 48,

@@ -84,7 +84,7 @@ async def get_leaderboard(authorization: str = Header(None)):
         _apply_leaderboard_pool_filter(
             supabase_admin.table("users").select(
                 "id, username, power_score, character_stage, "
-                "pet_stage, pet_unlocked, current_streak, subscription_tier"
+                "pet_stage, pet_unlocked, current_streak, subscription_tier, avatar_url"
             ),
             use_beta_pool,
         )
@@ -125,6 +125,7 @@ async def get_leaderboard(authorization: str = Header(None)):
                 else None,
                 "current_streak": u.get("current_streak", 0),
                 "is_current_user": u["id"] == user_id,
+                "avatar_url": u.get("avatar_url"),
             }
         )
 

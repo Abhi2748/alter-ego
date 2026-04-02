@@ -302,7 +302,7 @@ async def twin_simulation_job():
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    from app.services.twin_service import generate_and_store_twin_journal, simulate_twin_day
+    from app.services.twin_service import simulate_twin_day
     from app.services.strip_message_service import update_strip_message
     from app.core.supabase_client import supabase_admin
     from app.services.mission_service import get_user_date
@@ -331,8 +331,8 @@ async def twin_simulation_job():
 
             await simulate_twin_day(user["id"])
 
-            # Twin daily journal — fire-and-forget; must not block strip update or other users.
-            asyncio.create_task(generate_and_store_twin_journal(str(user["id"]), today_str))
+            # Twin journal is written at local midnight for the day that just ended, not at 1am for "today"
+            # (avoids empty user mission counts and premature release). See twin_journal_midnight_job.
 
             await update_strip_message(user["id"])
             success_count += 1
@@ -535,6 +535,7 @@ async def user_local_maintenance_job():
 
     from app.agents.report_agent import generate_day_summary
     from app.core.supabase_client import supabase_admin
+    from app.services.contact_coordination import record_contact
     from app.services.echo_service import (
         fire_contradiction_for_user,
         fire_echo_for_user,
@@ -587,13 +588,17 @@ async def user_local_maintenance_job():
 
                     if days_active >= 7:
                         if should_fire_echo(user):
-                            await fire_echo_for_user(
+                            fired_echo = await fire_echo_for_user(
                                 supabase_admin, user_id, user, echo_day_number
                             )
+                            if fired_echo:
+                                await record_contact(user_id, "echo", tz_str)
                         if should_fire_contradiction(user):
-                            await fire_contradiction_for_user(
+                            fired_contra = await fire_contradiction_for_user(
                                 supabase_admin, user_id, user, echo_day_number
                             )
+                            if fired_contra:
+                                await record_contact(user_id, "contradiction", tz_str)
                 except Exception as e:
                     logger.error(
                         json.dumps(

@@ -170,6 +170,26 @@ function UserIncompleteEntry({ entry }: { entry: FeedEntry }) {
   );
 }
 
+function TwinIncompleteEntry({ entry }: { entry: FeedEntry }) {
+  return (
+    <View style={[styles.entry, styles.twinIncompleteEntryBg]}>
+      <View style={styles.timeCol} />
+      <View style={styles.dotCol}>
+        <View style={styles.twinIncompleteDot} />
+        <LinearGradient colors={[...CONNECTOR_GREY]} style={styles.connectorLine} />
+      </View>
+      <View style={styles.entryContent}>
+        <Text style={styles.twinLabel}>TWIN</Text>
+        <Text style={styles.missionTitleDimmed} numberOfLines={2}>
+          {entry.mission_title}
+        </Text>
+        <TypeChip missionType={entry.mission_type} corePillar={entry.core_pillar} dimmed />
+        <Text style={styles.incompleteLabel2Twin}>Not completed</Text>
+      </View>
+    </View>
+  );
+}
+
 function ObservationEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={styles.obsCard}>
@@ -326,6 +346,8 @@ export function TodaysStoryScreen() {
         return <UserDoneEntry entry={entry} />;
       case "user_incomplete":
         return <UserIncompleteEntry entry={entry} />;
+      case "twin_incomplete":
+        return <TwinIncompleteEntry entry={entry} />;
       case "observation":
         return <ObservationEntry entry={entry} />;
       case "day_summary":
@@ -531,6 +553,12 @@ const styles = StyleSheet.create({
     borderLeftColor: "transparent",
     paddingHorizontal: 20,
   },
+  twinIncompleteEntryBg: {
+    backgroundColor: "rgba(139,92,246,0.02)",
+    borderLeftWidth: 2,
+    borderLeftColor: "rgba(139,92,246,0.15)",
+    paddingHorizontal: 20,
+  },
 
   // Column 1: time
   timeCol: {
@@ -580,6 +608,16 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     borderWidth: 2,
     borderColor: "#374151",
+    marginTop: 2,
+    flexShrink: 0,
+  },
+  twinIncompleteDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "transparent",
+    borderWidth: 2,
+    borderColor: "rgba(139,92,246,0.4)",
     marginTop: 2,
     flexShrink: 0,
   },
@@ -650,6 +688,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: "Inter_500Medium",
     color: "#374151",
+    marginTop: 4,
+  },
+  incompleteLabel2Twin: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: "rgba(167,139,250,0.65)",
     marginTop: 4,
   },
 

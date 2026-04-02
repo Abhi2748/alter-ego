@@ -15,5 +15,7 @@ export function useTwinStrip() {
     staleTime: 30 * 1000,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
+    refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: false,
   });
 }

@@ -48,6 +48,8 @@ type StreakApiResponse = {
   current_streak: number;
   longest_streak: number;
   streak_requirement_tier: string;
+  /** Days with ≥1 mission since registration (all-time; not limited to heatmap window). */
+  overall_active_days?: number;
   /** First calendar day included in heatmap (YYYY-MM-DD); from API after registration filter */
   heatmap_eligible_since?: string | null;
   heatmap: Array<{
@@ -216,14 +218,24 @@ export function ProfileStreakScreen() {
     return set;
   }, [monthEntries]);
 
+  /** Active days in the current calendar year (not tied to which month is open in the calendar). */
   const activeDaysThisYear = useMemo(() => {
     if (!effectiveHeatmap.length) return 0;
-    const y = viewMonth.year;
+    const y = new Date().getFullYear();
     return effectiveHeatmap.filter((r) => {
       const p = parseIsoDateParts(String(r.date));
       return p !== null && p.y === y && (r.missions_done ?? 0) > 0;
     }).length;
-  }, [effectiveHeatmap, viewMonth.year]);
+  }, [effectiveHeatmap]);
+
+  /** Fallback if API omits `overall_active_days` (older backend): count from loaded heatmap slice. */
+  const overallActiveDaysFallback = useMemo(() => {
+    if (!effectiveHeatmap.length) return 0;
+    return effectiveHeatmap.filter((r) => (r.missions_done ?? 0) > 0).length;
+  }, [effectiveHeatmap]);
+
+  const overallActiveDays =
+    data?.overall_active_days != null ? data.overall_active_days : overallActiveDaysFallback;
 
   const isViewingCurrentMonth =
     viewMonth.year === clock.getFullYear() && viewMonth.month === clock.getMonth();
@@ -305,15 +317,8 @@ export function ProfileStreakScreen() {
           </Animated.View>
         </View>
 
-        {/* Stat cards */}
+        {/* Stat cards — current streak is in the hero; longest / this year / all-time */}
         <View style={styles.statCardsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statCardLabel}>CURRENT</Text>
-            <Text style={[styles.statCardValue, { color: "#F97316" }]}>
-              🔥{isLoading ? "—" : String(data?.current_streak ?? 0)}
-            </Text>
-            <Text style={styles.statCardSub}>days</Text>
-          </View>
           <View style={styles.statCard}>
             <Text style={styles.statCardLabel}>LONGEST</Text>
             <Text style={[styles.statCardValue, { color: "#E5E7EB" }]}>
@@ -327,6 +332,14 @@ export function ProfileStreakScreen() {
               {isLoading ? "—" : String(activeDaysThisYear)}
             </Text>
             <Text style={styles.statCardSub}>active days</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statCardLabel}>OVERALL</Text>
+            <Text style={[styles.statCardValueYear, { color: "#E5E7EB" }]}>
+              {isLoading ? "—" : String(overallActiveDays)}
+            </Text>
+            <Text style={styles.statCardSub}>active days</Text>
+            <Text style={styles.statCardSubJoin}>since you joined</Text>
           </View>
         </View>
 
@@ -592,6 +605,12 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: "#374151",
     marginTop: 1,
+  },
+  statCardSubJoin: {
+    fontSize: 8,
+    color: "#4B5563",
+    marginTop: 3,
+    letterSpacing: 0.2,
   },
 
   calendarCard: {

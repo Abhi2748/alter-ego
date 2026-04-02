@@ -8,6 +8,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/store/authStore';
 import { useUserStore } from '@/store/userStore';
 import { apiClient } from '@/services/api';
@@ -82,6 +83,8 @@ export function AppProviders({ children }: AppProvidersProps) {
   }, [isAuthenticated]);
 
   return (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    <SafeAreaProvider>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </SafeAreaProvider>
   );
 }

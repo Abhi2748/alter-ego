@@ -1,5 +1,6 @@
 import React from "react";
 import type { SigilProps } from "./sigilTypes";
+import { DEFAULT_SIGIL_SIZE } from "./sigilTypes";
 import { Sigil1 } from "./Sigil1";
 import { Sigil2 } from "./Sigil2";
 import { Sigil3 } from "./Sigil3";
@@ -24,8 +25,8 @@ const SIGILS: React.FC<SigilProps>[] = [
   Sigil10,
 ];
 
-export function SigilRenderer({ level, ...props }: SigilProps & { level: number }) {
+export function SigilRenderer({ level, size = DEFAULT_SIGIL_SIZE, ...props }: SigilProps & { level: number }) {
   const L = Math.min(10, Math.max(1, Math.floor(level)));
   const Comp = SIGILS[L - 1];
-  return <Comp {...props} />;
+  return <Comp size={size} {...props} />;
 }

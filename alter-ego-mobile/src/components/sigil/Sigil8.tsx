@@ -2,13 +2,13 @@ import React from "react";
 import Svg, { Circle, Ellipse, G, Line, Path } from "react-native-svg";
 import { useAnimatedProps } from "react-native-reanimated";
 import { useHtmlSvgPulseS, useHtmlFlickerFo, useHtmlBreatheR } from "./SigilAnimations";
-import { AnimatedG, AnimatedCircle } from "./sigilSvg";
-import type { SigilProps } from "./sigilTypes";
-import { RotatingG } from "./rotateCenter";
+import { svgAdapters, AnimatedG, AnimatedCircle } from "./sigilSvg";
+import { DEFAULT_SIGIL_SIZE, type SigilProps } from "./sigilTypes";
+import { RotatingG, centerScaleMatrix } from "./rotateCenter";
 
 function FlickerOutline({ r, fo, delayMs }: { r: number; fo: number; delayMs: number }) {
   const op = useHtmlFlickerFo(3000, fo, delayMs);
-  const ap = useAnimatedProps(() => ({ opacity: op.value }));
+  const ap = useAnimatedProps(() => ({ opacity: op.value }), [], svgAdapters);
   return (
     <AnimatedCircle
       cx={170}
@@ -29,17 +29,21 @@ const ARC_D = "M170 260 Q100 290 80 240 Q60 190 100 165 Q120 152 140 162";
 
 const RAY_COLORS = ["#FB7185", "#F43F5E", "#FBBF24"];
 
-export function Sigil8({ size = 300 }: SigilProps) {
+export function Sigil8({ size = DEFAULT_SIGIL_SIZE }: SigilProps) {
   const { op: pulseOp, sc: pulseSc } = useHtmlSvgPulseS(2200);
   const flicker = useHtmlFlickerFo(1600, 1, 0);
   const breatheCore = useHtmlBreatheR(40, 2200, 1.05);
 
-  const pulseAp = useAnimatedProps(() => ({
-    opacity: pulseOp.value,
-    transform: `translate(170, 170) scale(${pulseSc.value}) translate(-170, -170)`,
-  }));
-  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }));
-  const coreAp = useAnimatedProps(() => ({ r: breatheCore.value }));
+  const pulseAp = useAnimatedProps(
+    () => ({
+      opacity: pulseOp.value,
+      transform: centerScaleMatrix(pulseSc.value),
+    }),
+    [],
+    svgAdapters
+  );
+  const flickAp = useAnimatedProps(() => ({ opacity: flicker.value }), [], svgAdapters);
+  const coreAp = useAnimatedProps(() => ({ r: breatheCore.value }), [], svgAdapters);
 
   return (
     <Svg width={size} height={size} viewBox="0 0 340 340">

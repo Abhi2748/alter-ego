@@ -50,8 +50,8 @@ const TIMELINE_OPTIONS: {
 interface AddInterestSheetProps {
   visible: boolean;
   onClose: () => void;
-  onSave: (payload: PostInterestPayload) => Promise<void>;
-  onSuccess: () => void;
+  /** Parent closes the sheet and runs the mutation (fire-and-forget). */
+  onSave: (payload: PostInterestPayload) => void;
   /** Called when onSave rejects so the parent can show a toast */
   onSaveError?: (e: unknown) => void;
 }
@@ -60,7 +60,6 @@ export function AddInterestSheet({
   visible,
   onClose,
   onSave,
-  onSuccess,
   onSaveError,
 }: AddInterestSheetProps) {
   const insets = useSafeAreaInsets();
@@ -72,7 +71,6 @@ export function AddInterestSheet({
   const [targetTimeline, setTargetTimeline] = useState<NonNullable<PostInterestPayload["target_timeline"]>>(
     "no_deadline"
   );
-  const [saving, setSaving] = useState(false);
 
   const canNext1 = interestDescription.trim().length > 0;
   const canNext2 = level != null;
@@ -99,32 +97,27 @@ export function AddInterestSheet({
     if (step < 4) setStep((s) => s + 1);
   }, [step]);
 
-  const handleSave = useCallback(async () => {
-    if (!canSave || saving) return;
-    setSaving(true);
+  const handleSave = useCallback(() => {
+    if (!canSave) return;
     try {
-      await onSave({
+      onSave({
         interest_description: interestDescription.trim(),
         interest_level: level ?? "Still figuring it out",
         goal_description: goalDescription.trim(),
         schedule_days: scheduleDays,
         target_timeline: targetTimeline,
       });
-      onSuccess(); // close sheet + refetch
     } catch (e) {
       onSaveError?.(e);
-    } finally {
-      setSaving(false);
     }
   }, [
     canSave,
-    saving,
     interestDescription,
     level,
     goalDescription,
     scheduleDays,
+    targetTimeline,
     onSave,
-    onSuccess,
     onSaveError,
   ]);
 
@@ -338,23 +331,21 @@ export function AddInterestSheet({
                 <Text style={styles.scheduleSummary}>{scheduleSummary}</Text>
                 <Pressable
                   onPress={handleSave}
-                  disabled={!canSave || saving}
-                  style={[styles.nextBtn, (!canSave || saving) && styles.nextBtnDisabled]}
+                  disabled={!canSave}
+                  style={[styles.nextBtn, !canSave && styles.nextBtnDisabled]}
                 >
-                  {canSave && !saving ? (
+                  {canSave ? (
                     <LinearGradient
                       colors={[VIOLET_DEEP, VIOLET]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.nextBtnGradient}
                     >
-                      <Text style={styles.nextBtnText}>{saving ? "Saving…" : "Save Interest"}</Text>
+                      <Text style={styles.nextBtnText}>Save Interest</Text>
                     </LinearGradient>
                   ) : (
                     <View style={styles.nextBtnDisabledInner}>
-                      <Text style={styles.nextBtnTextDisabled}>
-                        {saving ? "Saving…" : "Save Interest"}
-                      </Text>
+                      <Text style={styles.nextBtnTextDisabled}>Save Interest</Text>
                     </View>
                   )}
                 </Pressable>

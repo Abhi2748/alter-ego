@@ -1,9 +1,8 @@
 /**
- * Settings → Account. Signed-in method, connect Apple/Google/Email.
- * Shared header pattern + gradient bg. Spec: Account.
+ * Settings → Account. Signed-in method; connect Google or email (Apple: coming soon).
  */
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -15,6 +14,9 @@ import {
   Modal,
   TextInput,
   Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Keyboard,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,7 +24,11 @@ import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import Svg, { Path } from "react-native-svg";
+import { makeRedirectUri } from "expo-auth-session";
 import { supabase } from "@/utils/supabase";
+import { linkGoogleAccount } from "@/services/auth";
+import { useAuthStore } from "@/store/authStore";
+import { evaluatePasswordStrength, isValidEmailFormat } from "@/utils/accountValidation";
 
 const BG_GRADIENT = ["#09091A", "#07080F"] as const;
 const SURFACE = "#111623";
@@ -51,90 +57,156 @@ function AppleIcon() {
   );
 }
 
-type Provider = "apple" | "google" | "email";
+type LinkedProvider = "apple" | "google" | "email";
 
 export function AccountScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [provider, setProvider] = useState<Provider | null>(null);
+  const refreshSession = useAuthStore((s) => s.refreshSession);
+
+  const [isAnonymous, setIsAnonymous] = useState(false);
+  const [provider, setProvider] = useState<LinkedProvider | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [emailSheetVisible, setEmailSheetVisible] = useState(false);
   const [emailValue, setEmailValue] = useState("");
   const [passwordValue, setPasswordValue] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const passwordEval = useMemo(() => evaluatePasswordStrength(passwordValue.trim()), [passwordValue]);
+  const emailOk = useMemo(() => isValidEmailFormat(emailValue), [emailValue]);
+  const canSubmitEmail = emailOk && passwordEval.isStrong;
 
   const loadSession = useCallback(async () => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (session?.user?.app_metadata?.provider) {
-      const p = session.user.app_metadata.provider as string;
-      if (p === "apple") setProvider("apple");
-      else if (p === "google") setProvider("google");
-      else setProvider("email");
-    } else {
-      setProvider("email");
+    const user = session?.user;
+    if (!user) {
+      setIsAnonymous(false);
+      setProvider(null);
+      setEmail(null);
+      return;
     }
-    setEmail(session?.user?.email ?? null);
+
+    if (user.is_anonymous === true) {
+      setIsAnonymous(true);
+      setProvider(null);
+      setEmail(null);
+      return;
+    }
+
+    setIsAnonymous(false);
+    setEmail(user.email ?? null);
+    const providers = (user.identities ?? []).map((i) => i.provider);
+    if (providers.includes("google")) setProvider("google");
+    else if (providers.includes("apple")) setProvider("apple");
+    else setProvider("email");
   }, []);
 
   useEffect(() => {
-    loadSession();
+    void loadSession();
   }, [loadSession]);
 
-  const providerLabel = provider === "apple" ? "Apple" : provider === "google" ? "Google" : "Email";
-  const providerEmail = email ?? "Signed in with " + providerLabel;
+  const providerLabel =
+    isAnonymous
+      ? "Anonymous"
+      : provider === "apple"
+        ? "Apple"
+        : provider === "google"
+          ? "Google"
+          : "Email";
+
+  const statusSubtitle = isAnonymous
+    ? "Connect Google or email so you don’t lose progress on this device."
+    : email
+      ? email
+      : `Signed in with ${providerLabel}`;
 
   const handleManage = useCallback(() => {
-    Linking.openURL(ACCOUNT_MANAGE_URL);
-  }, []);
+    if (isAnonymous) return;
+    void Linking.openURL(ACCOUNT_MANAGE_URL);
+  }, [isAnonymous]);
 
-  const handleConnectApple = useCallback(async () => {
-    if (provider === "apple") return;
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({ provider: "apple" });
-      if (error) throw error;
-    } catch (e) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Could not connect Apple");
-    }
-  }, [provider]);
+  const handleConnectApple = useCallback(() => {
+    Alert.alert("Coming soon", "Sign in with Apple will be available in a future update.");
+  }, []);
 
   const handleConnectGoogle = useCallback(async () => {
     if (provider === "google") return;
+    setBusy("google");
     try {
-      const { error } = await supabase.auth.signInWithOAuth({ provider: "google" });
-      if (error) throw error;
+      const result = await linkGoogleAccount();
+      if (!result.success) {
+        Alert.alert("Couldn’t connect Google", result.error ?? "Try again.");
+        return;
+      }
+      await refreshSession();
+      await loadSession();
     } catch (e) {
       Alert.alert("Error", e instanceof Error ? e.message : "Could not connect Google");
+    } finally {
+      setBusy(null);
     }
-  }, [provider]);
+  }, [provider, refreshSession, loadSession]);
+
+  const closeEmailSheet = useCallback(() => {
+    Keyboard.dismiss();
+    setEmailSheetVisible(false);
+    setEmailValue("");
+    setPasswordValue("");
+  }, []);
 
   const handleConnectEmail = useCallback(() => {
-    if (provider === "email") return;
+    if (!isAnonymous && provider === "email") return;
+    if (!isAnonymous && provider != null) {
+      Alert.alert(
+        "Already signed in",
+        `You’re connected with ${provider === "google" ? "Google" : "Apple"}. Use Manage to change your account on the web, or add email there.`
+      );
+      return;
+    }
     setEmailValue("");
     setPasswordValue("");
     setEmailSheetVisible(true);
-  }, [provider]);
+  }, [isAnonymous, provider]);
 
   const handleEmailSubmit = useCallback(async () => {
     const emailTrim = emailValue.trim();
     const pass = passwordValue.trim();
-    if (!emailTrim || !pass) {
-      Alert.alert("Required", "Enter email and password.");
+    if (!canSubmitEmail) {
+      Alert.alert("Check your details", "Use a valid email and a password that meets every requirement below.");
       return;
     }
+    setBusy("email");
     try {
-      const { error } = await supabase.auth.linkIdentity({
-        provider: "email",
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user?.is_anonymous) {
+        Alert.alert("Unavailable", "Email setup is only available for guest sessions.");
+        return;
+      }
+      const emailRedirectTo = makeRedirectUri({ scheme: "alter-ego" });
+      const { error } = await supabase.auth.updateUser({
         email: emailTrim,
         password: pass,
+        options: {
+          emailRedirectTo,
+        },
       });
       if (error) throw error;
-      setEmailSheetVisible(false);
-      loadSession();
+      closeEmailSheet();
+      await refreshSession();
+      await loadSession();
     } catch (e) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Could not link email");
+      Alert.alert("Error", e instanceof Error ? e.message : "Could not connect email");
+    } finally {
+      setBusy(null);
     }
-  }, [emailValue, passwordValue, loadSession]);
+  }, [canSubmitEmail, emailValue, passwordValue, refreshSession, loadSession, closeEmailSheet]);
+
+  const emailInvalidHint =
+    emailValue.trim().length > 0 && !emailOk ? "Enter a valid email address." : null;
 
   return (
     <View style={styles.container}>
@@ -153,17 +225,22 @@ export function AccountScreen() {
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 60 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.sectionLabel}>SIGNED IN AS</Text>
         <View style={styles.statusCard}>
-          <View style={[styles.statusDot, provider && styles.statusDotConnected]} />
+          <View style={[styles.statusDot, (provider != null || isAnonymous) && styles.statusDotConnected]} />
           <View style={styles.statusInfo}>
             <Text style={styles.statusProvider}>{providerLabel}</Text>
-            <Text style={styles.statusEmail}>{providerEmail}</Text>
+            <Text style={styles.statusEmail}>{statusSubtitle}</Text>
           </View>
-          <Pressable onPress={handleManage}>
-            <Text style={styles.manageLink}>Manage</Text>
-          </Pressable>
+          {!isAnonymous ? (
+            <Pressable onPress={handleManage} disabled={busy != null}>
+              <Text style={styles.manageLink}>Manage</Text>
+            </Pressable>
+          ) : (
+            <View style={{ width: 52 }} />
+          )}
         </View>
 
         <Text style={styles.sectionLabel}>CONNECT ANOTHER METHOD</Text>
@@ -177,16 +254,21 @@ export function AccountScreen() {
             </View>
             <Text style={styles.methodLabel}>Apple</Text>
             <Text style={[styles.methodBadge, provider === "apple" && styles.methodBadgeConnected]}>
-              {provider === "apple" ? "Connected" : "Not connected"}
+              {provider === "apple" ? "Connected" : "Coming soon"}
             </Text>
           </Pressable>
           <View style={styles.methodDivider} />
           <Pressable
             onPress={handleConnectGoogle}
+            disabled={busy != null || provider === "google"}
             style={({ pressed }) => [styles.methodRow, pressed && styles.methodRowPressed]}
           >
             <View style={styles.iconBoxGoogle}>
-              <Ionicons name="logo-google" size={20} color={TEXT} />
+              {busy === "google" ? (
+                <ActivityIndicator color={TEXT} />
+              ) : (
+                <Ionicons name="logo-google" size={20} color={TEXT} />
+              )}
             </View>
             <Text style={styles.methodLabel}>Google</Text>
             <Text style={[styles.methodBadge, provider === "google" && styles.methodBadgeConnected]}>
@@ -196,56 +278,130 @@ export function AccountScreen() {
           <View style={styles.methodDivider} />
           <Pressable
             onPress={handleConnectEmail}
+            disabled={busy != null || (!isAnonymous && provider === "email")}
             style={({ pressed }) => [styles.methodRow, styles.methodRowLast, pressed && styles.methodRowPressed]}
           >
             <View style={styles.iconBoxEmail}>
-              <Ionicons name="mail-outline" size={18} color={VIOLET} />
+              {busy === "email" ? (
+                <ActivityIndicator color={VIOLET} />
+              ) : (
+                <Ionicons name="mail-outline" size={18} color={VIOLET} />
+              )}
             </View>
             <Text style={styles.methodLabel}>Email</Text>
-            <Text style={[styles.methodBadge, provider === "email" && styles.methodBadgeConnected]}>
-              {provider === "email" ? "Connected" : "Not connected"}
+            <Text
+              style={[
+                styles.methodBadge,
+                !isAnonymous && provider === "email" && styles.methodBadgeConnected,
+                isAnonymous && styles.methodBadgeConnected,
+              ]}
+            >
+              {!isAnonymous && provider === "email"
+                ? "Connected"
+                : isAnonymous
+                  ? "Recommended"
+                  : "Not connected"}
             </Text>
           </Pressable>
         </View>
 
         <Text style={styles.note}>
-          Connecting multiple methods lets you sign in different ways without losing your progress.
+          Connecting Google or email lets you sign in on a new device without losing progress. Apple sign-in is coming
+          soon.
         </Text>
       </ScrollView>
 
-      <Modal visible={emailSheetVisible} transparent animationType="slide">
-        <Pressable style={styles.sheetBackdrop} onPress={() => setEmailSheetVisible(false)}>
-          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.sheetTitle}>Connect Email</Text>
-            <TextInput
-              style={styles.sheetInput}
-              value={emailValue}
-              onChangeText={setEmailValue}
-              placeholder="Email"
-              placeholderTextColor={VERY_DIM}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <TextInput
-              style={styles.sheetInput}
-              value={passwordValue}
-              onChangeText={setPasswordValue}
-              placeholder="Password"
-              placeholderTextColor={VERY_DIM}
-              secureTextEntry
-            />
-            <Pressable onPress={handleEmailSubmit} style={styles.sheetSubmit}>
-              <LinearGradient
-                colors={["#5B21B6", "#8B5CF6"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.sheetSubmitGradient}
+      <Modal
+        visible={emailSheetVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeEmailSheet}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalRoot}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
+        >
+          <View style={styles.sheetBackdrop}>
+            <Pressable style={styles.sheetDimTap} onPress={Keyboard.dismiss} accessibilityLabel="Dismiss keyboard" />
+            <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+              <View style={styles.sheetHeaderRow}>
+                <Text style={styles.sheetTitle}>{isAnonymous ? "Add email & password" : "Connect Email"}</Text>
+                <Pressable onPress={closeEmailSheet} style={styles.sheetCloseBtn} hitSlop={14} accessibilityLabel="Close">
+                  <Ionicons name="close" size={24} color={MUTED} />
+                </Pressable>
+              </View>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+                contentContainerStyle={styles.sheetScrollContent}
               >
-                <Text style={styles.sheetSubmitText}>Connect</Text>
-              </LinearGradient>
-            </Pressable>
-          </Pressable>
-        </Pressable>
+                <Text style={styles.sheetHint}>
+                  {isAnonymous
+                    ? "This upgrades your guest session to a full account. Choose a strong password (type your own — we won’t suggest one)."
+                    : "Link an email identity to your account."}
+                </Text>
+                <TextInput
+                  style={[styles.sheetInput, emailInvalidHint ? styles.sheetInputErr : null]}
+                  value={emailValue}
+                  onChangeText={setEmailValue}
+                  placeholder="Email"
+                  placeholderTextColor={VERY_DIM}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  textContentType="emailAddress"
+                  importantForAutofill="no"
+                />
+                {emailInvalidHint ? <Text style={styles.fieldErr}>{emailInvalidHint}</Text> : null}
+                <TextInput
+                  style={styles.sheetInput}
+                  value={passwordValue}
+                  onChangeText={setPasswordValue}
+                  placeholder="Password"
+                  placeholderTextColor={VERY_DIM}
+                  secureTextEntry
+                  autoCorrect={false}
+                  spellCheck={false}
+                  autoComplete="off"
+                  textContentType="none"
+                  importantForAutofill="no"
+                />
+                <Text style={styles.criteriaTitle}>Password must have:</Text>
+                {passwordEval.criteria.map((c) => (
+                  <View key={c.id} style={styles.criterionRow}>
+                    <Ionicons
+                      name={c.met ? "checkmark-circle" : "ellipse-outline"}
+                      size={16}
+                      color={c.met ? VIOLET : DIM}
+                    />
+                    <Text style={[styles.criterionText, c.met && styles.criterionMet]}>{c.label}</Text>
+                  </View>
+                ))}
+                <Pressable
+                  onPress={() => void handleEmailSubmit()}
+                  disabled={!canSubmitEmail || busy != null}
+                  style={({ pressed }) => [
+                    styles.sheetSubmit,
+                    (!canSubmitEmail || busy != null) && styles.sheetSubmitDisabled,
+                    pressed && canSubmitEmail && !busy && styles.sheetSubmitPressed,
+                  ]}
+                >
+                  <LinearGradient
+                    colors={!canSubmitEmail || busy != null ? ["#3B2A55", "#4C3D66"] : ["#5B21B6", "#8B5CF6"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.sheetSubmitGradient}
+                  >
+                    <Text style={styles.sheetSubmitText}>{busy === "email" ? "…" : "Connect"}</Text>
+                  </LinearGradient>
+                </Pressable>
+              </ScrollView>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -369,19 +525,34 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     lineHeight: 16,
   },
+  modalRoot: { flex: 1 },
   sheetBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
     justifyContent: "flex-end",
   },
+  sheetDimTap: {
+    flex: 1,
+    minHeight: 48,
+  },
   sheet: {
     backgroundColor: SURFACE,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 20,
-    paddingBottom: 32,
+    paddingTop: 16,
+    paddingHorizontal: 20,
+    maxHeight: "92%",
   },
-  sheetTitle: { fontSize: 16, fontWeight: "700", color: TEXT, marginBottom: 16 },
+  sheetHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  sheetCloseBtn: { padding: 4 },
+  sheetScrollContent: { paddingBottom: 8 },
+  sheetTitle: { fontSize: 16, fontWeight: "700", color: TEXT, flex: 1, paddingRight: 8 },
+  sheetHint: { fontSize: 12, color: MUTED, marginBottom: 16, lineHeight: 18 },
   sheetInput: {
     backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1,
@@ -391,9 +562,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 14,
     color: TEXT,
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  sheetSubmit: { height: 52, borderRadius: 16, overflow: "hidden", marginTop: 8 },
+  sheetInputErr: {
+    borderColor: "#7F1D1D",
+  },
+  fieldErr: {
+    fontSize: 11,
+    color: "rgba(220,160,160,0.75)",
+    marginBottom: 8,
+    marginTop: -4,
+  },
+  criteriaTitle: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: DIM,
+    marginTop: 8,
+    marginBottom: 6,
+    letterSpacing: 0.3,
+  },
+  criterionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  criterionText: { fontSize: 12, color: MUTED, flex: 1 },
+  criterionMet: { color: "rgba(167,139,250,0.95)" },
+  sheetSubmit: { height: 52, borderRadius: 16, overflow: "hidden", marginTop: 16 },
+  sheetSubmitDisabled: { opacity: 0.85 },
+  sheetSubmitPressed: { opacity: 0.92 },
   sheetSubmitGradient: {
     height: "100%",
     justifyContent: "center",

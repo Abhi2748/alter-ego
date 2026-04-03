@@ -5,7 +5,13 @@
 import { apiClient } from '@/services/api';
 
 export type FeedbackTag = 'bug' | 'suggestion' | 'question' | 'praise';
-export type PostStatus = 'approved' | 'acknowledged' | 'answered' | 'resolved';
+export type PostStatus =
+  | 'pending'
+  | 'approved'
+  | 'acknowledged'
+  | 'answered'
+  | 'resolved'
+  | 'rejected';
 
 export interface FeedbackPost {
   id: string;
@@ -15,6 +21,7 @@ export interface FeedbackPost {
   status: PostStatus;
   created_at: string;
   user_has_voted: boolean;
+  admin_answer?: string | null;
 }
 
 export interface BoardStats {

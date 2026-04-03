@@ -6,12 +6,15 @@ interface Props {
   count: number;
   voted: boolean;
   onPress: () => void;
+  /** Pending posts cannot be upvoted until approved */
+  disabled?: boolean;
 }
 
-export function UpvoteButton({ count, voted, onPress }: Props) {
+export function UpvoteButton({ count, voted, onPress, disabled }: Props) {
   const scale = useRef(new Animated.Value(1)).current;
 
   const handlePress = () => {
+    if (disabled) return;
     void triggerUpvoteHaptic();
 
     Animated.sequence([
@@ -55,4 +58,5 @@ const styles = StyleSheet.create({
   arrowVoted: { color: '#A78BFA' },
   count: { fontSize: 12, fontWeight: '700', color: '#6B7280' },
   countVoted: { color: '#A78BFA' },
+  btnDisabled: { opacity: 0.45 },
 });

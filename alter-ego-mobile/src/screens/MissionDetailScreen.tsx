@@ -8,6 +8,7 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  TextInput,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -69,6 +70,46 @@ function difficultyPill(diff: "easy" | "medium" | "hard" | "elite") {
   return { bg: "rgba(167,139,250,0.12)", border: "rgba(167,139,250,0.30)", text: "#A78BFA", label: "ELITE" };
 }
 
+function RatingIcon({ value, color }: { value: 1 | 3 | 5; color: string }) {
+  if (value === 1) {
+    return (
+      <Svg width={26} height={20} viewBox="0 0 26 20">
+        <Path
+          d="M3 17L8 7L13 13L18 5L23 17Z"
+          stroke={color}
+          strokeWidth={1.7}
+          fill="none"
+          strokeLinejoin="round"
+        />
+      </Svg>
+    );
+  }
+  if (value === 3) {
+    return (
+      <Svg width={26} height={20} viewBox="0 0 26 20">
+        <Path
+          d="M3 14 Q13 6 23 14"
+          stroke={color}
+          strokeWidth={2}
+          fill="none"
+          strokeLinecap="round"
+        />
+      </Svg>
+    );
+  }
+  return (
+    <Svg width={26} height={20} viewBox="0 0 26 20">
+      <Path
+        d="M5 14 Q13 10 21 14"
+        stroke={color}
+        strokeWidth={2}
+        fill="none"
+        strokeLinecap="round"
+      />
+    </Svg>
+  );
+}
+
 export function MissionDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<MissionDetailRoute>();
@@ -80,6 +121,8 @@ export function MissionDetailScreen() {
   const { mutate: rateMission, isPending: ratingPending } = useRateMission();
 
   const [localRating, setLocalRating] = useState<1 | 3 | 5 | null>(null);
+  const [feedbackText, setFeedbackText] = useState<string>("");
+  const [feedbackFocused, setFeedbackFocused] = useState(false);
 
   const serverRating = mission?.difficulty_rating;
   const effectiveRating =
@@ -89,7 +132,8 @@ export function MissionDetailScreen() {
     if (serverRating === 1 || serverRating === 3 || serverRating === 5) {
       setLocalRating(serverRating);
     }
-  }, [serverRating]);
+    setFeedbackText(mission?.feedback_text ?? "");
+  }, [serverRating, mission?.feedback_text]);
 
   const isCompleted = mission?.completed === true;
   const ratedLocked = serverRating === 1 || serverRating === 3 || serverRating === 5;
@@ -97,25 +141,28 @@ export function MissionDetailScreen() {
   const diffKey = useMemo(() => normDifficulty(mission?.difficulty), [mission?.difficulty]);
   const pill = useMemo(() => difficultyPill(diffKey), [diffKey]);
 
-  const submitRating = useCallback(
+  const selectRatingTile = useCallback(
     (rating: 1 | 3 | 5) => {
-      if (!missionId || ratedLocked || !isCompleted) return;
+      if (ratedLocked || !isCompleted) return;
       setLocalRating(rating);
-      rateMission(
-        { missionId, rating },
-        {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: MISSION_KEYS.detail(missionId) });
-          },
-          onError: (e) => {
-            Alert.alert("Could not save rating", getErrorMessage(e));
-            setLocalRating(null);
-          },
-        }
-      );
     },
-    [missionId, ratedLocked, isCompleted, rateMission, queryClient]
+    [ratedLocked, isCompleted]
   );
+
+  const submitRating = useCallback(() => {
+    if (!missionId || ratedLocked || !isCompleted || localRating === null) return;
+    rateMission(
+      { missionId, rating: localRating, feedback: feedbackText.trim() || undefined },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: MISSION_KEYS.detail(missionId) });
+        },
+        onError: (e) => {
+          Alert.alert("Could not save rating", getErrorMessage(e));
+        },
+      }
+    );
+  }, [missionId, ratedLocked, isCompleted, localRating, feedbackText, rateMission, queryClient]);
 
   const handleComplete = () => {
     if (!missionId) return;
@@ -178,8 +225,10 @@ export function MissionDetailScreen() {
   const minutes = mission.estimated_minutes ?? null;
   const desc = (mission.description ?? "").trim();
   const rationale = (mission.rationale ?? "").trim();
-  const showResistance =
-    Boolean(mission.quit_path_id) || mission.type === "resistance";
+  const domainKnowledge = (mission.domain_knowledge ?? "").trim();
+  const showResistance = Boolean(mission.quit_path_id) || mission.type === "resistance";
+  const isInterest = mission.type === "interest";
+  const canSubmitRating = isCompleted && !ratedLocked && localRating !== null;
 
   return (
     <LinearGradient colors={BG_GRADIENT} style={styles.container}>
@@ -189,9 +238,10 @@ export function MissionDetailScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
+          {/* ── HEADER ── */}
           <View style={styles.headerBar}>
             <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={10}>
-              <Ionicons name="chevron-back" size={24} color={TEXT_PRIMARY} />
+              <Ionicons name="chevron-back" size={22} color={TEXT_PRIMARY} />
             </Pressable>
             <Text style={styles.headerType} numberOfLines={2}>
               {typeHdr}
@@ -200,115 +250,240 @@ export function MissionDetailScreen() {
           </View>
 
           <View style={styles.padH}>
-            <View style={styles.diffRow}>
+            {/* ── DIFFICULTY + TIME + XP ── */}
+            <View style={styles.metaRow}>
               <View style={[styles.diffChip, { backgroundColor: pill.bg, borderColor: pill.border }]}>
+                <View style={[styles.diffDot, { backgroundColor: pill.text }]} />
                 <Text style={[styles.diffChipTxt, { color: pill.text }]}>{pill.label}</Text>
               </View>
               {minutes != null ? (
-                <View style={styles.timeRow}>
-                  <Ionicons name="time-outline" size={14} color={TEXT_MUTED} />
+                <View style={styles.timeBadge}>
+                  <Ionicons name="time-outline" size={12} color={TEXT_MUTED} />
                   <Text style={styles.timeTxt}>{minutes} min</Text>
                 </View>
               ) : null}
+              <View style={styles.xpBadge}>
+                <Text style={styles.xpTxt}>★ {mission.xp_value ?? 0} XP</Text>
+              </View>
             </View>
 
+            {/* ── TITLE ── */}
             <Text style={styles.title}>{mission.title}</Text>
 
-            {desc.length > 0 ? (
-              <View style={styles.block}>
-                <Text style={styles.subHdr}>MISSION</Text>
-                <Text style={styles.bodyMuted}>{desc}</Text>
-              </View>
+            {/* ── HOW TO DO THIS (interest missions only) ── */}
+            {isInterest && desc.length > 0 ? (
+              <>
+                <View style={styles.sectionHdr}>
+                  <View style={[styles.sectionBar, { backgroundColor: "#6D28D9" }]} />
+                  <Text style={styles.sectionLabel}>How to do this</Text>
+                </View>
+                <View style={styles.guideCard}>
+                  <Text style={styles.guideText}>{desc}</Text>
+                </View>
+                <View style={styles.blockDivider} />
+              </>
             ) : null}
 
+            {/* ── MISSION DESCRIPTION (resistance / personal / core) ── */}
+            {!isInterest && desc.length > 0 ? (
+              <>
+                <View style={styles.sectionHdr}>
+                  <View style={[styles.sectionBar, { backgroundColor: "#6D28D9" }]} />
+                  <Text style={styles.sectionLabel}>Mission</Text>
+                </View>
+                <Text style={styles.bodyText}>{desc}</Text>
+                <View style={styles.blockDivider} />
+              </>
+            ) : null}
+
+            {/* ── WHY THIS TODAY ── */}
             {rationale.length > 0 ? (
-              <View style={[styles.block, styles.blockDivider]}>
-                <Text style={styles.subHdr}>WHY THIS TODAY</Text>
-                <Text style={styles.rationaleBody}>{rationale}</Text>
-              </View>
+              <>
+                <View style={styles.sectionHdr}>
+                  <View style={[styles.sectionBar, { backgroundColor: "#374151" }]} />
+                  <Text style={styles.sectionLabel}>Why this today</Text>
+                </View>
+                <Text style={styles.rationaleText}>{rationale}</Text>
+                <View style={styles.blockDivider} />
+              </>
             ) : null}
 
+            {/* ── THE RESEARCH (interest missions only, if available) ── */}
+            {isInterest && domainKnowledge.length > 0 ? (
+              <>
+                <View style={styles.sectionHdr}>
+                  <View style={[styles.sectionBar, { backgroundColor: "#1F2937" }]} />
+                  <Text style={styles.sectionLabel}>The research</Text>
+                </View>
+                <View style={styles.researchCard}>
+                  <Text style={styles.researchText}>{domainKnowledge}</Text>
+                </View>
+                <View style={styles.blockDivider} />
+              </>
+            ) : null}
+
+            {/* ── RESISTANCE CONTEXT ── */}
             {showResistance ? (
-              <View style={[styles.block, styles.blockDivider]}>
+              <>
+                <View style={styles.sectionHdr}>
+                  <View style={[styles.sectionBar, { backgroundColor: "#991B1B" }]} />
+                  <Text style={styles.sectionLabel}>Resistance context</Text>
+                </View>
                 <View style={styles.resistCard}>
-                  <Text style={styles.subHdr}>RESISTANCE CONTEXT</Text>
                   <Text style={styles.resistPhase}>{phaseLabel(mission.quit_phase)}</Text>
                   <Text style={styles.resistNeed}>
-                    {(mission.quit_need_description ?? "").trim() || "Your plan is built around how this habit shows up for you."}
+                    {(mission.quit_need_description ?? "").trim() ||
+                      "Your plan is built around how this habit shows up for you."}
                   </Text>
                 </View>
-              </View>
+                <View style={styles.blockDivider} />
+              </>
             ) : null}
 
+            {/* ── RATING SECTION (post-completion) ── */}
             {isCompleted ? (
-              <View style={[styles.block, styles.blockDivider]}>
-                <Text style={styles.rateLbl}>How hard was this?</Text>
-                <View style={styles.ratingRow}>
-                  <Pressable
-                    disabled={ratedLocked || ratingPending}
-                    onPress={() => submitRating(1)}
-                    style={[
-                      styles.rateCell,
-                      effectiveRating === 1 ? styles.rateCellHardOn : styles.rateCellOff,
-                    ]}
-                  >
-                    <Svg width={28} height={22} viewBox="0 0 28 22">
-                      <Path
-                        d="M4 18 L10 6 L14 14 L18 4 L24 18 Z"
-                        stroke="#EF4444"
-                        strokeWidth={1.8}
-                        fill="none"
-                        strokeLinejoin="round"
+              <View style={styles.ratingSection}>
+                {ratedLocked ? (
+                  <>
+                    <Text style={styles.rateLbl}>How hard was this?</Text>
+                    <View style={styles.ratingRow}>
+                      {(
+                        [
+                          {
+                            value: 1 as const,
+                            label: "Too Hard",
+                            color: "#EF4444",
+                            selectedStyle: styles.rateCellHardOn,
+                          },
+                          {
+                            value: 3 as const,
+                            label: "Just Right",
+                            color: "#8B5CF6",
+                            selectedStyle: styles.rateCellMidOn,
+                          },
+                          {
+                            value: 5 as const,
+                            label: "Too Easy",
+                            color: "#A78BFA",
+                            selectedStyle: styles.rateCellEasyOn,
+                          },
+                        ] as const
+                      ).map((opt) => (
+                        <View
+                          key={opt.value}
+                          style={[
+                            styles.rateCell,
+                            effectiveRating === opt.value ? opt.selectedStyle : styles.rateCellOff,
+                            styles.rateCellLocked,
+                          ]}
+                        >
+                          <RatingIcon value={opt.value} color={opt.color} />
+                          <Text style={[styles.rateCellLbl, { color: opt.color }]}>{opt.label}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <View style={styles.ratingSaved}>
+                      <Ionicons name="checkmark-circle" size={15} color="#8B5CF6" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.ratingSavedTxt}>Rating saved. Your missions will adapt.</Text>
+                        {feedbackText.length > 0 ? (
+                          <Text style={styles.ratingSavedFeedback}>&ldquo;{feedbackText}&rdquo;</Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.rateLbl}>How hard was this?</Text>
+                    <View style={styles.ratingRow}>
+                      {(
+                        [
+                          {
+                            value: 1 as const,
+                            label: "Too Hard",
+                            color: "#EF4444",
+                            selectedStyle: styles.rateCellHardOn,
+                          },
+                          {
+                            value: 3 as const,
+                            label: "Just Right",
+                            color: "#8B5CF6",
+                            selectedStyle: styles.rateCellMidOn,
+                          },
+                          {
+                            value: 5 as const,
+                            label: "Too Easy",
+                            color: "#A78BFA",
+                            selectedStyle: styles.rateCellEasyOn,
+                          },
+                        ] as const
+                      ).map((opt) => (
+                        <Pressable
+                          key={opt.value}
+                          onPress={() => selectRatingTile(opt.value)}
+                          style={[
+                            styles.rateCell,
+                            localRating === opt.value ? opt.selectedStyle : styles.rateCellOff,
+                          ]}
+                        >
+                          {localRating === opt.value ? (
+                            <View style={[styles.rateCheck, { backgroundColor: opt.color }]}>
+                              <Ionicons name="checkmark" size={9} color="white" />
+                            </View>
+                          ) : null}
+                          <RatingIcon value={opt.value} color={opt.color} />
+                          <Text style={[styles.rateCellLbl, { color: opt.color }]}>{opt.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+
+                    <View style={[styles.feedbackWrap, feedbackFocused && styles.feedbackWrapFocused]}>
+                      <TextInput
+                        style={styles.feedbackInput}
+                        placeholder="Tell us more (optional)..."
+                        placeholderTextColor={TEXT_DIM}
+                        value={feedbackText}
+                        onChangeText={setFeedbackText}
+                        onFocus={() => setFeedbackFocused(true)}
+                        onBlur={() => setFeedbackFocused(false)}
+                        multiline
+                        maxLength={200}
+                        returnKeyType="done"
+                        blurOnSubmit
                       />
-                    </Svg>
-                    <Text style={[styles.rateCellLbl, { color: "#EF4444" }]}>Too Hard</Text>
-                  </Pressable>
-                  <Pressable
-                    disabled={ratedLocked || ratingPending}
-                    onPress={() => submitRating(3)}
-                    style={[
-                      styles.rateCell,
-                      effectiveRating === 3 ? styles.rateCellMidOn : styles.rateCellOff,
-                    ]}
-                  >
-                    <Svg width={28} height={22} viewBox="0 0 28 22">
-                      <Path
-                        d="M3 14 Q14 6 25 14"
-                        stroke="#8B5CF6"
-                        strokeWidth={2}
-                        fill="none"
-                        strokeLinecap="round"
-                      />
-                    </Svg>
-                    <Text style={[styles.rateCellLbl, { color: "#8B5CF6" }]}>Just Right</Text>
-                  </Pressable>
-                  <Pressable
-                    disabled={ratedLocked || ratingPending}
-                    onPress={() => submitRating(5)}
-                    style={[
-                      styles.rateCell,
-                      effectiveRating === 5 ? styles.rateCellEasyOn : styles.rateCellOff,
-                    ]}
-                  >
-                    <Svg width={28} height={22} viewBox="0 0 28 22">
-                      <Path
-                        d="M6 14 Q14 10 22 14"
-                        stroke="#A78BFA"
-                        strokeWidth={2}
-                        fill="none"
-                        strokeLinecap="round"
-                      />
-                    </Svg>
-                    <Text style={[styles.rateCellLbl, { color: "#A78BFA" }]}>Too Easy</Text>
-                  </Pressable>
-                </View>
-                {ratingPending ? (
-                  <ActivityIndicator color="#8B5CF6" style={{ marginTop: 12 }} />
-                ) : null}
+                      {feedbackText.length > 0 ? (
+                        <Text style={styles.feedbackCount}>{feedbackText.length}/200</Text>
+                      ) : null}
+                    </View>
+
+                    <Pressable
+                      onPress={submitRating}
+                      disabled={!canSubmitRating || ratingPending}
+                      style={[
+                        styles.submitRatingBtn,
+                        (!canSubmitRating || ratingPending) && styles.submitRatingBtnDisabled,
+                      ]}
+                    >
+                      {ratingPending ? (
+                        <ActivityIndicator color="white" size="small" />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.submitRatingTxt,
+                            !canSubmitRating && styles.submitRatingTxtDisabled,
+                          ]}
+                        >
+                          {localRating === null ? "Select a rating above" : "Submit Rating"}
+                        </Text>
+                      )}
+                    </Pressable>
+                  </>
+                )}
               </View>
             ) : null}
           </View>
 
+          {/* ── FOOTER BUTTON ── */}
           <View style={styles.footer}>
             {!isCompleted ? (
               <Pressable
@@ -325,7 +500,10 @@ export function MissionDetailScreen() {
                   {completing ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.completeBtnTxt}>Complete Mission</Text>
+                    <>
+                      <Text style={styles.completeBtnTxt}>Complete Mission</Text>
+                      <Text style={styles.completeBtnXp}>★ {mission.xp_value ?? 0} XP</Text>
+                    </>
                   )}
                 </LinearGradient>
               </Pressable>
@@ -344,8 +522,9 @@ export function MissionDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safe: { flex: 1 },
-  scrollContent: { paddingBottom: 40 },
+  scrollContent: { paddingBottom: 48 },
   padH: { paddingHorizontal: 20 },
+
   headerBar: {
     minHeight: 56,
     flexDirection: "row",
@@ -367,76 +546,118 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: 8,
     textAlign: "center",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     color: TEXT_MUTED,
-    letterSpacing: 1.2,
+    letterSpacing: 1.5,
     textTransform: "uppercase",
   },
-  diffRow: {
+
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 },
+  diffChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 16,
-  },
-  diffChip: {
+    gap: 5,
     borderWidth: 1,
     borderRadius: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 11,
   },
-  diffChipTxt: { fontSize: 11, fontWeight: "700", letterSpacing: 1 },
-  timeRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  timeTxt: { fontSize: 10, color: TEXT_MUTED },
+  diffDot: { width: 6, height: 6, borderRadius: 3 },
+  diffChipTxt: { fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+  timeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "#1E2333",
+    borderRadius: 10,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+  },
+  timeTxt: { fontSize: 11, color: TEXT_MUTED },
+  xpBadge: {
+    marginLeft: "auto",
+    backgroundColor: "rgba(139,92,246,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.22)",
+    borderRadius: 10,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+  },
+  xpTxt: { fontSize: 11, fontWeight: "700", color: "#A78BFA" },
+
   title: {
     fontSize: 22,
     fontWeight: "900",
-    letterSpacing: -0.6,
+    letterSpacing: -0.5,
     color: TEXT_PRIMARY,
     lineHeight: 30,
-    marginBottom: 12,
+    marginBottom: 20,
   },
-  block: { marginBottom: 4 },
-  blockDivider: {
-    marginTop: 20,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: "#1E2333",
-  },
-  subHdr: {
+
+  sectionHdr: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  sectionBar: { width: 3, height: 14, borderRadius: 2 },
+  sectionLabel: {
     fontSize: 9,
-    fontWeight: "700",
-    color: TEXT_DIM,
-    letterSpacing: 2,
+    fontWeight: "800",
+    letterSpacing: 2.5,
     textTransform: "uppercase",
-    marginBottom: 8,
+    color: TEXT_DIM,
   },
-  bodyMuted: { fontSize: 14, color: TEXT_SECONDARY, lineHeight: 25 },
-  rationaleBody: { fontSize: 13, color: TEXT_MUTED, lineHeight: 22 },
+  blockDivider: {
+    height: 1,
+    backgroundColor: "#1E2333",
+    marginVertical: 20,
+  },
+
+  guideCard: {
+    backgroundColor: "rgba(139,92,246,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.14)",
+    borderRadius: 14,
+    padding: 14,
+  },
+  guideText: { fontSize: 13, color: "#C4B5FD", lineHeight: 22 },
+
+  bodyText: { fontSize: 13, color: TEXT_SECONDARY, lineHeight: 23 },
+
+  rationaleText: { fontSize: 13, color: TEXT_MUTED, lineHeight: 22 },
+
+  researchCard: {
+    backgroundColor: "rgba(255,255,255,0.02)",
+    borderWidth: 1,
+    borderColor: "#1E2333",
+    borderRadius: 12,
+    padding: 14,
+  },
+  researchText: { fontSize: 12, color: TEXT_DIM, lineHeight: 20 },
+
   resistCard: {
     backgroundColor: "#140C0C",
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "rgba(239,68,68,0.12)",
+    borderColor: "rgba(239,68,68,0.14)",
   },
   resistPhase: { fontSize: 13, fontWeight: "700", color: "#EF4444", marginBottom: 6 },
   resistNeed: { fontSize: 12, color: TEXT_MUTED, lineHeight: 18 },
-  rateLbl: { fontSize: 12, fontWeight: "700", color: TEXT_SECONDARY, marginBottom: 12 },
-  ratingRow: { flexDirection: "row", gap: 8 },
+
+  ratingSection: { marginBottom: 8 },
+  rateLbl: { fontSize: 13, fontWeight: "700", color: TEXT_SECONDARY, marginBottom: 12 },
+  ratingRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
   rateCell: {
-    width: 80,
-    height: 72,
-    borderRadius: 12,
+    flex: 1,
+    height: 76,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    paddingTop: 6,
+    gap: 6,
+    paddingTop: 4,
+    position: "relative",
   },
-  rateCellOff: {
-    backgroundColor: "#141824",
-    borderWidth: 1,
-    borderColor: "#1E2333",
-  },
+  rateCellOff: { backgroundColor: "#141824", borderWidth: 1, borderColor: "#1E2333" },
   rateCellHardOn: {
     backgroundColor: "rgba(239,68,68,0.08)",
     borderWidth: 1.5,
@@ -452,23 +673,96 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#A78BFA",
   },
-  rateCellLbl: { marginTop: 6, fontSize: 10, fontWeight: "600" },
-  footer: { paddingHorizontal: 16, marginTop: 24 },
+  rateCellLocked: { opacity: 0.7 },
+  rateCellLbl: { fontSize: 10, fontWeight: "600" },
+  rateCheck: {
+    position: "absolute",
+    top: -5,
+    right: -5,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  feedbackWrap: {
+    backgroundColor: "#141824",
+    borderWidth: 1.5,
+    borderColor: "#1E2333",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    minHeight: 52,
+  },
+  feedbackWrapFocused: { borderColor: "rgba(139,92,246,0.4)" },
+  feedbackInput: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    lineHeight: 19,
+    minHeight: 28,
+    padding: 0,
+    textAlignVertical: "top",
+  },
+  feedbackCount: { fontSize: 10, color: TEXT_DIM, textAlign: "right", marginTop: 4 },
+
+  submitRatingBtn: {
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "#6D28D9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#6D28D9",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+      android: { elevation: 6 },
+    }),
+  },
+  submitRatingBtnDisabled: {
+    backgroundColor: "#141824",
+    ...Platform.select({ ios: { shadowOpacity: 0 }, android: { elevation: 0 } }),
+  },
+  submitRatingTxt: { fontSize: 13, fontWeight: "700", color: "white" },
+  submitRatingTxtDisabled: { color: TEXT_DIM },
+
+  ratingSaved: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "rgba(16,185,129,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.18)",
+    borderRadius: 12,
+    padding: 12,
+  },
+  ratingSavedTxt: { fontSize: 12, fontWeight: "600", color: "#6EE7B7" },
+  ratingSavedFeedback: { fontSize: 11, color: TEXT_MUTED, marginTop: 3, fontStyle: "italic" },
+
+  footer: { paddingHorizontal: 16, marginTop: 20 },
   completeBtn: {
     height: 56,
     borderRadius: 16,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "#8B5CF6",
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.35,
-          shadowRadius: 12,
-        }
-      : { elevation: 8 }),
+    gap: 10,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#8B5CF6",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.35,
+        shadowRadius: 12,
+      },
+      android: { elevation: 8 },
+    }),
   },
   completeBtnTxt: { fontSize: 15, fontWeight: "800", color: "#FFFFFF" },
+  completeBtnXp: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.6)" },
   doneBtn: {
     height: 56,
     borderRadius: 16,
@@ -479,14 +773,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   doneBtnTxt: { fontSize: 15, fontWeight: "700", color: TEXT_MUTED },
+
   skeletonPad: { paddingHorizontal: 20, paddingTop: 16 },
-  skelLine: {
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "#1E2333",
-    width: "60%",
-    marginBottom: 10,
-  },
+  skelLine: { height: 14, borderRadius: 7, backgroundColor: "#1E2333", width: "60%", marginBottom: 10 },
   errorWrap: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
   errorTxt: { color: TEXT_SECONDARY, textAlign: "center", marginBottom: 16 },
   retryBtn: {

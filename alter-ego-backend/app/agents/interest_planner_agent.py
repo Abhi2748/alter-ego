@@ -66,6 +66,16 @@ Days in app: {days_in_app}
 ANTI-REPETITION — last 7 missions for this interest (do NOT repeat any):
 {last_7_missions}
 
+═══ USER FEEDBACK ON RECENT MISSIONS ═══
+{user_feedback}
+
+Use this feedback to calibrate:
+- Rating "Too Hard" (1) → reduce mission complexity or time requirement next session
+- Rating "Just Right" (3) → current calibration is working, continue arc progression  
+- Rating "Too Easy" (5) → increase challenge, add time, raise specificity of output required
+- If feedback text mentions specific issues (e.g. "ran out of time", "too abstract"),
+  address that directly in this mission's description and approach.
+
 ═══ PROGRESSION GUARDRAIL (NON-NEGOTIABLE) ═══
 NEVER assign a mission that requires skills the user hasn't developed yet in their arc.
 If they are in Foundation phase, the mission MUST be a foundation-level exercise,
@@ -86,6 +96,7 @@ Thinking: Foundation phase = presence + habit. No songs yet. Finger coordination
 Don't repeat chord drills (that was last session). Focus on one physical skill: finger placement.
 Output:
 {{"title": "Hold C, G, and D cleanly — 15-minute focus session",
+  "description": "Set a timer for 15 minutes. Hold each chord shape (C, G, D) one at a time — press down, check that each string rings cleanly, release, repeat. Don't move between chords yet; just one shape at a time. Done when you've spent at least 3 uninterrupted minutes on each chord with clean-sounding notes.",
   "difficulty": "medium",
   "estimated_minutes": 15,
   "rationale": "Foundation phase means building physical coordination, not songs. Clean chord shapes are the pre-requisite for everything else — spending 15 minutes here builds the muscle memory the rest of the arc depends on.",
@@ -98,6 +109,7 @@ Thinking: Building phase = output over presence. User can write code but needs p
 Last 7 missions were syntax and small exercises. Time to produce something complete.
 Output:
 {{"title": "Build a working to-do list with add, delete, and mark-complete in plain JavaScript",
+  "description": "Open a blank file and build a to-do list from scratch — no frameworks, no tutorials. Implement: add item (input + button), mark complete (click toggles strikethrough), delete item (remove from list). Work for the full 45 minutes. Done when all three features work end-to-end without errors in the browser console.",
   "difficulty": "hard",
   "estimated_minutes": 45,
   "rationale": "Building phase means producing functional outputs, not just drilling syntax. A complete mini-feature integrates multiple skills and reveals gaps that exercises miss — this is where intermediate coders plateau if they stay in drill mode.",
@@ -111,6 +123,7 @@ Correct next step: basic proportions and line control, NOT face features yet.
 Guardrail applies: NEVER assign face-drawing to a Foundation user.
 Output:
 {{"title": "Draw 10 straight lines and 10 curved lines, matching a reference — no erasing",
+  "description": "Get a blank page and draw 10 straight lines from top to bottom without lifting your pencil. Then draw 10 curves (gentle S shapes). No erasing allowed — if a line is shaky, keep it and draw the next one. Done when you have 20 lines on the page, drawn without erasing.",
   "difficulty": "easy",
   "estimated_minutes": 15,
   "rationale": "Foundation phase — hand control before form. Realistic faces require clean, confident lines. Practicing controlled strokes without erasing builds the physical foundation that face-drawing depends on. This is the real prerequisite, not face proportions.",
@@ -123,6 +136,7 @@ Thinking: Mastery phase = performance, identity-level challenge. User has the ha
 Time to push toward a specific performance goal, not generic training.
 Output:
 {{"title": "Run 5km at a pace 15 seconds faster per km than your comfortable pace",
+  "description": "Warm up for 5 minutes at your comfortable pace, then increase to your target pace (15 sec/km faster than comfortable) for the main 25-minute run, then cool down for 5 minutes. Keep track of your pace on your watch or phone. Done when you've completed the full 35 minutes and hit your target pace for at least 20 of those minutes.",
   "difficulty": "hard",
   "estimated_minutes": 35,
   "rationale": "Mastery phase means performance goals, not presence. A specific pace target creates measurable feedback — the user either hits it or learns exactly where their ceiling is. That information drives the next session.",
@@ -142,6 +156,7 @@ Step 2 — OUTPUT valid JSON only, no preamble, no markdown:
 {{
   "thinking": "<your reasoning from Step 1, 3–5 sentences>",
   "title": "<specific actionable title, max 60 chars, starts with action verb>",
+  "description": "<step-by-step execution guide: what to do, how to time each part, what done looks like. 3-5 sentences. Write directly to the user using 'you'. Include time guidance and a clear completion condition.>",
   "difficulty": "easy|medium|hard|elite",
   "estimated_minutes": 20,
   "rationale": "<why this mission for this domain at this level, 2–3 sentences>",
@@ -352,6 +367,7 @@ async def generate_interest_mission(
         last_7_missions=last_7_missions,
         day_of_week=mission_day.strftime("%A"),
         days_in_app=days_in_app,
+        user_feedback=user_feedback,
     )
 
     # Step 8 — LLM call with self-verification
@@ -425,6 +441,7 @@ async def generate_interest_mission(
             "user_id": user_id,
             "type": "interest",
             "title": f"Spend 20 minutes on {safe_name}",
+            "description": f"Spend {20} minutes focused on {safe_name}. Work through the exercise at your own pace and note what felt challenging. Done when the timer is up.",
             "difficulty": difficulty_fb,
             "xp_value": mission_xp_for_type("interest", difficulty_fb),
             "pf_value": MISSION_PF["interest"].get(difficulty_fb, 8),
@@ -468,9 +485,10 @@ async def generate_interest_mission(
         "interest_id": interest["id"],
         "mission_date": mission_date,
         "completed": False,
-        "rationale": str(mission_data.get("rationale", ""))[:300],
+        "rationale": str(mission_data.get("rationale", ""))[:600],
         "phase_principle": str(mission_data.get("arc_principle", ""))[:200],
-        "domain_knowledge": str(mission_data.get("domain_knowledge_applied", ""))[:500],
+        "domain_knowledge": str(mission_data.get("domain_knowledge_applied", ""))[:800],
+        "description": str(mission_data.get("description", ""))[:600],
         "estimated_minutes": mins,
     }
     result = supabase_admin.table("missions").insert(mission_row).execute()

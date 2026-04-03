@@ -47,6 +47,8 @@ export type MissionDetailApi = Mission & {
   quit_need_description?: string | null;
   /** 1 = too hard, 3 = just right, 5 = too easy — from mission_ratings */
   difficulty_rating?: number | null;
+  /** Optional text the user submitted with their difficulty rating */
+  feedback_text?: string | null;
 };
 
 export interface TodayMissionsResponse {

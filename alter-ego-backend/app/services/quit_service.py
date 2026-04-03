@@ -396,6 +396,31 @@ async def generate_quit_missions_for_today(
 
     recent = _recent_quit_missions_with_ratings(user_id, path_id)
 
+    # Fetch user feedback on recent quit missions (last 5 ratings for this quit path)
+    try:
+        quit_ratings_res = (
+            supabase_admin.table("mission_ratings")
+            .select("rating, feedback_text")
+            .eq("user_id", user_id)
+            .eq("quit_path_id", path_id)
+            .order("created_at", desc=True)
+            .limit(5)
+            .execute()
+        )
+        quit_feedback_parts = []
+        for r in quit_ratings_res.data or []:
+            rating_label = {1: "Too Hard", 3: "Just Right", 5: "Too Easy"}.get(
+                int(r.get("rating") or 3), "Rated"
+            )
+            fb = str(r.get("feedback_text") or "").strip()
+            if fb:
+                quit_feedback_parts.append(f'{rating_label}: "{fb}"')
+            else:
+                quit_feedback_parts.append(rating_label)
+        quit_user_feedback = " | ".join(quit_feedback_parts) if quit_feedback_parts else "No feedback yet"
+    except Exception:
+        quit_user_feedback = "No feedback yet"
+
     freq_log = (
         supabase_admin.table("quit_frequency_log")
         .select("count")
@@ -478,6 +503,7 @@ async def generate_quit_missions_for_today(
         living_trigger_profile=living_profile,
         user_interests=user_interests,
         guilt_orientation=guilt_orientation,
+        user_feedback=quit_user_feedback,
     )
 
     missions: list[dict] = []
@@ -711,7 +737,8 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
             .data
             or []
         )
-        freq_today = int(today_log[0]["count"]) if today_log else int(path.get("frequency_today") or 0)
+        # Always use today's log entry — never the denormalized column (may be stale from yesterday)
+        freq_today = int(today_log[0]["count"]) if today_log else 0
 
         # Living trigger profile (aggregated check-in data)
         living_profile = _build_living_trigger_profile(
@@ -785,6 +812,72 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
 async def delete_quit_path(user_id: str, path_id: str) -> dict[str, bool]:
     supabase_admin.table("quit_paths").delete().eq("id", path_id).eq("user_id", user_id).execute()
     return {"deleted": True}
+
+
+async def mark_quit_conquered(user_id: str, path_id: str) -> dict[str, Any]:
+    """
+    Self-declared habit conquest.
+    Sets quit_paths.status = 'completed', records conquered_at.
+    Does not delete the path — it remains visible as a trophy.
+    """
+    path_res = (
+        supabase_admin.table("quit_paths")
+        .select("id, user_id, habit_name, current_phase, created_at")
+        .eq("id", path_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    rows = path_res.data or []
+    if not rows:
+        raise ValueError("Quit path not found")
+    path = rows[0]
+
+    tz = _user_timezone(user_id)
+    today = get_user_date(tz)
+    created_day = str(path["created_at"])[:10]
+    try:
+        days_active = (date.fromisoformat(today) - date.fromisoformat(created_day)).days
+    except Exception:
+        days_active = 0
+
+    try:
+        freq_rows = (
+            supabase_admin.table("quit_frequency_log")
+            .select("count")
+            .eq("quit_path_id", path_id)
+            .execute()
+            .data
+            or []
+        )
+        total_cravings = sum(int(r.get("count") or 0) for r in freq_rows)
+    except Exception:
+        total_cravings = 0
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    supabase_admin.table("quit_paths").update(
+        {
+            "status": "completed",
+            "conquered_at": now_iso,
+            "updated_at": now_iso,
+        }
+    ).eq("id", path_id).eq("user_id", user_id).execute()
+
+    return {
+        "conquered": True,
+        "milestone": {
+            "milestone_type": "conquered",
+            "earned_at": now_iso,
+            "clean_days_at_earn": days_active,
+            "cravings_at_earn": total_cravings,
+            "phase_at_earn": path.get("current_phase") or "consolidation",
+            "quote": "The habit no longer controls you. You decided — and you followed through.",
+            "slip_duration_hours": None,
+            "return_speed": None,
+        },
+        "quit_name": path.get("habit_name") or "this habit",
+    }
 
 
 async def update_quit_schedule(

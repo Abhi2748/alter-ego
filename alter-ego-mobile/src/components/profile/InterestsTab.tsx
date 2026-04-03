@@ -1,6 +1,9 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { BottomSheetModal } from "@gorhom/bottom-sheet";
-import { View, Text, Pressable, StyleSheet, ScrollView, Modal } from "react-native";
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { StackNavigationProp } from "@react-navigation/stack";
+import type { ProfileStackParamList } from "@/navigation/types";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   useAnimatedStyle,
@@ -18,16 +21,17 @@ import {
   useCreateInterest,
   usePauseInterest,
   useResumeInterest,
+  useUpdateTimeline,
 } from "@/hooks/useInterests";
 import type { InterestInsight, InterestPathDisplay } from "@/types/interestPath";
 import { InterestCard } from "@/components/profile/InterestCard";
 import { ManageSheet } from "@/components/profile/interest/ManageSheet";
 import { DifficultySheet } from "@/components/profile/interest/DifficultySheet";
 import { ScheduleSheet } from "@/components/profile/interest/ScheduleSheet";
+import { TimelineSheet } from "@/components/profile/interest/TimelineSheet";
 import { ChangeGoalFlow } from "@/components/profile/interest/ChangeGoalFlow";
 import { DeleteModal } from "@/components/profile/interest/DeleteModal";
 import { InsightModal } from "@/components/profile/interest/InsightModal";
-import { InterestDetailScreen } from "@/screens/InterestDetailScreen";
 import { getErrorMessage, isApiError } from "@/services/api";
 import { AddInterestSheet } from "@/components/AddInterestSheet";
 
@@ -50,10 +54,22 @@ function SkeletonCard() {
   );
 }
 
-export function InterestsTab() {
+type PendingSheetIntent = { sheet: "schedule" | "goal" | "timeline"; pathId: string } | null;
+
+type InterestsTabProps = {
+  pendingSheetIntent?: PendingSheetIntent;
+  onPendingSheetConsumed?: () => void;
+};
+
+export function InterestsTab({
+  pendingSheetIntent = null,
+  onPendingSheetConsumed,
+}: InterestsTabProps) {
+  const navigation = useNavigation<StackNavigationProp<ProfileStackParamList>>();
   const { data, isLoading, isError, refetch, isFetching } = useInterests();
   const updateDifficulty = useUpdateDifficulty();
   const updateSchedule = useUpdateSchedule();
+  const updateTimeline = useUpdateTimeline();
   const changeGoal = useChangeGoal();
   const deleteInterest = useDeleteInterest();
   const createInterest = useCreateInterest();
@@ -63,10 +79,11 @@ export function InterestsTab() {
   const manageSheetRef = useRef<BottomSheetModal>(null);
   const difficultySheetRef = useRef<BottomSheetModal>(null);
   const scheduleSheetRef = useRef<BottomSheetModal>(null);
+  const timelineSheetRef = useRef<BottomSheetModal>(null);
   const suppressManagePathClear = useRef(false);
+  const pendingProcessedKeyRef = useRef<string | null>(null);
 
   const [managedPath, setManagedPath] = useState<InterestPathDisplay | null>(null);
-  const [detailPath, setDetailPath] = useState<InterestPathDisplay | null>(null);
   const [toast, setToast] = useState<{ msg: string; kind: "err" | "ok" } | null>(null);
   const [goalFlowOpen, setGoalFlowOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -95,13 +112,42 @@ export function InterestsTab() {
   const dismissManageThen = useCallback((then: () => void) => {
     suppressManagePathClear.current = true;
     manageSheetRef.current?.dismiss();
-    setTimeout(then, 280);
+    setTimeout(then, 120);
   }, []);
+
+  useEffect(() => {
+    if (!pendingSheetIntent) {
+      pendingProcessedKeyRef.current = null;
+      return;
+    }
+    if (isLoading && !data) return;
+    if (!data?.paths?.length) return;
+    const p = data.paths.find((x) => x.path_id === pendingSheetIntent.pathId);
+    if (!p) return;
+    const sig = `${pendingSheetIntent.pathId}:${pendingSheetIntent.sheet}`;
+    if (pendingProcessedKeyRef.current === sig) return;
+    pendingProcessedKeyRef.current = sig;
+    setManagedPath(p);
+    const t = setTimeout(() => {
+      if (pendingSheetIntent.sheet === "schedule") scheduleSheetRef.current?.present();
+      else if (pendingSheetIntent.sheet === "goal") setGoalFlowOpen(true);
+      else if (pendingSheetIntent.sheet === "timeline") timelineSheetRef.current?.present();
+      onPendingSheetConsumed?.();
+    }, 120);
+    return () => clearTimeout(t);
+  }, [pendingSheetIntent, data?.paths, onPendingSheetConsumed, isLoading]);
 
   const openManage = useCallback((p: InterestPathDisplay) => {
     setManagedPath(p);
     requestAnimationFrame(() => manageSheetRef.current?.present());
   }, []);
+
+  const openInterestDetail = useCallback(
+    (p: InterestPathDisplay) => {
+      navigation.navigate("ProfileInterestDetail", { pathId: p.path_id });
+    },
+    [navigation]
+  );
 
   const showError = (e: unknown) => {
     const msg = isApiError(e) ? e.message : getErrorMessage(e);
@@ -183,33 +229,48 @@ export function InterestsTab() {
           contentContainerStyle={styles.contentPad}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.emptyWrap}>
-            <Text style={styles.emptyTitle}>No interests yet</Text>
-            <Text style={styles.emptySub}>
-              Add an interest to build a path toward a real goal.
-            </Text>
-            <Pressable style={styles.addPrimaryWrap} onPress={openAddInterest}>
-              <LinearGradient
-                colors={["#6D28D9", "#8B5CF6"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.addPrimary}
-              >
-                <Text style={styles.addPrimaryTxt}>+ Add Interest</Text>
-              </LinearGradient>
-            </Pressable>
-          </View>
+          {createInterest.isPending ? (
+            <View style={styles.emptyPreparing}>
+              <ActivityIndicator size="large" color="#8B5CF6" />
+              <Text style={styles.emptyPreparingTitle}>Building your interest</Text>
+              <Text style={styles.emptyPreparingSub}>
+                We&apos;re creating your path on our servers (missions and insights). This can take a little while.
+              </Text>
+              <Text style={styles.emptyPreparingHint}>
+                You can leave this screen — your interest will show up when it&apos;s ready. Pull down to refresh.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyTitle}>No interests yet</Text>
+              <Text style={styles.emptySub}>
+                Add an interest to build a path toward a real goal.
+              </Text>
+              <Pressable style={styles.addPrimaryWrap} onPress={openAddInterest}>
+                <LinearGradient
+                  colors={["#6D28D9", "#8B5CF6"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.addPrimary}
+                >
+                  <Text style={styles.addPrimaryTxt}>+ Add Interest</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          )}
         </ScrollView>
         <AddInterestSheet
           visible={addInterestOpen}
           onClose={() => setAddInterestOpen(false)}
-          onSave={async (payload) => {
-            await createInterest.mutateAsync(payload);
-          }}
-          onSuccess={() => {
+          onSave={(payload) => {
             setAddInterestOpen(false);
-            setToast({ msg: "Interest added. Your path is ready.", kind: "ok" });
-            setTimeout(() => setToast(null), 2800);
+            createInterest.mutate(payload, {
+              onError: (e) => showError(e),
+              onSuccess: () => {
+                setToast({ msg: "Interest added. Your path is ready.", kind: "ok" });
+                setTimeout(() => setToast(null), 2800);
+              },
+            });
           }}
           onSaveError={showError}
         />
@@ -233,8 +294,21 @@ export function InterestsTab() {
           </View>
         ) : null}
 
+        {createInterest.isPending ? (
+          <View style={styles.preparingBanner}>
+            <ActivityIndicator size="small" color="#8B5CF6" />
+            <View style={styles.preparingBannerText}>
+              <Text style={styles.preparingBannerTitle}>Building your interest</Text>
+              <Text style={styles.preparingBannerSub}>
+                We&apos;re creating your path on our servers (missions and insights). This can take a little while — you
+                can leave this screen. Pull down to refresh when you&apos;re back.
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
         {activePaths.map((p) => (
-          <Pressable key={p.path_id} onPress={() => setDetailPath(p)}>
+          <Pressable key={p.path_id} onPress={() => openInterestDetail(p)}>
             <InterestCard path={p} onManage={openManage} onInsightTap={handleInsightTap} />
           </Pressable>
         ))}
@@ -248,7 +322,7 @@ export function InterestsTab() {
             </View>
             {pausedPaths.map((p) => (
               <View key={p.path_id} style={{ position: "relative" }}>
-                <Pressable onPress={() => setDetailPath(p)}>
+                <Pressable onPress={() => openInterestDetail(p)}>
                   <InterestCard path={p} onManage={openManage} onInsightTap={handleInsightTap} />
                 </Pressable>
                 <Pressable style={styles.resumeBtn} onPress={() => void handleResume(p.path_id)}>
@@ -268,13 +342,15 @@ export function InterestsTab() {
       <AddInterestSheet
         visible={addInterestOpen}
         onClose={() => setAddInterestOpen(false)}
-        onSave={async (payload) => {
-          await createInterest.mutateAsync(payload);
-        }}
-        onSuccess={() => {
+        onSave={(payload) => {
           setAddInterestOpen(false);
-          setToast({ msg: "Interest added. Your path is ready.", kind: "ok" });
-          setTimeout(() => setToast(null), 2800);
+          createInterest.mutate(payload, {
+            onError: (e) => showError(e),
+            onSuccess: () => {
+              setToast({ msg: "Interest added. Your path is ready.", kind: "ok" });
+              setTimeout(() => setToast(null), 2800);
+            },
+          });
         }}
         onSaveError={showError}
       />
@@ -321,6 +397,25 @@ export function InterestsTab() {
               pathId: managedPath.path_id,
               active_days: days,
             });
+          } catch (e) {
+            showError(e);
+            throw e;
+          }
+        }}
+      />
+
+      <TimelineSheet
+        sheetRef={timelineSheetRef}
+        path={managedPath}
+        onSave={async (target_timeline) => {
+          if (!managedPath) return;
+          try {
+            await updateTimeline.mutateAsync({
+              interestId: managedPath.path_id,
+              target_timeline,
+            });
+            setToast({ msg: "Timeline updated. Your arc will adjust.", kind: "ok" });
+            setTimeout(() => setToast(null), 2800);
           } catch (e) {
             showError(e);
             throw e;
@@ -376,56 +471,20 @@ export function InterestsTab() {
         body={insightPayload?.body ?? ""}
       />
 
-      <Modal visible={!!detailPath} animationType="slide" presentationStyle="pageSheet">
-        {detailPath ? (
-          <InterestDetailScreen
-            path={detailPath}
-            onClose={() => setDetailPath(null)}
-            onPause={() => {
-              void handlePause(detailPath.path_id);
-              setDetailPath(null);
-            }}
-            onResume={() => {
-              void handleResume(detailPath.path_id);
-              setDetailPath(null);
-            }}
-            onChangeSchedule={() => {
-              const p = detailPath;
-              setDetailPath(null);
-              setTimeout(() => {
-                if (p) {
-                  setManagedPath(p);
-                  scheduleSheetRef.current?.present();
-                }
-              }, 400);
-            }}
-            onChangeTimeline={() => {
-              setDetailPath(null);
-              setToast({ msg: "Use Manage → Change timeline from profile soon.", kind: "ok" });
-              setTimeout(() => setToast(null), 2800);
-            }}
-            onChangeGoal={() => {
-              const p = detailPath;
-              setDetailPath(null);
-              setTimeout(() => {
-                if (p) {
-                  setManagedPath(p);
-                  setGoalFlowOpen(true);
-                }
-              }, 400);
-            }}
-          />
-        ) : null}
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, minHeight: 0 },
+  root: { flex: 1, minHeight: 0, backgroundColor: "#07080F" },
   scroll: { flex: 1 },
-  contentPad: { paddingHorizontal: 18, paddingBottom: 88 },
-  scrollContent: { paddingHorizontal: 18, paddingBottom: 88, flexGrow: 1 },
+  contentPad: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 88 },
+  scrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 88,
+    flexGrow: 1,
+  },
   skelCard: {
     height: 420,
     borderRadius: 18,
@@ -545,5 +604,62 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
     color: "rgba(139,92,246,0.5)",
+  },
+  preparingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: "#141824",
+    borderWidth: 1,
+    borderColor: "#2A3050",
+    marginBottom: 14,
+  },
+  preparingBannerText: { flex: 1 },
+  preparingBannerTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#E5E7EB",
+  },
+  preparingBannerSub: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7280",
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  emptyPreparing: {
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    backgroundColor: "#141824",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#2A3050",
+  },
+  emptyPreparingTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    color: "#E5E7EB",
+    marginTop: 16,
+    textAlign: "center",
+  },
+  emptyPreparingSub: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#9CA3AF",
+    marginTop: 8,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  emptyPreparingHint: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7280",
+    marginTop: 12,
+    textAlign: "center",
+    lineHeight: 17,
   },
 });

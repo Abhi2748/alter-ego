@@ -5,6 +5,12 @@ import { TagPill } from './TagPill';
 import { UpvoteButton } from './UpvoteButton';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  pending: {
+    label: 'Pending review',
+    color: '#9CA3AF',
+    bg: 'rgba(107,114,128,0.12)',
+    border: 'rgba(107,114,128,0.25)',
+  },
   approved: {
     label: 'Live',
     color: '#A78BFA',
@@ -65,10 +71,18 @@ export function PostCard({ post, onUpvote }: Props) {
 
       <Text style={styles.content}>{post.content}</Text>
 
+      {post.status === 'answered' && post.admin_answer ? (
+        <View style={styles.answerBox}>
+          <Text style={styles.answerLabel}>ANSWER</Text>
+          <Text style={styles.answerText}>{post.admin_answer}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.bottomRow}>
         <UpvoteButton
           count={post.upvote_count}
           voted={post.user_has_voted}
+          disabled={post.status === 'pending'}
           onPress={() => onUpvote(post.id)}
         />
         {statusCfg ? (
@@ -103,6 +117,26 @@ const styles = StyleSheet.create({
   },
   hotText: { fontSize: 9, fontWeight: '800', color: '#F97316', letterSpacing: 1 },
   content: { fontSize: 13, color: '#E5E7EB', lineHeight: 20, marginBottom: 11 },
+  answerBox: {
+    backgroundColor: 'rgba(59,130,246,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.2)',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 11,
+  },
+  answerLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    color: '#3B82F6',
+    marginBottom: 5,
+  },
+  answerText: {
+    fontSize: 12,
+    color: '#93C5FD',
+    lineHeight: 18,
+  },
   bottomRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   statusBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
   statusText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },

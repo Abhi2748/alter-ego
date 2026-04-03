@@ -188,6 +188,7 @@ async def generate_quit_missions(
     living_trigger_profile: dict | None = None,
     user_interests: list[dict] | None = None,
     guilt_orientation: float = 0.0,
+    user_feedback: str = "No feedback yet",
 ) -> QuitMissionBatch:
 
     # ── Sanitize existing inputs ───────────────────────────────────────────
@@ -320,6 +321,10 @@ PHASE 1 FOCUS: {phase_1_focus}
 {interests_section}
 ANTI-REPETITION:
 {history_str}
+
+USER FEEDBACK ON RECENT MISSIONS:
+{user_feedback}
+(If rated "Too Hard" (rating 1): reduce intensity or narrow the scope. If "Too Easy" (rating 5): increase challenge or specificity. If feedback text mentions specific issues, address them directly in this mission.)
 
 Generate exactly ONE phase-appropriate mission. Reason through the 5 thinking steps first, then output the mission."""
 

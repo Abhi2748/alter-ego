@@ -18,12 +18,10 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Svg, { Path, Rect, Circle, Line } from "react-native-svg";
 import { supabase } from "@/utils/supabase";
 import { apiClient } from "@/services/api";
 import { IS_CLOSED_BETA } from "@/constants/closedBeta";
-import { NOTIF_PERMISSION_ASKED_KEY } from "../constants/notificationPermission";
 const PRIVACY_POLICY_URL = "https://alterego.app/privacy";
 const SERVICE_TERMS_URL = "https://alterego.app/terms";
 // -----------------------------------------------------------------------------
@@ -354,23 +352,6 @@ export function SettingsScreen() {
     }
   }, []);
 
-  const resetNotificationPrompt = useCallback(() => {
-    Alert.alert(
-      "Show notification prompt again",
-      "The notification permission screen will appear again the next time you reach the Twin Introduction screen and tap Begin. (Sign out and go through onboarding again to get there.)",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reset",
-          onPress: async () => {
-            await AsyncStorage.removeItem(NOTIF_PERMISSION_ASKED_KEY);
-            Alert.alert("Done", "Next time you go through onboarding and tap Begin, you’ll see the notification screen again.");
-          },
-        },
-      ]
-    );
-  }, []);
-
   const handleDeleteAccount = useCallback(() => {
     Alert.alert(
       "Delete Account",
@@ -483,18 +464,6 @@ export function SettingsScreen() {
             showDivider
           />
           <RowItem
-            icon={<IconNotifications />}
-            label="Show notification prompt again"
-            onPress={resetNotificationPrompt}
-            showDivider
-          />
-          <RowItem
-            icon={<IconContactUs />}
-            label="Contact Us"
-            onPress={() => nav.navigate?.("ContactUs")}
-            showDivider
-          />
-          <RowItem
             icon={<IconCommunityBoard />}
             label="Community Board"
             onPress={() => nav.navigate?.("CommunityBoard")}
@@ -523,6 +492,12 @@ export function SettingsScreen() {
             icon={<IconSubscription />}
             label="Shareable cards preview"
             onPress={() => nav.navigate?.("ShareableCardsPreview")}
+            showDivider
+          />
+          <RowItem
+            icon={<IconContactUs />}
+            label="Contact Us"
+            onPress={() => nav.navigate?.("ContactUs")}
             showDivider
           />
           <RowItem

@@ -1,66 +1,101 @@
-/**
- * QuitDetailScreen — Trigger breakdown, urge trend, manage actions.
- */
 import React from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Modal } from "react-native";
+import {
+  Modal,
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import type { QuitTarget } from "@/types/quits";
-import { PHASE_CONFIG } from "@/types/quits";
 import { QUIT_ORANGE } from "@/constants/missionColors";
 
-/** Urge health: declining urges = good (green), not discipline violet */
-const URGE_DECLINING = "#4ADE80";
-const URGE_INCREASING = "#F87171";
+/** Positive trend copy — violet (no green in app palette). */
+const URGE_EASING = "#A78BFA";
 
-interface Props {
+interface QuitDetailScreenProps {
   visible: boolean;
   target: QuitTarget | null;
   onClose: () => void;
+  onInsightPress: (title: string, body: string) => void;
+  onLogSlip: () => void;
   onAdvancePhase: () => void;
   onUpdateTriggers: () => void;
   onDelete: () => void;
-  onLogSlip: () => void;
-  onInsightPress?: (title: string, body: string) => void;
-  advancing?: boolean;
+  advancing: boolean;
+}
+
+function displayTag(raw: string): string {
+  const s = raw.replace(/_/g, " ");
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function QuitDetailScreen({
   visible,
   target,
   onClose,
+  onInsightPress,
+  onLogSlip,
   onAdvancePhase,
   onUpdateTriggers,
   onDelete,
-  onLogSlip,
-  onInsightPress,
   advancing,
-}: Props) {
+}: QuitDetailScreenProps) {
   const insets = useSafeAreaInsets();
+
   if (!visible || !target) return null;
 
-  const cfg = PHASE_CONFIG[target.current_phase];
+  const phase = target.current_phase;
+  const phaseLabels: Record<string, string> = {
+    mapping: "Mapping",
+    disruption: "Disruption",
+    consolidation: "Consolidation",
+  };
+  const phaseDesc: Record<string, string> = {
+    mapping: "Understanding when and why this urge appears.",
+    disruption: "Actively replacing the habit with competing responses.",
+    consolidation: "Solidifying the new pattern. The habit is losing its grip.",
+  };
+
+  const topTriggers = target.top_triggers?.length
+    ? target.top_triggers
+    : (target.trigger_profile.contexts || []).map((c) => ({ tag: c, count: 0 }));
+
+  const maxTriggerCount = Math.max(...topTriggers.map((t) => t.count), 1);
+
   const urgeTrend = target.urge_trend || [];
+  const maxUrge = Math.max(...urgeTrend.map((u) => u.level), 1);
+
+  const isConquered = target.status === "completed";
+  const canAdvance = target.status === "active" && phase !== "consolidation";
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={[styles.root, { paddingTop: insets.top }]}>
         <LinearGradient colors={["#0D0906", "#060301"]} style={StyleSheet.absoluteFill} />
 
         <View style={styles.header}>
-          <Pressable onPress={onClose} style={styles.headerBack} hitSlop={12}>
-            <Ionicons name="chevron-down" size={22} color="#6B7280" />
+          <Pressable onPress={onClose} style={styles.backBtn} hitSlop={12}>
+            <Ionicons name="chevron-back" size={22} color="#6B7280" />
           </Pressable>
           <View style={styles.headerText}>
-            <Text style={styles.headerName}>{target.habit_name}</Text>
-            <Text style={styles.headerSub}>
-              {cfg.name} · Day {target.days_active}
+            <Text style={styles.headerName} numberOfLines={1}>
+              {target.habit_name}
             </Text>
-          </View>
-          <View style={styles.headerDays}>
-            <Text style={styles.headerDaysNum}>{target.days_active}</Text>
-            <Text style={styles.headerDaysLbl}>days</Text>
+            <Text style={styles.headerSub}>
+              {isConquered
+                ? "✓ CONQUERED"
+                : `${phaseLabels[phase] ?? phase} · Day ${target.days_active}`}
+            </Text>
           </View>
         </View>
 
@@ -69,137 +104,177 @@ export function QuitDetailScreen({
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {target.top_triggers && target.top_triggers.length > 0 ? (
+          <View style={styles.heroCard}>
+            <Text style={styles.ghostNum}>{target.days_active}</Text>
+            <View style={styles.heroInner}>
+              <View style={styles.dayRow}>
+                <Text style={styles.dayNum}>{target.days_active}</Text>
+                <Text style={styles.dayUnit}>days</Text>
+              </View>
+              <View style={styles.phasePill}>
+                <Text style={styles.phasePillText}>{phaseLabels[phase] ?? phase}</Text>
+              </View>
+              {isConquered ? (
+                <Text style={styles.conqueredBadge}>✓ Self-declared conquered</Text>
+              ) : null}
+              <Text style={styles.phaseDesc}>{phaseDesc[phase] ?? ""}</Text>
+            </View>
+          </View>
+
+          {urgeTrend.length > 0 ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                {target.has_checkin_data ? "Trigger Frequency · Last 30 days" : "Trigger Profile"}
-              </Text>
-              {target.top_triggers.map((t, i) => {
-                const maxCount = Math.max(...target.top_triggers!.map((x) => x.count), 1);
-                const barPct = t.count > 0 ? Math.max(0.15, t.count / maxCount) : 0.1;
-                return (
-                  <View key={t.tag} style={styles.trigRow}>
-                    <Text style={styles.trigName}>{t.tag}</Text>
-                    <View style={styles.trigTrack}>
-                      <View
-                        style={[
-                          styles.trigFill,
-                          { width: `${Math.round(barPct * 100)}%`, opacity: 0.6 - i * 0.1 },
-                        ]}
-                      />
-                    </View>
-                    {t.count > 0 ? <Text style={styles.trigCount}>{t.count}</Text> : null}
+              <Text style={styles.sectionTitle}>Urge Trend</Text>
+              <View style={styles.trendChart}>
+                {urgeTrend.map((u, i) => (
+                  <View key={i} style={styles.tcCol}>
+                    <View
+                      style={[
+                        styles.tcBar,
+                        {
+                          height: Math.max(4, (u.level / maxUrge) * 52),
+                          backgroundColor: `rgba(249,115,22,${0.3 + (u.level / 5) * 0.55})`,
+                        },
+                      ]}
+                    />
+                    <Text style={[styles.tcLabel, i === urgeTrend.length - 1 && styles.tcLabelNow]}>
+                      {u.week_label}
+                    </Text>
                   </View>
-                );
-              })}
-              {!target.has_checkin_data ? (
-                <Text style={styles.noDataNote}>Log a slip context to build your live trigger profile</Text>
+                ))}
+              </View>
+              {urgeTrend.length >= 2 ? (
+                <Text
+                  style={[
+                    styles.trendVerdict,
+                    {
+                      color:
+                        urgeTrend[urgeTrend.length - 1].level < urgeTrend[0].level
+                          ? URGE_EASING
+                          : "#9CA3AF",
+                    },
+                  ]}
+                >
+                  {urgeTrend[urgeTrend.length - 1].level < urgeTrend[0].level - 0.5
+                    ? "↓ Urges getting easier"
+                    : urgeTrend[urgeTrend.length - 1].level > urgeTrend[0].level + 0.5
+                      ? "↑ Urges increasing — review triggers"
+                      : "→ Urge level stable"}
+                </Text>
               ) : null}
             </View>
           ) : null}
 
-          {urgeTrend.length > 0 ? (
+          {topTriggers.length > 0 ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Weekly Urge Trend</Text>
-              <View style={styles.trendChart}>
-                {urgeTrend.map((u, i) => {
-                  const isNow = i === urgeTrend.length - 1;
-                  const barH = Math.max(8, (u.level / 5) * 56);
+              <Text style={styles.sectionTitle}>Your Triggers</Text>
+              {topTriggers.slice(0, 5).map((t, i) => (
+                <View key={`${t.tag}-${i}`} style={styles.trigRow}>
+                  <Text style={styles.trigName}>{displayTag(t.tag)}</Text>
+                  <View style={styles.trigTrack}>
+                    <View
+                      style={[
+                        styles.trigFill,
+                        { width: `${Math.max(8, (t.count / maxTriggerCount) * 100)}%` },
+                      ]}
+                    />
+                  </View>
+                  {t.count > 0 ? <Text style={styles.trigCount}>{t.count}</Text> : null}
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {target.frequency_history.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>How many times you logged urges</Text>
+              <Text style={styles.sectionNote}>
+                Each tap on Log counted one time you felt the urge and couldn't control it. This
+                history shows your progress over time.
+              </Text>
+              <View style={styles.histBars}>
+                {target.frequency_history.slice(-14).map((h, i) => {
+                  const maxCount = Math.max(...target.frequency_history.map((x) => x.count), 1);
                   return (
-                    <View key={i} style={styles.tCol}>
+                    <View key={i} style={styles.histCol}>
                       <View
                         style={[
-                          styles.tBar,
+                          styles.histBar,
                           {
-                            height: barH,
-                            backgroundColor: isNow ? QUIT_ORANGE.primary : "rgba(249,115,22,0.38)",
-                            shadowColor: isNow ? "rgba(249,115,22,0.5)" : "transparent",
-                            shadowOpacity: isNow ? 1 : 0,
-                            shadowRadius: isNow ? 8 : 0,
-                            elevation: isNow ? 3 : 0,
+                            height: Math.max(3, (h.count / maxCount) * 48),
+                            opacity: 0.3 + (h.count / maxCount) * 0.6,
                           },
                         ]}
                       />
-                      <Text style={[styles.tLbl, isNow && styles.tLblNow]}>{u.week_label}</Text>
+                      {i % 7 === 0 ? (
+                        <Text style={styles.histLabel}>
+                          {h.log_date ?? h.date
+                            ? new Date(h.log_date ?? h.date ?? "").toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                              })
+                            : "—"}
+                        </Text>
+                      ) : null}
                     </View>
                   );
                 })}
               </View>
-              {urgeTrend.length >= 2
-                ? (() => {
-                    const delta = urgeTrend[0].level - urgeTrend[urgeTrend.length - 1].level;
-                    if (delta > 0.5) {
-                      return (
-                        <View style={styles.verdictRow}>
-                          <Text style={[styles.verdictArrow, { color: URGE_DECLINING }]}>↓</Text>
-                          <Text style={[styles.verdictText, { color: URGE_DECLINING }]}>Declining</Text>
-                          <Text style={styles.verdictSub}> — getting easier over time</Text>
-                        </View>
-                      );
-                    }
-                    if (delta < -0.5) {
-                      return (
-                        <View style={styles.verdictRow}>
-                          <Text style={[styles.verdictArrow, { color: URGE_INCREASING }]}>↑</Text>
-                          <Text style={[styles.verdictText, { color: URGE_INCREASING }]}>Increasing</Text>
-                          <Text style={styles.verdictSub}> — check in with your triggers</Text>
-                        </View>
-                      );
-                    }
-                    return (
-                      <View style={styles.verdictRow}>
-                        <Text style={styles.verdictArrow}>→</Text>
-                        <Text style={styles.verdictText}>Stable</Text>
-                      </View>
-                    );
-                  })()
-                : null}
             </View>
           ) : null}
 
           {target.insights.length > 0 ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Insights</Text>
-              <View style={styles.insightChips}>
-                {target.insights.map((ins) => (
-                  <Pressable
-                    key={ins.title + ins.unlocked_at}
-                    style={styles.insightChip}
-                    onPress={() => onInsightPress?.(ins.title, ins.body)}
-                  >
-                    <Text style={styles.insightChipTxt} numberOfLines={1}>
-                      💡 {ins.title}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+              <Text style={styles.sectionTitle}>Insights ({target.insights.length})</Text>
+              {target.insights.map((ins) => (
+                <Pressable
+                  key={`${ins.title}-${ins.unlocked_at}`}
+                  style={styles.insightRow}
+                  onPress={() => onInsightPress(ins.title, ins.body)}
+                >
+                  <View style={styles.insightIcon}>
+                    <Text style={{ fontSize: 14 }}>💡</Text>
+                  </View>
+                  <Text style={styles.insightTitle} numberOfLines={2}>
+                    {ins.title}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={14} color="#374151" />
+                </Pressable>
+              ))}
             </View>
           ) : null}
 
-          <View style={styles.actionsSection}>
-            <Text style={styles.sectionTitle}>Actions</Text>
-            <View style={styles.actRow}>
-              <Pressable style={[styles.actBtn, styles.actPrimary]} onPress={onLogSlip}>
-                <Text style={styles.actIcon}>🔥</Text>
-                <Text style={styles.actPrimaryText}>Log a slip</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.actBtn, styles.actAmber]}
-                onPress={onAdvancePhase}
-                disabled={advancing}
-              >
-                <Text style={styles.actAmberText}>Advance phase →</Text>
-              </Pressable>
+          {!isConquered ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Actions</Text>
+              <View style={styles.actionRow}>
+                <Pressable style={styles.actBtn} onPress={onLogSlip}>
+                  <Ionicons name="flame" size={14} color={QUIT_ORANGE.primary} />
+                  <Text style={[styles.actBtnText, { color: QUIT_ORANGE.primary }]}>Log Slip</Text>
+                </Pressable>
+                <Pressable style={styles.actBtn} onPress={onUpdateTriggers}>
+                  <Ionicons name="location" size={14} color="#FCD34D" />
+                  <Text style={[styles.actBtnText, { color: "#FCD34D" }]}>Update Triggers</Text>
+                </Pressable>
+              </View>
+              {canAdvance ? (
+                <Pressable
+                  style={[styles.advanceBtn, advancing && { opacity: 0.6 }]}
+                  onPress={onAdvancePhase}
+                  disabled={advancing}
+                >
+                  {advancing ? (
+                    <ActivityIndicator color="#A78BFA" size="small" />
+                  ) : (
+                    <Text style={styles.advanceBtnText}>Advance Phase →</Text>
+                  )}
+                </Pressable>
+              ) : null}
             </View>
-            <View style={[styles.actRow, { marginTop: 8 }]}>
-              <Pressable style={[styles.actBtn, styles.actGhost]} onPress={onUpdateTriggers}>
-                <Text style={styles.actGhostText}>Update triggers</Text>
-              </Pressable>
-              <Pressable style={[styles.actBtn, styles.actDanger]} onPress={onDelete}>
-                <Text style={styles.actDangerText}>Delete</Text>
-              </Pressable>
-            </View>
-          </View>
+          ) : null}
+
+          <Pressable style={styles.deleteBtn} onPress={onDelete}>
+            <Text style={styles.deleteBtnText}>Delete this quit target</Text>
+          </Pressable>
         </ScrollView>
       </View>
     </Modal>
@@ -207,76 +282,114 @@ export function QuitDetailScreen({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  root: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 18,
+    gap: 10,
+    paddingHorizontal: 16,
     paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(249,115,22,0.07)",
+    borderBottomColor: "rgba(249,115,22,0.1)",
     backgroundColor: "rgba(8,5,2,0.9)",
   },
-  headerBack: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  backBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerText: { flex: 1 },
-  headerName: {
-    fontFamily: "Inter_800ExtraBold",
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#E5E7EB",
-  },
+  headerName: { fontSize: 18, fontWeight: "800", color: "#E5E7EB" },
   headerSub: {
     fontSize: 9,
-    color: "rgba(249,115,22,0.4)",
+    color: "rgba(249,115,22,0.5)",
     letterSpacing: 1.5,
     textTransform: "uppercase",
-    fontFamily: "Inter_600SemiBold",
     marginTop: 2,
-  },
-  headerDays: { alignItems: "flex-end" },
-  headerDaysNum: {
-    fontFamily: "Inter_800ExtraBold",
-    fontSize: 32,
-    fontWeight: "900",
-    color: "rgba(249,115,22,0.6)",
-    lineHeight: 34,
-    letterSpacing: -1,
-  },
-  headerDaysLbl: {
-    fontSize: 7,
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    color: "rgba(249,115,22,0.3)",
-    fontFamily: "Inter_600SemiBold",
   },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 60 },
-  section: {
-    backgroundColor: "rgba(14,8,4,0.9)",
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 12,
+
+  heroCard: {
+    borderRadius: 20,
+    overflow: "hidden",
+    backgroundColor: "#0E0804",
     borderWidth: 1,
-    borderColor: "rgba(249,115,22,0.1)",
+    borderColor: "rgba(249,115,22,0.12)",
+    marginBottom: 14,
+    position: "relative",
+  },
+  ghostNum: {
+    position: "absolute",
+    right: -8,
+    top: -4,
+    fontSize: 140,
+    fontWeight: "900",
+    lineHeight: 140,
+    color: "rgba(249,115,22,0.05)",
+    letterSpacing: -6,
+    pointerEvents: "none",
+  },
+  heroInner: { padding: 18 },
+  dayRow: { flexDirection: "row", alignItems: "baseline", gap: 6, marginBottom: 8 },
+  dayNum: {
+    fontSize: 72,
+    fontWeight: "900",
+    color: "#F97316",
+    lineHeight: 72,
+    letterSpacing: -3,
+  },
+  dayUnit: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "rgba(249,115,22,0.4)",
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  },
+  phasePill: {
+    alignSelf: "flex-start",
+    paddingVertical: 3,
+    paddingHorizontal: 9,
+    borderRadius: 20,
+    backgroundColor: "rgba(249,115,22,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(249,115,22,0.25)",
+    marginBottom: 8,
+  },
+  phasePillText: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "rgba(253,186,116,0.8)",
+  },
+  conqueredBadge: { fontSize: 11, color: "#A78BFA", fontWeight: "700", marginBottom: 6 },
+  phaseDesc: { fontSize: 12, color: "#6B7280", lineHeight: 18 },
+
+  section: {
+    backgroundColor: "#0E0804",
+    borderWidth: 1,
+    borderColor: "rgba(249,115,22,0.10)",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 9,
     fontWeight: "700",
     letterSpacing: 2,
     textTransform: "uppercase",
-    color: "rgba(249,115,22,0.3)",
-    fontFamily: "Inter_700Bold",
-    marginBottom: 14,
+    color: "rgba(249,115,22,0.4)",
+    marginBottom: 12,
   },
+  sectionNote: { fontSize: 11, color: "#374151", lineHeight: 16, marginBottom: 10 },
+
+  trendChart: { flexDirection: "row", gap: 6, alignItems: "flex-end", height: 56, marginBottom: 8 },
+  tcCol: { flex: 1, alignItems: "center", gap: 4 },
+  tcBar: { width: "100%", borderRadius: 3, backgroundColor: QUIT_ORANGE.primary },
+  tcLabel: { fontSize: 8, color: "#374151" },
+  tcLabelNow: { color: "rgba(249,115,22,0.6)" },
+  trendVerdict: { fontSize: 11, fontWeight: "600" },
+
   trigRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 9 },
-  trigName: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#9CA3AF",
-    minWidth: 72,
-    fontFamily: "Inter_500Medium",
-  },
+  trigName: { fontSize: 11, color: "#9CA3AF", width: 80, flexShrink: 0 },
   trigTrack: {
     flex: 1,
     height: 5,
@@ -284,113 +397,73 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     overflow: "hidden",
   },
-  trigFill: {
-    height: "100%",
-    borderRadius: 5,
-    backgroundColor: QUIT_ORANGE.primary,
-  },
+  trigFill: { height: "100%", borderRadius: 5, backgroundColor: "#EA580C" },
   trigCount: {
-    fontFamily: "Inter_700Bold",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "700",
     color: "rgba(251,146,60,0.8)",
-    minWidth: 16,
+    minWidth: 18,
     textAlign: "right",
   },
-  noDataNote: {
-    fontSize: 10,
-    color: "rgba(249,115,22,0.25)",
-    fontStyle: "italic",
-    textAlign: "center",
-    marginTop: 4,
-    fontFamily: "Inter_400Regular",
-  },
-  trendChart: {
+
+  histBars: { flexDirection: "row", gap: 3, alignItems: "flex-end", height: 52 },
+  histCol: { flex: 1, alignItems: "center", gap: 3 },
+  histBar: { width: "100%", borderRadius: 2, backgroundColor: QUIT_ORANGE.primary },
+  histLabel: { fontSize: 7, color: "#374151" },
+
+  insightRow: {
     flexDirection: "row",
-    gap: 8,
-    alignItems: "flex-end",
-    height: 64,
-    marginBottom: 10,
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.04)",
   },
-  tCol: { flex: 1, alignItems: "center", gap: 4 },
-  tBar: { width: "100%", borderRadius: 4 },
-  tLbl: {
-    fontSize: 8,
-    color: "#374151",
-    fontFamily: "Inter_500Medium",
-  },
-  tLblNow: { color: "rgba(249,115,22,0.6)" },
-  verdictRow: { flexDirection: "row", alignItems: "center", gap: 5, flexWrap: "wrap" },
-  verdictArrow: { fontSize: 18, color: "#9CA3AF" },
-  verdictText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#9CA3AF",
-    fontFamily: "Inter_600SemiBold",
-  },
-  verdictSub: {
-    fontSize: 10,
-    color: "#374151",
-    fontFamily: "Inter_400Regular",
-  },
-  insightChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  insightChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+  insightIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     backgroundColor: "rgba(249,115,22,0.08)",
     borderWidth: 1,
-    borderColor: "rgba(249,115,22,0.2)",
-    maxWidth: "100%",
+    borderColor: "rgba(249,115,22,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  insightChipTxt: {
-    fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
-    color: "#9CA3AF",
-  },
-  actionsSection: { marginTop: 4 },
-  actRow: { flexDirection: "row", gap: 8 },
+  insightTitle: { flex: 1, fontSize: 12, color: "#9CA3AF" },
+
+  actionRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
   actBtn: {
     flex: 1,
-    height: 42,
-    borderRadius: 13,
+    height: 40,
+    borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-  },
-  actPrimary: {
-    backgroundColor: "rgba(234,88,12,0.9)",
-    borderWidth: 1,
-    borderColor: "rgba(249,115,22,0.3)",
-    shadowColor: "rgba(249,115,22,0.3)",
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  actIcon: { fontSize: 14 },
-  actPrimaryText: { fontSize: 11, fontWeight: "700", color: "#fff", fontFamily: "Inter_700Bold" },
-  actAmber: {
-    backgroundColor: "rgba(245,158,11,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.22)",
-  },
-  actAmberText: { fontSize: 11, fontWeight: "700", color: "#FCD34D", fontFamily: "Inter_700Bold" },
-  actGhost: {
     backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1,
     borderColor: "rgba(42,48,80,0.35)",
   },
-  actGhostText: { fontSize: 11, fontWeight: "600", color: "#4B5563", fontFamily: "Inter_600SemiBold" },
-  actDanger: {
-    backgroundColor: "rgba(127,29,29,0.07)",
+  actBtnText: { fontSize: 11, fontWeight: "700" },
+  advanceBtn: {
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(139,92,246,0.08)",
     borderWidth: 1,
-    borderColor: "rgba(127,29,29,0.2)",
+    borderColor: "rgba(139,92,246,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  actDangerText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "rgba(239,68,68,0.4)",
-    fontFamily: "Inter_600SemiBold",
+  advanceBtnText: { fontSize: 12, fontWeight: "700", color: "#A78BFA" },
+
+  deleteBtn: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "rgba(127,29,29,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(127,29,29,0.18)",
+    alignItems: "center",
+    marginBottom: 24,
   },
+  deleteBtnText: { fontSize: 13, color: "rgba(239,68,68,0.5)", fontWeight: "600" },
 });

@@ -161,6 +161,15 @@ export async function linkGoogleAccount(): Promise<AuthResult> {
   } catch (error: any) {
     // eslint-disable-next-line no-console
     console.error('Google link failed:', error);
+    const msg = String(error?.message ?? error ?? '');
+    const lower = msg.toLowerCase();
+    if (lower.includes('manual linking') && lower.includes('disabled')) {
+      return {
+        success: false,
+        error:
+          'Google linking is turned off for this project. In Supabase Dashboard → Authentication → Settings, enable “Manual identity linking”, then try again. You can also use Email below to create a full account.',
+      };
+    }
     return {
       success: false,
       error: error.message ?? 'Linking failed',

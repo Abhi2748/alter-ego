@@ -740,7 +740,7 @@ async def get_mission_detail(mission_id: UUID, authorization: str = Header(None)
     _attach_quit_path_detail(row)
     rating_existing = (
         supabase_admin.table("mission_ratings")
-        .select("rating")
+        .select("rating, feedback_text")
         .eq("mission_id", mid)
         .eq("user_id", user_id)
         .limit(1)
@@ -749,4 +749,5 @@ async def get_mission_detail(mission_id: UUID, authorization: str = Header(None)
         or []
     )
     row["difficulty_rating"] = int(rating_existing[0]["rating"]) if rating_existing else None
+    row["feedback_text"] = str(rating_existing[0].get("feedback_text") or "") if rating_existing else None
     return row

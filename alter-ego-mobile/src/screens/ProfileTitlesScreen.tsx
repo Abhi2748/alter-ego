@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
+import { TOTAL_CHARACTER_STAGES } from "@/constants/characterProgression";
 
 // -----------------------------------------------------------------------------
 // TYPES & STAGE COLOUR SYSTEM
@@ -31,9 +32,14 @@ export interface TitleStage {
   days_at_stage: number | null;
   is_current: boolean;
   is_locked: boolean;
+  /** Cumulative XP threshold to enter this stage (locked rows only). */
   xp_to_unlock: number;
   peak_streak_at_stage: number | null;
   xp_earned_at_stage: number | null;
+  /** XP remaining to the next stage — current stage only (from /profile/identity). */
+  xp_to_next_stage?: number | null;
+  /** Total XP snapshot — used on final stage share card instead of "XP to next". */
+  total_xp?: number | null;
 }
 
 export interface TitlesScreenData {
@@ -62,6 +68,8 @@ const PLACEHOLDER_TITLES: TitlesScreenData = {
       xp_to_unlock: 0,
       peak_streak_at_stage: 14,
       xp_earned_at_stage: 3240,
+      xp_to_next_stage: 560,
+      total_xp: 3240,
     },
     {
       stage_number: 2,
@@ -73,6 +81,7 @@ const PLACEHOLDER_TITLES: TitlesScreenData = {
       xp_to_unlock: 10000,
       peak_streak_at_stage: null,
       xp_earned_at_stage: null,
+      xp_to_next_stage: null,
     },
     {
       stage_number: 3,
@@ -84,6 +93,7 @@ const PLACEHOLDER_TITLES: TitlesScreenData = {
       xp_to_unlock: 50000,
       peak_streak_at_stage: null,
       xp_earned_at_stage: null,
+      xp_to_next_stage: null,
     },
     {
       stage_number: 4,
@@ -95,6 +105,7 @@ const PLACEHOLDER_TITLES: TitlesScreenData = {
       xp_to_unlock: 200000,
       peak_streak_at_stage: null,
       xp_earned_at_stage: null,
+      xp_to_next_stage: null,
     },
     {
       stage_number: 5,
@@ -106,6 +117,7 @@ const PLACEHOLDER_TITLES: TitlesScreenData = {
       xp_to_unlock: 600000,
       peak_streak_at_stage: null,
       xp_earned_at_stage: null,
+      xp_to_next_stage: null,
     },
     {
       stage_number: 6,
@@ -117,6 +129,8 @@ const PLACEHOLDER_TITLES: TitlesScreenData = {
       xp_to_unlock: 1500000,
       peak_streak_at_stage: null,
       xp_earned_at_stage: null,
+      xp_to_next_stage: null,
+      total_xp: null,
     },
   ],
 };
@@ -350,7 +364,7 @@ function StageRow({
         <Text style={styles.stageSub}>
           {isLocked
             ? "Locked"
-            : `Reached Day ${stage.reached_day} · ${stage.days_at_stage} days at stage`}
+            : `Reached Day ${stage.reached_day ?? "—"} · ${stage.days_at_stage ?? "—"} days at stage`}
         </Text>
       </View>
       {isLocked ? (
@@ -404,10 +418,16 @@ export function AchievementCardModal({
     }
   };
 
-  const xpLabel = stage.is_current ? "XP earned" : "XP to unlock";
-  const xpValue = stage.is_current
-    ? (stage.xp_earned_at_stage ?? 0).toLocaleString()
-    : stage.xp_to_unlock.toLocaleString();
+  const xpLabel = stage.is_locked
+    ? "XP to unlock"
+    : stage.is_current
+      ? "XP to next"
+      : "XP earned here";
+  const xpValue = stage.is_locked
+    ? stage.xp_to_unlock.toLocaleString()
+    : stage.is_current
+      ? (stage.xp_to_next_stage ?? 0).toLocaleString()
+      : (stage.xp_earned_at_stage ?? 0).toLocaleString();
 
   return (
     <Modal visible={visible} transparent animationType="fade">

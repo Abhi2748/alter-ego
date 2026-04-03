@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   advancePhase,
+  conquerQuit,
   createQuitPath,
   deleteQuit,
   fetchQuits,
@@ -84,5 +85,13 @@ export function useCreateQuitPath() {
       await qc.refetchQueries({ queryKey: QUIT_KEYS.list() });
       void qc.invalidateQueries({ queryKey: MISSION_KEYS.today });
     },
+  });
+}
+
+export function useConquerQuit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pathId: string) => conquerQuit(pathId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QUIT_KEYS.all }),
   });
 }

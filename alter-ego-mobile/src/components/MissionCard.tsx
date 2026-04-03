@@ -2,7 +2,7 @@
  * Mission Card §2.2 — 3-type variant system. All states: default, pressed, complete, expired, swipe-to-complete.
  */
 
-import React from "react";
+import React, { useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, {
@@ -65,7 +65,8 @@ export type MissionCardProps = {
   xpValue: number;
   petFoodValue: number;
   status: MissionStatus;
-  onComplete: () => void;
+  missionId: string;
+  onComplete: (missionId: string) => void;
   missionType: MissionType;
   /** For interest type, the display name e.g. "Fitness". */
   interestName?: string;
@@ -100,6 +101,7 @@ export default function MissionCard({
   xpValue,
   petFoodValue,
   status,
+  missionId,
   onComplete,
   missionType,
   interestName,
@@ -137,6 +139,10 @@ export default function MissionCard({
     return () => clearTimeout(t);
   }, [appearIndex]);
 
+  const notifySwipeComplete = useCallback(() => {
+    onComplete(missionId);
+  }, [missionId, onComplete]);
+
   const leftEdgeColor =
     status === "complete"
       ? COLORS.violet
@@ -144,26 +150,39 @@ export default function MissionCard({
         ? COLORS.danger
         : LEFT_EDGE_COLOR[missionType];
 
-  const panGesture = Gesture.Pan()
-    .enabled(status === "pending")
-    .activeOffsetX(10)
-    .failOffsetY([-15, 15])
-    .onUpdate((e) => {
-      if (e.translationX < 0) return;
-      translateX.value = Math.min(e.translationX, MAX_SWIPE);
-    })
-    .onEnd(() => {
-      const threshold = cardWidth.value * SWIPE_THRESHOLD;
-      if (translateX.value >= threshold) {
-        runOnJS(onComplete)();
-        translateX.value = withTiming(0, {
-          duration: ANIMATIONS.missionSwipe,
-          easing: Easing.out(Easing.ease),
-        });
-      } else {
-        translateX.value = withSpring(0, { damping: 15, stiffness: 200 });
-      }
-    });
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(status === "pending")
+        .activeOffsetX(10)
+        .failOffsetY([-15, 15])
+        .onUpdate((e) => {
+          "worklet";
+          if (e.translationX < 0) return;
+          translateX.value = Math.min(e.translationX, MAX_SWIPE);
+        })
+        .onEnd(() => {
+          "worklet";
+          const threshold = cardWidth.value * SWIPE_THRESHOLD;
+          if (translateX.value >= threshold) {
+            translateX.value = withTiming(
+              0,
+              {
+                duration: ANIMATIONS.missionSwipe,
+                easing: Easing.out(Easing.ease),
+              },
+              (finished) => {
+                if (finished) {
+                  runOnJS(notifySwipeComplete)();
+                }
+              }
+            );
+          } else {
+            translateX.value = withSpring(0, { damping: 15, stiffness: 200 });
+          }
+        }),
+    [status, notifySwipeComplete, SWIPE_THRESHOLD]
+  );
 
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     backgroundColor: pressed.value === 1 ? "#1A2030" : COLORS.surface,

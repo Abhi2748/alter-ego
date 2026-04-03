@@ -3,7 +3,7 @@
  * Left edge gradient by section + difficulty, section chip, ★ xp / 🌿 pf, streak or difficulty pill or checkmark.
  */
 
-import React, { useEffect } from "react";
+import React, { useEffect, useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -89,7 +89,10 @@ export interface HomeMissionCardProps {
   xpValue: number;
   petFoodValue: number;
   status: HomeMissionStatus;
-  onComplete: () => void;
+  /** Mission id — passed to onComplete (avoids unstable inline closures in swipe runOnJS). */
+  missionId: string;
+  /** Stable handler from parent, e.g. useCallback((id) => mutate(id), [...]) */
+  onComplete: (missionId: string) => void;
   missionType: HomeMissionType;
   interestName?: string;
   onPress?: () => void;
@@ -116,6 +119,7 @@ export function HomeMissionCard({
   xpValue,
   petFoodValue,
   status,
+  missionId,
   onComplete,
   missionType,
   interestName,
@@ -152,23 +156,39 @@ export function HomeMissionCard({
     return () => clearTimeout(t);
   }, [appearIndex]);
 
-  const panGesture = Gesture.Pan()
-    .enabled(status === "pending")
-    .activeOffsetX(10)
-    .failOffsetY([-15, 15])
-    .onUpdate((e) => {
-      if (e.translationX < 0) return;
-      translateX.value = Math.min(e.translationX, MAX_SWIPE);
-    })
-    .onEnd(() => {
-      const threshold = cardWidth.value * SWIPE_THRESHOLD;
-      if (translateX.value >= threshold) {
-        runOnJS(onComplete)();
-        translateX.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.ease) });
-      } else {
-        translateX.value = withSpring(0, { damping: 15, stiffness: 200 });
-      }
-    });
+  /** Stable for runOnJS — do not pass inline `() => handleComplete(id)` from parent (captures refs → worklet crash). */
+  const notifySwipeComplete = useCallback(() => {
+    onComplete(missionId);
+  }, [missionId, onComplete]);
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(status === "pending")
+        .activeOffsetX(10)
+        .failOffsetY([-15, 15])
+        .onUpdate((e) => {
+          "worklet";
+          if (e.translationX < 0) return;
+          translateX.value = Math.min(e.translationX, MAX_SWIPE);
+        })
+        .onEnd(() => {
+          "worklet";
+          const threshold = cardWidth.value * SWIPE_THRESHOLD;
+          if (translateX.value >= threshold) {
+            // Run mutation only after snap-back finishes — avoids unmount/reconcile while Reanimated
+            // is still animating (especially when server returns stage-evolved + overlays).
+            translateX.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.ease) }, (finished) => {
+              if (finished) {
+                runOnJS(notifySwipeComplete)();
+              }
+            });
+          } else {
+            translateX.value = withSpring(0, { damping: 15, stiffness: 200 });
+          }
+        }),
+    [status, notifySwipeComplete]
+  );
 
   const cardStyle = useAnimatedStyle(() => ({
     opacity: appearOpacity.value * completedOpacity.value,

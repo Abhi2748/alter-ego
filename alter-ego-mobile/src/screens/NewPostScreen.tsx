@@ -58,8 +58,8 @@ export function NewPostScreen() {
           </View>
           <Text style={styles.successTitle}>Post submitted</Text>
           <Text style={styles.successSub}>
-            It&apos;ll appear on the board after a quick review.{`\n`}
-            If others face the same thing, they&apos;ll upvote it.
+            You&apos;ll see it on the board as &quot;Pending review&quot; until it&apos;s approved.{`\n`}
+            After approval, everyone can see it and upvote.
           </Text>
         </View>
       </SafeAreaView>
@@ -114,8 +114,8 @@ export function NewPostScreen() {
           <View style={styles.anonBox}>
             <Text style={styles.anonIcon}>ℹ</Text>
             <Text style={styles.anonText}>
-              Posts are <Text style={styles.anonBold}>anonymous</Text>. Your username is never shown. The team
-              reviews all content before it goes public.
+              Posts are <Text style={styles.anonBold}>anonymous</Text>. Your username is never shown. New posts
+              show as pending until the team approves them for everyone.
             </Text>
           </View>
 

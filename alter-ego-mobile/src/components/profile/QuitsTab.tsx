@@ -29,6 +29,7 @@ import {
   useDeleteQuit,
   useUpdateTriggerProfile,
   useCreateQuitPath,
+  useConquerQuit,
 } from "@/hooks/useQuits";
 import { SlipContextPicker } from "@/components/profile/SlipContextPicker";
 import { WeeklyUrgeCard } from "@/components/WeeklyUrgeCard";
@@ -36,6 +37,8 @@ import { QuitDetailScreen } from "@/screens/QuitDetailScreen";
 import { QuitCard } from "@/components/profile/QuitCard";
 import { QuitManageSheet } from "@/components/profile/QuitManageSheet";
 import { QuitInsightModal } from "@/components/profile/QuitInsightModal";
+import { QuitMilestoneModal } from "@/components/QuitMilestoneModal";
+import type { QuitMilestoneOut } from "@/types/quitMilestone";
 import { QuitTargetProfileSheet } from "@/components/onboarding/QuitTargetProfileSheet";
 import { getErrorMessage, isApiError } from "@/services/api";
 import { QUIT_ORANGE } from "@/constants/missionColors";
@@ -75,6 +78,11 @@ export function QuitsTab() {
   const deleteMutation = useDeleteQuit();
   const updateProfileMutation = useUpdateTriggerProfile();
   const createMutation = useCreateQuitPath();
+  const conquerMutation = useConquerQuit();
+  const [milestoneModal, setMilestoneModal] = useState<{
+    milestone: QuitMilestoneOut;
+    quitName: string;
+  } | null>(null);
   const manageRef = useRef<BottomSheetModal>(null);
   const [manageTarget, setManageTarget] = useState<QuitTarget | null>(null);
   const [insight, setInsight] = useState<{ title: string; body: string } | null>(null);
@@ -138,6 +146,25 @@ export function QuitsTab() {
     setSlipPickerVisible(false);
     setSlipPickerPath(null);
   }, []);
+
+  const handleConquer = useCallback(async () => {
+    if (!manageTarget) return;
+    manageRef.current?.dismiss();
+    const pathName = manageTarget.habit_name;
+    const pathId = manageTarget.path_id;
+    setManageTarget(null);
+    try {
+      const result = await conquerMutation.mutateAsync(pathId);
+      if (result?.milestone) {
+        setMilestoneModal({
+          milestone: result.milestone as QuitMilestoneOut,
+          quitName: result.quit_name ?? pathName,
+        });
+      }
+    } catch {
+      // Silent fail — quit may still be marked conquered on server
+    }
+  }, [manageTarget, conquerMutation]);
 
   const handleUrgeCheckSave = useCallback(
     (pathId: string, level: string) => {
@@ -404,6 +431,7 @@ export function QuitsTab() {
           if (manageTarget) setDeleteTarget(manageTarget);
           manageRef.current?.dismiss();
         }}
+        onConquer={handleConquer}
       />
 
       <QuitTargetProfileSheet
@@ -510,6 +538,15 @@ export function QuitsTab() {
         }}
         advancing={!!(detailTarget && advancingPathId === detailTarget.path_id)}
       />
+
+      {milestoneModal ? (
+        <QuitMilestoneModal
+          visible
+          milestone={milestoneModal.milestone}
+          quitName={milestoneModal.quitName}
+          onClose={() => setMilestoneModal(null)}
+        />
+      ) : null}
 
       <Modal visible={addNameModal} transparent animationType="fade">
         <Pressable style={styles.nameModalBackdrop} onPress={() => setAddNameModal(false)}>

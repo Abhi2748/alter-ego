@@ -216,7 +216,7 @@ export function QuitCard({
 
       <View style={styles.freqStrip}>
         <View style={styles.freqLeft}>
-          <Text style={styles.freqLabel}>Today</Text>
+          <Text style={styles.freqLabel}>{`TODAY — URGES I COULDN'T CONTROL`}</Text>
           <View style={styles.microBars}>
             {microCounts.map((c, i) => {
               const isToday = i === microCounts.length - 1;

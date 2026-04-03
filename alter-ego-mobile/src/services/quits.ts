@@ -90,6 +90,30 @@ export const advancePhase = (pathId: string) =>
 export const deleteQuit = (pathId: string) =>
   apiClient.delete(`/api/v1/quits/${pathId}`);
 
+export interface QuitConquerMilestone {
+  milestone_type: string;
+  earned_at: string;
+  clean_days_at_earn: number;
+  cravings_at_earn: number;
+  phase_at_earn: string;
+  quote: string;
+  slip_duration_hours: number | null;
+  return_speed: string | null;
+}
+
+export interface QuitConquerResponse {
+  conquered: boolean;
+  milestone: QuitConquerMilestone;
+  quit_name: string;
+}
+
+/** Alias for API response shape (conquer flow). */
+export type ConquerQuitResponse = QuitConquerResponse;
+
+/** Self-declared habit conquest — path stays visible as completed. */
+export const conquerQuit = (pathId: string): Promise<QuitConquerResponse> =>
+  apiClient.post<QuitConquerResponse>(`/api/v1/quits/${pathId}/conquer`, {});
+
 export const updateTriggerProfile = (
   pathId: string,
   trigger_contexts: string[],

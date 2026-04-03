@@ -13,15 +13,6 @@ import type { CompositeNavigationProp } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Path, Circle } from "react-native-svg";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withSequence,
-  withTiming,
-  Easing,
-} from "react-native-reanimated";
-import { PetAnimation } from "../components/PetAnimation";
 import type { ProfileStackParamList } from "../navigation/types";
 import { useUserStore } from "@/store/userStore";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
@@ -125,17 +116,6 @@ const PROFILE_NAV_ROWS: {
   { kind: "quits", key: "ProfileQuits", label: "Quits", Icon: QuitsIcon, iconWrap: "quits" },
 ];
 
-const PET_STAGE_NAMES: Record<number, string> = {
-  1: "Cub",
-  2: "Cat",
-  3: "Fox",
-  4: "Wolf",
-  5: "Snow Leopard",
-  6: "Panther",
-  7: "Griffin",
-  8: "Dragon",
-};
-
 function navIconWrapStyle(
   wrap: "violet" | "ember" | "journey" | "quits"
 ): typeof styles.navIconWrap {
@@ -163,23 +143,6 @@ export function ProfileScreen() {
       : "—";
   const [journeyDropdownVisible, setJourneyDropdownVisible] = useState(false);
   const journeyDropdownTop = 260;
-
-  const petFloat = useSharedValue(0);
-
-  React.useEffect(() => {
-    petFloat.value = withRepeat(
-      withSequence(
-        withTiming(-4, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-        withTiming(0, { duration: 1500, easing: Easing.inOut(Easing.ease) })
-      ),
-      -1,
-      false
-    );
-  }, []);
-
-  const petAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: petFloat.value }],
-  }));
 
   const openSettings = () => {
     (navigation.getParent() as any)?.navigate("Settings");
@@ -305,7 +268,7 @@ export function ProfileScreen() {
               </View>
             ) : (
               <>
-                <View style={styles.charPetRow}>
+                <View style={styles.charRow}>
                   <View style={styles.charWrap}>
                     <LinearGradient
                       colors={["transparent", "rgba(167,139,250,0.35)", "transparent"]}
@@ -321,15 +284,6 @@ export function ProfileScreen() {
                       style={styles.charPlaceholder}
                     />
                   </View>
-                  <Animated.View style={[styles.petWrap, petAnimatedStyle]}>
-                    <View style={styles.petCircle}>
-                      <PetAnimation
-                        stage={Math.min(8, Math.max(1, profile.pet_stage))}
-                        isHappy
-                        size={58}
-                      />
-                    </View>
-                  </Animated.View>
                 </View>
 
                 {/* Quick stat pills */}
@@ -360,6 +314,30 @@ export function ProfileScreen() {
               </>
             )}
           </View>
+        </View>
+
+        <View style={styles.heroNavDividerWrap} pointerEvents="none">
+          <LinearGradient
+            colors={["transparent", "rgba(167,139,250,0.12)", "transparent"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.heroNavDividerGlow}
+          />
+          <LinearGradient
+            colors={[
+              "transparent",
+              "rgba(42,48,80,0.35)",
+              "rgba(109,40,217,0.55)",
+              "rgba(167,139,250,0.45)",
+              "rgba(109,40,217,0.55)",
+              "rgba(42,48,80,0.35)",
+              "transparent",
+            ]}
+            locations={[0, 0.12, 0.32, 0.5, 0.68, 0.88, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.heroNavDividerGrad}
+          />
         </View>
 
         <View style={[styles.navSection, { paddingHorizontal: 16 }]}>
@@ -575,17 +553,15 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     color: "rgba(167,139,250,0.6)",
   },
-  charPetRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
+  charRow: {
+    alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   charWrap: {
-    width: 96,
-    height: 144,
-    borderRadius: 14,
+    width: 168,
+    height: 252,
+    borderRadius: 18,
     position: "relative",
   },
   charRim: {
@@ -599,7 +575,7 @@ const styles = StyleSheet.create({
   charPlaceholder: {
     width: "100%",
     height: "100%",
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: "rgba(139,92,246,0.15)",
     overflow: "hidden",
@@ -607,21 +583,26 @@ const styles = StyleSheet.create({
       ? { shadowColor: "rgba(80,20,160,0.15)", shadowRadius: 30, shadowOffset: { width: 0, height: 0 } }
       : {}),
   },
-  petWrap: {
-    marginBottom: 14,
-  },
-  petCircle: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    borderWidth: 1.5,
-    borderColor: "rgba(139,92,246,0.35)",
-    overflow: "hidden",
-    alignItems: "center",
+  heroNavDividerWrap: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 12,
+    height: 3,
     justifyContent: "center",
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(109,40,217,0.22)", shadowRadius: 16, shadowOffset: { width: 0, height: 0 } }
-      : {}),
+    position: "relative",
+  },
+  heroNavDividerGrad: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 1,
+    height: 1,
+    borderRadius: 1,
+  },
+  heroNavDividerGlow: {
+    height: 3,
+    borderRadius: 2,
+    opacity: 0.9,
   },
   pillsRow: {
     flexDirection: "row",

@@ -18,10 +18,9 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ViewShot from "react-native-view-shot";
-import type { QuitMilestoneOut } from "../utils/api";
-import { QuitMilestoneIcon } from "./QuitMilestoneIcons";
-import type { QuitStreakPhase } from "../types/quitStreakPhases";
-import { getStreakPhaseShortLabel } from "../types/quitStreakPhases";
+import type { QuitMilestoneOut, QuitStreakPhase } from "@/types/quitMilestone";
+import { getStreakPhaseShortLabel } from "@/types/quitMilestone";
+import { QuitMilestoneIcon } from "@/components/QuitMilestoneIcons";
 
 type QuitTheme = {
   accent: string;

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -32,6 +32,10 @@ type IdentityStage = {
   unlocked: boolean;
   current: boolean;
   earned_at: string | null;
+  reached_day: number | null;
+  days_at_stage: number | null;
+  peak_streak_at_stage: number | null;
+  xp_earned_in_stage: number | null;
 };
 
 type IdentityResponse = {
@@ -63,6 +67,15 @@ function buildIdentityFromProfile(p: UserProfile): IdentityResponse {
       unlocked: i <= current_stage,
       current: i === current_stage,
       earned_at: null,
+      reached_day: null,
+      days_at_stage: null,
+      peak_streak_at_stage: null,
+      xp_earned_in_stage:
+        i === current_stage
+          ? Math.max(0, total_xp - threshold)
+          : i < current_stage && next_threshold != null
+            ? Math.max(0, next_threshold - threshold)
+            : null,
     });
   }
   const { xp_to_next_stage, stage_progress_pct } = computeCharacterXpDerived(
@@ -108,19 +121,21 @@ export function ProfileIdentityScreen() {
   const usingCachedFallback = isError && !data && !!fallbackIdentity;
   const loading = isPending && !display;
 
-  const toTitleStage = useMemo(
-    () => (st: IdentityStage): TitleStage => ({
+  const toTitleStage = useCallback(
+    (st: IdentityStage): TitleStage => ({
       stage_number: st.stage,
       title: st.name,
-      reached_day: null,
-      days_at_stage: null,
+      reached_day: st.reached_day ?? null,
+      days_at_stage: st.days_at_stage ?? null,
       is_current: st.current,
       is_locked: !st.unlocked,
-      xp_to_unlock: st.xp_required,
-      peak_streak_at_stage: null,
-      xp_earned_at_stage: st.current ? (display?.total_xp ?? null) : null,
+      xp_to_unlock: !st.unlocked ? st.xp_required : 0,
+      peak_streak_at_stage: st.peak_streak_at_stage ?? null,
+      xp_earned_at_stage: st.xp_earned_in_stage ?? null,
+      xp_to_next_stage: st.current ? (display?.xp_to_next ?? null) : null,
+      total_xp: display?.total_xp ?? null,
     }),
-    [display?.total_xp]
+    [display?.xp_to_next, display?.total_xp]
   );
 
   const current = display;

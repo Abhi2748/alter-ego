@@ -2,18 +2,28 @@
  * Profile → Interests (paths, quests, manage sheets).
  */
 
-import React from "react";
+import React, { useCallback } from "react";
 import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { InterestsTab } from "@/components/profile/InterestsTab";
+import type { ProfileStackParamList } from "@/navigation/types";
 
 export function ProfileInterestsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<ProfileStackParamList, "ProfileInterests">>();
+  const pendingSheet = route.params?.pendingSheet;
+  const pathIdParam = route.params?.pathId;
+  const pendingSheetIntent =
+    pendingSheet && pathIdParam ? { sheet: pendingSheet, pathId: pathIdParam } : null;
+
+  const consumePendingSheet = useCallback(() => {
+    navigation.setParams({ pendingSheet: undefined, pathId: undefined } as never);
+  }, [navigation]);
 
   return (
     <LinearGradient
@@ -33,7 +43,10 @@ export function ProfileInterestsScreen() {
         </View>
       </View>
       <View style={styles.body}>
-        <InterestsTab />
+        <InterestsTab
+          pendingSheetIntent={pendingSheetIntent}
+          onPendingSheetConsumed={consumePendingSheet}
+        />
       </View>
     </LinearGradient>
   );

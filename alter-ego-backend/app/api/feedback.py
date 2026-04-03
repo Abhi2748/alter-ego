@@ -7,6 +7,7 @@ Posts start as 'pending' and are approved via Supabase dashboard.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -22,6 +23,22 @@ router = APIRouter(prefix="/api/v1/feedback", tags=["feedback"])
 def require_user_id(authorization: str = Header(None)) -> str:
     """Bearer token → user id (FastAPI Depends wrapper)."""
     return get_user_id_from_token(authorization)
+
+
+def require_admin(x_admin_secret: str = Header(None)) -> None:
+    """
+    Validates the X-Admin-Secret header against the ADMIN_SECRET env var.
+    Raises 403 if missing or incorrect.
+    Set ADMIN_SECRET in your environment variables (Render/Railway dashboard).
+    """
+    secret = os.environ.get("ADMIN_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(
+            status_code=500,
+            detail="ADMIN_SECRET environment variable is not configured on the server.",
+        )
+    if x_admin_secret != secret:
+        raise HTTPException(status_code=403, detail="Invalid admin secret.")
 
 
 class CreatePostRequest(BaseModel):
@@ -53,6 +70,7 @@ class PostResponse(BaseModel):
     status: str
     created_at: str
     user_has_voted: bool  # True if the requesting user has upvoted this post
+    admin_answer: Optional[str] = None
 
 
 class UpvoteResponse(BaseModel):
@@ -67,6 +85,23 @@ class BoardStatsResponse(BaseModel):
     resolved_count: int
 
 
+class AdminUpdatePostRequest(BaseModel):
+    status: str = Field(..., description="New status: approved | rejected | acknowledged | answered | resolved")
+    admin_answer: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Required when status is 'answered'. Ignored for other statuses.",
+    )
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        allowed = {"approved", "rejected", "acknowledged", "answered", "resolved"}
+        if v not in allowed:
+            raise ValueError(f"status must be one of {allowed}")
+        return v
+
+
 @router.get("/posts", response_model=list[PostResponse])
 async def list_posts(
     tag: Optional[str] = Query(default=None, description="Filter by tag: bug|suggestion|question|praise"),
@@ -75,14 +110,16 @@ async def list_posts(
     user_id: str = Depends(require_user_id),
 ):
     """
-    Returns approved posts sorted by upvote_count DESC.
-    Attaches user_has_voted flag for each post.
+    Returns posts visible to this user: all non-pending (public), plus this user's
+    own pending posts (so authors see submissions before moderation).
+    Sorted by upvote_count DESC, then created_at DESC.
     """
     try:
+        # (status != pending) OR (user_id = me) — others' pending posts stay hidden
         query = (
             supabase_admin.table("feedback_posts")
             .select("id, tag, content, upvote_count, status, created_at")
-            .neq("status", "pending")
+            .or_(f'user_id.eq."{user_id}",status.neq."pending"')
             .order("upvote_count", desc=True)
             .order("created_at", desc=True)
             .range(offset, offset + limit - 1)
@@ -115,6 +152,7 @@ async def list_posts(
                 status=p["status"],
                 created_at=str(p["created_at"]),
                 user_has_voted=str(p["id"]) in voted_ids,
+                admin_answer=p.get("admin_answer"),
             )
             for p in posts
         ]
@@ -250,3 +288,120 @@ async def get_board_stats(user_id: str = Depends(require_user_id)):
     except Exception as e:
         logger.error("get_board_stats error user=%s: %s", user_id, str(e)[:200])
         raise HTTPException(status_code=500, detail="Failed to load stats")
+
+
+@router.get("/admin/posts", response_model=list[dict])
+async def admin_list_posts(
+    status: Optional[str] = Query(default=None, description="Filter by status"),
+    tag: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, le=200),
+    offset: int = Query(default=0, ge=0),
+    _: None = Depends(require_admin),
+):
+    """
+    Admin: returns ALL posts (including pending and rejected), sorted by created_at DESC.
+    Protected by X-Admin-Secret header.
+    """
+    try:
+        query = (
+            supabase_admin.table("feedback_posts")
+            .select("id, tag, content, upvote_count, status, created_at, user_id, admin_answer")
+            .order("created_at", desc=True)
+            .range(offset, offset + limit - 1)
+        )
+        if status:
+            query = query.eq("status", status)
+        if tag and tag in ("bug", "suggestion", "question", "praise"):
+            query = query.eq("tag", tag)
+
+        result = query.execute()
+        posts = result.data or []
+
+        # Never expose user_id to the admin panel — replace with a short ID for display only
+        return [
+            {
+                "id": str(p["id"]),
+                "tag": p["tag"],
+                "content": p["content"],
+                "upvote_count": int(p.get("upvote_count") or 0),
+                "status": p["status"],
+                "created_at": str(p["created_at"]),
+                "admin_answer": p.get("admin_answer"),
+            }
+            for p in posts
+        ]
+    except Exception as e:
+        logger.error("admin_list_posts error: %s", str(e)[:200])
+        raise HTTPException(status_code=500, detail="Failed to load posts")
+
+
+@router.patch("/admin/posts/{post_id}", response_model=dict)
+async def admin_update_post(
+    post_id: str,
+    body: AdminUpdatePostRequest,
+    _: None = Depends(require_admin),
+):
+    """
+    Admin: update post status and optionally store an answer.
+
+    Status transitions:
+      pending    → approved    (post goes live, upvoting enabled)
+      pending    → rejected    (post hidden permanently)
+      approved   → acknowledged (bug/suggestion seen by team)
+      approved   → answered    (question answered — requires admin_answer)
+      approved   → resolved    (bug fixed — increments resolved count in stats)
+      acknowledged → resolved  (follow-up resolution)
+
+    Protected by X-Admin-Secret header.
+    """
+    try:
+        # Verify post exists
+        check = (
+            supabase_admin.table("feedback_posts")
+            .select("id, tag, status")
+            .eq("id", post_id)
+            .limit(1)
+            .execute()
+        )
+        rows = check.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Post not found")
+
+        post = rows[0]
+
+        # Enforce: 'answered' requires admin_answer text
+        if body.status == "answered":
+            if not body.admin_answer or not body.admin_answer.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="admin_answer is required when setting status to 'answered'.",
+                )
+
+        # Build update payload
+        update: dict = {"status": body.status}
+        if body.status == "answered" and body.admin_answer:
+            update["admin_answer"] = body.admin_answer.strip()
+        elif body.status != "answered":
+            # Clear any previous answer if status is no longer 'answered'
+            update["admin_answer"] = None
+
+        supabase_admin.table("feedback_posts").update(update).eq("id", post_id).execute()
+
+        logger.info(
+            "admin_update_post post=%s old_status=%s new_status=%s",
+            post_id,
+            post.get("status"),
+            body.status,
+        )
+
+        return {
+            "success": True,
+            "post_id": post_id,
+            "new_status": body.status,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("admin_update_post error post=%s: %s", post_id, str(e)[:200])
+        raise HTTPException(status_code=500, detail="Failed to update post")

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ALTER EGO — Community Board Admin</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a14; color: #e5e7eb; min-height: 100vh; }
+  .top { background: #111623; border-bottom: 1px solid #1e2333; padding: 16px 24px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 10; }
+  .top h1 { font-size: 16px; font-weight: 700; color: #a78bfa; letter-spacing: 1px; }
+  .top input { background: #1e2333; border: 1px solid #2a3050; border-radius: 8px; padding: 8px 12px; color: #e5e7eb; font-size: 13px; width: 260px; }
+  .top input::placeholder { color: #4b5563; }
+  button { cursor: pointer; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; padding: 7px 14px; transition: opacity 0.15s; }
+  button:hover { opacity: 0.85; }
+  .btn-load { background: #6d28d9; color: white; }
+  .btn-approve { background: rgba(139,92,246,0.2); color: #a78bfa; border: 1px solid rgba(139,92,246,0.4); }
+  .btn-reject { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+  .btn-ack { background: rgba(16,185,129,0.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.25); }
+  .btn-resolve { background: rgba(16,185,129,0.2); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.4); }
+  .btn-answer { background: rgba(59,130,246,0.15); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+  .filters { padding: 16px 24px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .filter-btn { background: #13152a; border: 1px solid #252840; color: #6b7280; border-radius: 20px; padding: 5px 14px; font-size: 11px; font-weight: 600; }
+  .filter-btn.active { background: rgba(139,92,246,0.15); border-color: rgba(139,92,246,0.4); color: #a78bfa; }
+  .posts { padding: 0 24px 40px; display: flex; flex-direction: column; gap: 10px; }
+  .card { background: #13152a; border: 1px solid #252840; border-radius: 14px; padding: 16px; }
+  .card.pending { border-color: rgba(249,115,22,0.3); }
+  .card.rejected { opacity: 0.45; }
+  .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .tag { padding: 2px 9px; border-radius: 20px; font-size: 9px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; }
+  .tag-bug { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.28); }
+  .tag-suggestion { background: rgba(139,92,246,0.12); color: #a78bfa; border: 1px solid rgba(139,92,246,0.28); }
+  .tag-question { background: rgba(59,130,246,0.12); color: #93c5fd; border: 1px solid rgba(59,130,246,0.28); }
+  .tag-praise { background: rgba(16,185,129,0.12); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.28); }
+  .status-badge { padding: 2px 8px; border-radius: 6px; font-size: 9px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; margin-left: auto; }
+  .s-pending { background: rgba(249,115,22,0.12); color: #fb923c; border: 1px solid rgba(249,115,22,0.3); }
+  .s-approved { background: rgba(139,92,246,0.12); color: #a78bfa; border: 1px solid rgba(139,92,246,0.25); }
+  .s-acknowledged { background: rgba(16,185,129,0.1); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.2); }
+  .s-answered { background: rgba(59,130,246,0.1); color: #93c5fd; border: 1px solid rgba(59,130,246,0.2); }
+  .s-resolved { background: rgba(16,185,129,0.18); color: #34d399; border: 1px solid rgba(16,185,129,0.35); }
+  .s-rejected { background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+  .votes { font-size: 11px; color: #4b5563; }
+  .content { font-size: 13px; color: #e5e7eb; line-height: 1.55; margin-bottom: 12px; }
+  .answer-box { background: rgba(59,130,246,0.07); border: 1px solid rgba(59,130,246,0.2); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 12px; color: #93c5fd; line-height: 1.5; }
+  .answer-box strong { display: block; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: #3b82f6; margin-bottom: 4px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .answer-input { flex: 1; min-width: 200px; background: #1e2333; border: 1px solid #2a3050; border-radius: 8px; padding: 7px 12px; color: #e5e7eb; font-size: 12px; }
+  .answer-input::placeholder { color: #374151; }
+  .time { font-size: 10px; color: #374151; margin-left: auto; }
+  .empty { text-align: center; padding: 60px 0; color: #4b5563; font-size: 13px; }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: #1e2333; border: 1px solid rgba(139,92,246,0.3); border-radius: 10px; padding: 10px 16px; font-size: 12px; color: #a78bfa; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .url-row { display: flex; align-items: center; gap: 8px; }
+  .url-row input { width: 300px; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <h1>ALTER EGO · Admin</h1>
+  <div class="url-row">
+    <input id="apiUrl" type="text" placeholder="API URL e.g. https://your-app.onrender.com" />
+    <input id="secret" type="password" placeholder="Admin secret" />
+    <button class="btn-load" onclick="loadPosts()">Load</button>
+  </div>
+</div>
+
+<div class="filters" id="filters">
+  <button class="filter-btn active" onclick="setFilter(null, this)">All</button>
+  <button class="filter-btn" onclick="setFilter('pending', this)">Pending</button>
+  <button class="filter-btn" onclick="setFilter('approved', this)">Approved</button>
+  <button class="filter-btn" onclick="setFilter('acknowledged', this)">Acknowledged</button>
+  <button class="filter-btn" onclick="setFilter('answered', this)">Answered</button>
+  <button class="filter-btn" onclick="setFilter('resolved', this)">Resolved</button>
+  <button class="filter-btn" onclick="setFilter('rejected', this)">Rejected</button>
+</div>
+
+<div class="posts" id="posts">
+  <div class="empty">Enter your API URL and admin secret, then click Load.</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  let allPosts = [];
+  let activeFilter = null;
+
+  function getUrl() { return document.getElementById('apiUrl').value.trim().replace(/\/$/, ''); }
+  function getSecret() { return document.getElementById('secret').value.trim(); }
+
+  function showToast(msg, error) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.borderColor = error ? 'rgba(239,68,68,0.4)' : 'rgba(139,92,246,0.3)';
+    t.style.color = error ? '#f87171' : '#a78bfa';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  function timeAgo(iso) {
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(mins / 60);
+    const days = Math.floor(hours / 24);
+    if (days > 0) return days + 'd ago';
+    if (hours > 0) return hours + 'h ago';
+    return mins + 'm ago';
+  }
+
+  async function loadPosts() {
+    const url = getUrl();
+    const secret = getSecret();
+    if (!url || !secret) { showToast('Enter API URL and secret first.', true); return; }
+    try {
+      const res = await fetch(url + '/api/v1/feedback/admin/posts?limit=200', {
+        headers: { 'X-Admin-Secret': secret }
+      });
+      if (!res.ok) { showToast('Error: ' + res.status + ' ' + res.statusText, true); return; }
+      allPosts = await res.json();
+      renderPosts();
+      showToast('Loaded ' + allPosts.length + ' posts');
+      localStorage.setItem('ae_admin_url', url);
+    } catch(e) {
+      showToast('Failed to load: ' + e.message, true);
+    }
+  }
+
+  function setFilter(status, btn) {
+    activeFilter = status;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderPosts();
+  }
+
+  function renderPosts() {
+    const container = document.getElementById('posts');
+    const filtered = activeFilter ? allPosts.filter(p => p.status === activeFilter) : allPosts;
+    if (!filtered.length) {
+      container.innerHTML = '<div class="empty">No posts in this filter.</div>';
+      return;
+    }
+    container.innerHTML = filtered.map(p => postHtml(p)).join('');
+  }
+
+  function postHtml(p) {
+    const tagClass = 'tag-' + p.tag;
+    const statusClass = 's-' + p.status;
+    const statusLabel = { pending:'Pending', approved:'Live', acknowledged:'Ack\'d', answered:'Answered', resolved:'Resolved', rejected:'Rejected' }[p.status] || p.status;
+    const answerBlock = p.admin_answer
+      ? `<div class="answer-box"><strong>Admin answer</strong>${escHtml(p.admin_answer)}</div>`
+      : '';
+
+    let actions = '';
+
+    if (p.status === 'pending') {
+      actions = `
+        <button class="btn-approve" onclick="updatePost('${p.id}', 'approved')">Approve</button>
+        <button class="btn-reject" onclick="updatePost('${p.id}', 'rejected')">Reject</button>
+      `;
+    } else if (p.status === 'approved') {
+      if (p.tag === 'question') {
+        actions = `
+          <input class="answer-input" id="ans-${p.id}" placeholder="Type your answer..." />
+          <button class="btn-answer" onclick="submitAnswer('${p.id}')">Answer</button>
+        `;
+      } else if (p.tag === 'bug') {
+        actions = `
+          <button class="btn-ack" onclick="updatePost('${p.id}', 'acknowledged')">Acknowledge</button>
+          <button class="btn-resolve" onclick="updatePost('${p.id}', 'resolved')">Resolve</button>
+        `;
+      } else {
+        actions = `
+          <button class="btn-ack" onclick="updatePost('${p.id}', 'acknowledged')">Acknowledge</button>
+        `;
+      }
+    } else if (p.status === 'acknowledged') {
+      actions = `<button class="btn-resolve" onclick="updatePost('${p.id}', 'resolved')">Mark Resolved</button>`;
+    }
+
+    return `
+      <div class="card ${p.status}" id="card-${p.id}">
+        <div class="card-top">
+          <span class="tag ${tagClass}">${p.tag}</span>
+          <span class="votes">↑ ${p.upvote_count}</span>
+          <span class="status-badge ${statusClass}">${statusLabel}</span>
+        </div>
+        <div class="content">${escHtml(p.content)}</div>
+        ${answerBlock}
+        <div class="actions">
+          ${actions}
+          <span class="time">${timeAgo(p.created_at)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  async function updatePost(postId, status, adminAnswer) {
+    const url = getUrl();
+    const secret = getSecret();
+    const body = { status };
+    if (adminAnswer) body.admin_answer = adminAnswer;
+    try {
+      const res = await fetch(url + '/api/v1/feedback/admin/posts/' + postId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': secret },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast('Error: ' + (err.detail || res.status), true);
+        return;
+      }
+      // Update local state
+      const idx = allPosts.findIndex(p => p.id === postId);
+      if (idx !== -1) {
+        allPosts[idx].status = status;
+        if (adminAnswer) allPosts[idx].admin_answer = adminAnswer;
+        else allPosts[idx].admin_answer = null;
+      }
+      renderPosts();
+      showToast('Updated to ' + status);
+    } catch(e) {
+      showToast('Failed: ' + e.message, true);
+    }
+  }
+
+  async function submitAnswer(postId) {
+    const input = document.getElementById('ans-' + postId);
+    const answer = (input ? input.value : '').trim();
+    if (!answer) { showToast('Type an answer first.', true); return; }
+    await updatePost(postId, 'answered', answer);
+  }
+
+  // Restore URL from localStorage
+  window.addEventListener('DOMContentLoaded', () => {
+    const saved = localStorage.getItem('ae_admin_url');
+    if (saved) document.getElementById('apiUrl').value = saved;
+  });
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Body, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.auth import get_user_id_from_token
@@ -11,6 +11,7 @@ from app.services.quit_service import (
     delete_quit_path,
     get_quits_for_user,
     log_frequency,
+    mark_quit_conquered,
     update_quit_schedule,
 )
 
@@ -19,6 +20,12 @@ router = APIRouter(prefix="/api/v1/quits", tags=["quits"])
 
 class LogFrequencyRequest(BaseModel):
     count: int
+
+
+class ConquerQuitRequest(BaseModel):
+    """Self-declared habit conquest. No validation needed — user's own assessment."""
+
+    pass
 
 
 class UpdateTriggerProfileRequest(BaseModel):
@@ -111,6 +118,25 @@ async def advance(path_id: str, authorization: str = Header(None)):
 async def delete_quit(path_id: str, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
     return await delete_quit_path(user_id, path_id)
+
+
+@router.post("/{path_id}/conquer")
+async def conquer_quit(
+    path_id: str,
+    _body: ConquerQuitRequest = Body(default_factory=ConquerQuitRequest),
+    authorization: str = Header(None),
+):
+    """
+    User declares they have conquered this habit.
+    Sets status = 'completed', records the date, returns milestone data
+    for the frontend to display the Conquered milestone modal.
+    Does NOT delete the path — it stays visible as a trophy.
+    """
+    user_id = get_user_id_from_token(authorization)
+    try:
+        return await mark_quit_conquered(user_id, path_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.patch("/{path_id}/trigger-profile")

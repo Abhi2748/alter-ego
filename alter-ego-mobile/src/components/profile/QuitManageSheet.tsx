@@ -14,6 +14,7 @@ export type QuitManageSheetProps = {
   target: QuitTarget | null;
   onDismiss: () => void;
   onUpdateTriggerProfile: () => void;
+  onConquer: () => void;
   onDelete: () => void;
 };
 
@@ -22,6 +23,7 @@ export function QuitManageSheet({
   target,
   onDismiss,
   onUpdateTriggerProfile,
+  onConquer,
   onDelete,
 }: QuitManageSheetProps) {
   const renderBackdrop = useCallback(
@@ -39,7 +41,7 @@ export function QuitManageSheet({
   return (
     <BottomSheetModal
       ref={sheetRef}
-      snapPoints={["38%"]}
+      snapPoints={["46%"]}
       enablePanDownToClose
       onDismiss={onDismiss}
       backdropComponent={renderBackdrop}
@@ -62,6 +64,24 @@ export function QuitManageSheet({
           </View>
           <Text style={styles.chev}>›</Text>
         </Pressable>
+
+        {target?.status !== "completed" ? (
+          <Pressable style={styles.row} onPress={onConquer}>
+            <View
+              style={[
+                styles.iconAmber,
+                { backgroundColor: "rgba(139,92,246,0.12)", borderColor: "rgba(139,92,246,0.22)" },
+              ]}
+            >
+              <Text style={styles.iconEmoji}>🏆</Text>
+            </View>
+            <View style={styles.col}>
+              <Text style={[styles.rowTitle, { color: "#A78BFA" }]}>I conquered this habit</Text>
+              <Text style={styles.rowDesc}>Self-declare victory — keeps your progress as a trophy</Text>
+            </View>
+            <Text style={styles.chev}>›</Text>
+          </Pressable>
+        ) : null}
 
         <Pressable style={styles.row} onPress={onDelete}>
           <View style={styles.iconRed}>

@@ -16,6 +16,7 @@ export type ManageSheetProps = {
   onChangeDifficulty: () => void;
   onChangeSchedule: () => void;
   onChangeGoal: () => void;
+  onChangeTimeline: () => void;
   onPause: () => void;
   onDelete: () => void;
 };
@@ -27,6 +28,7 @@ export function ManageSheet({
   onChangeDifficulty,
   onChangeSchedule,
   onChangeGoal,
+  onChangeTimeline,
   onPause,
   onDelete,
 }: ManageSheetProps) {
@@ -87,6 +89,17 @@ export function ManageSheet({
           <View style={styles.col}>
             <Text style={styles.rowTitle}>Change Goal</Text>
             <Text style={styles.rowDesc}>Resets your current path</Text>
+          </View>
+          <Text style={styles.chev}>›</Text>
+        </Pressable>
+
+        <Pressable style={styles.row} onPress={onChangeTimeline}>
+          <View style={[styles.iconBox, { backgroundColor: "rgba(96,165,250,0.12)" }]}>
+            <Text style={styles.iconEmoji}>📆</Text>
+          </View>
+          <View style={styles.col}>
+            <Text style={styles.rowTitle}>Change Timeline</Text>
+            <Text style={styles.rowDesc}>Arc length & target date</Text>
           </View>
           <Text style={styles.chev}>›</Text>
         </Pressable>

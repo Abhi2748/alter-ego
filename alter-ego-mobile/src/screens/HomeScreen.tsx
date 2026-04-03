@@ -1001,7 +1001,8 @@ export function HomeScreen() {
                     xpValue={m.xpValue}
                     petFoodValue={m.petFoodValue}
                     status={m.status}
-                    onComplete={() => handleComplete(m.id)}
+                    missionId={m.id}
+                    onComplete={handleComplete}
                     onPress={() => openMissionDetail(apiMission)}
                     missionType={m.missionType}
                     missionStreak={m.missionStreak ?? 0}
@@ -1051,7 +1052,8 @@ export function HomeScreen() {
                     xpValue={m.xpValue}
                     petFoodValue={m.petFoodValue}
                     status={m.status}
-                    onComplete={() => handleComplete(m.id)}
+                    missionId={m.id}
+                    onComplete={handleComplete}
                     onPress={() => openMissionDetail(apiMission)}
                     missionType={m.missionType}
                     interestName={m.interestName}
@@ -1094,7 +1096,8 @@ export function HomeScreen() {
                   xpValue={m.xpValue}
                   petFoodValue={m.petFoodValue}
                   status={m.status}
-                  onComplete={() => handleComplete(m.id)}
+                  missionId={m.id}
+                  onComplete={handleComplete}
                   onPress={() => openMissionDetail(apiMission)}
                   missionType="resistance"
                   quitTargetName={m.quitTargetName}
@@ -1134,7 +1137,8 @@ export function HomeScreen() {
                   xpValue={m.xpValue}
                   petFoodValue={m.petFoodValue}
                   status={m.status}
-                  onComplete={() => handleComplete(m.id)}
+                  missionId={m.id}
+                  onComplete={handleComplete}
                   onPress={
                     m.status === "pending" ? () => openPersonalDeleteSheet(apiMission) : undefined
                   }

@@ -52,6 +52,9 @@ export type InterestPathDisplay = InterestPath & {
   target_date?: string | null;
   arc_paused?: boolean;
   progress_pct?: number | null;
+  last_7_days_activity: boolean[];
+  interest_streak: number;
+  days_since_created: number;
 };
 
 export type ProfileInterestApiRow = {
@@ -72,6 +75,9 @@ export type ProfileInterestApiRow = {
   target_date?: string | null;
   arc_paused?: boolean | null;
   progress_pct?: number | null;
+  last_7_days_activity?: boolean[] | null;
+  interest_streak?: number | null;
+  days_since_created?: number | null;
 };
 
 export function fallbackInterestPathDisplay(row: ProfileInterestApiRow): InterestPathDisplay {
@@ -102,6 +108,11 @@ export function fallbackInterestPathDisplay(row: ProfileInterestApiRow): Interes
     target_date: row.target_date ?? undefined,
     arc_paused: row.arc_paused ?? undefined,
     progress_pct: row.progress_pct ?? undefined,
+    last_7_days_activity: Array.isArray(row.last_7_days_activity)
+      ? row.last_7_days_activity
+      : Array(7).fill(false),
+    interest_streak: typeof row.interest_streak === "number" ? row.interest_streak : 0,
+    days_since_created: typeof row.days_since_created === "number" ? row.days_since_created : 1,
   };
 }
 
@@ -122,6 +133,11 @@ export function toInterestPathDisplay(row: ProfileInterestApiRow): InterestPathD
       target_date: row.target_date ?? f.target_date,
       arc_paused: row.arc_paused ?? f.arc_paused,
       progress_pct: row.progress_pct ?? f.progress_pct,
+      last_7_days_activity: Array.isArray(row.last_7_days_activity)
+        ? row.last_7_days_activity
+        : Array(7).fill(false),
+      interest_streak: typeof row.interest_streak === "number" ? row.interest_streak : 0,
+      days_since_created: typeof row.days_since_created === "number" ? row.days_since_created : 1,
     };
   }
   return {
@@ -136,5 +152,10 @@ export function toInterestPathDisplay(row: ProfileInterestApiRow): InterestPathD
     target_date: row.target_date ?? undefined,
     arc_paused: row.arc_paused ?? undefined,
     progress_pct: row.progress_pct ?? undefined,
+    last_7_days_activity: Array.isArray(row.last_7_days_activity)
+      ? row.last_7_days_activity
+      : Array(7).fill(false),
+    interest_streak: typeof row.interest_streak === "number" ? row.interest_streak : 0,
+    days_since_created: typeof row.days_since_created === "number" ? row.days_since_created : 1,
   };
 }

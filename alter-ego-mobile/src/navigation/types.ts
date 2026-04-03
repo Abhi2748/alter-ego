@@ -89,8 +89,16 @@ export type ProfileStackParamList = {
   ProfileMain: undefined;
   ProfileAbilities: undefined;
   ProfileStreak: undefined;
-  ProfileInterests: undefined;
+  /** After interest detail: open a manage sheet on the interests list */
+  ProfileInterests:
+    | {
+        pendingSheet?: "schedule" | "goal" | "timeline";
+        pathId?: string;
+      }
+    | undefined;
   ProfileIdentity: undefined;
   ProfileCompanion: undefined;
   ProfileQuits: undefined;
+  /** Full-screen interest arc & manage actions */
+  ProfileInterestDetail: { pathId: string };
 };

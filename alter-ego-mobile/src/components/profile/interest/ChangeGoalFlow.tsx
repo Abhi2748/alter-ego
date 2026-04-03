@@ -62,7 +62,13 @@ export function ChangeGoalFlow({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
@@ -177,7 +183,7 @@ export function ChangeGoalFlow({
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
+  flex: { flex: 1, backgroundColor: "#000000" },
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.75)",

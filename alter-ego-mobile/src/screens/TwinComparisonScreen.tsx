@@ -1,6 +1,6 @@
 /**
  * Twin Comparison Screen — Tab 3. Today + Journal tabs.
- * Arena, today's XP strip (matches Twin strip / state reveal rules), verdict, heatmap, pillar DNA.
+ * Arena, total XP bar (lifetime totals + gap; daily XP lives on Home Twin strip), verdict, heatmap, pillar DNA.
  */
 
 import React, { useCallback, useMemo, useState } from "react";
@@ -24,7 +24,10 @@ import { apiClient, isApiError } from "@/services/api";
 import { TwinComparisonShareCard } from "../components/TwinComparisonShareCard";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
 import { useUserStore } from "@/store/userStore";
-import { CHARACTER_STAGE_NAMES } from "@/constants/characterProgression";
+import {
+  CHARACTER_STAGE_NAMES,
+  DAILY_XP_CAPS,
+} from "@/constants/characterProgression";
 
 const CHAT_FAB_BOTTOM = 8;
 const CHAT_FAB_RIGHT = 16;
@@ -547,10 +550,6 @@ export function TwinComparisonScreen() {
     (navigation as any).navigate("TwinChat");
   };
 
-  /** Today's XP only — same prorated reveal logic as Home strip and /twin/state (not lifetime totals). */
-  const userXpToday = twinData?.user.xp_earned_today ?? 0;
-  const twinXpToday = twinData?.twin.xp_earned_today ?? 0;
-
   const weekHeatmap: DayComparison[] = twinData?.week_heatmap ?? [];
   const pillarDna: PillarDNA[] = twinData?.pillar_dna ?? [];
 
@@ -559,12 +558,18 @@ export function TwinComparisonScreen() {
     stripData?.strip_message?.trim() ||
     (loading && !twinData ? "…" : DEFAULT_TWIN_VERDICT);
 
-  const xpMax = Math.max(userXpToday, twinXpToday, 1);
-  const userXpPct = Math.min((userXpToday / xpMax) * 100, 100);
-  const twinXpPct = Math.min((twinXpToday / xpMax) * 100, 100);
-
   const userStage = Math.min(Math.max(twinData?.user.character_stage ?? 1, 1), 6);
   const twinStage = Math.min(Math.max(twinData?.twin.character_stage ?? 1, 1), 6);
+  const userDailyCap = DAILY_XP_CAPS[userStage] ?? 100;
+  const twinDailyCap = DAILY_XP_CAPS[twinStage] ?? 100;
+
+  /** Lifetime totals — daily XP is on the Home Twin strip. */
+  const userTotalXp = twinData?.user.total_xp ?? 0;
+  const twinTotalXp = twinData?.twin.twin_xp ?? 0;
+
+  const xpMax = Math.max(userTotalXp, twinTotalXp, 1);
+  const userXpPct = Math.min((userTotalXp / xpMax) * 100, 100);
+  const twinXpPct = Math.min((twinTotalXp / xpMax) * 100, 100);
   const userStageName =
     twinData?.user.character_stage_name ??
     CHARACTER_STAGE_NAMES[userStage - 1] ??
@@ -616,9 +621,12 @@ export function TwinComparisonScreen() {
       </View>
 
       <View style={styles.xpStripWrap}>
-        <Text style={styles.xpStripCaption}>Today's XP</Text>
+        <Text style={styles.xpStripCaption}>Total XP</Text>
         <View style={styles.xpStrip}>
-          <Text style={styles.xpYouLbl}>{userXpToday.toLocaleString()} XP</Text>
+          <View style={styles.xpCol}>
+            <Text style={styles.xpYouLbl}>{userTotalXp.toLocaleString()} XP</Text>
+            <Text style={styles.xpCapHint}>Daily cap {userDailyCap}</Text>
+          </View>
           <View style={styles.xpTrack}>
             <View style={[styles.xpFillTwin, { width: `${twinXpPct}%` }]} />
             <View style={[styles.xpFillUser, { width: `${userXpPct}%` }]} />
@@ -637,7 +645,10 @@ export function TwinComparisonScreen() {
               ]}
             />
           </View>
-          <Text style={styles.xpTwinLbl}>{twinXpToday.toLocaleString()} XP</Text>
+          <View style={[styles.xpCol, styles.xpColTwin]}>
+            <Text style={styles.xpTwinLbl}>{twinTotalXp.toLocaleString()} XP</Text>
+            <Text style={styles.xpCapHintTwin}>Daily cap {twinDailyCap}</Text>
+          </View>
         </View>
       </View>
 
@@ -1171,17 +1182,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     gap: 10,
   },
+  xpCol: {
+    minWidth: 68,
+    alignItems: "flex-start",
+  },
+  xpColTwin: {
+    alignItems: "flex-end",
+  },
   xpYouLbl: {
     fontSize: 10,
     fontFamily: "Inter_700Bold",
     color: "rgba(229,231,235,0.5)",
-    minWidth: 52,
   },
   xpTwinLbl: {
     fontSize: 10,
     fontFamily: "Inter_700Bold",
     color: "rgba(167,139,250,0.6)",
-    minWidth: 52,
+    textAlign: "right",
+  },
+  xpCapHint: {
+    marginTop: 2,
+    fontSize: 9,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7280",
+    letterSpacing: 0.2,
+  },
+  xpCapHintTwin: {
+    marginTop: 2,
+    fontSize: 9,
+    fontFamily: "Inter_500Medium",
+    color: "#6B7280",
+    letterSpacing: 0.2,
     textAlign: "right",
   },
   xpTrack: {

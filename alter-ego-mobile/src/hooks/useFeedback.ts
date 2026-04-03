@@ -19,7 +19,7 @@ export function useFeedback() {
         feedbackService.getPosts({ tag: tag ?? undefined, limit: 50 }),
       ]);
       setStats(fetchedStats);
-      setPosts(fetchedPosts);
+      setPosts(fetchedPosts.filter((p) => p.status !== 'rejected'));
     } catch {
       setError('Failed to load posts. Pull to refresh.');
     } finally {

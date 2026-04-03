@@ -94,6 +94,61 @@ def _interest_owned_row(user_id: str, interest_id: str) -> dict:
     return rows[0]
 
 
+def _parse_iso_to_local_date(iso_ts: str | None, tz_str: str) -> date | None:
+    if not iso_ts:
+        return None
+    try:
+        s = str(iso_ts).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=dt_timezone.utc)
+        z = ZoneInfo((tz_str or "UTC").strip() or "UTC")
+        return dt.astimezone(z).date()
+    except Exception:
+        return None
+
+
+def _parse_log_date(val) -> date | None:
+    if val is None:
+        return None
+    if isinstance(val, date):
+        return val
+    if isinstance(val, str):
+        return date.fromisoformat(val[:10])
+    return None
+
+
+def _max_streak_between(
+    streak_rows: list[dict], start_d: date | None, end_d: date | None
+) -> int | None:
+    if not start_d or not end_d or start_d > end_d:
+        return None
+    m = 0
+    for r in streak_rows:
+        ld = _parse_log_date(r.get("log_date"))
+        if not ld:
+            continue
+        if start_d <= ld <= end_d:
+            m = max(m, int(r.get("streak_count") or 0))
+    return m if m > 0 else None
+
+
+def _streak_log_rows_for_user(user_id: str) -> list[dict]:
+    try:
+        return (
+            supabase_admin.table("streak_log")
+            .select("log_date, streak_count")
+            .eq("user_id", user_id)
+            .order("log_date")
+            .execute()
+            .data
+            or []
+        )
+    except Exception as e:
+        logger.warning("streak_log fetch failed (profile identity): %s", e)
+        return []
+
+
 def _milestone_rows_character_stages(user_id: str) -> list:
     """Stage unlock times for identity; empty list on transient DB / gateway errors."""
     types = [f"stage_{i}" for i in range(1, TOTAL_CHARACTER_STAGES + 1)]
@@ -379,7 +434,7 @@ async def get_profile_identity(authorization: str = Header(None)):
     try:
         user_result = (
             supabase_admin.table("users")
-            .select("character_stage, total_xp")
+            .select("character_stage, total_xp, registration_date, timezone")
             .eq("id", user_id)
             .single()
             .execute()
@@ -395,6 +450,14 @@ async def get_profile_identity(authorization: str = Header(None)):
     user = user_result.data or {}
 
     milestones = _milestone_rows_character_stages(user_id)
+    streak_rows = _streak_log_rows_for_user(user_id)
+
+    tz_str = str(user.get("timezone") or "UTC")
+    reg_date = _parse_iso_to_local_date(
+        user.get("registration_date") if isinstance(user.get("registration_date"), str) else None,
+        tz_str,
+    )
+    today_local = date.fromisoformat(get_user_date(tz_str))
 
     current_stage = user.get("character_stage", 1) or 1
     total_xp = user.get("total_xp", 0) or 0
@@ -413,14 +476,69 @@ async def get_profile_identity(authorization: str = Header(None)):
             ),
             None,
         )
+
+        entry_date = _parse_iso_to_local_date(
+            earned_at if isinstance(earned_at, str) else None,
+            tz_str,
+        )
+        if entry_date is None and i == 1 and reg_date is not None:
+            entry_date = reg_date
+
+        next_earned_iso = next(
+            (
+                m["earned_at"]
+                for m in milestones
+                if m.get("milestone_type") == f"stage_{i + 1}"
+            ),
+            None,
+        )
+        exit_date = _parse_iso_to_local_date(
+            next_earned_iso if isinstance(next_earned_iso, str) else None,
+            tz_str,
+        )
+
+        reached_day: int | None = None
+        if reg_date is not None and entry_date is not None:
+            reached_day = max(1, (entry_date - reg_date).days + 1)
+
+        days_at_stage: int | None = None
+        peak_streak: int | None = None
+        xp_earned_in_stage: int | None = None
+
+        is_current = i == current_stage
+        is_past = i < current_stage
+        is_future = i > current_stage
+
+        if not is_future and entry_date is not None:
+            if is_current:
+                span_end = today_local
+                days_at_stage = max(1, (span_end - entry_date).days + 1)
+                peak_streak = _max_streak_between(streak_rows, entry_date, span_end)
+                xp_earned_in_stage = max(0, total_xp - threshold)
+            elif is_past and exit_date is not None:
+                last_day_in_stage = exit_date - timedelta(days=1)
+                if last_day_in_stage < entry_date:
+                    last_day_in_stage = entry_date
+                days_at_stage = max(1, (last_day_in_stage - entry_date).days + 1)
+                peak_streak = _max_streak_between(streak_rows, entry_date, last_day_in_stage)
+                if next_threshold is not None:
+                    xp_earned_in_stage = max(0, next_threshold - threshold)
+            elif is_past and exit_date is None:
+                if next_threshold is not None:
+                    xp_earned_in_stage = max(0, next_threshold - threshold)
+
         stages.append({
             "stage": i,
             "name": STAGE_NAMES[i - 1],
             "xp_required": threshold,
             "xp_next": next_threshold,
             "unlocked": i <= current_stage,
-            "current": i == current_stage,
+            "current": is_current,
             "earned_at": earned_at,
+            "reached_day": reached_day,
+            "days_at_stage": days_at_stage,
+            "peak_streak_at_stage": peak_streak,
+            "xp_earned_in_stage": xp_earned_in_stage,
         })
 
     stage_start = XP_THRESHOLDS[current_stage - 1]
@@ -573,6 +691,7 @@ async def get_profile_interests(authorization: str = Header(None)):
         )
 
         total_sessions = interest.get("total_sessions", 0) or 0
+        sc = int(interest.get("sessions_completed") or 0)
 
         milestone_status = []
         for key, required_sessions in INTEREST_MILESTONE_SESSIONS.items():
@@ -587,7 +706,7 @@ async def get_profile_interests(authorization: str = Header(None)):
             milestone_status.append({
                 "key": key,
                 "sessions_required": required_sessions,
-                "earned": total_sessions >= required_sessions,
+                "earned": sc >= required_sessions,
                 "earned_at": earned_at,
             })
 
@@ -604,13 +723,76 @@ async def get_profile_interests(authorization: str = Header(None)):
             active_days = [1, 2, 3, 4, 5, 6, 7]
 
         tp = interest.get("total_planned_sessions")
-        sc = int(interest.get("sessions_completed") or 0)
         progress_pct = None
         if tp:
             try:
                 progress_pct = round((sc / max(int(tp), 1)) * 100, 1)
             except Exception:
                 progress_pct = None
+
+        # ── last_7_days_activity ───────────────────────────────────────────
+        try:
+            today_d = date.today()
+            last_7 = [(today_d - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
+            activity_rows = (
+                supabase_admin.table("missions")
+                .select("mission_date")
+                .eq("user_id", user_id)
+                .eq("interest_id", interest["id"])
+                .eq("completed", True)
+                .in_("mission_date", last_7)
+                .execute()
+                .data
+                or []
+            )
+            completed_dates = {str(r.get("mission_date") or "")[:10] for r in activity_rows}
+            last_7_days_activity = [d in completed_dates for d in last_7]
+        except Exception:
+            last_7_days_activity = [False] * 7
+
+        # ── interest_streak (single query, 60-day lookback) ──────────────────
+        try:
+            today_d = date.today()
+            cutoff = (today_d - timedelta(days=60)).isoformat()
+            all_dates_rows = (
+                supabase_admin.table("missions")
+                .select("mission_date")
+                .eq("user_id", user_id)
+                .eq("interest_id", interest["id"])
+                .eq("completed", True)
+                .gte("mission_date", cutoff)
+                .execute()
+                .data
+                or []
+            )
+            completed_set = {str(r.get("mission_date") or "")[:10] for r in all_dates_rows}
+            streak = 0
+            check_date = today_d
+            for _ in range(60):
+                if check_date.isoformat() in completed_set:
+                    streak += 1
+                    check_date -= timedelta(days=1)
+                else:
+                    if streak == 0 and check_date == today_d:
+                        check_date -= timedelta(days=1)
+                        continue
+                    break
+            interest_streak = streak
+        except Exception:
+            interest_streak = 0
+
+        # ── days_since_created ───────────────────────────────────────────────
+        try:
+            created_raw = interest.get("created_at") or ""
+            if created_raw:
+                created_dt = datetime.fromisoformat(str(created_raw).replace("Z", "+00:00"))
+                if created_dt.tzinfo is None:
+                    created_dt = created_dt.replace(tzinfo=dt_timezone.utc)
+                days_since_created = max(1, (date.today() - created_dt.date()).days + 1)
+            else:
+                days_since_created = 1
+        except Exception:
+            days_since_created = 1
 
         cap = str(interest.get("current_arc_phase") or "no_deadline")
         results.append({
@@ -636,6 +818,9 @@ async def get_profile_interests(authorization: str = Header(None)):
             "target_date": interest.get("target_date"),
             "arc_paused": bool(interest.get("arc_paused")),
             "progress_pct": progress_pct,
+            "last_7_days_activity": last_7_days_activity,
+            "interest_streak": interest_streak,
+            "days_since_created": days_since_created,
         })
 
     return {"interests": results}

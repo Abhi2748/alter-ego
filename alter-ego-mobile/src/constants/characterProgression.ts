@@ -18,6 +18,16 @@ export const CHARACTER_STAGE_NAMES = [
 
 export const TOTAL_CHARACTER_STAGES = 6;
 
+/** Daily XP cap per character stage — must match alter-ego-backend/app/core/constants.py DAILY_XP_CAPS */
+export const DAILY_XP_CAPS: Record<number, number> = {
+  1: 100,
+  2: 150,
+  3: 200,
+  4: 280,
+  5: 380,
+  6: 500,
+};
+
 /** Remaining XP + progress within current stage (same formulas as profile/overview). */
 export function computeCharacterXpDerived(
   totalXp: number,

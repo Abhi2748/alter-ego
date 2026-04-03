@@ -84,6 +84,7 @@ export function runMissionCompletionCelebrationUI(
   source: { missionId?: string },
   ctx: MissionCompletionCelebrationContext
 ) {
+  const run = () => {
   if (!result.already_completed && !result.stage_evolved) {
     requestAnimationFrame(() => {
       ctx.xpBarRef.current?.animateXpGain();
@@ -148,5 +149,14 @@ export function runMissionCompletionCelebrationUI(
     ) {
       ctx.setSigilLevelUp({ level: sigil.new_level, name: sigil.new_level_name });
     }
+  }
+  };
+
+  if (result.stage_evolved || result.pet_evolved) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(run);
+    });
+  } else {
+    run();
   }
 }

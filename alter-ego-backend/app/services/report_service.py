@@ -88,15 +88,14 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     dna_row = (dna_result.data or [None])[0] or {}
 
     missions = (
-        await run_query(supabase_admin.table("missions")
+        ((await run_query(supabase_admin.table("missions")
         .select(
             "id, type, title, completed, xp_value, pf_value, mission_date, "
             "core_pillar, is_journal_mission, interest_id"
         )
         .eq("user_id", user_id)
         .gte("mission_date", ws)
-        .lte("mission_date", we))
-        .data
+        .lte("mission_date", we))).data)
         or []
     )
 
@@ -108,21 +107,19 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     pf_earned = sum(int(m.get("pf_value") or 0) for m in completed)
 
     xp_log_rows = (
-        await run_query(supabase_admin.table("xp_log")
+        ((await run_query(supabase_admin.table("xp_log")
         .select("amount")
         .eq("user_id", user_id)
         .gte("log_date", ws)
-        .lte("log_date", we))
-        .data
+        .lte("log_date", we))).data)
         or []
     )
     pf_log_rows = (
-        await run_query(supabase_admin.table("pf_log")
+        ((await run_query(supabase_admin.table("pf_log")
         .select("amount")
         .eq("user_id", user_id)
         .gte("log_date", ws)
-        .lte("log_date", we))
-        .data
+        .lte("log_date", we))).data)
         or []
     )
     xp_from_log = sum(int(r.get("amount") or 0) for r in xp_log_rows)
@@ -140,12 +137,11 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
         xp_by_day[ld] = xp_by_day.get(ld, 0) + int(r.get("amount") or 0)
 
     streak_rows = (
-        await run_query(supabase_admin.table("streak_log")
+        ((await run_query(supabase_admin.table("streak_log")
         .select("*")
         .eq("user_id", user_id)
         .gte("log_date", ws)
-        .lte("log_date", we))
-        .data
+        .lte("log_date", we))).data)
         or []
     )
 
@@ -197,12 +193,11 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     stage_name = STAGE_NAMES[min(max(char_stage, 1), len(STAGE_NAMES)) - 1]
 
     milestones_week = (
-        await run_query(supabase_admin.table("milestone_log")
+        ((await run_query(supabase_admin.table("milestone_log")
         .select("milestone_type, earned_at")
         .eq("user_id", user_id)
         .gte("earned_at", f"{ws}T00:00:00")
-        .lte("earned_at", f"{we}T23:59:59.999"))
-        .data
+        .lte("earned_at", f"{we}T23:59:59.999"))).data)
         or []
     )
 
@@ -236,13 +231,12 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     gap_state = str(twin.get("current_gap_state") or "neck_and_neck")
 
     prev_rep = (
-        await run_query(supabase_admin.table("weekly_reports")
+        ((await run_query(supabase_admin.table("weekly_reports")
         .select("gap_xp_end, this_week_data")
         .eq("user_id", user_id)
         .lt("week_start", ws)
         .order("week_start", desc=True)
-        .limit(1))
-        .data
+        .limit(1))).data)
         or []
     )
     last_gap = gap_xp
@@ -269,20 +263,18 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     completion_rate = (missions_completed / total) if total else 0.0
 
     quit_rows = (
-        await run_query(supabase_admin.table("quit_paths")
+        ((await run_query(supabase_admin.table("quit_paths")
         .select("id")
-        .eq("user_id", user_id))
-        .data
+        .eq("user_id", user_id))).data)
         or []
     )
 
     ratings_rows = (
-        await run_query(supabase_admin.table("mission_ratings")
+        ((await run_query(supabase_admin.table("mission_ratings")
         .select("rating")
         .eq("user_id", user_id)
         .gte("created_at", f"{ws}T00:00:00")
-        .lte("created_at", f"{we}T23:59:59.999"))
-        .data
+        .lte("created_at", f"{we}T23:59:59.999"))).data)
         or []
     )
     ratings_given = len(ratings_rows)

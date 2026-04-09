@@ -395,10 +395,9 @@ async def check_and_send_scheduled_mails(user_id: str) -> None:
     )
 
     sent_result = (
-        await run_query(supabase_admin.table("app_mails")
+        ((await run_query(supabase_admin.table("app_mails")
         .select("mail_type")
-        .eq("user_id", user_id))
-        .data
+        .eq("user_id", user_id))).data)
         or []
     )
     sent_types = {m["mail_type"] for m in sent_result}
@@ -428,12 +427,11 @@ async def check_and_send_streak_milestone(user_id: str, new_streak: int) -> None
         return
 
     existing = (
-        await run_query(supabase_admin.table("app_mails")
+        ((await run_query(supabase_admin.table("app_mails")
         .select("id")
         .eq("user_id", user_id)
         .eq("mail_type", mail_type)
-        .limit(1))
-        .data
+        .limit(1))).data)
         or []
     )
     if not existing:
@@ -442,12 +440,11 @@ async def check_and_send_streak_milestone(user_id: str, new_streak: int) -> None
 
 async def check_and_send_ability_levelup_mail(user_id: str) -> None:
     existing = (
-        await run_query(supabase_admin.table("app_mails")
+        ((await run_query(supabase_admin.table("app_mails")
         .select("id")
         .eq("user_id", user_id)
         .eq("mail_type", "ability_first_levelup")
-        .limit(1))
-        .data
+        .limit(1))).data)
         or []
     )
     if not existing:
@@ -456,12 +453,11 @@ async def check_and_send_ability_levelup_mail(user_id: str) -> None:
 
 async def check_and_send_focus_first_session_mail(user_id: str) -> None:
     existing = (
-        await run_query(supabase_admin.table("app_mails")
+        ((await run_query(supabase_admin.table("app_mails")
         .select("id")
         .eq("user_id", user_id)
         .eq("mail_type", "focus_first_session")
-        .limit(1))
-        .data
+        .limit(1))).data)
         or []
     )
     if not existing:
@@ -470,12 +466,11 @@ async def check_and_send_focus_first_session_mail(user_id: str) -> None:
 
 async def check_and_send_quit_path_started_mail(user_id: str) -> None:
     existing = (
-        await run_query(supabase_admin.table("app_mails")
+        ((await run_query(supabase_admin.table("app_mails")
         .select("id")
         .eq("user_id", user_id)
         .eq("mail_type", "quit_path_started")
-        .limit(1))
-        .data
+        .limit(1))).data)
         or []
     )
     if not existing:
@@ -540,11 +535,10 @@ async def send_stage_evolved_mail_if_needed(
 ) -> None:
     marker = f"Stage {new_stage}"
     rows = (
-        await run_query(supabase_admin.table("app_mails")
+        ((await run_query(supabase_admin.table("app_mails")
         .select("subject")
         .eq("user_id", user_id)
-        .eq("mail_type", "stage_evolved"))
-        .data
+        .eq("mail_type", "stage_evolved"))).data)
         or []
     )
     for r in rows:
@@ -563,24 +557,22 @@ async def maybe_send_quit_clean_mails(
     """days_since_path_start = calendar days since quit path created (0 = first day)."""
     if days_since_path_start == 1:
         existing = (
-            await run_query(supabase_admin.table("app_mails")
+            ((await run_query(supabase_admin.table("app_mails")
             .select("id")
             .eq("user_id", user_id)
             .eq("mail_type", "quit_day_1_clean")
-            .limit(1))
-            .data
+            .limit(1))).data)
             or []
         )
         if not existing:
             await send_app_mail(user_id, "quit_day_1_clean")
     if days_since_path_start >= 7:
         existing_w = (
-            await run_query(supabase_admin.table("app_mails")
+            ((await run_query(supabase_admin.table("app_mails")
             .select("id")
             .eq("user_id", user_id)
             .eq("mail_type", "quit_week_1_clean")
-            .limit(1))
-            .data
+            .limit(1))).data)
             or []
         )
         if not existing_w:

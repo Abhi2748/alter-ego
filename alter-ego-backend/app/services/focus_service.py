@@ -84,11 +84,10 @@ def _week_bounds_utc(tz_str: str) -> list[tuple[datetime, datetime, str]]:
 
 async def get_tags(user_id: str) -> list[dict]:
     rows = (
-        await run_query(supabase_admin.table("focus_tags")
+        ((await run_query(supabase_admin.table("focus_tags")
         .select("id, name, color, created_at")
         .eq("user_id", user_id)
-        .order("created_at", desc=False))
-        .data
+        .order("created_at", desc=False))).data)
         or []
     )
     # Count sessions per tag
@@ -110,9 +109,8 @@ async def create_tag(user_id: str, name: str, color: str) -> dict:
     if len(name) > 32:
         raise ValueError("Tag name too long (max 32 characters)")
     result = (
-        await run_query(supabase_admin.table("focus_tags")
-        .insert({"user_id": user_id, "name": name, "color": color}))
-        .data
+        ((await run_query(supabase_admin.table("focus_tags")
+        .insert({"user_id": user_id, "name": name, "color": color}))).data)
         or []
     )
     if not result:
@@ -148,12 +146,11 @@ async def log_session(
     # Verify tag belongs to user if provided
     if tag_id:
         tag_check = (
-            await run_query(supabase_admin.table("focus_tags")
+            ((await run_query(supabase_admin.table("focus_tags")
             .select("id")
             .eq("id", tag_id)
             .eq("user_id", user_id)
-            .limit(1))
-            .data
+            .limit(1))).data)
             or []
         )
         if not tag_check:
@@ -171,7 +168,7 @@ async def log_session(
         "was_abandoned": was_abandoned,
     }
     result = (
-        await run_query(supabase_admin.table("focus_sessions").insert(row)).data or []
+        ((await run_query(supabase_admin.table("focus_sessions").insert(row))).data) or []
     )
     out = result[0] if result else row
     if not was_abandoned:
@@ -188,12 +185,11 @@ async def get_focus_stats(user_id: str) -> dict:
 
     # --- Today ---
     today_rows = (
-        await run_query(supabase_admin.table("focus_sessions")
+        ((await run_query(supabase_admin.table("focus_sessions")
         .select("focus_seconds, break_seconds, was_abandoned")
         .eq("user_id", user_id)
         .gte("ended_at", today_start.isoformat())
-        .lt("ended_at", today_end.isoformat()))
-        .data
+        .lt("ended_at", today_end.isoformat()))).data)
         or []
     )
     today_focus = sum(r["focus_seconds"] for r in today_rows if not r["was_abandoned"])
@@ -204,13 +200,12 @@ async def get_focus_stats(user_id: str) -> dict:
     weekly_chart = []
     for day_start, day_end, local_date_iso in week_days:
         day_rows = (
-            await run_query(supabase_admin.table("focus_sessions")
+            ((await run_query(supabase_admin.table("focus_sessions")
             .select("focus_seconds")
             .eq("user_id", user_id)
             .eq("was_abandoned", False)
             .gte("ended_at", day_start.isoformat())
-            .lt("ended_at", day_end.isoformat()))
-            .data
+            .lt("ended_at", day_end.isoformat()))).data)
             or []
         )
         weekly_chart.append(
@@ -224,13 +219,12 @@ async def get_focus_stats(user_id: str) -> dict:
 
     # --- All time ---
     all_rows = (
-        await run_query(supabase_admin.table("focus_sessions")
+        ((await run_query(supabase_admin.table("focus_sessions")
         .select(
             "focus_seconds, break_seconds, rounds_completed, was_abandoned, ended_at, tag_id"
         )
         .eq("user_id", user_id)
-        .order("ended_at", desc=False))
-        .data
+        .order("ended_at", desc=False))).data)
         or []
     )
 
@@ -295,14 +289,13 @@ async def get_focus_stats(user_id: str) -> dict:
 
     # --- Recent sessions (last 20) ---
     recent_raw = (
-        await run_query(supabase_admin.table("focus_sessions")
+        ((await run_query(supabase_admin.table("focus_sessions")
         .select(
             "id, mode, tag_id, focus_seconds, break_seconds, rounds_completed, was_abandoned, started_at, ended_at"
         )
         .eq("user_id", user_id)
         .order("ended_at", desc=True)
-        .limit(20))
-        .data
+        .limit(20))).data)
         or []
     )
     recent = []
@@ -348,11 +341,10 @@ async def get_focus_stats(user_id: str) -> dict:
 
 async def get_focus_settings(user_id: str) -> dict:
     row = (
-        await run_query(supabase_admin.table("users")
+        ((await run_query(supabase_admin.table("users")
         .select("focus_settings")
         .eq("id", user_id)
-        .single())
-        .data
+        .single())).data)
         or {}
     )
     stored = row.get("focus_settings") or {}

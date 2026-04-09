@@ -523,10 +523,9 @@ async def get_twin_tone_history(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
     rows = (
-        await run_query(supabase_admin.table("twin_tone_ratings")
+        ((await run_query(supabase_admin.table("twin_tone_ratings")
         .select("tone_type, rating")
-        .eq("user_id", user_id))
-        .data
+        .eq("user_id", user_id))).data)
         or []
     )
 
@@ -615,11 +614,10 @@ async def get_twin_strip(authorization: str = Header(None)):
             context["strip_message"] = new_msg
 
     tz_row = (
-        await run_query(supabase_admin.table("users")
+        ((await run_query(supabase_admin.table("users")
         .select("timezone, registration_date")
         .eq("id", user_id)
-        .single())
-        .data
+        .single())).data)
         or {}
     )
     tz_str = str(tz_row.get("timezone") or "UTC").strip() or "UTC"
@@ -653,14 +651,13 @@ async def get_twin_strip(authorization: str = Header(None)):
 
     try:
         user_abs = (
-            await run_query(supabase_admin.table("users")
+            ((await run_query(supabase_admin.table("users")
             .select(
                 "absence_days, last_active_date, archetype, last_streak_date, "
                 "timezone, twin_tone_override, twin_tone_override_until"
             )
             .eq("id", user_id)
-            .single())
-            .data
+            .single())).data)
             or {}
         )
         absence_today = get_user_date(str(user_abs.get("timezone") or tz_str or "UTC"))
@@ -724,11 +721,10 @@ async def get_twin_journal(
     if dates:
         try:
             all_m = (
-                await run_query(supabase_admin.table("missions")
+                ((await run_query(supabase_admin.table("missions")
                 .select("mission_date, completed")
                 .eq("user_id", user_id)
-                .in_("mission_date", dates))
-                .data
+                .in_("mission_date", dates))).data)
                 or []
             )
             by_d: dict[str, list] = {}
@@ -746,11 +742,10 @@ async def get_twin_journal(
             counts_by_date = {}
         try:
             trows = (
-                await run_query(supabase_admin.table("twin_daily_record")
+                ((await run_query(supabase_admin.table("twin_daily_record")
                 .select("record_date, missions_completed, missions_assigned")
                 .eq("user_id", user_id)
-                .in_("record_date", dates))
-                .data
+                .in_("record_date", dates))).data)
                 or []
             )
             for tr in trows:
@@ -1004,11 +999,10 @@ async def get_shadow_feed(
         await ensure_twin_simulated_for_today(user_id)
 
         user_row = (
-            await run_query(supabase_admin.table("users")
+            ((await run_query(supabase_admin.table("users")
             .select("timezone, registration_date")
             .eq("id", user_id)
-            .single())
-            .data
+            .single())).data)
             or {}
         )
 
@@ -1025,12 +1019,11 @@ async def get_shadow_feed(
         past_end = str(anchor - timedelta(days=1))
 
         twin_today = (
-            await run_query(supabase_admin.table("twin_mission_log")
+            ((await run_query(supabase_admin.table("twin_mission_log")
             .select("mission_title, mission_type, core_pillar, simulated_hour, completed_at")
             .eq("user_id", user_id)
             .eq("mission_date", today)
-            .order("simulated_hour", desc=False))
-            .data
+            .order("simulated_hour", desc=False))).data)
             or []
         )
 
@@ -1039,53 +1032,48 @@ async def get_shadow_feed(
         )
 
         user_today = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("title, type, core_pillar, xp_value, completed, completed_at")
             .eq("user_id", user_id)
             .eq("mission_date", today)
             .eq("completed", True)
-            .order("completed_at", desc=False))
-            .data
+            .order("completed_at", desc=False))).data)
             or []
         )
 
         user_today_incomplete = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("title, type, core_pillar")
             .eq("user_id", user_id)
             .eq("mission_date", today)
-            .eq("completed", False))
-            .data
+            .eq("completed", False))).data)
             or []
         )
 
         missions_today_all = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("title, type, core_pillar")
             .eq("user_id", user_id)
-            .eq("mission_date", today))
-            .data
+            .eq("mission_date", today))).data)
             or []
         )
         title_to_m = {str(m.get("title") or "").strip().lower(): m for m in missions_today_all}
 
         xp_today_rows = (
-            await run_query(supabase_admin.table("xp_log")
+            ((await run_query(supabase_admin.table("xp_log")
             .select("amount")
             .eq("user_id", user_id)
-            .eq("log_date", today))
-            .data
+            .eq("log_date", today))).data)
             or []
         )
         user_xp_today = sum(int(r.get("amount") or 0) for r in xp_today_rows)
 
         twin_daily_rows = (
-            await run_query(supabase_admin.table("twin_daily_record")
+            ((await run_query(supabase_admin.table("twin_daily_record")
             .select("record_date, missions_completed, missions_assigned, xp_earned, missed_mission_titles")
             .eq("user_id", user_id)
             .gte("record_date", past_start)
-            .lte("record_date", today))
-            .data
+            .lte("record_date", today))).data)
             or []
         )
 
@@ -1104,12 +1092,11 @@ async def get_shadow_feed(
         twin_past.sort(key=_rec_date_key, reverse=True)
 
         twin_journals = (
-            await run_query(supabase_admin.table("twin_journal")
+            ((await run_query(supabase_admin.table("twin_journal")
             .select("entry_date, content")
             .eq("user_id", user_id)
             .gte("entry_date", past_start)
-            .lte("entry_date", past_end))
-            .data
+            .lte("entry_date", past_end))).data)
             or []
         )
         journal_by_date = {str(j.get("entry_date", ""))[:10]: (j.get("content") or "") for j in twin_journals}
@@ -1407,20 +1394,18 @@ async def _build_twin_state_response(user_id: str) -> dict:
     today = get_user_date(user.get("timezone", "UTC") or "UTC")
 
     user_missions = (
-        await run_query(supabase_admin.table("missions")
+        ((await run_query(supabase_admin.table("missions")
         .select("id, title, type, difficulty, completed, xp_value")
         .eq("user_id", user_id)
-        .eq("mission_date", today))
-        .data
+        .eq("mission_date", today))).data)
         or []
     )
 
     twin_today = (
-        await run_query(supabase_admin.table("twin_daily_record")
+        ((await run_query(supabase_admin.table("twin_daily_record")
         .select("*")
         .eq("user_id", user_id)
-        .eq("record_date", today))
-        .data
+        .eq("record_date", today))).data)
     )
     twin_record = twin_today[0] if twin_today else None
 
@@ -1436,11 +1421,10 @@ async def _build_twin_state_response(user_id: str) -> dict:
         anchor = date_cls.today()
 
     twin_log_rows_state = (
-        await run_query(supabase_admin.table("twin_mission_log")
+        ((await run_query(supabase_admin.table("twin_mission_log")
         .select("mission_title, mission_type, core_pillar, simulated_hour, completed_at")
         .eq("user_id", user_id)
-        .eq("mission_date", today))
-        .data
+        .eq("mission_date", today))).data)
         or []
     )
     revealed_twin_logs, _pending_twin_logs = partition_twin_mission_log_by_reveal(
@@ -1463,13 +1447,12 @@ async def _build_twin_state_response(user_id: str) -> dict:
     # ── 7-day heatmap ─────────────────────────────────────────────────────
     try:
         user_week_missions = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("mission_date, completed, core_pillar")
             .eq("user_id", user_id)
             .in_("type", ["core", "interest", "resistance", "personal"])
             .gte("mission_date", week_start)
-            .lte("mission_date", today))
-            .data
+            .lte("mission_date", today))).data)
             or []
         )
         user_by_date: dict[str, list] = {}
@@ -1478,12 +1461,11 @@ async def _build_twin_state_response(user_id: str) -> dict:
             user_by_date.setdefault(d, []).append(m)
 
         twin_week_records = (
-            await run_query(supabase_admin.table("twin_daily_record")
+            ((await run_query(supabase_admin.table("twin_daily_record")
             .select("record_date, missions_completed, missions_assigned")
             .eq("user_id", user_id)
             .gte("record_date", week_start)
-            .lte("record_date", today))
-            .data
+            .lte("record_date", today))).data)
             or []
         )
         twin_by_date: dict[str, dict] = {
@@ -1547,26 +1529,24 @@ async def _build_twin_state_response(user_id: str) -> dict:
         pillar_order = ["sleep", "movement", "hydration", "mindfulness", "no_phone"]
 
         user_pillar_missions = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("core_pillar, completed")
             .eq("user_id", user_id)
             .eq("type", "core")
             .eq("is_journal_mission", False)
             .gte("mission_date", week_start)
-            .lte("mission_date", today))
-            .data
+            .lte("mission_date", today))).data)
             or []
         )
 
         twin_pillar_missions = (
-            await run_query(supabase_admin.table("twin_mission_log")
+            ((await run_query(supabase_admin.table("twin_mission_log")
             .select("core_pillar, mission_date, mission_title")
             .eq("user_id", user_id)
             .gte("mission_date", week_start)
             .lte("mission_date", today)
             .not_.is_("core_pillar", "null")
-            .in_("core_pillar", pillar_order))
-            .data
+            .in_("core_pillar", pillar_order))).data)
             or []
         )
 
@@ -1643,11 +1623,10 @@ async def _build_twin_state_response(user_id: str) -> dict:
 
     # User XP earned today
     xp_today_rows = (
-        await run_query(supabase_admin.table("xp_log")
+        ((await run_query(supabase_admin.table("xp_log")
         .select("amount")
         .eq("user_id", user_id)
-        .eq("log_date", today))
-        .data
+        .eq("log_date", today))).data)
         or []
     )
     xp_today = sum(r.get("amount", 0) for r in xp_today_rows)

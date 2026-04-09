@@ -551,11 +551,10 @@ async def personal_estimate(body: PersonalMissionEstimateRequest, authorization:
     core_failure_pattern: str = ""
     try:
         dna_row = (
-            await run_query(supabase_admin.table("discipline_dna")
+            ((await run_query(supabase_admin.table("discipline_dna")
             .select("execution_gap, core_failure_pattern")
             .eq("user_id", user_id)
-            .single())
-            .data
+            .single())).data)
             or {}
         )
         execution_gap = float(dna_row.get("execution_gap") or 0.5)
@@ -565,20 +564,18 @@ async def personal_estimate(body: PersonalMissionEstimateRequest, authorization:
 
     try:
         tz_row = (
-            await run_query(supabase_admin.table("users")
+            ((await run_query(supabase_admin.table("users")
             .select("timezone")
             .eq("id", user_id)
-            .single())
-            .data
+            .single())).data)
             or {}
         )
         _today = get_user_date(str(tz_row.get("timezone") or "UTC"))
         count_res = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("id")
             .eq("user_id", user_id)
-            .eq("mission_date", _today))
-            .data
+            .eq("mission_date", _today))).data)
             or []
         )
         daily_mission_count = len(count_res)
@@ -697,12 +694,11 @@ async def get_mission_detail(mission_id: UUID, authorization: str = Header(None)
     _enrich_mission_rows([row])
     _attach_quit_path_detail(row)
     rating_existing = (
-        await run_query(supabase_admin.table("mission_ratings")
+        ((await run_query(supabase_admin.table("mission_ratings")
         .select("rating, feedback_text")
         .eq("mission_id", mid)
         .eq("user_id", user_id)
-        .limit(1))
-        .data
+        .limit(1))).data)
         or []
     )
     row["difficulty_rating"] = int(rating_existing[0]["rating"]) if rating_existing else None

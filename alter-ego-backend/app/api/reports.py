@@ -33,13 +33,12 @@ async def get_weekly_report(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
     user_row = (
-        await run_query(
+        ((await run_query(
         supabase_admin.table("users")
         .select("timezone, registration_date")
         .eq("id", user_id)
         .single()
-        )
-        .data
+        )).data)
         or {}
     )
     tz_str = str(user_row.get("timezone") or "UTC")
@@ -59,26 +58,24 @@ async def get_weekly_report(authorization: str = Header(None)):
     )
 
     result = (
-        await run_query(
+        ((await run_query(
         supabase_admin.table("weekly_reports")
         .select("*")
         .eq("user_id", user_id)
         .eq("week_start", str(week_start))
-        )
-        .data
+        )).data)
     )
 
     if not result and can_generate:
         try:
             await generate_weekly_report(user_id)
             result = (
-                await run_query(
+                ((await run_query(
                 supabase_admin.table("weekly_reports")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("week_start", str(week_start))
-                )
-                .data
+                )).data)
             )
         except Exception as e:
             logger.warning(
@@ -117,14 +114,13 @@ async def get_weekly_report_by_id(
     """Returns one weekly report row by primary key (for Past Report detail)."""
     user_id = get_user_id_from_token(authorization)
     result = (
-        await run_query(
+        ((await run_query(
         supabase_admin.table("weekly_reports")
         .select("*")
         .eq("id", report_id)
         .eq("user_id", user_id)
         .limit(1)
-        )
-        .data
+        )).data)
     )
     if not result:
         return {"available": False, "message": "Report not found."}
@@ -151,14 +147,13 @@ async def get_previous_weekly_report(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
     result = (
-        await run_query(
+        ((await run_query(
         supabase_admin.table("weekly_reports")
         .select("*")
         .eq("user_id", user_id)
         .order("week_start", desc=True)
         .limit(2)
-        )
-        .data
+        )).data)
         or []
     )
 

@@ -22,8 +22,7 @@ async def get_mails(authorization: str = Header(None)):
         .order("sent_at", desc=True)
     )
     result = (
-        await run_query(result)
-        .data
+        ((await run_query(result)).data)
         or []
     )
     unread_count = sum(1 for m in result if m.get("read_at") is None)

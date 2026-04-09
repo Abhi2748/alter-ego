@@ -104,13 +104,12 @@ async def update_username(
     user_id = get_user_id_from_token(authorization)
 
     current = (
-        await run_query(
+        ((await run_query(
         supabase_admin.table("users")
         .select("username")
         .eq("id", user_id)
         .single()
-        )
-        .data
+        )).data)
     )
     new_username = (body.username or "").strip().lower()
     if new_username == (current or {}).get("username"):

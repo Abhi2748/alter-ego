@@ -259,11 +259,10 @@ async def get_pending_gap_moment(user_id: str) -> dict | None:
 
         try:
             dna = (
-                await run_query(supabase_admin.table("discipline_dna")
+                ((await run_query(supabase_admin.table("discipline_dna")
                 .select("guilt_orientation")
                 .eq("user_id", user_id)
-                .single())
-                .data
+                .single())).data)
                 or {}
             )
             guilt = float(dna.get("guilt_orientation") or 0.0)
@@ -282,21 +281,19 @@ async def get_pending_gap_moment(user_id: str) -> dict | None:
                 from app.services.mission_service import get_user_date
 
                 user_row = (
-                    await run_query(supabase_admin.table("users")
+                    ((await run_query(supabase_admin.table("users")
                     .select("timezone")
                     .eq("id", user_id)
-                    .single())
-                    .data
+                    .single())).data)
                     or {}
                 )
                 today = get_user_date(str(user_row.get("timezone") or "UTC"))
                 m_res = (
-                    await run_query(supabase_admin.table("missions")
+                    ((await run_query(supabase_admin.table("missions")
                     .select("id")
                     .eq("user_id", user_id)
                     .eq("mission_date", today)
-                    .in_("type", ["core", "interest", "resistance"]))
-                    .data
+                    .in_("type", ["core", "interest", "resistance"]))).data)
                     or []
                 )
                 mission_count = len(m_res) if m_res else None

@@ -163,10 +163,9 @@ async def calculate_all_power_scores() -> int:
     Returns count of users processed.
     """
     users = (
-        await run_query(supabase_admin.table("users")
+        ((await run_query(supabase_admin.table("users")
         .select("id")
-        .eq("onboarding_complete", True))
-        .data
+        .eq("onboarding_complete", True))).data)
         or []
     )
 

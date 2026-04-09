@@ -592,11 +592,10 @@ async def update_strip_message(
         today = get_user_date(tz_str)
 
         user_missions = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("completed, core_pillar, completed_at, type, is_journal_mission")
             .eq("user_id", user_id)
-            .eq("mission_date", today))
-            .data
+            .eq("mission_date", today))).data)
             or []
         )
 
@@ -627,11 +626,10 @@ async def update_strip_message(
                 user_skipped_pillars.add(pk)
 
         twin_log = (
-            await run_query(supabase_admin.table("twin_mission_log")
+            ((await run_query(supabase_admin.table("twin_mission_log")
             .select("core_pillar, simulated_hour")
             .eq("user_id", user_id)
-            .eq("mission_date", today))
-            .data
+            .eq("mission_date", today))).data)
             or []
         )
         twin_pillar_done = {
@@ -655,13 +653,12 @@ async def update_strip_message(
                 week_start = td - timedelta(days=td.weekday())
                 week_start_iso = week_start.isoformat()
                 week_missions = (
-                    await run_query(supabase_admin.table("missions")
+                    ((await run_query(supabase_admin.table("missions")
                     .select("mission_date, completed, core_pillar, is_journal_mission")
                     .eq("user_id", user_id)
                     .eq("type", "core")
                     .gte("mission_date", week_start_iso)
-                    .lte("mission_date", today))
-                    .data
+                    .lte("mission_date", today))).data)
                     or []
                 )
                 skip_days_by_pillar: dict[str, set[str]] = defaultdict(set)

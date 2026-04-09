@@ -396,15 +396,14 @@ async def get_profile_streak(authorization: str = Header(None)):
     since = str(anchor - timedelta(weeks=52))
 
     rows = (
-        await run_query(supabase_admin.table("streak_log")
+        ((await run_query(supabase_admin.table("streak_log")
         .select(
             "log_date, streak_maintained, streak_count, "
             "total_missions_done, total_missions, xp_earned, pf_earned"
         )
         .eq("user_id", user_id)
         .gte("log_date", since)
-        .order("log_date"))
-        .data
+        .order("log_date"))).data)
         or []
     )
 
@@ -467,11 +466,10 @@ async def patch_streak_freeze_settings(
         {"streak_freeze_auto_consume": body.streak_freeze_auto_consume}
     ).eq("id", user_id))
     row = (
-        await run_query(supabase_admin.table("users")
+        ((await run_query(supabase_admin.table("users")
         .select("streak_freeze_auto_consume")
         .eq("id", user_id)
-        .single())
-        .data
+        .single())).data)
         or {}
     )
     return {
@@ -488,11 +486,10 @@ async def reserve_streak_freeze_for_next_miss(authorization: str = Header(None))
     """
     user_id = get_user_id_from_token(authorization)
     u = (
-        await run_query(supabase_admin.table("users")
+        ((await run_query(supabase_admin.table("users")
         .select("streak_freeze_count, freeze_reserved_next_miss")
         .eq("id", user_id)
-        .single())
-        .data
+        .single())).data)
         or {}
     )
     if u.get("freeze_reserved_next_miss"):
@@ -756,22 +753,20 @@ async def get_profile_interests(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
     interests = (
-        await run_query(supabase_admin.table("interests")
+        ((await run_query(supabase_admin.table("interests")
         .select("*")
         .eq("user_id", user_id)
-        .eq("is_active", True))
-        .data
+        .eq("is_active", True))).data)
         or []
     )
 
     results = []
     for interest in interests:
         milestones_earned = (
-            await run_query(supabase_admin.table("milestone_log")
+            ((await run_query(supabase_admin.table("milestone_log")
             .select("milestone_type, earned_at")
             .eq("user_id", user_id)
-            .eq("interest_id", interest["id"]))
-            .data
+            .eq("interest_id", interest["id"]))).data)
             or []
         )
 
@@ -820,13 +815,12 @@ async def get_profile_interests(authorization: str = Header(None)):
             today_d = date.today()
             last_7 = [(today_d - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
             activity_rows = (
-                await run_query(supabase_admin.table("missions")
+                ((await run_query(supabase_admin.table("missions")
                 .select("mission_date")
                 .eq("user_id", user_id)
                 .eq("interest_id", interest["id"])
                 .eq("completed", True)
-                .in_("mission_date", last_7))
-                .data
+                .in_("mission_date", last_7))).data)
                 or []
             )
             completed_dates = {str(r.get("mission_date") or "")[:10] for r in activity_rows}
@@ -839,13 +833,12 @@ async def get_profile_interests(authorization: str = Header(None)):
             today_d = date.today()
             cutoff = (today_d - timedelta(days=60)).isoformat()
             all_dates_rows = (
-                await run_query(supabase_admin.table("missions")
+                ((await run_query(supabase_admin.table("missions")
                 .select("mission_date")
                 .eq("user_id", user_id)
                 .eq("interest_id", interest["id"])
                 .eq("completed", True)
-                .gte("mission_date", cutoff))
-                .data
+                .gte("mission_date", cutoff))).data)
                 or []
             )
             completed_set = {str(r.get("mission_date") or "")[:10] for r in all_dates_rows}
@@ -1261,12 +1254,11 @@ async def put_profile_interest_difficulty(
             from app.services.mail_service import send_app_mail
 
             existing = (
-                await run_query(supabase_admin.table("app_mails")
+                ((await run_query(supabase_admin.table("app_mails")
                 .select("id")
                 .eq("user_id", user_id)
                 .eq("mail_type", "first_difficulty_upgrade")
-                .limit(1))
-                .data
+                .limit(1))).data)
                 or []
             )
             if not existing:

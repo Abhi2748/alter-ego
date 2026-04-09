@@ -41,11 +41,10 @@ async def _award_challenge_aether(user_id: str, amount: int, challenge_id: str) 
 
         try:
             current = (
-                await run_query(supabase_admin.table("sigil_state")
+                ((await run_query(supabase_admin.table("sigil_state")
                 .select("total_aether")
                 .eq("user_id", user_id)
-                .single())
-                .data
+                .single())).data)
                 or {}
             )
             new_total = int(current.get("total_aether") or 0) + amount
@@ -235,12 +234,11 @@ async def _compute_progress(user_id: str, challenge: dict) -> int:
         if ctype == "volume":
             # Sum XP earned since accepted_at
             rows = (
-                await run_query(supabase_admin.table("xp_log")
+                ((await run_query(supabase_admin.table("xp_log")
                 .select("amount")
                 .eq("user_id", user_id)
                 .gte("log_date", start_date)
-                .lte("log_date", end_date))
-                .data or []
+                .lte("log_date", end_date))).data) or []
             )
             return sum(int(r.get("amount") or 0) for r in rows)
 
@@ -248,25 +246,23 @@ async def _compute_progress(user_id: str, challenge: dict) -> int:
             # Count distinct days with qualifying completions
             if ctype == "journal":
                 rows = (
-                    await run_query(supabase_admin.table("journal_entries")
+                    ((await run_query(supabase_admin.table("journal_entries")
                     .select("mission_date")
                     .eq("user_id", user_id)
                     .gte("mission_date", start_date)
-                    .lte("mission_date", end_date))
-                    .data or []
+                    .lte("mission_date", end_date))).data) or []
                 )
                 return len({str(r.get("mission_date") or "")[:10] for r in rows if r.get("mission_date")})
 
             elif ctype == "interest":
                 rows = (
-                    await run_query(supabase_admin.table("missions")
+                    ((await run_query(supabase_admin.table("missions")
                     .select("mission_date")
                     .eq("user_id", user_id)
                     .eq("type", "interest")
                     .eq("completed", True)
                     .gte("mission_date", start_date)
-                    .lte("mission_date", end_date))
-                    .data or []
+                    .lte("mission_date", end_date))).data) or []
                 )
                 return len({str(r.get("mission_date") or "")[:10] for r in rows if r.get("mission_date")})
 
@@ -284,27 +280,25 @@ async def _compute_progress(user_id: str, challenge: dict) -> int:
                         target_pillar = pillar
                         break
                 rows = (
-                    await run_query(supabase_admin.table("missions")
+                    ((await run_query(supabase_admin.table("missions")
                     .select("mission_date")
                     .eq("user_id", user_id)
                     .eq("type", "core")
                     .eq("core_pillar", target_pillar)
                     .eq("completed", True)
                     .gte("mission_date", start_date)
-                    .lte("mission_date", end_date))
-                    .data or []
+                    .lte("mission_date", end_date))).data) or []
                 )
                 return len({str(r.get("mission_date") or "")[:10] for r in rows if r.get("mission_date")})
 
             else:  # streak: count days with ≥4 core missions completed
                 rows = (
-                    await run_query(supabase_admin.table("missions")
+                    ((await run_query(supabase_admin.table("missions")
                     .select("mission_date, completed")
                     .eq("user_id", user_id)
                     .eq("type", "core")
                     .gte("mission_date", start_date)
-                    .lte("mission_date", end_date))
-                    .data or []
+                    .lte("mission_date", end_date))).data) or []
                 )
                 by_date: dict[str, int] = {}
                 for r in rows:
@@ -343,11 +337,10 @@ async def generate_weekly_challenge(user_id: str) -> dict | None:
 
         # Get user timezone for expires_at calculation
         user_row = (
-            await run_query(supabase_admin.table("users")
+            ((await run_query(supabase_admin.table("users")
             .select("timezone")
             .eq("id", user_id)
-            .single())
-            .data or {}
+            .single())).data) or {}
         )
         tz_str = str(user_row.get("timezone") or "UTC").strip() or "UTC"
         today = get_user_date(tz_str)
@@ -362,12 +355,11 @@ async def generate_weekly_challenge(user_id: str) -> dict | None:
         # Fetch recent 14-day completion rate
         two_weeks_ago = str(anchor - timedelta(days=14))
         mission_rows = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("completed")
             .eq("user_id", user_id)
             .gte("mission_date", two_weeks_ago)
-            .lte("mission_date", today))
-            .data or []
+            .lte("mission_date", today))).data) or []
         )
         total = len(mission_rows)
         done = sum(1 for m in mission_rows if m.get("completed"))

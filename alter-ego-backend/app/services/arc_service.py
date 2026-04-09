@@ -141,14 +141,13 @@ async def increment_sessions_and_check_phase(
     """
     try:
         interest = (
-            await run_query(supabase_admin.table("interests")
+            ((await run_query(supabase_admin.table("interests")
             .select(
                 "sessions_completed, total_planned_sessions, current_arc_phase, arc_phase_session, normalised_name"
             )
             .eq("id", interest_id)
             .eq("user_id", user_id)
-            .single())
-            .data
+            .single())).data)
             or {}
         )
         if not interest:
@@ -415,15 +414,14 @@ async def run_adaptive_replanning_for_user(user_id: str) -> None:
     """
     try:
         interests = (
-            await run_query(supabase_admin.table("interests")
+            ((await run_query(supabase_admin.table("interests")
             .select(
                 "id, normalised_name, target_date, total_planned_sessions, sessions_completed, "
                 "timeline_adjusted_count, arc_paused, active_days"
             )
             .eq("user_id", user_id)
             .eq("is_active", True)
-            .eq("arc_paused", False))
-            .data
+            .eq("arc_paused", False))).data)
             or []
         )
 

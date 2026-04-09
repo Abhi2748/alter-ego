@@ -280,12 +280,11 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
 
     seven_start = (mday - timedelta(days=7)).isoformat()
     recent = (
-        await run_query(supabase_admin.table("missions")
+        ((await run_query(supabase_admin.table("missions")
         .select("core_pillar, completed, is_journal_mission, mission_date")
         .eq("user_id", user_id)
         .eq("type", "core")
-        .gte("mission_date", seven_start))
-        .data
+        .gte("mission_date", seven_start))).data)
         or []
     )
 
@@ -302,14 +301,13 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
             pillar_rates[pillar] = 0.7
 
     last_titles_res = (
-        await run_query(supabase_admin.table("missions")
+        ((await run_query(supabase_admin.table("missions")
         .select("title, created_at")
         .eq("user_id", user_id)
         .eq("type", "core")
         .eq("is_journal_mission", False)
         .order("created_at", desc=True)
-        .limit(24))
-        .data
+        .limit(24))).data)
         or []
     )
     last_mission_texts = [str(m["title"]) for m in last_titles_res if m.get("title")][:6]
@@ -349,14 +347,13 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
     try:
         streak_cutoff = (mday - timedelta(days=30)).isoformat()
         streak_rows = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("core_pillar, mission_date, completed, is_journal_mission")
             .eq("user_id", user_id)
             .eq("type", "core")
             .gte("mission_date", streak_cutoff)
             .lte("mission_date", mission_date)
-            .order("mission_date", desc=True))
-            .data
+            .order("mission_date", desc=True))).data)
             or []
         )
         by_pillar: dict[str, list[dict]] = defaultdict(list)
@@ -384,7 +381,7 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
 
     try:
         hour_rows = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("core_pillar, completed_at")
             .eq("user_id", user_id)
             .eq("type", "core")
@@ -392,8 +389,7 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
             .eq("is_journal_mission", False)
             .not_.is_("completed_at", "null")
             .order("completed_at", desc=True)
-            .limit(70))
-            .data
+            .limit(70))).data)
             or []
         )
         pillar_hours: dict[str, list[int]] = defaultdict(list)
@@ -948,11 +944,11 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
             eligible_interest_ids.add(str(row["id"]))
             active_interest_rows.append(row)
 
-    int_missions = await run_query(supabase_admin.table("missions")
+    int_missions = ((await run_query(supabase_admin.table("missions")
         .select("id, interest_id, completed")
         .eq("user_id", user_id)
         .eq("mission_date", mission_date)
-        .eq("type", "interest")).data or []
+        .eq("type", "interest"))).data) or []
 
     removed_interest = 0
     for m in int_missions:
@@ -970,11 +966,11 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
     quit_path_rows = paths_res.data or []
     eligible_path_ids = {str(p["id"]) for p in quit_path_rows}
 
-    res_missions = await run_query(supabase_admin.table("missions")
+    res_missions = ((await run_query(supabase_admin.table("missions")
         .select("id, quit_path_id, completed")
         .eq("user_id", user_id)
         .eq("mission_date", mission_date)
-        .eq("type", "resistance")).data or []
+        .eq("type", "resistance"))).data) or []
 
     removed_resistance = 0
     for m in res_missions:
@@ -1061,13 +1057,12 @@ async def recalibrate_core_pillar_difficulties(user_id: str) -> list[str]:
     dna = dna_res.data[0]
 
     recent_missions = (
-        await run_query(supabase_admin.table("missions")
+        ((await run_query(supabase_admin.table("missions")
         .select("core_pillar, completed, mission_date, is_journal_mission")
         .eq("user_id", user_id)
         .eq("type", "core")
         .gte("mission_date", fourteen_days_ago)
-        .eq("is_journal_mission", False))
-        .data
+        .eq("is_journal_mission", False))).data)
         or []
     )
 

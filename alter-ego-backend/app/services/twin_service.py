@@ -970,12 +970,11 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
     _week_ago = str(today_date - timedelta(days=7))
 
     _xp_rows = (
-        await run_query(supabase_admin.table("xp_log")
+        ((await run_query(supabase_admin.table("xp_log")
         .select("amount, log_date")
         .eq("user_id", user_id)
         .gte("log_date", _week_ago)
-        .lte("log_date", today))
-        .data
+        .lte("log_date", today))).data)
         or []
     )
 
@@ -991,11 +990,10 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
 
     try:
         _dna = (
-            await run_query(supabase_admin.table("discipline_dna")
+            ((await run_query(supabase_admin.table("discipline_dna")
             .select("completion_rate_7d")
             .eq("user_id", user_id)
-            .single())
-            .data
+            .single())).data)
             or {}
         )
         _cr = float(_dna.get("completion_rate_7d") or 50)
@@ -1423,11 +1421,10 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         twin_record = rows[0]
 
         twin_log_rows = (
-            await run_query(supabase_admin.table("twin_mission_log")
+            ((await run_query(supabase_admin.table("twin_mission_log")
             .select("core_pillar, mission_type, simulated_hour")
             .eq("user_id", user_id)
-            .eq("mission_date", today))
-            .data
+            .eq("mission_date", today))).data)
             or []
         )
         twin_missions_completed_count = int(twin_record.get("missions_completed") or 0)
@@ -1488,11 +1485,10 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
 
         # User's actual missions that day (not Twin's simulated completion counts)
         um_rows = (
-            await run_query(supabase_admin.table("missions")
+            ((await run_query(supabase_admin.table("missions")
             .select("completed, xp_value")
             .eq("user_id", user_id)
-            .eq("mission_date", today))
-            .data
+            .eq("mission_date", today))).data)
             or []
         )
         missions_total = len(um_rows)
@@ -1503,11 +1499,10 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
 
         twin_xp_today = int(twin_record.get("xp_earned") or 0)
         xp_log_rows = (
-            await run_query(supabase_admin.table("xp_log")
+            ((await run_query(supabase_admin.table("xp_log")
             .select("amount")
             .eq("user_id", user_id)
-            .eq("log_date", today))
-            .data
+            .eq("log_date", today))).data)
             or []
         )
         xp_log_sum = sum(int(r.get("amount") or 0) for r in xp_log_rows)
@@ -1561,12 +1556,11 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
 
         try:
             prev_journals = (
-                await run_query(supabase_admin.table("twin_journal")
+                ((await run_query(supabase_admin.table("twin_journal")
                 .select("content")
                 .eq("user_id", user_id)
                 .order("entry_date", desc=True)
-                .limit(3))
-                .data
+                .limit(3))).data)
                 or []
             )
             last_3_openings: list[str] = []
@@ -2012,12 +2006,11 @@ async def recalibrate_twin(user_id: str) -> dict:
     dna = dna_result.data or {}
 
     unrated_calibrations = (
-        await run_query(supabase_admin.table("twin_messages")
+        ((await run_query(supabase_admin.table("twin_messages")
         .select("id, message_rating")
         .eq("user_id", user_id)
         .not_.is_("message_rating", "null")
-        .eq("rating_used_in_calibration", False))
-        .data
+        .eq("rating_used_in_calibration", False))).data)
         or []
     )
     if unrated_calibrations:
@@ -2058,11 +2051,10 @@ async def recalibrate_twin(user_id: str) -> dict:
     thirty_days_ago = str(today - timedelta(days=30))
 
     streak_rows = (
-        await run_query(supabase_admin.table("streak_log")
+        ((await run_query(supabase_admin.table("streak_log")
         .select("total_missions_done, total_missions")
         .eq("user_id", user_id)
-        .gte("log_date", window_start))
-        .data
+        .gte("log_date", window_start))).data)
         or []
     )
 
@@ -2071,11 +2063,10 @@ async def recalibrate_twin(user_id: str) -> dict:
     completion_rate_recent = (total_done / total_possible * 100) if total_possible > 0 else 0.0
 
     streak_rows_30 = (
-        await run_query(supabase_admin.table("streak_log")
+        ((await run_query(supabase_admin.table("streak_log")
         .select("total_missions_done, total_missions")
         .eq("user_id", user_id)
-        .gte("log_date", thirty_days_ago))
-        .data
+        .gte("log_date", thirty_days_ago))).data)
         or []
     )
     done_30 = sum(int(r.get("total_missions_done") or 0) for r in streak_rows_30)
@@ -2083,12 +2074,11 @@ async def recalibrate_twin(user_id: str) -> dict:
     completion_rate_30d = (done_30 / poss_30 * 100) if poss_30 > 0 else 0.0
 
     chat_count = (
-        await run_query(supabase_admin.table("twin_messages")
+        ((await run_query(supabase_admin.table("twin_messages")
         .select("id", count="exact")
         .eq("user_id", user_id)
         .eq("role", "user")
-        .gte("created_at", datetime.utcnow() - timedelta(days=lookback)))
-        .count
+        .gte("created_at", datetime.utcnow() - timedelta(days=lookback)))).count)
         or 0
     )
 
@@ -2100,12 +2090,11 @@ async def recalibrate_twin(user_id: str) -> dict:
         chat_engagement = "none"
 
     activity_events = (
-        await run_query(supabase_admin.table("event_log")
+        ((await run_query(supabase_admin.table("event_log")
         .select("properties")
         .eq("user_id", user_id)
         .eq("event_name", "app_opened")
-        .gte("logged_at", datetime.utcnow() - timedelta(days=lookback)))
-        .data
+        .gte("logged_at", datetime.utcnow() - timedelta(days=lookback)))).data)
         or []
     )
 
@@ -2321,22 +2310,20 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         twin_tone_override_active = None
 
     interests_rows = (
-        await run_query(supabase_admin.table("interests")
+        ((await run_query(supabase_admin.table("interests")
         .select("normalised_name")
         .eq("user_id", user_id)
-        .eq("is_active", True))
-        .data
+        .eq("is_active", True))).data)
         or []
     )
     interests = [r["normalised_name"] for r in interests_rows if r.get("normalised_name")]
 
     if not interests:
         onboarding = (
-            await run_query(supabase_admin.table("onboarding_answers")
+            ((await run_query(supabase_admin.table("onboarding_answers")
             .select("answer_json, question_key")
             .eq("user_id", user_id)
-            .in_("question_key", ["q12_interests", "q11_interests"]))
-            .data
+            .in_("question_key", ["q12_interests", "q11_interests"]))).data)
         )
         row = None
         if onboarding:
@@ -2357,22 +2344,20 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
                             interests.append(nm)
 
     history = (
-        await run_query(supabase_admin.table("twin_messages")
+        ((await run_query(supabase_admin.table("twin_messages")
         .select("role, content, created_at")
         .eq("user_id", user_id)
         .order("created_at", desc=True)
-        .limit(15))
-        .data
+        .limit(15))).data)
         or []
     )
     history = list(reversed(history))
 
     today_missions = (
-        await run_query(supabase_admin.table("missions")
+        ((await run_query(supabase_admin.table("missions")
         .select("title, type, completed")
         .eq("user_id", user_id)
-        .eq("mission_date", today))
-        .data
+        .eq("mission_date", today))).data)
         or []
     )
 
@@ -2395,11 +2380,10 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
 
     seven_start = (date_type.fromisoformat(today) - timedelta(days=7)).isoformat()
     recent_missions = (
-        await run_query(supabase_admin.table("missions")
+        ((await run_query(supabase_admin.table("missions")
         .select("completed")
         .eq("user_id", user_id)
-        .gte("mission_date", seven_start))
-        .data
+        .gte("mission_date", seven_start))).data)
         or []
     )
     completion_rate_7d = (
@@ -2758,11 +2742,10 @@ async def proactive_twin_message_job() -> None:
 
             today = get_user_date(tz_str)
             missions = (
-                await run_query(supabase_admin.table("missions")
+                ((await run_query(supabase_admin.table("missions")
                 .select("completed")
                 .eq("user_id", user_id)
-                .eq("mission_date", today))
-                .data
+                .eq("mission_date", today))).data)
                 or []
             )
             total = len(missions)

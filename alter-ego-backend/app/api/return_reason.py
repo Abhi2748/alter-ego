@@ -75,13 +75,12 @@ async def post_return_reason(
     override_until = datetime.now(timezone.utc) + timedelta(days=7)
 
     tz_row = (
-        await run_query(
+        ((await run_query(
         supabase_admin.table("users")
         .select("timezone")
         .eq("id", user_id)
         .single()
-        )
-        .data
+        )).data)
         or {}
     )
     tz_str = str(tz_row.get("timezone") or "UTC").strip() or "UTC"

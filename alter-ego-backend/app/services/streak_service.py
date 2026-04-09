@@ -192,7 +192,7 @@ async def process_streak(user_id: str) -> dict:
         rows_affected = len(update_res.data or [])
     if rows_affected <= 0:
         user_fresh = (
-            await run_query(supabase_admin.table("users").select("*").eq("id", user_id).single()).data or {}
+            ((await run_query(supabase_admin.table("users").select("*").eq("id", user_id).single())).data) or {}
         )
         fr_streak = int(user_fresh.get("current_streak") or 0)
         return {
@@ -210,14 +210,14 @@ async def process_streak(user_id: str) -> dict:
     xp_today = sum(
         int(r.get("amount") or 0)
         for r in (
-            await run_query(supabase_admin.table("xp_log").select("amount").eq("user_id", user_id).eq("log_date", today)).data
+            ((await run_query(supabase_admin.table("xp_log").select("amount").eq("user_id", user_id).eq("log_date", today))).data)
             or []
         )
     )
     pf_today = sum(
         int(r.get("amount") or 0)
         for r in (
-            await run_query(supabase_admin.table("pf_log").select("amount").eq("user_id", user_id).eq("log_date", today)).data
+            ((await run_query(supabase_admin.table("pf_log").select("amount").eq("user_id", user_id).eq("log_date", today))).data)
             or []
         )
     )

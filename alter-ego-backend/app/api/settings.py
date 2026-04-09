@@ -180,7 +180,7 @@ async def submit_feedback(
 ):
     """
     Stores feedback in feedback_submissions table.
-    Optionally triggers Zapier webhook if ZAPIER_WEBHOOK_URL is set.
+    Optionally triggers Formspree webhook if FORMSPREE_WEBHOOK_URL is set.
     """
     user_id = get_user_id_from_token(authorization)
 
@@ -223,7 +223,7 @@ def _feedback_webhook_urls() -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for key in (
-        "ZAPIER_WEBHOOK_URL",
+        "FORMSPREE_WEBHOOK_URL",
         "FEEDBACK_WEBHOOK_URL",
         "FORMSPREE_FEEDBACK_URL",
     ):
@@ -326,7 +326,7 @@ async def _notify_feedback_outside_db(payload: dict) -> None:
     await _send_feedback_via_resend(payload)
     if not webhook_urls and not resend_configured:
         logger.info(
-            "Feedback stored in DB; no webhook (ZAPIER_WEBHOOK_URL / FEEDBACK_WEBHOOK_URL / "
+            "Feedback stored in DB; no webhook (FORMSPREE_WEBHOOK_URL / FEEDBACK_WEBHOOK_URL / "
             "FORMSPREE_FEEDBACK_URL) or Resend (RESEND_API_KEY + FEEDBACK_NOTIFY_EMAIL) — "
             "configure one to receive email alerts."
         )

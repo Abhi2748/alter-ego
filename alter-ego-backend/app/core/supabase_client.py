@@ -9,7 +9,7 @@ import logging
 
 from dotenv import load_dotenv
 import httpx
-from supabase import Client, create_client
+from supabase import Client, ClientOptions, create_client
 
 load_dotenv()
 
@@ -19,15 +19,28 @@ SUPABASE_ANON_KEY: str = os.environ["SUPABASE_ANON_KEY"]
 
 # Service role client — for backend operations that need to bypass RLS
 # (cron jobs, mission generation, twin simulation, etc.)
-supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+_client_options = ClientOptions(
+    postgrest_client_timeout=20,
+    storage_client_timeout=20,
+)
+
+supabase_admin: Client = create_client(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY,
+    options=_client_options,
+)
 
 # Anon client — for operations that should respect RLS
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+supabase: Client = create_client(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY,
+    options=_client_options,
+)
 
 logger = logging.getLogger(__name__)
 
 
-async def run_query(query_chain):
+async def run_query(query_chain, timeout: float = 20.0):
     """
     Execute sync Supabase queries off the event loop.
     Retries a few transient network/protocol failures to reduce one-off 500s.
@@ -38,11 +51,17 @@ async def run_query(query_chain):
         httpx.ConnectError,
         httpx.ReadTimeout,
         httpx.WriteError,
+        httpx.TimeoutException,
+        httpx.NetworkError,
+        _asyncio.TimeoutError,
     )
     attempts = len(delays_sec) + 1
     for attempt in range(1, attempts + 1):
         try:
-            return await _asyncio.to_thread(lambda: query_chain.execute())
+            return await _asyncio.wait_for(
+                _asyncio.to_thread(lambda: query_chain.execute()),
+                timeout=timeout,
+            )
         except transient_errors as exc:
             if attempt >= attempts:
                 raise

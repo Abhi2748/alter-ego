@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
+from app.core.cache import invalidate_user_caches
 from app.core.constants import (
     STAT_LEVEL_THRESHOLDS,
     STAT_LEVEL_NAMES,
@@ -303,6 +304,7 @@ async def award_sp_for_mission(
     }
 
     await run_query(supabase_admin.table("character_stats").update(update_payload).eq("user_id", user_id))
+    invalidate_user_caches(user_id)
 
     try:
         from app.services.mail_service import check_and_send_ability_levelup_mail

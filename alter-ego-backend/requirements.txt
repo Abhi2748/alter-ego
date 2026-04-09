@@ -22,3 +22,4 @@ numpy>=1.26.0,<2
 instructor==1.5.2
 tenacity>=8.4.1,<9.0.0
 python-jose==3.3.0
+cachetools==5.3.3

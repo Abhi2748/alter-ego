@@ -12,6 +12,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from app.api.auth import get_user_id_from_token
+from app.core.cache import faq_cache
 from app.core.supabase_client import run_query, supabase_admin
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
@@ -86,7 +87,12 @@ FAQ_ITEMS = [
 @router.get("/faq", response_model=dict)
 async def get_faq():
     """Returns all FAQ items. No auth required."""
-    return {"faq": FAQ_ITEMS}
+    cached = faq_cache.get("faq")
+    if cached is not None:
+        return cached
+    result = {"faq": FAQ_ITEMS}
+    faq_cache["faq"] = result
+    return result
 
 
 # ── UPDATE USERNAME ────────────────────────────────────────────────────────

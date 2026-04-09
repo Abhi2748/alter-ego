@@ -12,6 +12,7 @@ import os
 from fastapi import APIRouter, Header, HTTPException
 
 from app.api.auth import get_user_id_from_token
+from app.core.cache import leaderboard_cache
 from app.core.constants import STAGE_NAMES, PET_NAMES
 from app.core.supabase_client import run_query, supabase_admin
 
@@ -40,6 +41,44 @@ def _apply_leaderboard_pool_filter(q, use_beta_pool: bool):
     if use_beta_pool:
         return q.or_("leaderboard_unlocked.eq.true,subscription_tier.eq.beta_free")
     return q.eq("leaderboard_unlocked", True)
+
+
+async def _get_cached_pool_rows(use_beta_pool: bool) -> tuple[list[dict], int]:
+    """
+    Cache only shared leaderboard pool rows/count.
+    Per-user rank fields are still computed fresh to preserve response behaviour.
+    """
+    cache_key = "global_beta" if use_beta_pool else "global_default"
+    cached = leaderboard_cache.get(cache_key)
+    if cached is not None:
+        return cached["top_100"], cached["total_on_leaderboard"]
+
+    top_100_res = await run_query(
+        _apply_leaderboard_pool_filter(
+            supabase_admin.table("users").select(
+                "id, username, power_score, character_stage, "
+                "pet_stage, pet_unlocked, current_streak, subscription_tier, avatar_url"
+            ),
+            use_beta_pool,
+        )
+        .order("power_score", desc=True)
+        .limit(100)
+    )
+    top_100 = top_100_res.data or []
+
+    pool_count_res = await run_query(
+        _apply_leaderboard_pool_filter(
+            supabase_admin.table("users").select("id", count="exact"),
+            use_beta_pool,
+        )
+    )
+    total_on_leaderboard = getattr(pool_count_res, "count", None) or len(top_100)
+
+    leaderboard_cache[cache_key] = {
+        "top_100": top_100,
+        "total_on_leaderboard": total_on_leaderboard,
+    }
+    return top_100, total_on_leaderboard
 
 
 @router.get("", response_model=dict)
@@ -79,18 +118,7 @@ async def get_leaderboard(authorization: str = Header(None)):
             },
         )
 
-    top_100 = await run_query(
-        _apply_leaderboard_pool_filter(
-            supabase_admin.table("users").select(
-                "id, username, power_score, character_stage, "
-                "pet_stage, pet_unlocked, current_streak, subscription_tier, avatar_url"
-            ),
-            use_beta_pool,
-        )
-        .order("power_score", desc=True)
-        .limit(100)
-    )
-    top_100 = top_100.data or []
+    top_100, total_on_leaderboard = await _get_cached_pool_rows(use_beta_pool)
 
     user_power_score = user.get("power_score", 0)
     rank_result = await run_query(
@@ -124,14 +152,6 @@ async def get_leaderboard(authorization: str = Header(None)):
                 "avatar_url": u.get("avatar_url"),
             }
         )
-
-    pool_count_res = await run_query(
-        _apply_leaderboard_pool_filter(
-            supabase_admin.table("users").select("id", count="exact"),
-            use_beta_pool,
-        )
-    )
-    total_on_leaderboard = getattr(pool_count_res, "count", None) or len(top_100)
 
     return {
         "entries": entries,

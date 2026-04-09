@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 
+from app.core.cache import invalidate_user_caches
 from app.core.supabase_client import supabase_admin, run_query
 
 logger = logging.getLogger(__name__)
@@ -878,6 +879,9 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         stage_evolved=bool(stage_evolved),
         streak_milestone=streak_milestone_hit,
     )
+
+    # Mission completion mutates profile + stats-affecting state.
+    invalidate_user_caches(user_id)
 
     return {
         "success": True,

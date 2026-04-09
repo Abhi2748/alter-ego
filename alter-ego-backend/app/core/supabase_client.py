@@ -5,8 +5,10 @@ NEVER expose this to the frontend.
 """
 import os
 import asyncio as _asyncio
+import logging
 
 from dotenv import load_dotenv
+import httpx
 from supabase import Client, create_client
 
 load_dotenv()
@@ -22,7 +24,33 @@ supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 # Anon client — for operations that should respect RLS
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
+logger = logging.getLogger(__name__)
+
 
 async def run_query(query_chain):
-    return await _asyncio.to_thread(lambda: query_chain.execute())
+    """
+    Execute sync Supabase queries off the event loop.
+    Retries a few transient network/protocol failures to reduce one-off 500s.
+    """
+    delays_sec = (0.15, 0.4, 0.9)
+    transient_errors = (
+        httpx.RemoteProtocolError,
+        httpx.ConnectError,
+        httpx.ReadTimeout,
+        httpx.WriteError,
+    )
+    attempts = len(delays_sec) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            return await _asyncio.to_thread(lambda: query_chain.execute())
+        except transient_errors as exc:
+            if attempt >= attempts:
+                raise
+            logger.warning(
+                "run_query transient error (attempt %s/%s): %s",
+                attempt,
+                attempts,
+                exc,
+            )
+            await _asyncio.sleep(delays_sec[attempt - 1])
 

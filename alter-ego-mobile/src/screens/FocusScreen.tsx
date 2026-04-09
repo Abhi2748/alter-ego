@@ -19,6 +19,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -509,7 +510,11 @@ export function FocusScreen() {
       <View style={styles.topBar}>
         <View style={styles.tbLeft}>
           <View style={styles.tbAvatar}>
-            <Text style={styles.tbAvatarText}>{profile?.username?.[0]?.toUpperCase() ?? "?"}</Text>
+            {profile?.profile_photo_url ? (
+              <Image source={{ uri: profile.profile_photo_url }} style={styles.tbAvatarImage} resizeMode="cover" />
+            ) : (
+              <Text style={styles.tbAvatarText}>{profile?.username?.[0]?.toUpperCase() ?? "?"}</Text>
+            )}
           </View>
           <View>
             <Text style={styles.tbName}>{profile?.username ?? "—"}</Text>
@@ -1263,9 +1268,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(80,30,160,0.7)",
     borderWidth: 1.5,
     borderColor: "rgba(139,92,246,0.35)",
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
+  tbAvatarImage: { width: "100%", height: "100%" },
   tbAvatarText: { fontSize: 13, fontWeight: "700", color: "rgba(167,139,250,0.8)" },
   tbName: { fontSize: 13, fontWeight: "600", color: TEXT },
   tbStage: { fontSize: 10, color: MUTED, marginTop: 1 },

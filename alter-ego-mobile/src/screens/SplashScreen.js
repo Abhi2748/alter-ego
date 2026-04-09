@@ -38,11 +38,11 @@ const VIG_RX = SCREEN_W * 0.6;
 const VIG_RY = SCREEN_H * 0.5;
 
 /**
- * Dot: 5px core + box-shadow rings (SVG stroked annuli) + soft bloom
- * viewBox centered; matches .axis-dot
+ * Dot glow uses true radial falloff only (no stroked annuli),
+ * so the aura reads as atmospheric bloom instead of layered discs.
  */
-const DOT_SVG = 40;
-const DOT_VB = 40;
+const DOT_SVG = 72;
+const DOT_VB = 72;
 const DOT_C = DOT_VB / 2;
 
 const VIOLET = "#8B5CF6";
@@ -236,31 +236,21 @@ export function SplashScreen() {
           pointerEvents="none"
         >
           <Defs>
-            <RadialGradient id="axisDotBloom" cx="50%" cy="50%" r="50%">
-              <Stop offset="0%" stopColor={VIOLET} stopOpacity={0.35} />
+            <RadialGradient id="axisDotOuterGlow" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor={VIOLET} stopOpacity={0.2} />
+              <Stop offset="22%" stopColor={VIOLET} stopOpacity={0.12} />
+              <Stop offset="46%" stopColor={VIOLET} stopOpacity={0.055} />
+              <Stop offset="72%" stopColor={VIOLET} stopOpacity={0.015} />
+              <Stop offset="100%" stopColor={VIOLET} stopOpacity={0} />
+            </RadialGradient>
+            <RadialGradient id="axisDotInnerGlow" cx="50%" cy="50%" r="50%">
+              <Stop offset="0%" stopColor={VIOLET} stopOpacity={0.42} />
+              <Stop offset="36%" stopColor={VIOLET} stopOpacity={0.14} />
               <Stop offset="100%" stopColor={VIOLET} stopOpacity={0} />
             </RadialGradient>
           </Defs>
-          {/* 0 0 20px — soft bloom under rings */}
-          <Circle cx={DOT_C} cy={DOT_C} r={12} fill="url(#axisDotBloom)" opacity={0.85} />
-          {/* 0 0 0 14px rgba(...,0.04) */}
-          <Circle
-            cx={DOT_C}
-            cy={DOT_C}
-            r={9.5}
-            fill="none"
-            stroke="rgba(139,92,246,0.04)"
-            strokeWidth={14}
-          />
-          {/* 0 0 0 6px rgba(...,0.08) */}
-          <Circle
-            cx={DOT_C}
-            cy={DOT_C}
-            r={5.5}
-            fill="none"
-            stroke="rgba(139,92,246,0.08)"
-            strokeWidth={6}
-          />
+          <Circle cx={DOT_C} cy={DOT_C} r={34} fill="url(#axisDotOuterGlow)" />
+          <Circle cx={DOT_C} cy={DOT_C} r={16} fill="url(#axisDotInnerGlow)" />
           <Circle cx={DOT_C} cy={DOT_C} r={2.5} fill={VIOLET} />
         </Svg>
       </Animated.View>

@@ -124,12 +124,17 @@ export function ProfileEditScreen() {
         Alert.alert("Permission needed", "Allow photo library access to change your photo.");
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
+      const pickerOptions: Parameters<typeof ImagePicker.launchImageLibraryAsync>[0] = {
         mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 1,
-      });
+      };
+      // Android supports circular crop UI; iOS keeps square editor.
+      if (Platform.OS === "android") {
+        (pickerOptions as Record<string, unknown>).shape = "circle";
+      }
+      const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
       if (result.canceled || !result.assets?.[0]?.uri) return;
 
       const {

@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api.auth import router as auth_router
 from app.api.feedback import router as feedback_router
@@ -17,9 +19,12 @@ from app.api.stats import router as stats_router
 from app.api.quits import router as quits_router
 from app.api.sigil import router as sigil_router
 from app.api.twin import router as twin_router
+from app.core.rate_limit import limiter
 from app.core.scheduler import setup_scheduler
 
 app = FastAPI(title="ALTER EGO API", version="1.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Only routers built in the current build
 app.include_router(auth_router)

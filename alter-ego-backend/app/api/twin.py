@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Body, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.api.auth import get_user_id_from_token
@@ -26,6 +26,7 @@ from app.core.constants import (
     get_twin_status_line,
 )
 from app.core.supabase_client import supabase_admin, run_query
+from app.core.rate_limit import limiter
 from app.agents.twin_chat_agent import get_relationship_phase
 from app.services.mission_service import get_days_since_registration, get_user_date
 from app.services.strip_message_service import update_strip_message
@@ -312,7 +313,8 @@ class TwinStateResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_with_twin(body: ChatRequest, authorization: str = Header(None)):
+@limiter.limit("10/minute")
+async def chat_with_twin(request: Request, body: ChatRequest, authorization: str = Header(None)):
     """
     Send a message to the twin and get a response.
     The twin responds in character based on archetype and current gap state.

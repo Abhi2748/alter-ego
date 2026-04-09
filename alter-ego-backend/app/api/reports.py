@@ -6,7 +6,7 @@ B30: Day summary generated ~01:00 local or on demand.
 
 import logging
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Request
 
 from datetime import datetime, timezone as dt_timezone
 
@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from app.api.auth import get_user_id_from_token
 from app.agents.report_agent import generate_day_summary, generate_weekly_report
+from app.core.rate_limit import limiter
 from app.core.supabase_client import run_query, supabase_admin
 from app.services.mission_service import local_completed_week_bounds
 from app.services.report_service import weekly_report_week_eligible
@@ -24,7 +25,8 @@ router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
 
 @router.get("/weekly", response_model=dict)
-async def get_weekly_report(authorization: str = Header(None)):
+@limiter.limit("5/minute")
+async def get_weekly_report(request: Request, authorization: str = Header(None)):
     """
     Returns the current week's report.
     Generated Sunday morning — available all day.

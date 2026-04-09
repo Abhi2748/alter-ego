@@ -16,7 +16,7 @@ from app.core.constants import (
     ABSENCE_PUSH_THRESHOLD_DAYS,
     ABSENCE_SILENT_RETURN_NOTIFICATION,
 )
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.services.mission_service import get_user_date
 
 logger = logging.getLogger(__name__)

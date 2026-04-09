@@ -8,7 +8,7 @@ from app.core.constants import (
     POWER_SCORE_STREAK_CAP,
     TOTAL_PET_STAGES,
 )
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.services.mission_service import get_user_date
 
 logger = logging.getLogger(__name__)

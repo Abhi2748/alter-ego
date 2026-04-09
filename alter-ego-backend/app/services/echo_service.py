@@ -12,6 +12,7 @@ import logging
 import random
 from datetime import datetime, timezone, timedelta, date as date_type
 from typing import Any
+from app.core.supabase_client import run_query
 
 logger = logging.getLogger(__name__)
 

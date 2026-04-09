@@ -15,7 +15,7 @@ from app.core.constants import (
     TOTAL_PET_STAGES,
     XP_THRESHOLDS,
 )
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 
 
 async def check_character_stage_progression(

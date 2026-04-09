@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 
 from app.core.constants import NUDGE_DAILY_CAPS
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.services.mission_service import get_user_date
 
 logger = logging.getLogger(__name__)

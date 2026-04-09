@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta, date
 from typing import Any
 
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.services.mail_service import check_and_send_focus_first_session_mail
 
 

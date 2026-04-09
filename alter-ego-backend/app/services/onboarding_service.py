@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from app.agents.agent_guardrails import check_crisis_content
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.core.archetype import (
     classify_user_with_profiler,
     get_archetype_data,

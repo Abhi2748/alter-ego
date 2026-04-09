@@ -18,7 +18,7 @@ from app.core.constants import (
     MISSION_PF,
     mission_xp_for_type,
 )
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.services.arc_service import ARC_PHASE_LABELS
 from app.services.mission_service import get_user_date
 

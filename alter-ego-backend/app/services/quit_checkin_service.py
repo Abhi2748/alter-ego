@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 
 logger = logging.getLogger(__name__)
 

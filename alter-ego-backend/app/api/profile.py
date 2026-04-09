@@ -26,7 +26,7 @@ from app.core.constants import (
     TOTAL_PET_STAGES,
     XP_THRESHOLDS,
 )
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.services.interest_path_service import (
     build_ui_path,
     complete_quest_insight,

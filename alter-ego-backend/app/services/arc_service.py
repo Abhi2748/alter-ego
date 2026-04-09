@@ -11,7 +11,7 @@ import logging
 from datetime import date as date_cls, datetime, timezone, timedelta
 from typing import Literal
 
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.services.mail_service import send_interest_mail_once
 
 logger = logging.getLogger(__name__)

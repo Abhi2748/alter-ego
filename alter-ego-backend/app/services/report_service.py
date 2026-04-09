@@ -13,7 +13,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.core.constants import PET_NAMES, STAGE_NAMES
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 
 logger = logging.getLogger(__name__)
 

@@ -56,7 +56,7 @@ async def store_checkin(
         if not clean_tags and not clean_urge and not clean_text:
             return
 
-        supabase_admin.table("quit_checkins").insert(
+        await run_query(supabase_admin.table("quit_checkins").insert(
             {
                 "user_id": user_id,
                 "quit_path_id": quit_path_id,
@@ -66,7 +66,7 @@ async def store_checkin(
                 "free_text": clean_text,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
-        ).execute()
+        ))
 
         logger.info(
             json.dumps(

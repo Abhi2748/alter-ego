@@ -113,14 +113,13 @@ async def calculate_power_score(user_id: str, *, log_event: bool = True) -> int:
     Returns the calculated score (0-POWER_SCORE_MAX).
     """
     user_result = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select(
             "total_xp, character_stage, pet_stage, pet_unlocked, "
             "current_streak, power_score, timezone"
         )
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     user = user_result.data or {}
 
@@ -147,12 +146,12 @@ async def calculate_power_score(user_id: str, *, log_event: bool = True) -> int:
         completion_rate,
     )
 
-    supabase_admin.table("users").update({"power_score": total}).eq("id", user_id).execute()
+    await run_query(supabase_admin.table("users").update({"power_score": total}).eq("id", user_id))
 
     if log_event:
-        supabase_admin.table("power_score_log").insert(
+        await run_query(supabase_admin.table("power_score_log").insert(
             {"user_id": user_id, "score": total, "calculated_at": datetime.utcnow().isoformat()}
-        ).execute()
+        ))
 
     return total
 
@@ -164,10 +163,9 @@ async def calculate_all_power_scores() -> int:
     Returns count of users processed.
     """
     users = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select("id")
-        .eq("onboarding_complete", True)
-        .execute()
+        .eq("onboarding_complete", True))
         .data
         or []
     )

@@ -207,7 +207,7 @@ async def process_absence_escalation_notifications() -> None:
 
     try:
         users_result = (
-            supabase_admin.table("users")
+            await run_query(supabase_admin.table("users")
             .select(
                 "id, timezone, push_token, notifications_enabled, onboarding_complete, "
                 "last_active_date, absence_days, last_absence_notif_day, last_streak_date, "
@@ -215,8 +215,7 @@ async def process_absence_escalation_notifications() -> None:
                 "final_absence_notif_sent"
             )
             .eq("onboarding_complete", True)
-            .eq("notifications_enabled", True)
-            .execute()
+            .eq("notifications_enabled", True))
         )
     except Exception as e:
         logger.error(
@@ -251,9 +250,9 @@ async def process_absence_escalation_notifications() -> None:
                         push_context="absence_final",
                     )
                     try:
-                        supabase_admin.table("users").update(
+                        await run_query(supabase_admin.table("users").update(
                             {"final_absence_notif_sent": True}
-                        ).eq("id", uid).execute()
+                        ).eq("id", uid))
                     except Exception:
                         pass
                     logger.info(
@@ -280,9 +279,9 @@ async def process_absence_escalation_notifications() -> None:
                             push_context=f"absence_day_{days}",
                         )
                         try:
-                            supabase_admin.table("users").update(
+                            await run_query(supabase_admin.table("users").update(
                                 {"last_absence_notif_day": days}
-                            ).eq("id", uid).execute()
+                            ).eq("id", uid))
                         except Exception:
                             pass
                         logger.info(
@@ -314,9 +313,9 @@ async def process_absence_escalation_notifications() -> None:
                             n["body"],
                             push_context="absence_unsure_followup",
                         )
-                        supabase_admin.table("users").update(
+                        await run_query(supabase_admin.table("users").update(
                             {"unsure_followup_push_sent": True}
-                        ).eq("id", uid).execute()
+                        ).eq("id", uid))
                         logger.info(
                             json.dumps(
                                 {

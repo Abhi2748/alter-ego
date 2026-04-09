@@ -25,7 +25,7 @@ from app.core.constants import (
     get_absence_strip_message,
     get_twin_status_line,
 )
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.agents.twin_chat_agent import get_relationship_phase
 from app.services.mission_service import get_days_since_registration, get_user_date
 from app.services.strip_message_service import update_strip_message
@@ -359,27 +359,21 @@ async def get_chat_history(authorization: str = Header(None), limit: int = 50):
     # IMPORTANT: asc + limit returns the *oldest* N rows — refetches would drop recent turns
     # and look like “disappearing” / reordered replies.
     lim = min(limit, 100)
-    result = (
-        supabase_admin.table("twin_messages")
+    result = await run_query(supabase_admin.table("twin_messages")
         .select("id, role, content, created_at, message_rating, is_proactive, is_read, tone_used")
         .eq("user_id", user_id)
         .order("created_at", desc=True)
         .order("id", desc=True)
-        .limit(lim)
-        .execute()
-    )
+        .limit(lim))
 
     rows = list(reversed(result.data or []))
     twin_ids = [str(r["id"]) for r in rows if r.get("role") == "twin"]
     ratings_map: dict[str, str] = {}
     if twin_ids:
-        r2 = (
-            supabase_admin.table("twin_tone_ratings")
+        r2 = await run_query(supabase_admin.table("twin_tone_ratings")
             .select("twin_message_id, rating")
             .eq("user_id", user_id)
-            .in_("twin_message_id", twin_ids)
-            .execute()
-        )
+            .in_("twin_message_id", twin_ids))
         for rr in r2.data or []:
             mid = rr.get("twin_message_id")
             if mid:
@@ -404,9 +398,9 @@ async def get_chat_history(authorization: str = Header(None), limit: int = 50):
 async def mark_twin_chat_messages_read(authorization: str = Header(None)):
     """Mark unread proactive Twin messages as read (e.g. when chat screen opens)."""
     user_id = get_user_id_from_token(authorization)
-    supabase_admin.table("twin_messages").update({"is_read": True}).eq("user_id", user_id).eq(
+    await run_query(supabase_admin.table("twin_messages").update({"is_read": True}).eq("user_id", user_id).eq(
         "is_read", False
-    ).execute()
+    ))
     return {"ok": True}
 
 
@@ -429,41 +423,32 @@ async def rate_twin_message_endpoint(
     except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid message_id") from e
 
-    msg_res = (
-        supabase_admin.table("twin_messages")
+    msg_res = await run_query(supabase_admin.table("twin_messages")
         .select("id, role, tone_used")
         .eq("id", message_id)
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
+        .limit(1))
     msg = (msg_res.data or [None])[0]
     if not msg or msg.get("role") != "twin":
         raise HTTPException(status_code=404, detail="Twin message not found")
 
-    supabase_admin.table("twin_messages").update({"message_rating": body.rating}).eq(
+    await run_query(supabase_admin.table("twin_messages").update({"message_rating": body.rating}).eq(
         "id", message_id
-    ).eq("user_id", user_id).execute()
+    ).eq("user_id", user_id))
 
     tone_word = "positive" if body.rating == 1 else "negative" if body.rating == -1 else "neutral"
 
-    dna_res = (
-        supabase_admin.table("discipline_dna")
+    dna_res = await run_query(supabase_admin.table("discipline_dna")
         .select("twin_tone_type")
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
+        .limit(1))
     dna = (dna_res.data or [None])[0] or {}
     tone_type = _tone_type_for_rating(msg, dna.get("twin_tone_type"))
 
-    existing = (
-        supabase_admin.table("twin_tone_ratings")
+    existing = await run_query(supabase_admin.table("twin_tone_ratings")
         .select("id")
         .eq("user_id", user_id)
-        .eq("twin_message_id", message_id)
-        .execute()
-    )
+        .eq("twin_message_id", message_id))
     payload = {
         "user_id": user_id,
         "twin_message_id": message_id,
@@ -472,11 +457,11 @@ async def rate_twin_message_endpoint(
     }
     if existing.data:
         rid = existing.data[0].get("id")
-        supabase_admin.table("twin_tone_ratings").update(
+        await run_query(supabase_admin.table("twin_tone_ratings").update(
             {"rating": tone_word, "tone_type": tone_type}
-        ).eq("id", rid).execute()
+        ).eq("id", rid))
     else:
-        supabase_admin.table("twin_tone_ratings").insert(payload).execute()
+        await run_query(supabase_admin.table("twin_tone_ratings").insert(payload))
 
     return {"rated": True}
 
@@ -493,35 +478,26 @@ async def post_twin_tone_rating(body: TwinToneRatingBody, authorization: str = H
     except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid message_id") from e
 
-    msg_res = (
-        supabase_admin.table("twin_messages")
+    msg_res = await run_query(supabase_admin.table("twin_messages")
         .select("id, role, tone_used")
         .eq("id", body.message_id)
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
+        .limit(1))
     msg = (msg_res.data or [None])[0]
     if not msg or msg.get("role") != "twin":
         raise HTTPException(status_code=404, detail="Twin message not found")
 
-    dna_res = (
-        supabase_admin.table("discipline_dna")
+    dna_res = await run_query(supabase_admin.table("discipline_dna")
         .select("twin_tone_type")
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
+        .limit(1))
     dna = (dna_res.data or [None])[0] or {}
     tone_type = _tone_type_for_rating(msg, dna.get("twin_tone_type"))
 
-    existing = (
-        supabase_admin.table("twin_tone_ratings")
+    existing = await run_query(supabase_admin.table("twin_tone_ratings")
         .select("id")
         .eq("user_id", user_id)
-        .eq("twin_message_id", body.message_id)
-        .execute()
-    )
+        .eq("twin_message_id", body.message_id))
     payload = {
         "user_id": user_id,
         "twin_message_id": body.message_id,
@@ -530,11 +506,11 @@ async def post_twin_tone_rating(body: TwinToneRatingBody, authorization: str = H
     }
     if existing.data:
         rid = existing.data[0].get("id")
-        supabase_admin.table("twin_tone_ratings").update(
+        await run_query(supabase_admin.table("twin_tone_ratings").update(
             {"rating": body.rating, "tone_type": tone_type}
-        ).eq("id", rid).execute()
+        ).eq("id", rid))
     else:
-        supabase_admin.table("twin_tone_ratings").insert(payload).execute()
+        await run_query(supabase_admin.table("twin_tone_ratings").insert(payload))
 
     return {"ok": True, "tone_type": tone_type, "tone_used": tone_type}
 
@@ -547,10 +523,9 @@ async def get_twin_tone_history(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
     rows = (
-        supabase_admin.table("twin_tone_ratings")
+        await run_query(supabase_admin.table("twin_tone_ratings")
         .select("tone_type, rating")
-        .eq("user_id", user_id)
-        .execute()
+        .eq("user_id", user_id))
         .data
         or []
     )
@@ -584,13 +559,10 @@ async def get_twin_tone_history(authorization: str = Header(None)):
                 }
             )
 
-    dna_res = (
-        supabase_admin.table("discipline_dna")
+    dna_res = await run_query(supabase_admin.table("discipline_dna")
         .select("twin_tone_type, twin_intensity")
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
+        .limit(1))
     dna = (dna_res.data or [None])[0] or {}
     intensity = int(dna.get("twin_intensity") or 3)
     intensity = max(1, min(5, intensity))
@@ -643,11 +615,10 @@ async def get_twin_strip(authorization: str = Header(None)):
             context["strip_message"] = new_msg
 
     tz_row = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select("timezone, registration_date")
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
         .data
         or {}
     )
@@ -666,14 +637,11 @@ async def get_twin_strip(authorization: str = Header(None)):
         user_local_hour = datetime.now(timezone.utc).hour
 
     try:
-        activity_check = (
-            supabase_admin.table("xp_log")
+        activity_check = await run_query(supabase_admin.table("xp_log")
             .select("id")
             .eq("user_id", user_id)
             .eq("log_date", today)
-            .limit(1)
-            .execute()
-        )
+            .limit(1))
         user_active_today = bool(activity_check.data)
     except Exception:
         user_active_today = False
@@ -685,14 +653,13 @@ async def get_twin_strip(authorization: str = Header(None)):
 
     try:
         user_abs = (
-            supabase_admin.table("users")
+            await run_query(supabase_admin.table("users")
             .select(
                 "absence_days, last_active_date, archetype, last_streak_date, "
                 "timezone, twin_tone_override, twin_tone_override_until"
             )
             .eq("id", user_id)
-            .single()
-            .execute()
+            .single())
             .data
             or {}
         )
@@ -731,29 +698,23 @@ async def get_twin_journal(
     await ensure_twin_journal_backfilled(user_id)
 
     try:
-        u_tz = (
-            supabase_admin.table("users")
+        u_tz = await run_query(supabase_admin.table("users")
             .select("timezone")
             .eq("id", user_id)
-            .single()
-            .execute()
-        )
+            .single())
         tz_str = str((u_tz.data or {}).get("timezone") or "UTC").strip() or "UTC"
     except Exception:
         tz_str = "UTC"
     today_local = get_user_date(tz_str)
 
-    result = (
-        supabase_admin.table("twin_journal")
+    result = await run_query(supabase_admin.table("twin_journal")
         .select(
             "id, entry_date, content, relationship_phase, missions_completed, "
             "missions_total, archetype, created_at"
         )
         .eq("user_id", user_id)
         .order("entry_date", desc=True)
-        .limit(limit * 2)
-        .execute()
-    )
+        .limit(limit * 2))
 
     rows = [r for r in (result.data or []) if str(r.get("entry_date", ""))[:10] < today_local]
 
@@ -763,11 +724,10 @@ async def get_twin_journal(
     if dates:
         try:
             all_m = (
-                supabase_admin.table("missions")
+                await run_query(supabase_admin.table("missions")
                 .select("mission_date, completed")
                 .eq("user_id", user_id)
-                .in_("mission_date", dates)
-                .execute()
+                .in_("mission_date", dates))
                 .data
                 or []
             )
@@ -786,11 +746,10 @@ async def get_twin_journal(
             counts_by_date = {}
         try:
             trows = (
-                supabase_admin.table("twin_daily_record")
+                await run_query(supabase_admin.table("twin_daily_record")
                 .select("record_date, missions_completed, missions_assigned")
                 .eq("user_id", user_id)
-                .in_("record_date", dates)
-                .execute()
+                .in_("record_date", dates))
                 .data
                 or []
             )
@@ -843,13 +802,10 @@ async def get_twin_journal(
 
     last_viewed: datetime | None = None
     try:
-        ts_res = (
-            supabase_admin.table("twin_state")
+        ts_res = await run_query(supabase_admin.table("twin_state")
             .select("last_journal_viewed_at")
             .eq("user_id", user_id)
-            .single()
-            .execute()
-        )
+            .single())
         raw_ts = (ts_res.data or {}).get("last_journal_viewed_at")
         if raw_ts:
             last_viewed = datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
@@ -879,9 +835,9 @@ async def mark_journal_read(authorization: str = Header(None)):
     """Mark all journal entries as read by updating last_journal_viewed_at to now."""
     user_id = get_user_id_from_token(authorization)
     try:
-        supabase_admin.table("twin_state").update(
+        await run_query(supabase_admin.table("twin_state").update(
             {"last_journal_viewed_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("user_id", user_id).execute()
+        ).eq("user_id", user_id))
     except Exception as e:
         logger.error(
             json.dumps(
@@ -1048,11 +1004,10 @@ async def get_shadow_feed(
         await ensure_twin_simulated_for_today(user_id)
 
         user_row = (
-            supabase_admin.table("users")
+            await run_query(supabase_admin.table("users")
             .select("timezone, registration_date")
             .eq("id", user_id)
-            .single()
-            .execute()
+            .single())
             .data
             or {}
         )
@@ -1070,12 +1025,11 @@ async def get_shadow_feed(
         past_end = str(anchor - timedelta(days=1))
 
         twin_today = (
-            supabase_admin.table("twin_mission_log")
+            await run_query(supabase_admin.table("twin_mission_log")
             .select("mission_title, mission_type, core_pillar, simulated_hour, completed_at")
             .eq("user_id", user_id)
             .eq("mission_date", today)
-            .order("simulated_hour", desc=False)
-            .execute()
+            .order("simulated_hour", desc=False))
             .data
             or []
         )
@@ -1085,57 +1039,52 @@ async def get_shadow_feed(
         )
 
         user_today = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("title, type, core_pillar, xp_value, completed, completed_at")
             .eq("user_id", user_id)
             .eq("mission_date", today)
             .eq("completed", True)
-            .order("completed_at", desc=False)
-            .execute()
+            .order("completed_at", desc=False))
             .data
             or []
         )
 
         user_today_incomplete = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("title, type, core_pillar")
             .eq("user_id", user_id)
             .eq("mission_date", today)
-            .eq("completed", False)
-            .execute()
+            .eq("completed", False))
             .data
             or []
         )
 
         missions_today_all = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("title, type, core_pillar")
             .eq("user_id", user_id)
-            .eq("mission_date", today)
-            .execute()
+            .eq("mission_date", today))
             .data
             or []
         )
         title_to_m = {str(m.get("title") or "").strip().lower(): m for m in missions_today_all}
 
         xp_today_rows = (
-            supabase_admin.table("xp_log")
+            await run_query(supabase_admin.table("xp_log")
             .select("amount")
             .eq("user_id", user_id)
-            .eq("log_date", today)
-            .execute()
+            .eq("log_date", today))
             .data
             or []
         )
         user_xp_today = sum(int(r.get("amount") or 0) for r in xp_today_rows)
 
         twin_daily_rows = (
-            supabase_admin.table("twin_daily_record")
+            await run_query(supabase_admin.table("twin_daily_record")
             .select("record_date, missions_completed, missions_assigned, xp_earned, missed_mission_titles")
             .eq("user_id", user_id)
             .gte("record_date", past_start)
-            .lte("record_date", today)
-            .execute()
+            .lte("record_date", today))
             .data
             or []
         )
@@ -1155,12 +1104,11 @@ async def get_shadow_feed(
         twin_past.sort(key=_rec_date_key, reverse=True)
 
         twin_journals = (
-            supabase_admin.table("twin_journal")
+            await run_query(supabase_admin.table("twin_journal")
             .select("entry_date, content")
             .eq("user_id", user_id)
             .gte("entry_date", past_start)
-            .lte("entry_date", past_end)
-            .execute()
+            .lte("entry_date", past_end))
             .data
             or []
         )
@@ -1432,21 +1380,16 @@ async def _build_twin_state_response(user_id: str) -> dict:
     await ensure_twin_simulated_for_today(user_id)
     await refresh_twin_gap_state(user_id)
 
-    user_result = (
-        supabase_admin.table("users")
+    user_result = await run_query(supabase_admin.table("users")
         .select(
             "total_xp, character_stage, pet_stage, pet_unlocked, "
             "current_streak, timezone, username, power_score, archetype"
         )
         .eq("id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     user = user_result.data or {}
 
-    twin_result = (
-        supabase_admin.table("twin_state").select("*").eq("user_id", user_id).single().execute()
-    )
+    twin_result = await run_query(supabase_admin.table("twin_state").select("*").eq("user_id", user_id).single())
     twin = twin_result.data or {}
 
     if not (twin.get("strip_message") or "").strip():
@@ -1454,34 +1397,29 @@ async def _build_twin_state_response(user_id: str) -> dict:
         if new_strip:
             twin["strip_message"] = new_strip
         else:
-            twin_refresh = (
-                supabase_admin.table("twin_state")
+            twin_refresh = await run_query(supabase_admin.table("twin_state")
                 .select("strip_message")
                 .eq("user_id", user_id)
-                .single()
-                .execute()
-            )
+                .single())
             if twin_refresh.data:
                 twin["strip_message"] = twin_refresh.data.get("strip_message")
 
     today = get_user_date(user.get("timezone", "UTC") or "UTC")
 
     user_missions = (
-        supabase_admin.table("missions")
+        await run_query(supabase_admin.table("missions")
         .select("id, title, type, difficulty, completed, xp_value")
         .eq("user_id", user_id)
-        .eq("mission_date", today)
-        .execute()
+        .eq("mission_date", today))
         .data
         or []
     )
 
     twin_today = (
-        supabase_admin.table("twin_daily_record")
+        await run_query(supabase_admin.table("twin_daily_record")
         .select("*")
         .eq("user_id", user_id)
-        .eq("record_date", today)
-        .execute()
+        .eq("record_date", today))
         .data
     )
     twin_record = twin_today[0] if twin_today else None
@@ -1498,11 +1436,10 @@ async def _build_twin_state_response(user_id: str) -> dict:
         anchor = date_cls.today()
 
     twin_log_rows_state = (
-        supabase_admin.table("twin_mission_log")
+        await run_query(supabase_admin.table("twin_mission_log")
         .select("mission_title, mission_type, core_pillar, simulated_hour, completed_at")
         .eq("user_id", user_id)
-        .eq("mission_date", today)
-        .execute()
+        .eq("mission_date", today))
         .data
         or []
     )
@@ -1526,13 +1463,12 @@ async def _build_twin_state_response(user_id: str) -> dict:
     # ── 7-day heatmap ─────────────────────────────────────────────────────
     try:
         user_week_missions = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("mission_date, completed, core_pillar")
             .eq("user_id", user_id)
             .in_("type", ["core", "interest", "resistance", "personal"])
             .gte("mission_date", week_start)
-            .lte("mission_date", today)
-            .execute()
+            .lte("mission_date", today))
             .data
             or []
         )
@@ -1542,12 +1478,11 @@ async def _build_twin_state_response(user_id: str) -> dict:
             user_by_date.setdefault(d, []).append(m)
 
         twin_week_records = (
-            supabase_admin.table("twin_daily_record")
+            await run_query(supabase_admin.table("twin_daily_record")
             .select("record_date, missions_completed, missions_assigned")
             .eq("user_id", user_id)
             .gte("record_date", week_start)
-            .lte("record_date", today)
-            .execute()
+            .lte("record_date", today))
             .data
             or []
         )
@@ -1612,27 +1547,25 @@ async def _build_twin_state_response(user_id: str) -> dict:
         pillar_order = ["sleep", "movement", "hydration", "mindfulness", "no_phone"]
 
         user_pillar_missions = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("core_pillar, completed")
             .eq("user_id", user_id)
             .eq("type", "core")
             .eq("is_journal_mission", False)
             .gte("mission_date", week_start)
-            .lte("mission_date", today)
-            .execute()
+            .lte("mission_date", today))
             .data
             or []
         )
 
         twin_pillar_missions = (
-            supabase_admin.table("twin_mission_log")
+            await run_query(supabase_admin.table("twin_mission_log")
             .select("core_pillar, mission_date, mission_title")
             .eq("user_id", user_id)
             .gte("mission_date", week_start)
             .lte("mission_date", today)
             .not_.is_("core_pillar", "null")
-            .in_("core_pillar", pillar_order)
-            .execute()
+            .in_("core_pillar", pillar_order))
             .data
             or []
         )
@@ -1710,11 +1643,10 @@ async def _build_twin_state_response(user_id: str) -> dict:
 
     # User XP earned today
     xp_today_rows = (
-        supabase_admin.table("xp_log")
+        await run_query(supabase_admin.table("xp_log")
         .select("amount")
         .eq("user_id", user_id)
-        .eq("log_date", today)
-        .execute()
+        .eq("log_date", today))
         .data
         or []
     )

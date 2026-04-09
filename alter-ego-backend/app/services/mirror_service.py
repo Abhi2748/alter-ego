@@ -65,12 +65,11 @@ async def compute_mirror_observations(
     missions: list[dict] = []
     try:
         m_result = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("mission_category, type, completed, completed_at, title, mission_date")
             .eq("user_id", user_id)
             .gte("mission_date", reg_date)
-            .lte("mission_date", window_end)
-            .execute()
+            .lte("mission_date", window_end))
         )
         missions = m_result.data or []
     except Exception as e:
@@ -79,12 +78,11 @@ async def compute_mirror_observations(
     xp_logs: list[dict] = []
     try:
         x_result = (
-            supabase_admin.table("xp_log")
+            await run_query(supabase_admin.table("xp_log")
             .select("log_date, created_at, amount")
             .eq("user_id", user_id)
             .gte("log_date", reg_date)
-            .lte("log_date", window_end)
-            .execute()
+            .lte("log_date", window_end))
         )
         xp_logs = x_result.data or []
     except Exception as e:
@@ -93,12 +91,11 @@ async def compute_mirror_observations(
     twin_rows: list[dict] = []
     try:
         twin_result = (
-            supabase_admin.table("twin_daily_record")
+            await run_query(supabase_admin.table("twin_daily_record")
             .select("record_date, xp_earned")
             .eq("user_id", user_id)
             .gte("record_date", reg_date)
-            .lte("record_date", window_end)
-            .execute()
+            .lte("record_date", window_end))
         )
         twin_rows = twin_result.data or []
     except Exception as e:
@@ -107,10 +104,9 @@ async def compute_mirror_observations(
     onboarding_rows: list[dict] = []
     try:
         o_result = (
-            supabase_admin.table("onboarding_answers")
+            await run_query(supabase_admin.table("onboarding_answers")
             .select("question_key, answer_json")
-            .eq("user_id", user_id)
-            .execute()
+            .eq("user_id", user_id))
         )
         onboarding_rows = o_result.data or []
     except Exception as e:

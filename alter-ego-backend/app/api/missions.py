@@ -8,7 +8,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.auth import get_user_id_from_token
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.core.constants import MISSION_PF, PERSONAL_MISSION_XP_BY_TIER, resolve_stat_tag
 from app.core.journal_rules import journal_stored_qualifies_for_mission, word_count as journal_word_count
 from app.agents.personal_mission_agent import estimate_personal_mission_tier
@@ -35,13 +35,10 @@ async def _inject_twin_completions(user_id: str, today: str, grouped: dict) -> N
     On error, leaves grouped unchanged (no twin fields).
     """
     try:
-        result = (
-            supabase_admin.table("twin_mission_log")
+        result = await run_query(supabase_admin.table("twin_mission_log")
             .select("mission_title, simulated_hour")
             .eq("user_id", user_id)
-            .eq("mission_date", today)
-            .execute()
-        )
+            .eq("mission_date", today))
         twin_by_title: dict[str, int] = {}
         for row in result.data or []:
             raw = (row.get("mission_title") or "").strip().lower()
@@ -256,13 +253,10 @@ async def get_missions_today(authorization: str = Header(None)):
 
     await sync_streak_if_lapsed(user_id)
 
-    user_row = (
-        supabase_admin.table("users")
+    user_row = await run_query(supabase_admin.table("users")
         .select("timezone, registration_date")
         .eq("id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     timezone_str = (user_row.data or {}).get("timezone") or "UTC"
     registration_date = (user_row.data or {}).get("registration_date") or ""
 
@@ -300,13 +294,10 @@ async def get_missions_for_date(date_str: str, authorization: str = Header(None)
     user_id = get_user_id_from_token(authorization)
 
     # Fetch missions for that date; do not create if missing
-    result = (
-        supabase_admin.table("missions")
+    result = await run_query(supabase_admin.table("missions")
         .select("*")
         .eq("user_id", user_id)
-        .eq("mission_date", date_str)
-        .execute()
-    )
+        .eq("mission_date", date_str))
     rows = result.data or []
     _enrich_mission_rows(rows)
     return {
@@ -319,13 +310,10 @@ async def get_missions_for_date(date_str: str, authorization: str = Header(None)
 @router.post("/generate-interest", response_model=dict)
 async def generate_interest_missions_today(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
-    user_row = (
-        supabase_admin.table("users")
+    user_row = await run_query(supabase_admin.table("users")
         .select("timezone")
         .eq("id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     timezone_str = (user_row.data or {}).get("timezone") or "UTC"
     mission_date = get_user_date(timezone_str)
     sync = await sync_today_planner_missions(user_id, mission_date)
@@ -338,13 +326,10 @@ async def generate_interest_missions_today(authorization: str = Header(None)):
 async def generate_resistance_missions_today(authorization: str = Header(None)):
     """Manually trigger quit target mission sync for today."""
     user_id = get_user_id_from_token(authorization)
-    user_row = (
-        supabase_admin.table("users")
+    user_row = await run_query(supabase_admin.table("users")
         .select("timezone")
         .eq("id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     timezone_str = (user_row.data or {}).get("timezone") or "UTC"
     mission_date = get_user_date(timezone_str)
     sync = await sync_today_planner_missions(user_id, mission_date)
@@ -380,14 +365,11 @@ async def complete_mission_endpoint(mission_id: str, authorization: str = Header
         try:
             from app.services.arc_service import increment_sessions_and_check_phase
 
-            mres = (
-                supabase_admin.table("missions")
+            mres = await run_query(supabase_admin.table("missions")
                 .select("type, interest_id")
                 .eq("id", mission_id)
                 .eq("user_id", user_id)
-                .single()
-                .execute()
-            )
+                .single())
             m = mres.data or {}
             if str(m.get("type") or "") == "interest" and m.get("interest_id"):
                 await increment_sessions_and_check_phase(user_id, str(m["interest_id"]))
@@ -414,26 +396,20 @@ async def rate_mission(mission_id: str, body: RateMissionRequest, authorization:
     if body.rating < 1 or body.rating > 5:
         raise HTTPException(status_code=400, detail="Invalid rating")
 
-    mission_result = (
-        supabase_admin.table("missions")
+    mission_result = await run_query(supabase_admin.table("missions")
         .select("id, user_id, interest_id, quit_path_id")
         .eq("id", mission_id)
         .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     if not mission_result.data:
         raise HTTPException(status_code=404, detail="Mission not found")
 
     mission = mission_result.data
-    existing = (
-        supabase_admin.table("mission_ratings")
+    existing = await run_query(supabase_admin.table("mission_ratings")
         .select("id")
         .eq("user_id", user_id)
         .eq("mission_id", mission_id)
-        .limit(1)
-        .execute()
-    )
+        .limit(1))
 
     payload = {
         "user_id": user_id,
@@ -446,9 +422,9 @@ async def rate_mission(mission_id: str, body: RateMissionRequest, authorization:
 
     if existing.data:
         rating_id = existing.data[0].get("id")
-        supabase_admin.table("mission_ratings").update(payload).eq("id", rating_id).execute()
+        await run_query(supabase_admin.table("mission_ratings").update(payload).eq("id", rating_id))
     else:
-        supabase_admin.table("mission_ratings").insert(payload).execute()
+        await run_query(supabase_admin.table("mission_ratings").insert(payload))
 
     return {"saved": True}
 
@@ -476,7 +452,7 @@ async def list_journal_entries(
         q = q.gte("mission_date", from_date)
     if to_date:
         q = q.lte("mission_date", to_date)
-    result = q.execute()
+    result = await run_query(q)
     entries = []
     for row in result.data or []:
         entries.append(
@@ -497,16 +473,13 @@ async def list_journal_entries(
 @router.get("/journal/{entry_id}", response_model=dict)
 async def get_journal_entry(entry_id: str, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
-    result = (
-        supabase_admin.table("journal_entries")
+    result = await run_query(supabase_admin.table("journal_entries")
         .select(
             "id, mission_date, title, content, word_count, bookmarked, created_at, updated_at"
         )
         .eq("id", entry_id)
         .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     if not result.data:
         raise HTTPException(status_code=404, detail="Journal entry not found")
     row = result.data
@@ -532,7 +505,7 @@ async def save_journal(body: JournalSaveRequest, authorization: str = Header(Non
     full_text = f"{title}\n\n{content}".strip() if title else content.strip()
     wc = journal_word_count(full_text) if full_text else 0
 
-    supabase_admin.table("journal_entries").upsert(
+    await run_query(supabase_admin.table("journal_entries").upsert(
         {
             "user_id": user_id,
             "mission_date": mission_date,
@@ -542,21 +515,18 @@ async def save_journal(body: JournalSaveRequest, authorization: str = Header(Non
             "bookmarked": bool(body.bookmarked),
         },
         on_conflict="user_id,mission_date",
-    ).execute()
+    ))
 
     qualifies = journal_stored_qualifies_for_mission(title, content)
     mission_row = None
     if qualifies:
-        jm = (
-            supabase_admin.table("missions")
+        jm = await run_query(supabase_admin.table("missions")
             .select("id, completed")
             .eq("user_id", user_id)
             .eq("mission_date", mission_date)
             .eq("type", "core")
             .eq("core_pillar", "journal")
-            .limit(1)
-            .execute()
-        )
+            .limit(1))
         rows = jm.data or []
         mission_row = rows[0] if rows else None
         completion = None
@@ -581,11 +551,10 @@ async def personal_estimate(body: PersonalMissionEstimateRequest, authorization:
     core_failure_pattern: str = ""
     try:
         dna_row = (
-            supabase_admin.table("discipline_dna")
+            await run_query(supabase_admin.table("discipline_dna")
             .select("execution_gap, core_failure_pattern")
             .eq("user_id", user_id)
-            .single()
-            .execute()
+            .single())
             .data
             or {}
         )
@@ -596,21 +565,19 @@ async def personal_estimate(body: PersonalMissionEstimateRequest, authorization:
 
     try:
         tz_row = (
-            supabase_admin.table("users")
+            await run_query(supabase_admin.table("users")
             .select("timezone")
             .eq("id", user_id)
-            .single()
-            .execute()
+            .single())
             .data
             or {}
         )
         _today = get_user_date(str(tz_row.get("timezone") or "UTC"))
         count_res = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("id")
             .eq("user_id", user_id)
-            .eq("mission_date", _today)
-            .execute()
+            .eq("mission_date", _today))
             .data
             or []
         )
@@ -630,13 +597,10 @@ async def personal_estimate(body: PersonalMissionEstimateRequest, authorization:
 async def personal_create(body: PersonalMissionCreateRequest, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
-    user_tz_row = (
-        supabase_admin.table("users")
+    user_tz_row = await run_query(supabase_admin.table("users")
         .select("timezone")
         .eq("id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     tz_str = str((user_tz_row.data or {}).get("timezone") or "UTC").strip() or "UTC"
     # Always anchor to the user's server-side local calendar day (avoids device vs profile TZ drift).
     mission_date = get_user_date(tz_str)
@@ -677,7 +641,7 @@ async def personal_create(body: PersonalMissionCreateRequest, authorization: str
         row["multiday_total_days"] = int(body.multiday_days or 2)
         row["multiday_day_number"] = 1
 
-    created = supabase_admin.table("missions").insert(row).execute()
+    created = await run_query(supabase_admin.table("missions").insert(row))
     return created.data[0] if created.data else row
 
 
@@ -701,14 +665,11 @@ async def post_core_pillar_difficulty(
 async def personal_delete(mission_id: str, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
-    mission_result = (
-        supabase_admin.table("missions")
+    mission_result = await run_query(supabase_admin.table("missions")
         .select("id, completed, type")
         .eq("id", mission_id)
         .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     if not mission_result.data:
         raise HTTPException(status_code=404, detail="Mission not found")
 
@@ -717,7 +678,7 @@ async def personal_delete(mission_id: str, authorization: str = Header(None)):
     if mission_result.data.get("completed"):
         raise HTTPException(status_code=400, detail="Cannot delete completed mission")
 
-    supabase_admin.table("missions").delete().eq("id", mission_id).execute()
+    await run_query(supabase_admin.table("missions").delete().eq("id", mission_id))
     return {"deleted": True}
 
 
@@ -725,26 +686,22 @@ async def personal_delete(mission_id: str, authorization: str = Header(None)):
 async def get_mission_detail(mission_id: UUID, authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
     mid = str(mission_id)
-    result = (
-        supabase_admin.table("missions")
+    result = await run_query(supabase_admin.table("missions")
         .select("*")
         .eq("id", mid)
         .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     if not result.data:
         raise HTTPException(status_code=404, detail="Mission not found")
     row = dict(result.data)
     _enrich_mission_rows([row])
     _attach_quit_path_detail(row)
     rating_existing = (
-        supabase_admin.table("mission_ratings")
+        await run_query(supabase_admin.table("mission_ratings")
         .select("rating, feedback_text")
         .eq("mission_id", mid)
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
+        .limit(1))
         .data
         or []
     )

@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from app.api.auth import get_user_id_from_token
 from app.agents.report_agent import generate_day_summary, generate_weekly_report
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import run_query, supabase_admin
 from app.services.mission_service import local_completed_week_bounds
 from app.services.report_service import weekly_report_week_eligible
 
@@ -33,11 +33,12 @@ async def get_weekly_report(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
     user_row = (
+        await run_query(
         supabase_admin.table("users")
         .select("timezone, registration_date")
         .eq("id", user_id)
         .single()
-        .execute()
+        )
         .data
         or {}
     )
@@ -58,11 +59,12 @@ async def get_weekly_report(authorization: str = Header(None)):
     )
 
     result = (
+        await run_query(
         supabase_admin.table("weekly_reports")
         .select("*")
         .eq("user_id", user_id)
         .eq("week_start", str(week_start))
-        .execute()
+        )
         .data
     )
 
@@ -70,11 +72,12 @@ async def get_weekly_report(authorization: str = Header(None)):
         try:
             await generate_weekly_report(user_id)
             result = (
+                await run_query(
                 supabase_admin.table("weekly_reports")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("week_start", str(week_start))
-                .execute()
+                )
                 .data
             )
         except Exception as e:
@@ -114,12 +117,13 @@ async def get_weekly_report_by_id(
     """Returns one weekly report row by primary key (for Past Report detail)."""
     user_id = get_user_id_from_token(authorization)
     result = (
+        await run_query(
         supabase_admin.table("weekly_reports")
         .select("*")
         .eq("id", report_id)
         .eq("user_id", user_id)
         .limit(1)
-        .execute()
+        )
         .data
     )
     if not result:
@@ -147,12 +151,13 @@ async def get_previous_weekly_report(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
     result = (
+        await run_query(
         supabase_admin.table("weekly_reports")
         .select("*")
         .eq("user_id", user_id)
         .order("week_start", desc=True)
         .limit(2)
-        .execute()
+        )
         .data
         or []
     )

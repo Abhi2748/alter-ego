@@ -21,7 +21,7 @@ GET /api/v1/auth/me
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import run_query, supabase_admin
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -85,7 +85,7 @@ async def link_google(authorization: str = Header(None)):
         if email:
             update_data["email"] = email
 
-        supabase_admin.table("users").update(update_data).eq("id", user_id).execute()
+        await run_query(supabase_admin.table("users").update(update_data).eq("id", user_id))
 
         return {"success": True, "email_connected": True}
     except Exception as e:
@@ -101,7 +101,7 @@ async def get_me(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
     try:
-        result = (
+        result = await run_query(
             supabase_admin.table("users")
             .select(
                 "id, username, character_stage, onboarding_complete, "
@@ -110,7 +110,6 @@ async def get_me(authorization: str = Header(None)):
             )
             .eq("id", user_id)
             .single()
-            .execute()
         )
 
         if not result.data:

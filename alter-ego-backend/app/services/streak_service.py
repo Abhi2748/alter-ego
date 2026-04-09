@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta, timezone
 from postgrest.types import CountMethod
 
 from app.core.constants import STREAK_TIER_REQUIREMENTS
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 from app.services.mission_row_utils import mission_row_completed
 
 logger = logging.getLogger(__name__)
@@ -126,14 +126,12 @@ async def process_streak(user_id: str) -> dict:
     from app.core.constants import LEADERBOARD_UNLOCK_STREAK, STREAK_MILESTONES
     from app.services.mission_service import get_user_date
 
-    user_result = supabase_admin.table("users").select("*").eq("id", user_id).single().execute()
+    user_result = await run_query(supabase_admin.table("users").select("*").eq("id", user_id).single())
     user = user_result.data or {}
 
     today = get_user_date(user.get("timezone", "UTC") or "UTC")
 
-    missions_result = (
-        supabase_admin.table("missions").select("*").eq("user_id", user_id).eq("mission_date", today).execute()
-    )
+    missions_result = await run_query(supabase_admin.table("missions").select("*").eq("user_id", user_id).eq("mission_date", today))
     today_missions = missions_result.data or []
 
     current_tier = user.get("streak_requirement_tier", "tier_1")
@@ -185,19 +183,16 @@ async def process_streak(user_id: str) -> dict:
     # Use count=exact so we detect rows matched even when the PATCH body is empty
     # (204 / minimal representation) — do not rely on update_res.data alone.
     # Quote ISO date in or() so PostgREST does not treat hyphens as filter syntax.
-    update_res = (
-        supabase_admin.table("users")
+    update_res = await run_query(supabase_admin.table("users")
         .update(update_data, count=CountMethod.exact)
         .eq("id", user_id)
-        .or_(f'last_streak_date.is.null,last_streak_date.neq."{today}"')
-        .execute()
-    )
+        .or_(f'last_streak_date.is.null,last_streak_date.neq."{today}"'))
     rows_affected = update_res.count
     if rows_affected is None:
         rows_affected = len(update_res.data or [])
     if rows_affected <= 0:
         user_fresh = (
-            supabase_admin.table("users").select("*").eq("id", user_id).single().execute().data or {}
+            await run_query(supabase_admin.table("users").select("*").eq("id", user_id).single()).data or {}
         )
         fr_streak = int(user_fresh.get("current_streak") or 0)
         return {
@@ -215,14 +210,14 @@ async def process_streak(user_id: str) -> dict:
     xp_today = sum(
         int(r.get("amount") or 0)
         for r in (
-            supabase_admin.table("xp_log").select("amount").eq("user_id", user_id).eq("log_date", today).execute().data
+            await run_query(supabase_admin.table("xp_log").select("amount").eq("user_id", user_id).eq("log_date", today)).data
             or []
         )
     )
     pf_today = sum(
         int(r.get("amount") or 0)
         for r in (
-            supabase_admin.table("pf_log").select("amount").eq("user_id", user_id).eq("log_date", today).execute().data
+            await run_query(supabase_admin.table("pf_log").select("amount").eq("user_id", user_id).eq("log_date", today)).data
             or []
         )
     )
@@ -233,7 +228,7 @@ async def process_streak(user_id: str) -> dict:
         if m.get("type") == "core" and not m.get("is_journal_mission", False) and m.get("completed")
     )
 
-    supabase_admin.table("streak_log").upsert(
+    await run_query(supabase_admin.table("streak_log").upsert(
         {
             "user_id": user_id,
             "log_date": today,
@@ -249,26 +244,26 @@ async def process_streak(user_id: str) -> dict:
             "pf_earned": pf_today,
         },
         on_conflict="user_id,log_date",
-    ).execute()
+    ))
 
     # leaderboard unlock
     leaderboard_just_unlocked = False
     if new_streak >= LEADERBOARD_UNLOCK_STREAK and not user.get("leaderboard_unlocked"):
-        supabase_admin.table("users").update(
+        await run_query(supabase_admin.table("users").update(
             {"leaderboard_unlocked": True, "leaderboard_unlocked_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", user_id).execute()
+        ).eq("id", user_id))
         leaderboard_just_unlocked = True
 
     milestone_reached = None
     if new_streak in STREAK_MILESTONES:
         milestone_reached = new_streak
-        supabase_admin.table("milestone_log").insert(
+        await run_query(supabase_admin.table("milestone_log").insert(
             {
                 "user_id": user_id,
                 "milestone_type": f"streak_{new_streak}",
                 "earned_at": datetime.now(timezone.utc).isoformat(),
             }
-        ).execute()
+        ))
 
     try:
         from app.services.gap_moment_service import queue_gap_moment
@@ -321,13 +316,10 @@ async def sync_streak_if_lapsed(user_id: str) -> bool:
     from app.services.mission_service import get_user_date
 
     try:
-        user_result = (
-            supabase_admin.table("users")
+        user_result = await run_query(supabase_admin.table("users")
             .select("last_streak_date, timezone")
             .eq("id", user_id)
-            .single()
-            .execute()
-        )
+            .single())
         user = user_result.data or {}
         last_streak = user.get("last_streak_date")
         if not last_streak:
@@ -358,16 +350,13 @@ async def handle_streak_break(user_id: str) -> None:
     from app.core.constants import STREAK_FREEZE_DAYS
     from app.services.mission_service import get_user_date
 
-    user_result = (
-        supabase_admin.table("users")
+    user_result = await run_query(supabase_admin.table("users")
         .select(
             "current_streak, last_streak_date, total_xp, timezone, "
             "streak_freeze_count, streak_freeze_auto_consume, freeze_reserved_next_miss"
         )
         .eq("id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     user = user_result.data or {}
 
     last_streak = user.get("last_streak_date")
@@ -388,9 +377,9 @@ async def handle_streak_break(user_id: str) -> None:
     # ── Manual reserve: user spent a freeze earlier to cover the next miss ──
     if _coerce_bool(user.get("freeze_reserved_next_miss"), False):
         try:
-            supabase_admin.table("users").update({"freeze_reserved_next_miss": False}).eq(
+            await run_query(supabase_admin.table("users").update({"freeze_reserved_next_miss": False}).eq(
                 "id", user_id
-            ).execute()
+            ))
             logger.info(
                 json.dumps(
                     {
@@ -423,9 +412,9 @@ async def handle_streak_break(user_id: str) -> None:
     try:
         freeze_count = int(user.get("streak_freeze_count") or 0)
         if freeze_count > 0 and auto_consume:
-            supabase_admin.table("users").update(
+            await run_query(supabase_admin.table("users").update(
                 {"streak_freeze_count": freeze_count - 1}
-            ).eq("id", user_id).execute()
+            ).eq("id", user_id))
             logger.info(
                 json.dumps(
                     {
@@ -453,7 +442,7 @@ async def handle_streak_break(user_id: str) -> None:
             )
         )
 
-    supabase_admin.table("users").update({"pet_state": "sad", "current_streak": 0}).eq("id", user_id).execute()
+    await run_query(supabase_admin.table("users").update({"pet_state": "sad", "current_streak": 0}).eq("id", user_id))
 
     try:
         from app.services.gap_moment_service import queue_gap_moment
@@ -463,12 +452,12 @@ async def handle_streak_break(user_id: str) -> None:
         pass
 
     if days_absent <= STREAK_FREEZE_DAYS:
-        supabase_admin.table("users").update({"xp_frozen": True}).eq("id", user_id).execute()
+        await run_query(supabase_admin.table("users").update({"xp_frozen": True}).eq("id", user_id))
         return
 
     total_xp = int(user.get("total_xp") or 0)
     penalty_pct = min(0.30, (days_absent - STREAK_FREEZE_DAYS) * 0.05)
     penalty = int(total_xp * penalty_pct)
     new_xp = max(0, total_xp - penalty)
-    supabase_admin.table("users").update({"total_xp": new_xp, "xp_frozen": False}).eq("id", user_id).execute()
+    await run_query(supabase_admin.table("users").update({"total_xp": new_xp, "xp_frozen": False}).eq("id", user_id))
 

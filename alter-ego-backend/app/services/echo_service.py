@@ -235,20 +235,20 @@ async def _fire_onboarding_echo(
         today = date_type.today().isoformat()
 
         if echo_type == "strip":
-            supabase.table("twin_state").update({"strip_message": text}).eq(
+            await run_query(supabase.table("twin_state").update({"strip_message": text}).eq(
                 "user_id", user_id
-            ).execute()
+            ))
         elif echo_type == "journal":
             _upsert_twin_journal(supabase, user_id, user, today, text)
 
         prev_count = int(user.get("echoes_fired_count") or 0)
-        supabase.table("users").update(
+        await run_query(supabase.table("users").update(
             {
                 "last_echo_fired_at": datetime.now(timezone.utc).isoformat(),
                 "last_echo_question_key": question_key,
                 "echoes_fired_count": prev_count + 1,
             }
-        ).eq("id", user_id).execute()
+        ).eq("id", user_id))
 
         logger.info(
             json.dumps(
@@ -321,12 +321,11 @@ async def _fire_free_text_echo(
 
     try:
         interests_r = (
-            supabase_admin.table("interests")
+            await run_query(supabase_admin.table("interests")
             .select("normalised_name, current_arc_phase")
             .eq("user_id", user_id)
             .eq("is_active", True)
-            .limit(2)
-            .execute()
+            .limit(2))
         )
         interest_summary = ", ".join(
             f"{i.get('normalised_name')} ({i.get('current_arc_phase', '')})"
@@ -338,12 +337,11 @@ async def _fire_free_text_echo(
 
     try:
         quit_r = (
-            supabase_admin.table("quit_paths")
+            await run_query(supabase_admin.table("quit_paths")
             .select("habit_name, current_phase")
             .eq("user_id", user_id)
             .in_("status", ["active", "paused", "referral_only"])
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         quit_row = (quit_r.data or [None])[0] or {}
         quit_summary = (
@@ -356,11 +354,10 @@ async def _fire_free_text_echo(
 
     try:
         dna_r = (
-            supabase_admin.table("discipline_dna")
+            await run_query(supabase_admin.table("discipline_dna")
             .select("guilt_orientation")
             .eq("user_id", user_id)
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         guilt_orientation = float(((dna_r.data or [{}])[0]).get("guilt_orientation") or 0.0)
     except Exception:
@@ -431,16 +428,16 @@ Set use_journal=true only if the echo is longer than one short sentence."""
     if use_journal or len(echo_text) > 110:
         _upsert_twin_journal(supabase, user_id, user, today, echo_text)
     else:
-        supabase.table("twin_state").update({"strip_message": echo_text}).eq("user_id", user_id).execute()
+        await run_query(supabase.table("twin_state").update({"strip_message": echo_text}).eq("user_id", user_id))
 
     prev_count = int(user.get("echoes_fired_count") or 0)
-    supabase.table("users").update(
+    await run_query(supabase.table("users").update(
         {
             "last_echo_fired_at": datetime.now(timezone.utc).isoformat(),
             "last_echo_question_key": q_key,
             "echoes_fired_count": prev_count + 1,
         }
-    ).eq("id", user_id).execute()
+    ).eq("id", user_id))
 
     logger.info(json.dumps({"event": "free_text_echo_fired", "user_id": user_id, "q_used": q_key}))
     return True
@@ -463,11 +460,10 @@ async def _maybe_fire_memory_anchor_echo(
 
     try:
         dna_r = (
-            supabase_admin.table("discipline_dna")
+            await run_query(supabase_admin.table("discipline_dna")
             .select("guilt_orientation")
             .eq("user_id", user_id)
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         guilt_orientation = float(((dna_r.data or [{}])[0]).get("guilt_orientation") or 0.0)
     except Exception:
@@ -475,11 +471,10 @@ async def _maybe_fire_memory_anchor_echo(
 
     try:
         anchors_result = (
-            supabase_admin.table("memory_anchors")
+            await run_query(supabase_admin.table("memory_anchors")
             .select("id, reference_phrase, summary, created_at")
             .eq("user_id", user_id)
-            .order("created_at", desc=True)
-            .execute()
+            .order("created_at", desc=True))
         )
         anchors = anchors_result.data or []
     except Exception:
@@ -545,14 +540,14 @@ async def _maybe_fire_memory_anchor_echo(
     today = date_type.today().isoformat()
 
     if len(text) <= 120:
-        supabase.table("twin_state").update({"strip_message": text}).eq("user_id", user_id).execute()
+        await run_query(supabase.table("twin_state").update({"strip_message": text}).eq("user_id", user_id))
     else:
         _upsert_twin_journal(supabase, user_id, user, today, text)
 
     try:
-        supabase.table("users").update(
+        await run_query(supabase.table("users").update(
             {"last_memory_anchor_echo_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", user_id).execute()
+        ).eq("id", user_id))
     except Exception:
         pass
 
@@ -653,11 +648,10 @@ async def fire_contradiction_for_user(
         dna: dict = {}
         try:
             dna_r = (
-                supabase_admin.table("discipline_dna")
+                await run_query(supabase_admin.table("discipline_dna")
                 .select("guilt_orientation, execution_gap, self_belief, core_failure_pattern")
                 .eq("user_id", user_id)
-                .limit(1)
-                .execute()
+                .limit(1))
             )
             dna = (dna_r.data or [{}])[0]
         except Exception:
@@ -726,13 +720,12 @@ async def fire_contradiction_for_user(
 
         try:
             ir = (
-                supabase_admin.table("interests")
+                await run_query(supabase_admin.table("interests")
                 .select("normalised_name, sessions_completed")
                 .eq("user_id", user_id)
                 .eq("is_active", True)
                 .gt("sessions_completed", 20)
-                .limit(1)
-                .execute()
+                .limit(1))
             )
             row = (ir.data or [None])[0]
             if row and row.get("normalised_name"):
@@ -755,13 +748,12 @@ async def fire_contradiction_for_user(
 
         try:
             qr = (
-                supabase_admin.table("quit_paths")
+                await run_query(supabase_admin.table("quit_paths")
                 .select("habit_name, current_phase")
                 .eq("user_id", user_id)
                 .in_("status", ["active", "paused", "referral_only"])
                 .eq("current_phase", "consolidation")
-                .limit(1)
-                .execute()
+                .limit(1))
             )
             qrow = (qr.data or [None])[0]
             if qrow and qrow.get("habit_name"):
@@ -832,7 +824,7 @@ async def fire_contradiction_for_user(
                 return True
 
         interests_result = (
-            supabase.table("interests").select("id, is_active").eq("user_id", user_id).execute()
+            await run_query(supabase.table("interests").select("id, is_active").eq("user_id", user_id))
         )
         all_interests = interests_result.data or []
         if len(all_interests) >= 3:
@@ -861,12 +853,11 @@ async def fire_contradiction_for_user(
         if archetype_key == "structured_climber":
             two_weeks_ago = (date_type.today() - timedelta(days=14)).isoformat()
             miss_result = (
-                supabase.table("missions")
+                await run_query(supabase.table("missions")
                 .select("mission_date, completed")
                 .eq("user_id", user_id)
                 .gte("mission_date", two_weeks_ago)
-                .lte("mission_date", today)
-                .execute()
+                .lte("mission_date", today))
             )
             by_date: dict[str, list] = {}
             for m in miss_result.data or []:

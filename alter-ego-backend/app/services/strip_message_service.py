@@ -515,11 +515,10 @@ async def update_strip_message(
 
     # ── Load twin state ──────────────────────────────────────────────────
     twin_result = (
-        supabase_admin.table("twin_state")
+        await run_query(supabase_admin.table("twin_state")
         .select("current_gap_state, strip_message, last_strip_updated")
         .eq("user_id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     twin = twin_result.data
     if not twin:
@@ -527,11 +526,10 @@ async def update_strip_message(
 
     # ── Load DNA (tone, frequency, guilt_orientation) ────────────────────
     dna_result = (
-        supabase_admin.table("discipline_dna")
+        await run_query(supabase_admin.table("discipline_dna")
         .select("twin_tone_type, twin_message_frequency, guilt_orientation")
         .eq("user_id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     dna = dna_result.data
     if not dna:
@@ -539,11 +537,10 @@ async def update_strip_message(
 
     # ── Load user (username, timezone) ──────────────────────────────────
     user_result = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select("username, timezone")
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     user_row = user_result.data or {}
     username = user_row.get("username") or "you"
@@ -580,12 +577,12 @@ async def update_strip_message(
     # ── Event override (unchanged) ────────────────────────────────────────
     if event and event in EVENT_MESSAGES:
         new_message = get_strip_message(gap_state, tone_type, event, username)
-        supabase_admin.table("twin_state").update(
+        await run_query(supabase_admin.table("twin_state").update(
             {
                 "strip_message": new_message,
                 "last_strip_updated": datetime.utcnow().isoformat(),
             }
-        ).eq("user_id", user_id).execute()
+        ).eq("user_id", user_id))
         return new_message
 
     # ── Fetch today's context data ────────────────────────────────────────
@@ -595,11 +592,10 @@ async def update_strip_message(
         today = get_user_date(tz_str)
 
         user_missions = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("completed, core_pillar, completed_at, type, is_journal_mission")
             .eq("user_id", user_id)
-            .eq("mission_date", today)
-            .execute()
+            .eq("mission_date", today))
             .data
             or []
         )
@@ -631,11 +627,10 @@ async def update_strip_message(
                 user_skipped_pillars.add(pk)
 
         twin_log = (
-            supabase_admin.table("twin_mission_log")
+            await run_query(supabase_admin.table("twin_mission_log")
             .select("core_pillar, simulated_hour")
             .eq("user_id", user_id)
-            .eq("mission_date", today)
-            .execute()
+            .eq("mission_date", today))
             .data
             or []
         )
@@ -660,13 +655,12 @@ async def update_strip_message(
                 week_start = td - timedelta(days=td.weekday())
                 week_start_iso = week_start.isoformat()
                 week_missions = (
-                    supabase_admin.table("missions")
+                    await run_query(supabase_admin.table("missions")
                     .select("mission_date, completed, core_pillar, is_journal_mission")
                     .eq("user_id", user_id)
                     .eq("type", "core")
                     .gte("mission_date", week_start_iso)
-                    .lte("mission_date", today)
-                    .execute()
+                    .lte("mission_date", today))
                     .data
                     or []
                 )
@@ -727,12 +721,12 @@ async def update_strip_message(
         new_message = new_message.replace("{username}", username)
 
     # ── Store ─────────────────────────────────────────────────────────────
-    supabase_admin.table("twin_state").update(
+    await run_query(supabase_admin.table("twin_state").update(
         {
             "strip_message": new_message,
             "last_strip_updated": datetime.utcnow().isoformat(),
         }
-    ).eq("user_id", user_id).execute()
+    ).eq("user_id", user_id))
 
     return new_message
 

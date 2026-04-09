@@ -15,7 +15,7 @@ from app.core.constants import (
     WILLPOWER_BONUS,
     resolve_stat_tag,
 )
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ async def ensure_sp_day_aligned(user_id: str, today: str) -> None:
     if last is not None and str(last) == str(today):
         return
     now = datetime.now(timezone.utc).isoformat()
-    supabase_admin.table("character_stats").update(
+    await run_query(supabase_admin.table("character_stats").update(
         {
             "vitality_sp_today": 0,
             "focus_sp_today": 0,
@@ -183,15 +183,15 @@ async def ensure_sp_day_aligned(user_id: str, today: str) -> None:
             "last_sp_date": today,
             "updated_at": now,
         }
-    ).eq("user_id", user_id).execute()
+    ).eq("user_id", user_id))
 
 
 async def set_total_missions_for_day(user_id: str, total: int) -> None:
     now = datetime.now(timezone.utc).isoformat()
     _ensure_row(user_id)
-    supabase_admin.table("character_stats").update(
+    await run_query(supabase_admin.table("character_stats").update(
         {"total_missions_today": max(0, int(total)), "updated_at": now}
-    ).eq("user_id", user_id).execute()
+    ).eq("user_id", user_id))
 
 
 async def award_sp_for_mission(
@@ -302,7 +302,7 @@ async def award_sp_for_mission(
         "updated_at": now,
     }
 
-    supabase_admin.table("character_stats").update(update_payload).eq("user_id", user_id).execute()
+    await run_query(supabase_admin.table("character_stats").update(update_payload).eq("user_id", user_id))
 
     try:
         from app.services.mail_service import check_and_send_ability_levelup_mail
@@ -368,23 +368,17 @@ async def get_stats_for_user(user_id: str, timezone_str: str | None = None) -> d
 
     tz = timezone_str
     if not tz:
-        ur = (
-            supabase_admin.table("users")
+        ur = await run_query(supabase_admin.table("users")
             .select("timezone")
             .eq("id", user_id)
-            .single()
-            .execute()
-        )
+            .single())
         tz = (ur.data or {}).get("timezone") or "UTC"
     today = get_user_date(str(tz))
     await ensure_sp_day_aligned(user_id, today)
 
-    result = (
-        supabase_admin.table("character_stats")
+    result = await run_query(supabase_admin.table("character_stats")
         .select("*")
-        .eq("user_id", user_id)
-        .execute()
-    )
+        .eq("user_id", user_id))
     rows = result.data or []
     if not rows:
         return _build_empty_stats_response()

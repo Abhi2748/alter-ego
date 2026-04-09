@@ -29,7 +29,7 @@ async def _award_challenge_aether(user_id: str, amount: int, challenge_id: str) 
 
     today_str = date_cls.today().isoformat()
     try:
-        supabase_admin.table("sigil_aether_log").insert(
+        await run_query(supabase_admin.table("sigil_aether_log").insert(
             {
                 "user_id": user_id,
                 "log_date": today_str,
@@ -37,22 +37,21 @@ async def _award_challenge_aether(user_id: str, amount: int, challenge_id: str) 
                 "source": "twin_challenge",
                 "mission_id": str(challenge_id),
             }
-        ).execute()
+        ))
 
         try:
             current = (
-                supabase_admin.table("sigil_state")
+                await run_query(supabase_admin.table("sigil_state")
                 .select("total_aether")
                 .eq("user_id", user_id)
-                .single()
-                .execute()
+                .single())
                 .data
                 or {}
             )
             new_total = int(current.get("total_aether") or 0) + amount
-            supabase_admin.table("sigil_state").update({"total_aether": new_total}).eq(
+            await run_query(supabase_admin.table("sigil_state").update({"total_aether": new_total}).eq(
                 "user_id", user_id
-            ).execute()
+            ))
         except Exception:
             pass
 
@@ -150,13 +149,12 @@ async def get_active_challenge(user_id: str) -> dict | None:
     """
     try:
         result = (
-            supabase_admin.table("twin_challenges")
+            await run_query(supabase_admin.table("twin_challenges")
             .select("*")
             .eq("user_id", user_id)
             .in_("status", ["pending", "accepted"])
             .order("issued_at", desc=True)
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         rows = result.data or []
         if not rows:
@@ -172,9 +170,9 @@ async def get_active_challenge(user_id: str) -> dict | None:
                 if datetime.now(timezone.utc) > expires_dt:
                     # Mark as failed if accepted, else just expired
                     new_status = "failed" if challenge.get("status") == "accepted" else "declined"
-                    supabase_admin.table("twin_challenges").update(
+                    await run_query(supabase_admin.table("twin_challenges").update(
                         {"status": new_status}
-                    ).eq("id", challenge["id"]).execute()
+                    ).eq("id", challenge["id"]))
                     return None
             except Exception:
                 pass
@@ -184,13 +182,13 @@ async def get_active_challenge(user_id: str) -> dict | None:
             current_value = await _compute_progress(user_id, challenge)
             # Check if completed
             if current_value >= int(challenge.get("target_value") or 1):
-                supabase_admin.table("twin_challenges").update(
+                await run_query(supabase_admin.table("twin_challenges").update(
                     {
                         "status": "completed",
                         "current_value": current_value,
                         "completed_at": datetime.now(timezone.utc).isoformat(),
                     }
-                ).eq("id", challenge["id"]).execute()
+                ).eq("id", challenge["id"]))
                 challenge["status"] = "completed"
                 challenge["current_value"] = current_value
 
@@ -202,9 +200,9 @@ async def get_active_challenge(user_id: str) -> dict | None:
                 return challenge
             # Update current_value in DB (best-effort)
             try:
-                supabase_admin.table("twin_challenges").update(
+                await run_query(supabase_admin.table("twin_challenges").update(
                     {"current_value": current_value}
-                ).eq("id", challenge["id"]).execute()
+                ).eq("id", challenge["id"]))
             except Exception:
                 pass
             challenge["current_value"] = current_value
@@ -237,12 +235,11 @@ async def _compute_progress(user_id: str, challenge: dict) -> int:
         if ctype == "volume":
             # Sum XP earned since accepted_at
             rows = (
-                supabase_admin.table("xp_log")
+                await run_query(supabase_admin.table("xp_log")
                 .select("amount")
                 .eq("user_id", user_id)
                 .gte("log_date", start_date)
-                .lte("log_date", end_date)
-                .execute()
+                .lte("log_date", end_date))
                 .data or []
             )
             return sum(int(r.get("amount") or 0) for r in rows)
@@ -251,26 +248,24 @@ async def _compute_progress(user_id: str, challenge: dict) -> int:
             # Count distinct days with qualifying completions
             if ctype == "journal":
                 rows = (
-                    supabase_admin.table("journal_entries")
+                    await run_query(supabase_admin.table("journal_entries")
                     .select("mission_date")
                     .eq("user_id", user_id)
                     .gte("mission_date", start_date)
-                    .lte("mission_date", end_date)
-                    .execute()
+                    .lte("mission_date", end_date))
                     .data or []
                 )
                 return len({str(r.get("mission_date") or "")[:10] for r in rows if r.get("mission_date")})
 
             elif ctype == "interest":
                 rows = (
-                    supabase_admin.table("missions")
+                    await run_query(supabase_admin.table("missions")
                     .select("mission_date")
                     .eq("user_id", user_id)
                     .eq("type", "interest")
                     .eq("completed", True)
                     .gte("mission_date", start_date)
-                    .lte("mission_date", end_date)
-                    .execute()
+                    .lte("mission_date", end_date))
                     .data or []
                 )
                 return len({str(r.get("mission_date") or "")[:10] for r in rows if r.get("mission_date")})
@@ -289,28 +284,26 @@ async def _compute_progress(user_id: str, challenge: dict) -> int:
                         target_pillar = pillar
                         break
                 rows = (
-                    supabase_admin.table("missions")
+                    await run_query(supabase_admin.table("missions")
                     .select("mission_date")
                     .eq("user_id", user_id)
                     .eq("type", "core")
                     .eq("core_pillar", target_pillar)
                     .eq("completed", True)
                     .gte("mission_date", start_date)
-                    .lte("mission_date", end_date)
-                    .execute()
+                    .lte("mission_date", end_date))
                     .data or []
                 )
                 return len({str(r.get("mission_date") or "")[:10] for r in rows if r.get("mission_date")})
 
             else:  # streak: count days with ≥4 core missions completed
                 rows = (
-                    supabase_admin.table("missions")
+                    await run_query(supabase_admin.table("missions")
                     .select("mission_date, completed")
                     .eq("user_id", user_id)
                     .eq("type", "core")
                     .gte("mission_date", start_date)
-                    .lte("mission_date", end_date)
-                    .execute()
+                    .lte("mission_date", end_date))
                     .data or []
                 )
                 by_date: dict[str, int] = {}
@@ -339,23 +332,21 @@ async def generate_weekly_challenge(user_id: str) -> dict | None:
     try:
         # Skip if active challenge already exists
         existing = (
-            supabase_admin.table("twin_challenges")
+            await run_query(supabase_admin.table("twin_challenges")
             .select("id")
             .eq("user_id", user_id)
             .in_("status", ["pending", "accepted"])
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         if existing.data:
             return None
 
         # Get user timezone for expires_at calculation
         user_row = (
-            supabase_admin.table("users")
+            await run_query(supabase_admin.table("users")
             .select("timezone")
             .eq("id", user_id)
-            .single()
-            .execute()
+            .single())
             .data or {}
         )
         tz_str = str(user_row.get("timezone") or "UTC").strip() or "UTC"
@@ -371,12 +362,11 @@ async def generate_weekly_challenge(user_id: str) -> dict | None:
         # Fetch recent 14-day completion rate
         two_weeks_ago = str(anchor - timedelta(days=14))
         mission_rows = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("completed")
             .eq("user_id", user_id)
             .gte("mission_date", two_weeks_ago)
-            .lte("mission_date", today)
-            .execute()
+            .lte("mission_date", today))
             .data or []
         )
         total = len(mission_rows)
@@ -385,23 +375,21 @@ async def generate_weekly_challenge(user_id: str) -> dict | None:
 
         # Check if user has interests
         interest_rows = (
-            supabase_admin.table("interests")
+            await run_query(supabase_admin.table("interests")
             .select("id")
             .eq("user_id", user_id)
             .eq("is_active", True)
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         has_interests = bool(interest_rows.data)
 
         # Check if user uses journal
         journal_rows = (
-            supabase_admin.table("journal_entries")
+            await run_query(supabase_admin.table("journal_entries")
             .select("id")
             .eq("user_id", user_id)
             .gte("mission_date", two_weeks_ago)
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         has_journal = bool(journal_rows.data)
 
@@ -421,7 +409,7 @@ async def generate_weekly_challenge(user_id: str) -> dict | None:
             "twin_journal_acknowledged": False,
         }
 
-        result = supabase_admin.table("twin_challenges").insert(row).execute()
+        result = await run_query(supabase_admin.table("twin_challenges").insert(row))
         if result.data:
             logger.info(json.dumps({
                 "event": "twin_challenge_generated",
@@ -444,15 +432,14 @@ async def accept_challenge(user_id: str, challenge_id: str) -> bool:
     """Accept a pending challenge. Returns True on success."""
     try:
         result = (
-            supabase_admin.table("twin_challenges")
+            await run_query(supabase_admin.table("twin_challenges")
             .update({
                 "status": "accepted",
                 "accepted_at": datetime.now(timezone.utc).isoformat(),
             })
             .eq("id", challenge_id)
             .eq("user_id", user_id)
-            .eq("status", "pending")
-            .execute()
+            .eq("status", "pending"))
         )
         return bool(result.data)
     except Exception as e:
@@ -468,12 +455,11 @@ async def decline_challenge(user_id: str, challenge_id: str) -> bool:
     """Decline a pending challenge. Returns True on success."""
     try:
         result = (
-            supabase_admin.table("twin_challenges")
+            await run_query(supabase_admin.table("twin_challenges")
             .update({"status": "declined"})
             .eq("id", challenge_id)
             .eq("user_id", user_id)
-            .eq("status", "pending")
-            .execute()
+            .eq("status", "pending"))
         )
         return bool(result.data)
     except Exception as e:

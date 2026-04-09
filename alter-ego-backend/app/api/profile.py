@@ -246,7 +246,7 @@ async def get_profile_overview(authorization: str = Header(None)):
     await ensure_pet_unlocked_if_eligible(user_id)
 
     user_result = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select(
             "username, archetype, character_stage, total_xp, "
             "pet_stage, pet_unlocked, total_pf, current_streak, "
@@ -256,26 +256,23 @@ async def get_profile_overview(authorization: str = Header(None)):
             "streak_freeze_auto_consume, freeze_reserved_next_miss"
         )
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     user = user_result.data or {}
 
     dna_results = (
-        supabase_admin.table("discipline_dna")
+        await run_query(supabase_admin.table("discipline_dna")
         .select("twin_tone_type, twin_intensity")
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
+        .limit(1))
     )
     dna_row = (dna_results.data or [None])[0] or {}
 
     unread_result = (
-        supabase_admin.table("app_mails")
+        await run_query(supabase_admin.table("app_mails")
         .select("id", count="exact")
         .eq("user_id", user_id)
-        .is_("read_at", "null")
-        .execute()
+        .is_("read_at", "null"))
     )
     unread = getattr(unread_result, "count", None) or len(unread_result.data or [])
 
@@ -358,9 +355,9 @@ async def update_avatar_url(body: AvatarUrlBody, authorization: str = Header(Non
     The frontend uploads directly to Storage; this endpoint just records the URL.
     """
     user_id = get_user_id_from_token(authorization)
-    supabase_admin.table("users").update({"avatar_url": body.avatar_url}).eq(
+    await run_query(supabase_admin.table("users").update({"avatar_url": body.avatar_url}).eq(
         "id", user_id
-    ).execute()
+    ))
     return {"success": True, "avatar_url": body.avatar_url}
 
 
@@ -368,9 +365,9 @@ async def update_avatar_url(body: AvatarUrlBody, authorization: str = Header(Non
 async def delete_avatar_url(authorization: str = Header(None)):
     """Clears the user's avatar URL (resets to initials placeholder)."""
     user_id = get_user_id_from_token(authorization)
-    supabase_admin.table("users").update({"avatar_url": None}).eq(
+    await run_query(supabase_admin.table("users").update({"avatar_url": None}).eq(
         "id", user_id
-    ).execute()
+    ))
     return {"success": True}
 
 
@@ -381,14 +378,13 @@ async def get_profile_streak(authorization: str = Header(None)):
     await sync_streak_if_lapsed(user_id)
 
     user_result = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select(
             "current_streak, longest_streak, streak_requirement_tier, timezone, "
             "registration_date"
         )
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     user = user_result.data or {}
 
@@ -400,15 +396,14 @@ async def get_profile_streak(authorization: str = Header(None)):
     since = str(anchor - timedelta(weeks=52))
 
     rows = (
-        supabase_admin.table("streak_log")
+        await run_query(supabase_admin.table("streak_log")
         .select(
             "log_date, streak_maintained, streak_count, "
             "total_missions_done, total_missions, xp_earned, pf_earned"
         )
         .eq("user_id", user_id)
         .gte("log_date", since)
-        .order("log_date")
-        .execute()
+        .order("log_date"))
         .data
         or []
     )
@@ -428,7 +423,7 @@ async def get_profile_streak(authorization: str = Header(None)):
     )
     if reg_start:
         overall_q = overall_q.gte("log_date", reg_start)
-    overall_res = overall_q.execute()
+    overall_res = await run_query(overall_q)
     overall_active_days = int(getattr(overall_res, "count", None) or 0)
 
     return {
@@ -468,15 +463,14 @@ async def patch_streak_freeze_settings(
 ):
     """Toggle auto-use of streak freezes when a day is missed (default: on)."""
     user_id = get_user_id_from_token(authorization)
-    supabase_admin.table("users").update(
+    await run_query(supabase_admin.table("users").update(
         {"streak_freeze_auto_consume": body.streak_freeze_auto_consume}
-    ).eq("id", user_id).execute()
+    ).eq("id", user_id))
     row = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select("streak_freeze_auto_consume")
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
         .data
         or {}
     )
@@ -494,11 +488,10 @@ async def reserve_streak_freeze_for_next_miss(authorization: str = Header(None))
     """
     user_id = get_user_id_from_token(authorization)
     u = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select("streak_freeze_count, freeze_reserved_next_miss")
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
         .data
         or {}
     )
@@ -510,12 +503,12 @@ async def reserve_streak_freeze_for_next_miss(authorization: str = Header(None))
     if c < 1:
         raise HTTPException(status_code=400, detail="No streak freezes available.")
     new_c = c - 1
-    supabase_admin.table("users").update(
+    await run_query(supabase_admin.table("users").update(
         {
             "streak_freeze_count": new_c,
             "freeze_reserved_next_miss": True,
         }
-    ).eq("id", user_id).execute()
+    ).eq("id", user_id))
     return {
         "success": True,
         "streak_freeze_count": new_c,
@@ -529,11 +522,10 @@ async def get_profile_identity(authorization: str = Header(None)):
 
     try:
         user_result = (
-            supabase_admin.table("users")
+            await run_query(supabase_admin.table("users")
             .select("character_stage, total_xp, registration_date, timezone")
             .eq("id", user_id)
-            .single()
-            .execute()
+            .single())
         )
     except Exception as e:
         # PostgREST can raise APIError; empty/HTML responses also surface as JSON errors.
@@ -671,11 +663,10 @@ async def get_profile_companion(authorization: str = Header(None)):
     try:
         try:
             user_result = (
-                supabase_admin.table("users")
+                await run_query(supabase_admin.table("users")
                 .select("pet_stage, total_pf, pet_unlocked")
                 .eq("id", user_id)
-                .single()
-                .execute()
+                .single())
             )
         except Exception as e:
             logger.warning("users fetch failed (profile companion): %s", e)
@@ -765,11 +756,10 @@ async def get_profile_interests(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
     interests = (
-        supabase_admin.table("interests")
+        await run_query(supabase_admin.table("interests")
         .select("*")
         .eq("user_id", user_id)
-        .eq("is_active", True)
-        .execute()
+        .eq("is_active", True))
         .data
         or []
     )
@@ -777,11 +767,10 @@ async def get_profile_interests(authorization: str = Header(None)):
     results = []
     for interest in interests:
         milestones_earned = (
-            supabase_admin.table("milestone_log")
+            await run_query(supabase_admin.table("milestone_log")
             .select("milestone_type, earned_at")
             .eq("user_id", user_id)
-            .eq("interest_id", interest["id"])
-            .execute()
+            .eq("interest_id", interest["id"]))
             .data
             or []
         )
@@ -831,13 +820,12 @@ async def get_profile_interests(authorization: str = Header(None)):
             today_d = date.today()
             last_7 = [(today_d - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
             activity_rows = (
-                supabase_admin.table("missions")
+                await run_query(supabase_admin.table("missions")
                 .select("mission_date")
                 .eq("user_id", user_id)
                 .eq("interest_id", interest["id"])
                 .eq("completed", True)
-                .in_("mission_date", last_7)
-                .execute()
+                .in_("mission_date", last_7))
                 .data
                 or []
             )
@@ -851,13 +839,12 @@ async def get_profile_interests(authorization: str = Header(None)):
             today_d = date.today()
             cutoff = (today_d - timedelta(days=60)).isoformat()
             all_dates_rows = (
-                supabase_admin.table("missions")
+                await run_query(supabase_admin.table("missions")
                 .select("mission_date")
                 .eq("user_id", user_id)
                 .eq("interest_id", interest["id"])
                 .eq("completed", True)
-                .gte("mission_date", cutoff)
-                .execute()
+                .gte("mission_date", cutoff))
                 .data
                 or []
             )
@@ -985,11 +972,10 @@ async def post_profile_interest(body: InterestCreateBody, authorization: str = H
     level_meta = INTEREST_LEVEL_MAP[level_key]
 
     existing_rows = (
-        supabase_admin.table("interests")
+        await run_query(supabase_admin.table("interests")
         .select("id, normalised_name, user_goal")
         .eq("user_id", user_id)
-        .eq("is_active", True)
-        .execute()
+        .eq("is_active", True))
     ).data or []
     new_nm = str(normalised.get("normalised_name") or raw_text).strip()
     for ex in existing_rows:
@@ -1034,7 +1020,7 @@ async def post_profile_interest(body: InterestCreateBody, authorization: str = H
         "total_sessions": 0,
         "is_active": True,
     }
-    ins = supabase_admin.table("interests").insert(row).execute()
+    ins = await run_query(supabase_admin.table("interests").insert(row))
     new_id = None
     if ins.data and isinstance(ins.data, list) and ins.data[0].get("id"):
         new_id = str(ins.data[0]["id"])
@@ -1068,19 +1054,18 @@ async def post_profile_interest(body: InterestCreateBody, authorization: str = H
             arc_update["total_planned_sessions"] = total_sessions_plan
 
         if new_id:
-            supabase_admin.table("interests").update(arc_update).eq("id", new_id).eq(
+            await run_query(supabase_admin.table("interests").update(arc_update).eq("id", new_id).eq(
                 "user_id", user_id
-            ).execute()
+            ))
     except Exception:
         pass  # Arc init failure never breaks interest creation
 
     try:
         tz_res = (
-            supabase_admin.table("users")
+            await run_query(supabase_admin.table("users")
             .select("timezone")
             .eq("id", user_id)
-            .single()
-            .execute()
+            .single())
         )
         tz_str = (tz_res.data or {}).get("timezone") or "UTC"
         today = get_user_date(tz_str)
@@ -1109,13 +1094,13 @@ async def pause_interest_arc(
     user_id = get_user_id_from_token(authorization)
     _interest_owned_row(user_id, interest_id)
 
-    supabase_admin.table("interests").update(
+    await run_query(supabase_admin.table("interests").update(
         {
             "arc_paused": True,
             "arc_paused_at": datetime.now(dt_timezone.utc).isoformat(),
             "arc_paused_reason": body.reason or "user_requested",
         }
-    ).eq("id", interest_id).eq("user_id", user_id).execute()
+    ).eq("id", interest_id).eq("user_id", user_id))
     return {"ok": True, "arc_paused": True}
 
 
@@ -1127,13 +1112,13 @@ async def resume_interest_arc(
     """Resume a paused interest arc."""
     user_id = get_user_id_from_token(authorization)
     _interest_owned_row(user_id, interest_id)
-    supabase_admin.table("interests").update(
+    await run_query(supabase_admin.table("interests").update(
         {
             "arc_paused": False,
             "arc_paused_at": None,
             "arc_paused_reason": None,
         }
-    ).eq("id", interest_id).eq("user_id", user_id).execute()
+    ).eq("id", interest_id).eq("user_id", user_id))
     return {"ok": True, "arc_paused": False}
 
 
@@ -1174,9 +1159,9 @@ async def update_interest_timeline(
     else:
         update["target_date"] = None
 
-    supabase_admin.table("interests").update(update).eq("id", interest_id).eq(
+    await run_query(supabase_admin.table("interests").update(update).eq("id", interest_id).eq(
         "user_id", user_id
-    ).execute()
+    ))
     return {"ok": True, "new_arc_phase": new_arc_phase, "total_planned_sessions": total_sessions}
 
 
@@ -1220,9 +1205,9 @@ async def patch_interest_quest_criterion(
         raise HTTPException(status_code=400, detail="Invalid criterion index")
     crit[body.index] = body.done
     st["criteria"][qkey] = crit
-    supabase_admin.table("interests").update({"interest_path_state": st}).eq(
+    await run_query(supabase_admin.table("interests").update({"interest_path_state": st}).eq(
         "id", interest_id
-    ).execute()
+    ))
     return {"success": True}
 
 
@@ -1249,9 +1234,9 @@ async def post_interest_quest_complete(
     name = row.get("normalised_name") or "this skill"
     insight = complete_quest_insight(cur, name)
     st["current"] = min(3, cur + 1)
-    supabase_admin.table("interests").update({"interest_path_state": st}).eq(
+    await run_query(supabase_admin.table("interests").update({"interest_path_state": st}).eq(
         "id", interest_id
-    ).execute()
+    ))
     return {"success": True, "insight": insight}
 
 
@@ -1267,21 +1252,20 @@ async def put_profile_interest_difficulty(
     tier = body.tier.lower()
     if tier not in ("easy", "medium", "hard"):
         raise HTTPException(status_code=400, detail="Invalid difficulty tier")
-    supabase_admin.table("interests").update({"current_difficulty_tier": tier}).eq(
+    await run_query(supabase_admin.table("interests").update({"current_difficulty_tier": tier}).eq(
         "id", interest_id
-    ).execute()
+    ))
     rank = {"easy": 0, "medium": 1, "hard": 2}
     if rank.get(tier, 0) > rank.get(old_tier, 0):
         try:
             from app.services.mail_service import send_app_mail
 
             existing = (
-                supabase_admin.table("app_mails")
+                await run_query(supabase_admin.table("app_mails")
                 .select("id")
                 .eq("user_id", user_id)
                 .eq("mail_type", "first_difficulty_upgrade")
-                .limit(1)
-                .execute()
+                .limit(1))
                 .data
                 or []
             )
@@ -1306,9 +1290,9 @@ async def put_profile_interest_schedule(
     for d in days:
         if d < 1 or d > 7:
             raise HTTPException(status_code=400, detail="Invalid weekday (use 1–7)")
-    supabase_admin.table("interests").update({"active_days": days}).eq(
+    await run_query(supabase_admin.table("interests").update({"active_days": days}).eq(
         "id", interest_id
-    ).execute()
+    ))
     return {"success": True}
 
 
@@ -1321,11 +1305,11 @@ async def put_profile_interest_goal(
     user_id = get_user_id_from_token(authorization)
     _interest_owned_row(user_id, interest_id)
     lt = experience_from_level_choice(body.experience_level)
-    supabase_admin.table("interests").update({
+    await run_query(supabase_admin.table("interests").update({
         "user_goal": body.new_goal.strip(),
         "level_text": lt,
         "interest_path_state": {},
-    }).eq("id", interest_id).execute()
+    }).eq("id", interest_id))
     return {"success": True}
 
 
@@ -1336,9 +1320,9 @@ async def delete_profile_interest(
 ):
     user_id = get_user_id_from_token(authorization)
     _interest_owned_row(user_id, interest_id)
-    supabase_admin.table("interests").delete().eq("id", interest_id).eq(
+    await run_query(supabase_admin.table("interests").delete().eq("id", interest_id).eq(
         "user_id", user_id
-    ).execute()
+    ))
     return {"success": True}
 
 

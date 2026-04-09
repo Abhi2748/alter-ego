@@ -119,7 +119,7 @@ def validate_username(username: str) -> tuple[bool, str]:
 
 
 async def _is_username_taken(username: str) -> bool:
-    r = supabase_admin.table("users").select("id").eq("username", username).limit(1).execute()
+    r = await run_query(supabase_admin.table("users").select("id").eq("username", username).limit(1))
     return bool(r.data)
 
 
@@ -159,20 +159,20 @@ async def save_onboarding_step(user_id: str, question_key: str, answer_json: dic
     Q15=commitment_horizon, Q16=timezone (auto-detected).
     """
     # Upsert onboarding answer
-    supabase_admin.table("onboarding_answers").upsert(
+    await run_query(supabase_admin.table("onboarding_answers").upsert(
         {"user_id": user_id, "question_key": question_key, "answer_json": answer_json},
         on_conflict="user_id,question_key",
-    ).execute()
+    ))
 
     # Ensure users row exists when we need to update it
-    def ensure_user_row_exists(initial_username: str | None = None):
-        existing = supabase_admin.table("users").select("id, username").eq("id", user_id).limit(1).execute()
+    async def ensure_user_row_exists(initial_username: str | None = None):
+        existing = await run_query(supabase_admin.table("users").select("id, username").eq("id", user_id).limit(1))
         if existing.data:
             return
 
         username = initial_username or "user"
         now_iso = datetime.now(timezone.utc).isoformat()
-        supabase_admin.table("users").insert(
+        await run_query(supabase_admin.table("users").insert(
             {
                 "id": user_id,
                 "username": username,
@@ -181,10 +181,10 @@ async def save_onboarding_step(user_id: str, question_key: str, answer_json: dic
                 "trial_start_date": now_iso,
                 "timezone": "UTC",
             }
-        ).execute()
+        ))
 
         # Ensure discipline_dna row exists too (defaults apply)
-        supabase_admin.table("discipline_dna").upsert({"user_id": user_id}, on_conflict="user_id").execute()
+        await run_query(supabase_admin.table("discipline_dna").upsert({"user_id": user_id}, on_conflict="user_id"))
 
     # Derived updates
     if question_key == "q1_username":
@@ -196,59 +196,58 @@ async def save_onboarding_step(user_id: str, question_key: str, answer_json: dic
         if not is_valid:
             raise HTTPException(status_code=400, detail=reason or "invalid_format")
 
-        ensure_user_row_exists(initial_username=username_value)
-        supabase_admin.table("users").update({"username": username_value}).eq("id", user_id).execute()
+        await ensure_user_row_exists(initial_username=username_value)
+        await run_query(supabase_admin.table("users").update({"username": username_value}).eq("id", user_id))
 
     elif question_key in ("q14_hours", "q13_hours"):
-        ensure_user_row_exists()
+        await ensure_user_row_exists()
         value = (answer_json or {}).get("value")
         try:
             hours = float(value)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid hours value")
-        supabase_admin.table("users").update({"daily_hours_floor": hours}).eq("id", user_id).execute()
+        await run_query(supabase_admin.table("users").update({"daily_hours_floor": hours}).eq("id", user_id))
 
     elif question_key == "q2_gender":
-        ensure_user_row_exists()
+        await ensure_user_row_exists()
         gender = (answer_json or {}).get("value")
         if not isinstance(gender, str):
             raise HTTPException(status_code=400, detail="Invalid gender value")
-        supabase_admin.table("users").update({"gender": gender}).eq("id", user_id).execute()
+        await run_query(supabase_admin.table("users").update({"gender": gender}).eq("id", user_id))
 
     elif question_key == "q3_age":
-        ensure_user_row_exists()
+        await ensure_user_row_exists()
         value = (answer_json or {}).get("value")
         try:
             age = int(value)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid age value")
-        supabase_admin.table("users").update({"age": age}).eq("id", user_id).execute()
+        await run_query(supabase_admin.table("users").update({"age": age}).eq("id", user_id))
 
     elif question_key in ("q16_timezone", "q15_timezone", "q11_timezone"):
         # q11_timezone / q15_timezone kept for backward compatibility with older clients
-        ensure_user_row_exists()
+        await ensure_user_row_exists()
         tz = (answer_json or {}).get("value")
         if not isinstance(tz, str) or not tz.strip():
             raise HTTPException(status_code=400, detail="Invalid timezone value")
-        supabase_admin.table("users").update({"timezone": tz.strip()}).eq("id", user_id).execute()
+        await run_query(supabase_admin.table("users").update({"timezone": tz.strip()}).eq("id", user_id))
 
     elif question_key in ("q15_commitment", "q14_commitment"):
-        ensure_user_row_exists()
+        await ensure_user_row_exists()
         commitment_value = (answer_json or {}).get("value")
         if commitment_value in ("2_weeks", "1_month", "3_months", "however_long"):
-            supabase_admin.table("users").update({"commitment_horizon": commitment_value}).eq(
+            await run_query(supabase_admin.table("users").update({"commitment_horizon": commitment_value}).eq(
                 "id", user_id
-            ).execute()
+            ))
 
     return {"saved": True, "question_key": question_key}
 
 
 async def get_onboarding_progress(user_id: str) -> dict:
     answers_result = (
-        supabase_admin.table("onboarding_answers")
+        await run_query(supabase_admin.table("onboarding_answers")
         .select("question_key, answer_json")
-        .eq("user_id", user_id)
-        .execute()
+        .eq("user_id", user_id))
     )
     answers: dict[str, dict] = {}
     for row in answers_result.data or []:
@@ -258,11 +257,10 @@ async def get_onboarding_progress(user_id: str) -> dict:
             answers[str(k)] = v or {}
 
     user_result = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select("onboarding_complete")
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     onboarding_complete = bool((user_result.data or {}).get("onboarding_complete", False))
 
@@ -283,7 +281,7 @@ async def check_username_availability(username: str) -> dict:
 
 
 async def create_profile_if_missing(user_id: str) -> dict:
-    existing = supabase_admin.table("users").select("id, username").eq("id", user_id).limit(1).execute()
+    existing = await run_query(supabase_admin.table("users").select("id, username").eq("id", user_id).limit(1))
     if existing.data:
         row = existing.data[0]
         return {"created": False, "username": row.get("username"), "user_id": user_id}
@@ -291,7 +289,7 @@ async def create_profile_if_missing(user_id: str) -> dict:
     username = await generate_unique_username()
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    supabase_admin.table("users").insert(
+    await run_query(supabase_admin.table("users").insert(
         {
             "id": user_id,
             "username": username,
@@ -300,10 +298,10 @@ async def create_profile_if_missing(user_id: str) -> dict:
             "trial_start_date": now_iso,
             "timezone": "UTC",
         }
-    ).execute()
+    ))
 
     # Create discipline_dna row with defaults (archetype set later)
-    supabase_admin.table("discipline_dna").upsert({"user_id": user_id}, on_conflict="user_id").execute()
+    await run_query(supabase_admin.table("discipline_dna").upsert({"user_id": user_id}, on_conflict="user_id"))
 
     return {"created": True, "username": username, "user_id": user_id}
 
@@ -328,10 +326,9 @@ async def complete_onboarding(user_id: str) -> dict:
     # Step 1 — Load answers
     try:
         rows = (
-            supabase_admin.table("onboarding_answers")
+            await run_query(supabase_admin.table("onboarding_answers")
             .select("question_key, answer_json")
-            .eq("user_id", user_id)
-            .execute()
+            .eq("user_id", user_id))
         )
         answers: dict[str, dict] = {str(r["question_key"]): (r.get("answer_json") or {}) for r in (rows.data or [])}
     except Exception as e:
@@ -429,7 +426,7 @@ async def complete_onboarding(user_id: str) -> dict:
                     "total_sessions": 0,
                     "is_active": True,
                 }
-                ins = supabase_admin.table("interests").insert(row).execute()
+                ins = await run_query(supabase_admin.table("interests").insert(row))
                 if ins.data and isinstance(ins.data, list) and ins.data[0].get("id"):
                     interests_created.append(str(ins.data[0]["id"]))
             except Exception as e:
@@ -498,7 +495,7 @@ async def complete_onboarding(user_id: str) -> dict:
         }
         if ch in ("2_weeks", "1_month", "3_months", "however_long"):
             user_update["commitment_horizon"] = ch
-        supabase_admin.table("users").update(user_update).eq("id", user_id).execute()
+        await run_query(supabase_admin.table("users").update(user_update).eq("id", user_id))
     except Exception as e:
         notes.append(f"users_update_failed: {str(e)}")
 
@@ -520,16 +517,16 @@ async def complete_onboarding(user_id: str) -> dict:
         elif nudge_intensity == "low" and initial_dna.get("twin_message_frequency") == "high":
             initial_dna["twin_message_frequency"] = "medium"
 
-        supabase_admin.table("discipline_dna").upsert(
+        await run_query(supabase_admin.table("discipline_dna").upsert(
             {**initial_dna, "user_id": user_id, "last_calibration_at": now_iso},
             on_conflict="user_id",
-        ).execute()
+        ))
     except Exception as e:
         notes.append(f"dna_update_failed: {str(e)}")
 
     # Step 7 — Create twin_state (idempotent)
     try:
-        existing = supabase_admin.table("twin_state").select("user_id").eq("user_id", user_id).execute()
+        existing = await run_query(supabase_admin.table("twin_state").select("user_id").eq("user_id", user_id))
         if not existing.data:
             from app.services.strip_message_service import get_strip_message
 
@@ -538,7 +535,7 @@ async def complete_onboarding(user_id: str) -> dict:
                 _tone = "rival"
             _day_one_strip = get_strip_message("neck_and_neck", _tone, None, "you")
 
-            supabase_admin.table("twin_state").insert(
+            await run_query(supabase_admin.table("twin_state").insert(
                 {
                     "user_id": user_id,
                     "twin_xp": 0,
@@ -551,7 +548,7 @@ async def complete_onboarding(user_id: str) -> dict:
                     "consistency_ceiling": TWIN_INITIAL_CONSISTENCY,
                     "strip_message": _day_one_strip,
                 }
-            ).execute()
+            ))
     except Exception as e:
         notes.append(f"twin_state_failed: {str(e)}")
 

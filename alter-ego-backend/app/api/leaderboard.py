@@ -13,7 +13,7 @@ from fastapi import APIRouter, Header, HTTPException
 
 from app.api.auth import get_user_id_from_token
 from app.core.constants import STAGE_NAMES, PET_NAMES
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import run_query, supabase_admin
 
 router = APIRouter(prefix="/api/v1/leaderboard", tags=["leaderboard"])
 
@@ -55,7 +55,7 @@ async def get_leaderboard(authorization: str = Header(None)):
     """
     user_id = get_user_id_from_token(authorization)
 
-    user_result = (
+    user_result = await run_query(
         supabase_admin.table("users")
         .select(
             "leaderboard_unlocked, subscription_tier, power_score, "
@@ -63,7 +63,6 @@ async def get_leaderboard(authorization: str = Header(None)):
         )
         .eq("id", user_id)
         .single()
-        .execute()
     )
     user = user_result.data or {}
 
@@ -80,7 +79,7 @@ async def get_leaderboard(authorization: str = Header(None)):
             },
         )
 
-    top_100 = (
+    top_100 = await run_query(
         _apply_leaderboard_pool_filter(
             supabase_admin.table("users").select(
                 "id, username, power_score, character_stage, "
@@ -90,19 +89,16 @@ async def get_leaderboard(authorization: str = Header(None)):
         )
         .order("power_score", desc=True)
         .limit(100)
-        .execute()
-        .data
-        or []
     )
+    top_100 = top_100.data or []
 
     user_power_score = user.get("power_score", 0)
-    rank_result = (
+    rank_result = await run_query(
         _apply_leaderboard_pool_filter(
             supabase_admin.table("users").select("id", count="exact"),
             use_beta_pool,
         )
         .gt("power_score", user_power_score)
-        .execute()
     )
     higher_count = getattr(rank_result, "count", None)
     user_rank = (higher_count or 0) + 1
@@ -129,12 +125,11 @@ async def get_leaderboard(authorization: str = Header(None)):
             }
         )
 
-    pool_count_res = (
+    pool_count_res = await run_query(
         _apply_leaderboard_pool_filter(
             supabase_admin.table("users").select("id", count="exact"),
             use_beta_pool,
         )
-        .execute()
     )
     total_on_leaderboard = getattr(pool_count_res, "count", None) or len(top_100)
 
@@ -161,25 +156,23 @@ async def get_my_rank(authorization: str = Header(None)):
     """
     user_id = get_user_id_from_token(authorization)
 
-    user_result = (
+    user_result = await run_query(
         supabase_admin.table("users")
         .select("power_score, username, leaderboard_unlocked, subscription_tier")
         .eq("id", user_id)
         .single()
-        .execute()
     )
     user = user_result.data or {}
 
     user_power_score = user.get("power_score", 0)
     use_beta_pool = _requester_beta_leaderboard_pool(user)
 
-    rank_result = (
+    rank_result = await run_query(
         _apply_leaderboard_pool_filter(
             supabase_admin.table("users").select("id", count="exact"),
             use_beta_pool,
         )
         .gt("power_score", user_power_score)
-        .execute()
     )
     higher_count = getattr(rank_result, "count", None)
     rank = (higher_count or 0) + 1

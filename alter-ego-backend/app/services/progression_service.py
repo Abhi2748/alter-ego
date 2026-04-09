@@ -38,15 +38,15 @@ async def check_character_stage_progression(
     new_stage = current_stage + 1
     new_stage_name = STAGE_NAMES[new_stage - 1]
 
-    supabase_admin.table("users").update({"character_stage": new_stage}).eq("id", user_id).execute()
+    await run_query(supabase_admin.table("users").update({"character_stage": new_stage}).eq("id", user_id))
 
-    supabase_admin.table("milestone_log").insert(
+    await run_query(supabase_admin.table("milestone_log").insert(
         {
             "user_id": user_id,
             "milestone_type": f"stage_{new_stage}",
             "earned_at": datetime.now(timezone.utc).isoformat(),
         }
-    ).execute()
+    ))
 
     try:
         from app.services.mail_service import send_stage_evolved_mail_if_needed
@@ -83,15 +83,15 @@ async def check_pet_stage_progression(
     new_pet_stage = current_pet_stage + 1
     new_pet_name = PET_NAMES[new_pet_stage - 1]
 
-    supabase_admin.table("users").update({"pet_stage": new_pet_stage}).eq("id", user_id).execute()
+    await run_query(supabase_admin.table("users").update({"pet_stage": new_pet_stage}).eq("id", user_id))
 
-    supabase_admin.table("milestone_log").insert(
+    await run_query(supabase_admin.table("milestone_log").insert(
         {
             "user_id": user_id,
             "milestone_type": f"pet_stage_{new_pet_stage}",
             "earned_at": datetime.now(timezone.utc).isoformat(),
         }
-    ).execute()
+    ))
 
     return {"new_stage": new_pet_stage, "new_pet_name": new_pet_name}
 

@@ -61,45 +61,41 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     we = week_end.isoformat()
 
     user_result = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select(
             "username, archetype, character_stage, pet_stage, pet_unlocked, "
             "current_streak, longest_streak, total_xp, timezone, power_score"
         )
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     user = user_result.data or {}
 
     twin_result = (
-        supabase_admin.table("twin_state")
+        await run_query(supabase_admin.table("twin_state")
         .select("twin_xp, current_gap_state")
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
+        .limit(1))
     )
     twin = (twin_result.data or [None])[0] or {}
 
     dna_result = (
-        supabase_admin.table("discipline_dna")
+        await run_query(supabase_admin.table("discipline_dna")
         .select("pending_difficulty_change")
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
+        .limit(1))
     )
     dna_row = (dna_result.data or [None])[0] or {}
 
     missions = (
-        supabase_admin.table("missions")
+        await run_query(supabase_admin.table("missions")
         .select(
             "id, type, title, completed, xp_value, pf_value, mission_date, "
             "core_pillar, is_journal_mission, interest_id"
         )
         .eq("user_id", user_id)
         .gte("mission_date", ws)
-        .lte("mission_date", we)
-        .execute()
+        .lte("mission_date", we))
         .data
         or []
     )
@@ -112,22 +108,20 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     pf_earned = sum(int(m.get("pf_value") or 0) for m in completed)
 
     xp_log_rows = (
-        supabase_admin.table("xp_log")
+        await run_query(supabase_admin.table("xp_log")
         .select("amount")
         .eq("user_id", user_id)
         .gte("log_date", ws)
-        .lte("log_date", we)
-        .execute()
+        .lte("log_date", we))
         .data
         or []
     )
     pf_log_rows = (
-        supabase_admin.table("pf_log")
+        await run_query(supabase_admin.table("pf_log")
         .select("amount")
         .eq("user_id", user_id)
         .gte("log_date", ws)
-        .lte("log_date", we)
-        .execute()
+        .lte("log_date", we))
         .data
         or []
     )
@@ -146,12 +140,11 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
         xp_by_day[ld] = xp_by_day.get(ld, 0) + int(r.get("amount") or 0)
 
     streak_rows = (
-        supabase_admin.table("streak_log")
+        await run_query(supabase_admin.table("streak_log")
         .select("*")
         .eq("user_id", user_id)
         .gte("log_date", ws)
-        .lte("log_date", we)
-        .execute()
+        .lte("log_date", we))
         .data
         or []
     )
@@ -204,12 +197,11 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     stage_name = STAGE_NAMES[min(max(char_stage, 1), len(STAGE_NAMES)) - 1]
 
     milestones_week = (
-        supabase_admin.table("milestone_log")
+        await run_query(supabase_admin.table("milestone_log")
         .select("milestone_type, earned_at")
         .eq("user_id", user_id)
         .gte("earned_at", f"{ws}T00:00:00")
-        .lte("earned_at", f"{we}T23:59:59.999")
-        .execute()
+        .lte("earned_at", f"{we}T23:59:59.999"))
         .data
         or []
     )
@@ -244,13 +236,12 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     gap_state = str(twin.get("current_gap_state") or "neck_and_neck")
 
     prev_rep = (
-        supabase_admin.table("weekly_reports")
+        await run_query(supabase_admin.table("weekly_reports")
         .select("gap_xp_end, this_week_data")
         .eq("user_id", user_id)
         .lt("week_start", ws)
         .order("week_start", desc=True)
-        .limit(1)
-        .execute()
+        .limit(1))
         .data
         or []
     )
@@ -278,21 +269,19 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
     completion_rate = (missions_completed / total) if total else 0.0
 
     quit_rows = (
-        supabase_admin.table("quit_paths")
+        await run_query(supabase_admin.table("quit_paths")
         .select("id")
-        .eq("user_id", user_id)
-        .execute()
+        .eq("user_id", user_id))
         .data
         or []
     )
 
     ratings_rows = (
-        supabase_admin.table("mission_ratings")
+        await run_query(supabase_admin.table("mission_ratings")
         .select("rating")
         .eq("user_id", user_id)
         .gte("created_at", f"{ws}T00:00:00")
-        .lte("created_at", f"{we}T23:59:59.999")
-        .execute()
+        .lte("created_at", f"{we}T23:59:59.999"))
         .data
         or []
     )
@@ -463,14 +452,13 @@ async def assemble_enriched_context(
 
     try:
         dna_res = (
-            supabase_admin.table("discipline_dna")
+            await run_query(supabase_admin.table("discipline_dna")
             .select(
                 "narrative_seed, discipline_framing, guilt_orientation, "
                 "external_validation_need, self_belief, execution_gap, core_failure_pattern"
             )
             .eq("user_id", user_id)
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         row_a = (dna_res.data or [None])[0] or {}
         narrative_seed = row_a.get("narrative_seed")
@@ -482,24 +470,22 @@ async def assemble_enriched_context(
     interest_arcs: list[dict[str, Any]] = []
     try:
         int_res = (
-            supabase_admin.table("interests")
+            await run_query(supabase_admin.table("interests")
             .select(
                 "id, normalised_name, user_goal, interest_path_state, "
                 "current_arc_phase, sessions_completed, total_planned_sessions, is_active"
             )
             .eq("user_id", user_id)
-            .eq("is_active", True)
-            .execute()
+            .eq("is_active", True))
         )
         interests = int_res.data or []
         miss_res = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("interest_id, completed, mission_date, type")
             .eq("user_id", user_id)
             .eq("type", "interest")
             .gte("mission_date", ws)
-            .lte("mission_date", we)
-            .execute()
+            .lte("mission_date", we))
         )
         missions_i = miss_res.data or []
         counts: dict[str, int] = {}
@@ -543,13 +529,12 @@ async def assemble_enriched_context(
     quit_progress: list[dict[str, Any]] = []
     try:
         qp_res = (
-            supabase_admin.table("quit_paths")
+            await run_query(supabase_admin.table("quit_paths")
             .select(
                 "habit_name, current_phase, phase_started_at, status"
             )
             .eq("user_id", user_id)
-            .in_("status", ["active", "paused", "maintenance"])
-            .execute()
+            .in_("status", ["active", "paused", "maintenance"]))
         )
         now_utc = datetime.now(timezone.utc)
         for q in qp_res.data or []:
@@ -579,12 +564,11 @@ async def assemble_enriched_context(
     twin_challenge: dict[str, Any] = {"challenge_exists": False}
     try:
         ch_res = (
-            supabase_admin.table("twin_challenges")
+            await run_query(supabase_admin.table("twin_challenges")
             .select(
                 "challenge_text, status, issued_at, current_value, target_value"
             )
-            .eq("user_id", user_id)
-            .execute()
+            .eq("user_id", user_id))
         )
         for ch in ch_res.data or []:
             issued_at = ch.get("issued_at")
@@ -608,12 +592,11 @@ async def assemble_enriched_context(
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         ma_res = (
-            supabase_admin.table("memory_anchors")
+            await run_query(supabase_admin.table("memory_anchors")
             .select("reference_phrase, summary, created_at")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
-            .limit(10)
-            .execute()
+            .limit(10))
         )
         for a in ma_res.data or []:
             ca = a.get("created_at")
@@ -643,13 +626,12 @@ async def assemble_enriched_context(
     prev_twin_openings: list[str] = []
     try:
         wr_res = (
-            supabase_admin.table("weekly_reports")
+            await run_query(supabase_admin.table("weekly_reports")
             .select("wins_opening, twin_opening")
             .eq("user_id", user_id)
             .lt("week_start", ws)
             .order("week_start", desc=True)
-            .limit(2)
-            .execute()
+            .limit(2))
         )
         for r in wr_res.data or []:
             wo = r.get("wins_opening")

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.auth import get_user_id_from_token
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import run_query, supabase_admin
 from app.services.mission_service import get_user_date
 from app.services.mirror_service import compute_mirror_observations
 
@@ -58,12 +58,11 @@ def _parse_registration_date(user: dict) -> date | None:
 async def get_mirror(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
-    user_result = (
+    user_result = await run_query(
         supabase_admin.table("users")
         .select("registration_date, created_at, archetype, timezone, mirror_shown")
         .eq("id", user_id)
         .single()
-        .execute()
     )
     if not user_result.data:
         raise HTTPException(status_code=404, detail="User not found")
@@ -125,7 +124,9 @@ async def get_mirror(authorization: str = Header(None)):
             observations_out = []
 
         try:
-            supabase_admin.table("users").update({"mirror_shown": True}).eq("id", user_id).execute()
+            await run_query(
+                supabase_admin.table("users").update({"mirror_shown": True}).eq("id", user_id)
+            )
             response_already_shown = True
         except Exception as e:
             logger.error(

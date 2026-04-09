@@ -12,7 +12,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from app.api.auth import get_user_id_from_token
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import run_query, supabase_admin
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 logger = logging.getLogger(__name__)
@@ -104,11 +104,12 @@ async def update_username(
     user_id = get_user_id_from_token(authorization)
 
     current = (
+        await run_query(
         supabase_admin.table("users")
         .select("username")
         .eq("id", user_id)
         .single()
-        .execute()
+        )
         .data
     )
     new_username = (body.username or "").strip().lower()
@@ -128,9 +129,9 @@ async def update_username(
     if not availability.get("available"):
         raise HTTPException(status_code=409, detail="Username already taken")
 
-    supabase_admin.table("users").update({"username": new_username}).eq(
-        "id", user_id
-    ).execute()
+    await run_query(
+        supabase_admin.table("users").update({"username": new_username}).eq("id", user_id)
+    )
 
     return {"success": True, "username": new_username}
 
@@ -159,7 +160,7 @@ async def update_notifications(
         update_data["timezone"] = str(body.timezone).strip()
 
     if update_data:
-        supabase_admin.table("users").update(update_data).eq("id", user_id).execute()
+        await run_query(supabase_admin.table("users").update(update_data).eq("id", user_id))
 
     return {"success": True}
 
@@ -190,14 +191,16 @@ async def submit_feedback(
             detail="type must be one of: bug, concern, suggestion, other",
         )
 
-    supabase_admin.table("feedback_submissions").insert(
-        {
-            "user_id": user_id,
-            "type": body.type,
-            "content": (body.content or "").strip(),
-            "app_version": body.app_version,
-        }
-    ).execute()
+    await run_query(
+        supabase_admin.table("feedback_submissions").insert(
+            {
+                "user_id": user_id,
+                "type": body.type,
+                "content": (body.content or "").strip(),
+                "app_version": body.app_version,
+            }
+        )
+    )
 
     payload = {
         "user_id": user_id,
@@ -343,7 +346,7 @@ async def delete_account(authorization: str = Header(None)):
     """
     user_id = get_user_id_from_token(authorization)
 
-    supabase_admin.table("users").delete().eq("id", user_id).execute()
+    await run_query(supabase_admin.table("users").delete().eq("id", user_id))
     try:
         supabase_admin.auth.admin.delete_user(user_id)
     except Exception:

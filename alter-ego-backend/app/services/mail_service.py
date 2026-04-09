@@ -337,7 +337,7 @@ async def send_app_mail(
     body = _format_mail_text(content["body"], template_data)
 
     try:
-        supabase_admin.table("app_mails").insert(
+        await run_query(supabase_admin.table("app_mails").insert(
             {
                 "user_id": user_id,
                 "mail_type": mail_type,
@@ -345,7 +345,7 @@ async def send_app_mail(
                 "body_markdown": body,
                 "sent_at": datetime.utcnow().isoformat(),
             }
-        ).execute()
+        ))
         return True
     except Exception as e:
         logger.error("send_app_mail: failed for %s: %s", user_id, e)
@@ -359,12 +359,11 @@ async def send_welcome_mail_sequence(user_id: str) -> None:
     """
     try:
         existing = (
-            supabase_admin.table("app_mails")
+            await run_query(supabase_admin.table("app_mails")
             .select("id")
             .eq("user_id", user_id)
             .eq("mail_type", "welcome")
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         if existing.data:
             return
@@ -382,11 +381,10 @@ async def check_and_send_scheduled_mails(user_id: str) -> None:
     from app.services.mission_service import get_days_since_registration
 
     user_result = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select("registration_date, timezone")
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     user = user_result.data
     if not user:
@@ -397,10 +395,9 @@ async def check_and_send_scheduled_mails(user_id: str) -> None:
     )
 
     sent_result = (
-        supabase_admin.table("app_mails")
+        await run_query(supabase_admin.table("app_mails")
         .select("mail_type")
-        .eq("user_id", user_id)
-        .execute()
+        .eq("user_id", user_id))
         .data
         or []
     )
@@ -431,12 +428,11 @@ async def check_and_send_streak_milestone(user_id: str, new_streak: int) -> None
         return
 
     existing = (
-        supabase_admin.table("app_mails")
+        await run_query(supabase_admin.table("app_mails")
         .select("id")
         .eq("user_id", user_id)
         .eq("mail_type", mail_type)
-        .limit(1)
-        .execute()
+        .limit(1))
         .data
         or []
     )
@@ -446,12 +442,11 @@ async def check_and_send_streak_milestone(user_id: str, new_streak: int) -> None
 
 async def check_and_send_ability_levelup_mail(user_id: str) -> None:
     existing = (
-        supabase_admin.table("app_mails")
+        await run_query(supabase_admin.table("app_mails")
         .select("id")
         .eq("user_id", user_id)
         .eq("mail_type", "ability_first_levelup")
-        .limit(1)
-        .execute()
+        .limit(1))
         .data
         or []
     )
@@ -461,12 +456,11 @@ async def check_and_send_ability_levelup_mail(user_id: str) -> None:
 
 async def check_and_send_focus_first_session_mail(user_id: str) -> None:
     existing = (
-        supabase_admin.table("app_mails")
+        await run_query(supabase_admin.table("app_mails")
         .select("id")
         .eq("user_id", user_id)
         .eq("mail_type", "focus_first_session")
-        .limit(1)
-        .execute()
+        .limit(1))
         .data
         or []
     )
@@ -476,12 +470,11 @@ async def check_and_send_focus_first_session_mail(user_id: str) -> None:
 
 async def check_and_send_quit_path_started_mail(user_id: str) -> None:
     existing = (
-        supabase_admin.table("app_mails")
+        await run_query(supabase_admin.table("app_mails")
         .select("id")
         .eq("user_id", user_id)
         .eq("mail_type", "quit_path_started")
-        .limit(1)
-        .execute()
+        .limit(1))
         .data
         or []
     )
@@ -527,7 +520,7 @@ async def send_interest_mail_once(
     body = _format_mail_text(content["body"], data) + f"\n\n{_interest_dedupe_marker(interest_id)}"
     subject = _format_mail_text(content["subject"], data)
     try:
-        supabase_admin.table("app_mails").insert(
+        await run_query(supabase_admin.table("app_mails").insert(
             {
                 "user_id": user_id,
                 "mail_type": mail_type,
@@ -535,7 +528,7 @@ async def send_interest_mail_once(
                 "body_markdown": body,
                 "sent_at": datetime.utcnow().isoformat(),
             }
-        ).execute()
+        ))
         return True
     except Exception as e:
         logger.error("send_interest_mail_once: failed for %s: %s", user_id, e)
@@ -547,11 +540,10 @@ async def send_stage_evolved_mail_if_needed(
 ) -> None:
     marker = f"Stage {new_stage}"
     rows = (
-        supabase_admin.table("app_mails")
+        await run_query(supabase_admin.table("app_mails")
         .select("subject")
         .eq("user_id", user_id)
-        .eq("mail_type", "stage_evolved")
-        .execute()
+        .eq("mail_type", "stage_evolved"))
         .data
         or []
     )
@@ -571,12 +563,11 @@ async def maybe_send_quit_clean_mails(
     """days_since_path_start = calendar days since quit path created (0 = first day)."""
     if days_since_path_start == 1:
         existing = (
-            supabase_admin.table("app_mails")
+            await run_query(supabase_admin.table("app_mails")
             .select("id")
             .eq("user_id", user_id)
             .eq("mail_type", "quit_day_1_clean")
-            .limit(1)
-            .execute()
+            .limit(1))
             .data
             or []
         )
@@ -584,12 +575,11 @@ async def maybe_send_quit_clean_mails(
             await send_app_mail(user_id, "quit_day_1_clean")
     if days_since_path_start >= 7:
         existing_w = (
-            supabase_admin.table("app_mails")
+            await run_query(supabase_admin.table("app_mails")
             .select("id")
             .eq("user_id", user_id)
             .eq("mail_type", "quit_week_1_clean")
-            .limit(1)
-            .execute()
+            .limit(1))
             .data
             or []
         )

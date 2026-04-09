@@ -292,12 +292,11 @@ async def create_quit_path(
     canonical_key = canonical_quit_slug(nq, canonical_display)
 
     dup = (
-        supabase_admin.table("quit_paths")
+        await run_query(supabase_admin.table("quit_paths")
         .select("id")
         .eq("user_id", user_id)
         .eq("habit_normalized", canonical_key)
-        .limit(1)
-        .execute()
+        .limit(1))
     )
     if dup.data:
         raise ValueError("duplicate quit habit")
@@ -342,7 +341,7 @@ async def create_quit_path(
         "status": status,
     }
 
-    result = supabase_admin.table("quit_paths").insert(row).execute()
+    result = await run_query(supabase_admin.table("quit_paths").insert(row))
     if not result.data:
         raise RuntimeError("Failed to insert quit_paths row")
     path_id = result.data[0]["id"]
@@ -364,25 +363,23 @@ async def generate_quit_missions_for_today(
     md = mission_date or get_user_date(tz)
 
     path_res = (
-        supabase_admin.table("quit_paths")
+        await run_query(supabase_admin.table("quit_paths")
         .select("*")
         .eq("id", path_id)
         .eq("user_id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     path = path_res.data
     if not path or path.get("status") != "active":
         return []
 
     existing = (
-        supabase_admin.table("missions")
+        await run_query(supabase_admin.table("missions")
         .select("id")
         .eq("user_id", user_id)
         .eq("quit_path_id", path_id)
         .eq("mission_date", md)
-        .limit(1)
-        .execute()
+        .limit(1))
         .data
         or []
     )
@@ -390,11 +387,10 @@ async def generate_quit_missions_for_today(
         return []
 
     user_row = (
-        supabase_admin.table("users")
+        await run_query(supabase_admin.table("users")
         .select("archetype")
         .eq("id", user_id)
-        .single()
-        .execute()
+        .single())
         .data
         or {}
     )
@@ -405,13 +401,12 @@ async def generate_quit_missions_for_today(
     # Fetch user feedback on recent quit missions (last 5 ratings for this quit path)
     try:
         quit_ratings_res = (
-            supabase_admin.table("mission_ratings")
+            await run_query(supabase_admin.table("mission_ratings")
             .select("rating, feedback_text")
             .eq("user_id", user_id)
             .eq("quit_path_id", path_id)
             .order("created_at", desc=True)
-            .limit(5)
-            .execute()
+            .limit(5))
         )
         quit_feedback_parts = []
         for r in quit_ratings_res.data or []:
@@ -428,12 +423,11 @@ async def generate_quit_missions_for_today(
         quit_user_feedback = "No feedback yet"
 
     freq_log = (
-        supabase_admin.table("quit_frequency_log")
+        await run_query(supabase_admin.table("quit_frequency_log")
         .select("count")
         .eq("quit_path_id", path_id)
         .eq("log_date", md)
-        .limit(1)
-        .execute()
+        .limit(1))
         .data
         or []
     )
@@ -459,13 +453,12 @@ async def generate_quit_missions_for_today(
     user_interests: list[dict] = []
     try:
         interests_res = (
-            supabase_admin.table("interests")
+            await run_query(supabase_admin.table("interests")
             .select("normalised_name, current_arc_phase, sessions_completed, arc_paused, is_active")
             .eq("user_id", user_id)
             .eq("is_active", True)
             .eq("arc_paused", False)
-            .limit(4)
-            .execute()
+            .limit(4))
             .data
             or []
         )
@@ -481,11 +474,10 @@ async def generate_quit_missions_for_today(
     guilt_orientation: float = 0.0
     try:
         dna_row = (
-            supabase_admin.table("discipline_dna")
+            await run_query(supabase_admin.table("discipline_dna")
             .select("guilt_orientation")
             .eq("user_id", user_id)
-            .single()
-            .execute()
+            .single())
             .data
             or {}
         )
@@ -545,19 +537,18 @@ async def log_frequency(user_id: str, path_id: str, count: int) -> dict[str, Any
     today = get_user_date(tz)
 
     path_res = (
-        supabase_admin.table("quit_paths")
+        await run_query(supabase_admin.table("quit_paths")
         .select("frequency_unit,frequency_baseline,current_phase,created_at")
         .eq("id", path_id)
         .eq("user_id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     path = path_res.data
     if not path:
         raise ValueError("Quit path not found")
 
     unit = path.get("frequency_unit") or "times"
-    supabase_admin.table("quit_frequency_log").upsert(
+    await run_query(supabase_admin.table("quit_frequency_log").upsert(
         {
             "user_id": user_id,
             "quit_path_id": path_id,
@@ -567,33 +558,32 @@ async def log_frequency(user_id: str, path_id: str, count: int) -> dict[str, Any
             "updated_at": datetime.now(timezone.utc).isoformat(),
         },
         on_conflict="quit_path_id,log_date",
-    ).execute()
+    ))
 
-    supabase_admin.table("quit_paths").update(
+    await run_query(supabase_admin.table("quit_paths").update(
         {
             "frequency_today": count,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
-    ).eq("id", path_id).execute()
+    ).eq("id", path_id))
 
     baseline = path.get("frequency_baseline")
     if baseline and float(baseline) > 0:
         seven_ago = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
         logs = (
-            supabase_admin.table("quit_frequency_log")
+            await run_query(supabase_admin.table("quit_frequency_log")
             .select("count")
             .eq("quit_path_id", path_id)
-            .gte("log_date", seven_ago)
-            .execute()
+            .gte("log_date", seven_ago))
             .data
             or []
         )
         if logs:
             avg = sum(int(l["count"]) for l in logs) / len(logs)
             reduction_pct = max(0, round((1 - avg / float(baseline)) * 100))
-            supabase_admin.table("quit_paths").update({"frequency_reduction_pct": reduction_pct}).eq(
+            await run_query(supabase_admin.table("quit_paths").update({"frequency_reduction_pct": reduction_pct}).eq(
                 "id", path_id
-            ).execute()
+            ))
 
     try:
         created_day = str(path.get("created_at") or "")[:10]
@@ -612,12 +602,11 @@ async def advance_phase(user_id: str, path_id: str) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
 
     path_res = (
-        supabase_admin.table("quit_paths")
+        await run_query(supabase_admin.table("quit_paths")
         .select("*")
         .eq("id", path_id)
         .eq("user_id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     path = path_res.data
     if not path:
@@ -633,20 +622,19 @@ async def advance_phase(user_id: str, path_id: str) -> dict[str, Any]:
 
     seven_ago = (date.today() - timedelta(days=7)).isoformat()
     logs = (
-        supabase_admin.table("quit_frequency_log")
+        await run_query(supabase_admin.table("quit_frequency_log")
         .select("count")
         .eq("quit_path_id", path_id)
-        .gte("log_date", seven_ago)
-        .execute()
+        .gte("log_date", seven_ago))
         .data
         or []
     )
     freq_at_transition = sum(int(l["count"]) for l in logs) / len(logs) if logs else None
 
     if current == "mapping" and not path.get("frequency_baseline") and freq_at_transition is not None:
-        supabase_admin.table("quit_paths").update({"frequency_baseline": freq_at_transition}).eq(
+        await run_query(supabase_admin.table("quit_paths").update({"frequency_baseline": freq_at_transition}).eq(
             "id", path_id
-        ).execute()
+        ))
         path["frequency_baseline"] = freq_at_transition
 
     phase_started = path.get("phase_started_at") or path["created_at"]
@@ -664,7 +652,7 @@ async def advance_phase(user_id: str, path_id: str) -> dict[str, Any]:
         frequency_at_transition=freq_at_transition,
     )
 
-    supabase_admin.table("quit_insights").insert(
+    await run_query(supabase_admin.table("quit_insights").insert(
         {
             "quit_path_id": path_id,
             "user_id": user_id,
@@ -672,7 +660,7 @@ async def advance_phase(user_id: str, path_id: str) -> dict[str, Any]:
             "title": insight.title,
             "body": insight.body,
         }
-    ).execute()
+    ))
 
     update_payload: dict[str, Any] = {
         "current_phase": next_phase,
@@ -684,7 +672,7 @@ async def advance_phase(user_id: str, path_id: str) -> dict[str, Any]:
     elif current == "disruption":
         update_payload["disruption_complete"] = True
 
-    supabase_admin.table("quit_paths").update(update_payload).eq("id", path_id).execute()
+    await run_query(supabase_admin.table("quit_paths").update(update_payload).eq("id", path_id))
 
     return {
         "advanced": True,
@@ -698,11 +686,10 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
     today = get_user_date(tz)
 
     paths = (
-        supabase_admin.table("quit_paths")
+        await run_query(supabase_admin.table("quit_paths")
         .select("*")
         .eq("user_id", user_id)
-        .order("created_at")
-        .execute()
+        .order("created_at"))
         .data
         or []
     )
@@ -712,44 +699,40 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
         pid = path["id"]
         seven_ago = (date.fromisoformat(today) - timedelta(days=7)).isoformat()
         freq_history = (
-            supabase_admin.table("quit_frequency_log")
+            await run_query(supabase_admin.table("quit_frequency_log")
             .select("log_date,count,unit")
             .eq("quit_path_id", pid)
             .gte("log_date", seven_ago)
-            .order("log_date")
-            .execute()
+            .order("log_date"))
             .data
             or []
         )
 
         today_missions = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("id,title,description,completed_at,mission_category")
             .eq("user_id", user_id)
             .eq("quit_path_id", pid)
-            .eq("mission_date", today)
-            .execute()
+            .eq("mission_date", today))
             .data
             or []
         )
 
         insights = (
-            supabase_admin.table("quit_insights")
+            await run_query(supabase_admin.table("quit_insights")
             .select("id,phase,title,body,unlocked_at,created_at")
             .eq("quit_path_id", pid)
-            .order("created_at")
-            .execute()
+            .order("created_at"))
             .data
             or []
         )
 
         today_log = (
-            supabase_admin.table("quit_frequency_log")
+            await run_query(supabase_admin.table("quit_frequency_log")
             .select("count")
             .eq("quit_path_id", pid)
             .eq("log_date", today)
-            .limit(1)
-            .execute()
+            .limit(1))
             .data
             or []
         )
@@ -826,7 +809,7 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
 
 
 async def delete_quit_path(user_id: str, path_id: str) -> dict[str, bool]:
-    supabase_admin.table("quit_paths").delete().eq("id", path_id).eq("user_id", user_id).execute()
+    await run_query(supabase_admin.table("quit_paths").delete().eq("id", path_id).eq("user_id", user_id))
     return {"deleted": True}
 
 
@@ -837,12 +820,11 @@ async def mark_quit_conquered(user_id: str, path_id: str) -> dict[str, Any]:
     Does not delete the path — it remains visible as a trophy.
     """
     path_res = (
-        supabase_admin.table("quit_paths")
+        await run_query(supabase_admin.table("quit_paths")
         .select("id, user_id, habit_name, current_phase, created_at")
         .eq("id", path_id)
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
+        .limit(1))
     )
     rows = path_res.data or []
     if not rows:
@@ -859,10 +841,9 @@ async def mark_quit_conquered(user_id: str, path_id: str) -> dict[str, Any]:
 
     try:
         freq_rows = (
-            supabase_admin.table("quit_frequency_log")
+            await run_query(supabase_admin.table("quit_frequency_log")
             .select("count")
-            .eq("quit_path_id", path_id)
-            .execute()
+            .eq("quit_path_id", path_id))
             .data
             or []
         )
@@ -872,13 +853,13 @@ async def mark_quit_conquered(user_id: str, path_id: str) -> dict[str, Any]:
 
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    supabase_admin.table("quit_paths").update(
+    await run_query(supabase_admin.table("quit_paths").update(
         {
             "status": "completed",
             "conquered_at": now_iso,
             "updated_at": now_iso,
         }
-    ).eq("id", path_id).eq("user_id", user_id).execute()
+    ).eq("id", path_id).eq("user_id", user_id))
 
     return {
         "conquered": True,
@@ -903,12 +884,11 @@ async def update_quit_schedule(
     awareness_level: str,
 ) -> dict[str, bool]:
     path_res = (
-        supabase_admin.table("quit_paths")
+        await run_query(supabase_admin.table("quit_paths")
         .select("*")
         .eq("id", path_id)
         .eq("user_id", user_id)
-        .single()
-        .execute()
+        .single())
     )
     path = path_res.data
     if not path:
@@ -949,7 +929,7 @@ async def update_quit_schedule(
     elif path.get("status") == "referral_only":
         update_payload["status"] = "active"
 
-    supabase_admin.table("quit_paths").update(update_payload).eq("id", path_id).execute()
+    await run_query(supabase_admin.table("quit_paths").update(update_payload).eq("id", path_id))
 
     return {"updated": True}
 
@@ -957,31 +937,29 @@ async def update_quit_schedule(
 async def sync_quit_path_missions_for_date(user_id: str, mission_date: str) -> None:
     _dedupe_incomplete_quit_resistance_missions(user_id, mission_date)
 
-    def _count_incomplete_resistance_today() -> int:
+    async def _count_incomplete_resistance_today() -> int:
         r = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("id")
             .eq("user_id", user_id)
             .eq("mission_date", mission_date)
             .eq("type", "resistance")
-            .eq("completed", False)
-            .execute()
+            .eq("completed", False))
         )
         return len(r.data or [])
 
     paths_raw = (
-        supabase_admin.table("quit_paths")
+        await run_query(supabase_admin.table("quit_paths")
         .select("id, created_at")
         .eq("user_id", user_id)
-        .eq("status", "active")
-        .execute()
+        .eq("status", "active"))
         .data
         or []
     )
     paths = sorted(paths_raw, key=lambda p: str(p.get("created_at") or ""))
     for p in paths:
         try:
-            if _count_incomplete_resistance_today() >= MAX_QUIT_RESISTANCE_MISSIONS_PER_USER_DAY:
+            if await _count_incomplete_resistance_today() >= MAX_QUIT_RESISTANCE_MISSIONS_PER_USER_DAY:
                 logger.info(
                     "sync_quit_path_missions: user=%s at cap=%s for %s",
                     user_id,
@@ -991,7 +969,7 @@ async def sync_quit_path_missions_for_date(user_id: str, mission_date: str) -> N
                 break
             rows = await generate_quit_missions_for_today(user_id, p["id"], mission_date)
             if rows:
-                supabase_admin.table("missions").insert(rows).execute()
+                await run_query(supabase_admin.table("missions").insert(rows))
                 logger.info(
                     "sync_quit_path_missions: user=%s path=%s inserted=%s",
                     user_id,

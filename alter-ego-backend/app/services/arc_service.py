@@ -141,14 +141,13 @@ async def increment_sessions_and_check_phase(
     """
     try:
         interest = (
-            supabase_admin.table("interests")
+            await run_query(supabase_admin.table("interests")
             .select(
                 "sessions_completed, total_planned_sessions, current_arc_phase, arc_phase_session, normalised_name"
             )
             .eq("id", interest_id)
             .eq("user_id", user_id)
-            .single()
-            .execute()
+            .single())
             .data
             or {}
         )
@@ -177,9 +176,9 @@ async def increment_sessions_and_check_phase(
             "arc_phase_session": new_arc_session,
         }
 
-        supabase_admin.table("interests").update(update_payload).eq("id", interest_id).eq(
+        await run_query(supabase_admin.table("interests").update(update_payload).eq("id", interest_id).eq(
             "user_id", user_id
-        ).execute()
+        ))
 
         # ── Milestone detection ─────────────────────────────────────────────
         milestone_hit: str | None = None
@@ -416,15 +415,14 @@ async def run_adaptive_replanning_for_user(user_id: str) -> None:
     """
     try:
         interests = (
-            supabase_admin.table("interests")
+            await run_query(supabase_admin.table("interests")
             .select(
                 "id, normalised_name, target_date, total_planned_sessions, sessions_completed, "
                 "timeline_adjusted_count, arc_paused, active_days"
             )
             .eq("user_id", user_id)
             .eq("is_active", True)
-            .eq("arc_paused", False)
-            .execute()
+            .eq("arc_paused", False))
             .data
             or []
         )
@@ -480,12 +478,12 @@ async def run_adaptive_replanning_for_user(user_id: str) -> None:
 
                     if new_target_date > target_date:
                         adj_count = int(interest.get("timeline_adjusted_count") or 0)
-                        supabase_admin.table("interests").update(
+                        await run_query(supabase_admin.table("interests").update(
                             {
                                 "target_date": new_target_date.isoformat(),
                                 "timeline_adjusted_count": adj_count + 1,
                             }
-                        ).eq("id", interest_id).eq("user_id", user_id).execute()
+                        ).eq("id", interest_id).eq("user_id", user_id))
 
                         await send_interest_mail_once(
                             user_id,

@@ -4,6 +4,7 @@ Uses service_role key — bypasses RLS.
 NEVER expose this to the frontend.
 """
 import os
+import asyncio as _asyncio
 
 from dotenv import load_dotenv
 from supabase import Client, create_client
@@ -20,4 +21,8 @@ supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # Anon client — for operations that should respect RLS
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+
+async def run_query(query_chain):
+    return await _asyncio.to_thread(lambda: query_chain.execute())
 

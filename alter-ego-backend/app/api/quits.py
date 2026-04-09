@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.auth import get_user_id_from_token
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import run_query, supabase_admin
 from app.services.quit_service import (
     advance_phase,
     create_quit_path,
@@ -183,13 +183,12 @@ async def log_checkin(
 async def get_trigger_profile(path_id: str, authorization: str = Header(None)):
     """Returns the living trigger profile for a quit path."""
     user_id = get_user_id_from_token(authorization)
-    res = (
+    res = await run_query(
         supabase_admin.table("quit_paths")
         .select("trigger_contexts")
         .eq("id", path_id)
         .eq("user_id", user_id)
         .limit(1)
-        .execute()
     )
     rows = res.data or []
     if not rows:
@@ -207,13 +206,12 @@ async def get_trigger_profile(path_id: str, authorization: str = Header(None)):
 async def get_urge_trend(path_id: str, authorization: str = Header(None)):
     """Returns weekly urge levels over time for charting."""
     user_id = get_user_id_from_token(authorization)
-    res = (
+    res = await run_query(
         supabase_admin.table("quit_paths")
         .select("id")
         .eq("id", path_id)
         .eq("user_id", user_id)
         .limit(1)
-        .execute()
     )
     rows = res.data or []
     if not rows:

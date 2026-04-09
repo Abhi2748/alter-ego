@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.auth import get_user_id_from_token
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import run_query, supabase_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/feedback", tags=["feedback"])
@@ -127,19 +127,18 @@ async def list_posts(
         if tag and tag in ("bug", "suggestion", "question", "praise"):
             query = query.eq("tag", tag)
 
-        result = query.execute()
+        result = await run_query(query)
         posts = result.data or []
 
         if not posts:
             return []
 
         post_ids = [p["id"] for p in posts]
-        votes_result = (
+        votes_result = await run_query(
             supabase_admin.table("feedback_upvotes")
             .select("post_id")
             .eq("user_id", user_id)
             .in_("post_id", post_ids)
-            .execute()
         )
         voted_ids = {str(v["post_id"]) for v in (votes_result.data or [])}
 
@@ -172,7 +171,7 @@ async def create_post(
     User is not rate-limited here; abuse prevention is handled via moderation.
     """
     try:
-        result = (
+        result = await run_query(
             supabase_admin.table("feedback_posts")
             .insert(
                 {
@@ -183,7 +182,6 @@ async def create_post(
                     "upvote_count": 0,
                 }
             )
-            .execute()
         )
         row = (result.data or [None])[0]
         if not row:
@@ -218,13 +216,12 @@ async def toggle_upvote(
     Only approved posts can be upvoted.
     """
     try:
-        post_result = (
+        post_result = await run_query(
             supabase_admin.table("feedback_posts")
             .select("id, upvote_count, status")
             .eq("id", post_id)
             .neq("status", "pending")
             .limit(1)
-            .execute()
         )
         rows = post_result.data or []
         if not rows:
@@ -233,25 +230,39 @@ async def toggle_upvote(
         post = rows[0]
         current_count = int(post["upvote_count"])
 
-        existing_vote = (
+        existing_vote = await run_query(
             supabase_admin.table("feedback_upvotes")
             .select("id")
             .eq("user_id", user_id)
             .eq("post_id", post_id)
             .limit(1)
-            .execute()
         )
         has_voted = bool(existing_vote.data)
 
         if has_voted:
-            supabase_admin.table("feedback_upvotes").delete().eq("user_id", user_id).eq("post_id", post_id).execute()
+            await run_query(
+                supabase_admin.table("feedback_upvotes")
+                .delete()
+                .eq("user_id", user_id)
+                .eq("post_id", post_id)
+            )
             new_count = max(0, current_count - 1)
-            supabase_admin.table("feedback_posts").update({"upvote_count": new_count}).eq("id", post_id).execute()
+            await run_query(
+                supabase_admin.table("feedback_posts")
+                .update({"upvote_count": new_count})
+                .eq("id", post_id)
+            )
             return UpvoteResponse(post_id=post_id, upvote_count=new_count, user_has_voted=False)
 
-        supabase_admin.table("feedback_upvotes").insert({"user_id": user_id, "post_id": post_id}).execute()
+        await run_query(
+            supabase_admin.table("feedback_upvotes").insert({"user_id": user_id, "post_id": post_id})
+        )
         new_count = current_count + 1
-        supabase_admin.table("feedback_posts").update({"upvote_count": new_count}).eq("id", post_id).execute()
+        await run_query(
+            supabase_admin.table("feedback_posts")
+            .update({"upvote_count": new_count})
+            .eq("id", post_id)
+        )
         return UpvoteResponse(post_id=post_id, upvote_count=new_count, user_has_voted=True)
 
     except HTTPException:
@@ -268,11 +279,10 @@ async def get_board_stats(user_id: str = Depends(require_user_id)):
     Counts only non-pending posts.
     """
     try:
-        posts_result = (
+        posts_result = await run_query(
             supabase_admin.table("feedback_posts")
             .select("upvote_count, status")
             .neq("status", "pending")
-            .execute()
         )
         rows = posts_result.data or []
 
@@ -314,7 +324,7 @@ async def admin_list_posts(
         if tag and tag in ("bug", "suggestion", "question", "praise"):
             query = query.eq("tag", tag)
 
-        result = query.execute()
+        result = await run_query(query)
         posts = result.data or []
 
         # Never expose user_id to the admin panel — replace with a short ID for display only
@@ -356,12 +366,11 @@ async def admin_update_post(
     """
     try:
         # Verify post exists
-        check = (
+        check = await run_query(
             supabase_admin.table("feedback_posts")
             .select("id, tag, status")
             .eq("id", post_id)
             .limit(1)
-            .execute()
         )
         rows = check.data or []
         if not rows:
@@ -385,7 +394,7 @@ async def admin_update_post(
             # Clear any previous answer if status is no longer 'answered'
             update["admin_answer"] = None
 
-        supabase_admin.table("feedback_posts").update(update).eq("id", post_id).execute()
+        await run_query(supabase_admin.table("feedback_posts").update(update).eq("id", post_id))
 
         logger.info(
             "admin_update_post post=%s old_status=%s new_status=%s",

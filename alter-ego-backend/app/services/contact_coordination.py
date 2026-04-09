@@ -34,11 +34,10 @@ async def can_contact_user(user_id: str, user_tz: str) -> bool:
     try:
         local_date = _local_date_str(user_tz)
         dna_res = (
-            supabase_admin.table("discipline_dna")
+            await run_query(supabase_admin.table("discipline_dna")
             .select("external_validation_need, twin_message_frequency")
             .eq("user_id", user_id)
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         row = (dna_res.data or [None])[0] or {}
         ev = float(row.get("external_validation_need") or 0.5)
@@ -51,11 +50,10 @@ async def can_contact_user(user_id: str, user_tz: str) -> bool:
             daily_budget = ev_budget
 
         cnt_res = (
-            supabase_admin.table("daily_contact_log")
+            await run_query(supabase_admin.table("daily_contact_log")
             .select("id", count="exact")
             .eq("user_id", user_id)
-            .eq("contact_date", local_date)
-            .execute()
+            .eq("contact_date", local_date))
         )
         contacts_today = getattr(cnt_res, "count", None)
         if contacts_today is None:
@@ -71,13 +69,13 @@ async def record_contact(user_id: str, contact_type: str, user_tz: str) -> None:
     """Inserts a row into daily_contact_log for today's local date."""
     try:
         local_date = _local_date_str(user_tz)
-        supabase_admin.table("daily_contact_log").insert(
+        await run_query(supabase_admin.table("daily_contact_log").insert(
             {
                 "user_id": user_id,
                 "contact_date": local_date,
                 "contact_type": contact_type,
             }
-        ).execute()
+        ))
     except Exception as e:
         logger.warning(
             "record_contact failed user=%s type=%s: %s", user_id, contact_type, e
@@ -89,13 +87,12 @@ async def proactive_sent_today(user_id: str, user_tz: str) -> bool:
     try:
         local_date = _local_date_str(user_tz)
         res = (
-            supabase_admin.table("daily_contact_log")
+            await run_query(supabase_admin.table("daily_contact_log")
             .select("id")
             .eq("user_id", user_id)
             .eq("contact_date", local_date)
             .eq("contact_type", "proactive")
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         return bool(res.data)
     except Exception as e:

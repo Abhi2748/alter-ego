@@ -19,7 +19,7 @@ from app.core.constants import (
     RETURN_REASON_RESPONSES,
     RETURN_REASON_TONE_OVERRIDE,
 )
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import run_query, supabase_admin
 from app.services.absence_service import compute_absence_days
 from app.services.mission_service import get_user_date
 
@@ -75,11 +75,12 @@ async def post_return_reason(
     override_until = datetime.now(timezone.utc) + timedelta(days=7)
 
     tz_row = (
+        await run_query(
         supabase_admin.table("users")
         .select("timezone")
         .eq("id", user_id)
         .single()
-        .execute()
+        )
         .data
         or {}
     )
@@ -105,7 +106,7 @@ async def post_return_reason(
     }
 
     try:
-        supabase_admin.table("users").update(payload).eq("id", user_id).execute()
+        await run_query(supabase_admin.table("users").update(payload).eq("id", user_id))
         logger.info(
             json.dumps(
                 {
@@ -151,7 +152,7 @@ async def post_return_reason(
 async def get_return_state(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
 
-    user_res = (
+    user_res = await run_query(
         supabase_admin.table("users")
         .select(
             "absence_days, archetype, return_question_shown_at, "
@@ -160,7 +161,6 @@ async def get_return_state(authorization: str = Header(None)):
         )
         .eq("id", user_id)
         .single()
-        .execute()
     )
     user = user_res.data or {}
     tz_str = str(user.get("timezone") or "UTC").strip() or "UTC"
@@ -220,7 +220,9 @@ async def post_long_absence_ack(authorization: str = Header(None)):
     """Mark 14+ day acknowledgment as shown (one per absence cycle; reset on return)."""
     user_id = get_user_id_from_token(authorization)
     try:
-        supabase_admin.table("users").update({"long_absence_shown": True}).eq("id", user_id).execute()
+        await run_query(
+            supabase_admin.table("users").update({"long_absence_shown": True}).eq("id", user_id)
+        )
     except Exception as e:
         logger.error(
             json.dumps(

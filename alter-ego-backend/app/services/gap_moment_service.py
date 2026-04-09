@@ -201,17 +201,17 @@ async def queue_gap_moment(
     replace it (more recent trigger wins).
     """
     try:
-        supabase_admin.table("gap_moments").delete().eq("user_id", user_id).is_(
+        await run_query(supabase_admin.table("gap_moments").delete().eq("user_id", user_id).is_(
             "shown_at", "null"
-        ).execute()
+        ))
 
-        supabase_admin.table("gap_moments").insert(
+        await run_query(supabase_admin.table("gap_moments").insert(
             {
                 "user_id": user_id,
                 "trigger_type": trigger_type,
                 "trigger_value": trigger_value,
             }
-        ).execute()
+        ))
 
         logger.info(
             json.dumps(
@@ -242,13 +242,12 @@ async def get_pending_gap_moment(user_id: str) -> dict | None:
     """
     try:
         result = (
-            supabase_admin.table("gap_moments")
+            await run_query(supabase_admin.table("gap_moments")
             .select("id, trigger_type, trigger_value")
             .eq("user_id", user_id)
             .is_("shown_at", "null")
             .order("created_at", desc=False)
-            .limit(1)
-            .execute()
+            .limit(1))
         )
         rows = result.data or []
         if not rows:
@@ -260,11 +259,10 @@ async def get_pending_gap_moment(user_id: str) -> dict | None:
 
         try:
             dna = (
-                supabase_admin.table("discipline_dna")
+                await run_query(supabase_admin.table("discipline_dna")
                 .select("guilt_orientation")
                 .eq("user_id", user_id)
-                .single()
-                .execute()
+                .single())
                 .data
                 or {}
             )
@@ -284,22 +282,20 @@ async def get_pending_gap_moment(user_id: str) -> dict | None:
                 from app.services.mission_service import get_user_date
 
                 user_row = (
-                    supabase_admin.table("users")
+                    await run_query(supabase_admin.table("users")
                     .select("timezone")
                     .eq("id", user_id)
-                    .single()
-                    .execute()
+                    .single())
                     .data
                     or {}
                 )
                 today = get_user_date(str(user_row.get("timezone") or "UTC"))
                 m_res = (
-                    supabase_admin.table("missions")
+                    await run_query(supabase_admin.table("missions")
                     .select("id")
                     .eq("user_id", user_id)
                     .eq("mission_date", today)
-                    .in_("type", ["core", "interest", "resistance"])
-                    .execute()
+                    .in_("type", ["core", "interest", "resistance"]))
                     .data
                     or []
                 )
@@ -333,9 +329,9 @@ async def get_pending_gap_moment(user_id: str) -> dict | None:
 async def mark_gap_moment_shown(user_id: str, moment_id: str) -> None:
     """Mark a gap moment as shown so it won't appear again. Silent on error."""
     try:
-        supabase_admin.table("gap_moments").update(
+        await run_query(supabase_admin.table("gap_moments").update(
             {"shown_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", moment_id).eq("user_id", user_id).execute()
+        ).eq("id", moment_id).eq("user_id", user_id))
     except Exception as e:
         logger.error(
             json.dumps(

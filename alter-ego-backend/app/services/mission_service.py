@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 
-from app.core.supabase_client import supabase_admin
+from app.core.supabase_client import supabase_admin, run_query
 
 logger = logging.getLogger(__name__)
 
@@ -189,13 +189,10 @@ async def ensure_pet_unlocked_if_eligible(user_id: str) -> bool:
     """
     from app.core.constants import PET_UNLOCK_DAY
 
-    res = (
-        supabase_admin.table("users")
+    res = await run_query(supabase_admin.table("users")
         .select("registration_date, pet_unlocked, pet_stage, timezone")
         .eq("id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     row = res.data or {}
     if row.get("pet_unlocked"):
         return False
@@ -206,7 +203,7 @@ async def ensure_pet_unlocked_if_eligible(user_id: str) -> bool:
     updates: dict = {"pet_unlocked": True, "pet_state": "happy"}
     if not row.get("pet_stage"):
         updates["pet_stage"] = 1
-    supabase_admin.table("users").update(updates).eq("id", user_id).execute()
+    await run_query(supabase_admin.table("users").update(updates).eq("id", user_id))
     logger.info(
         json.dumps(
             {
@@ -231,27 +228,21 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
         pillars_for_day,
     )
 
-    existing = (
-        supabase_admin.table("missions")
+    existing = await run_query(supabase_admin.table("missions")
         .select("*")
         .eq("user_id", user_id)
         .eq("mission_date", mission_date)
-        .eq("type", "core")
-        .execute()
-    )
+        .eq("type", "core"))
     if existing.data:
         return existing.data
 
-    user_res = (
-        supabase_admin.table("users")
+    user_res = await run_query(supabase_admin.table("users")
         .select(
             "archetype, registration_date, timezone, "
             "recovery_mode_reason, recovery_mode_until"
         )
         .eq("id", user_id)
-        .limit(1)
-        .execute()
-    )
+        .limit(1))
     user = (user_res.data or [None])[0]
     if not user:
         return []
@@ -277,7 +268,7 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
     days_active = max(0, (mday - reg_day).days)
     archetype = str(user.get("archetype") or "structured_climber")
 
-    dna_res = supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id).limit(1).execute()
+    dna_res = await run_query(supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id).limit(1))
     dna_row = (dna_res.data or [None])[0] or {}
 
     pillar_keys = ["sleep", "movement", "hydration", "mindfulness", "no_phone"]
@@ -289,12 +280,11 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
 
     seven_start = (mday - timedelta(days=7)).isoformat()
     recent = (
-        supabase_admin.table("missions")
+        await run_query(supabase_admin.table("missions")
         .select("core_pillar, completed, is_journal_mission, mission_date")
         .eq("user_id", user_id)
         .eq("type", "core")
-        .gte("mission_date", seven_start)
-        .execute()
+        .gte("mission_date", seven_start))
         .data
         or []
     )
@@ -312,14 +302,13 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
             pillar_rates[pillar] = 0.7
 
     last_titles_res = (
-        supabase_admin.table("missions")
+        await run_query(supabase_admin.table("missions")
         .select("title, created_at")
         .eq("user_id", user_id)
         .eq("type", "core")
         .eq("is_journal_mission", False)
         .order("created_at", desc=True)
-        .limit(24)
-        .execute()
+        .limit(24))
         .data
         or []
     )
@@ -360,14 +349,13 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
     try:
         streak_cutoff = (mday - timedelta(days=30)).isoformat()
         streak_rows = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("core_pillar, mission_date, completed, is_journal_mission")
             .eq("user_id", user_id)
             .eq("type", "core")
             .gte("mission_date", streak_cutoff)
             .lte("mission_date", mission_date)
-            .order("mission_date", desc=True)
-            .execute()
+            .order("mission_date", desc=True))
             .data
             or []
         )
@@ -396,7 +384,7 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
 
     try:
         hour_rows = (
-            supabase_admin.table("missions")
+            await run_query(supabase_admin.table("missions")
             .select("core_pillar, completed_at")
             .eq("user_id", user_id)
             .eq("type", "core")
@@ -404,8 +392,7 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
             .eq("is_journal_mission", False)
             .not_.is_("completed_at", "null")
             .order("completed_at", desc=True)
-            .limit(70)
-            .execute()
+            .limit(70))
             .data
             or []
         )
@@ -499,17 +486,14 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
     )
 
     try:
-        inserted = supabase_admin.table("missions").insert(rows).execute()
+        inserted = await run_query(supabase_admin.table("missions").insert(rows))
         out: list[dict] = list(inserted.data) if inserted.data else []
         if not out:
-            fetched = (
-                supabase_admin.table("missions")
+            fetched = await run_query(supabase_admin.table("missions")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("mission_date", mission_date)
-                .eq("type", "core")
-                .execute()
-            )
+                .eq("type", "core"))
             out = fetched.data or []
         logger.info(
             json.dumps(
@@ -542,27 +526,21 @@ async def get_today_missions(user_id: str, mission_date: str) -> list[dict]:
     Returns all missions for a user on a given date.
     Ordered: core first, then interest, then resistance, then personal.
     """
-    result = (
-        supabase_admin.table("missions")
+    result = await run_query(supabase_admin.table("missions")
         .select("*")
         .eq("user_id", user_id)
-        .eq("mission_date", mission_date)
-        .execute()
-    )
+        .eq("mission_date", mission_date))
     rows = result.data or []
     order = {"core": 0, "interest": 1, "resistance": 2, "personal": 3, "recovery": 4}
     return sorted(rows, key=lambda r: order.get(r.get("type") or "", 99))
 
 
 async def get_today_missions_by_type(user_id: str, mission_date: str, mission_type: str) -> list[dict]:
-    result = (
-        supabase_admin.table("missions")
+    result = await run_query(supabase_admin.table("missions")
         .select("*")
         .eq("user_id", user_id)
         .eq("mission_date", mission_date)
-        .eq("type", mission_type)
-        .execute()
-    )
+        .eq("type", mission_type))
     return result.data or []
 
 
@@ -582,30 +560,24 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     9. Check streak (stub for now)
     10. Return result
     """
-    mission_result = (
-        supabase_admin.table("missions")
+    mission_result = await run_query(supabase_admin.table("missions")
         .select("*")
         .eq("id", mission_id)
         .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
 
     if not mission_result.data:
         raise HTTPException(status_code=404, detail="Mission not found")
 
     mission = mission_result.data
 
-    user_result = (
-        supabase_admin.table("users")
+    user_result = await run_query(supabase_admin.table("users")
         .select(
             "total_xp, total_pf, character_stage, timezone, pet_stage, pet_unlocked, "
             "current_streak, power_score, absence_days, registration_date"
         )
         .eq("id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     user = user_result.data or {}
 
     # PF is disabled until companion unlock (day 6). If scheduler hasn't run yet on day 6,
@@ -620,7 +592,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
             unlock_updates: dict = {"pet_unlocked": True, "pet_state": "happy"}
             if not int(user.get("pet_stage") or 0):
                 unlock_updates["pet_stage"] = 1
-            supabase_admin.table("users").update(unlock_updates).eq("id", user_id).execute()
+            await run_query(supabase_admin.table("users").update(unlock_updates).eq("id", user_id))
             pet_unlocked = True
             user["pet_unlocked"] = True
             if "pet_stage" in unlock_updates:
@@ -662,14 +634,11 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     if mission.get("is_journal_mission"):
         from app.core.journal_rules import journal_stored_qualifies_for_mission
 
-        je = (
-            supabase_admin.table("journal_entries")
+        je = await run_query(supabase_admin.table("journal_entries")
             .select("title, content")
             .eq("user_id", user_id)
             .eq("mission_date", str(mission.get("mission_date") or ""))
-            .limit(1)
-            .execute()
-        )
+            .limit(1))
         row = (je.data or [None])[0]
         if not row or not journal_stored_qualifies_for_mission(
             row.get("title"),
@@ -686,9 +655,9 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         raise HTTPException(status_code=400, detail="Mission is not for today")
 
     # Mark mission complete
-    supabase_admin.table("missions").update(
+    await run_query(supabase_admin.table("missions").update(
         {"completed": True, "completed_at": datetime.now(timezone.utc).isoformat()}
-    ).eq("id", mission_id).execute()
+    ).eq("id", mission_id))
 
     # Calculate XP/PF earned from stored values
     xp_earned = int(mission.get("xp_value") or 0)
@@ -699,14 +668,10 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     daily_xp_cap = int(DAILY_XP_CAPS.get(character_stage, 100))
     daily_pf_cap = int(DAILY_PF_CAPS.get(character_stage, 160))
 
-    xp_today_result = (
-        supabase_admin.table("xp_log").select("amount").eq("user_id", user_id).eq("log_date", today).execute()
-    )
+    xp_today_result = await run_query(supabase_admin.table("xp_log").select("amount").eq("user_id", user_id).eq("log_date", today))
     xp_today = sum(int(row.get("amount") or 0) for row in (xp_today_result.data or []))
 
-    pf_today_result = (
-        supabase_admin.table("pf_log").select("amount").eq("user_id", user_id).eq("log_date", today).execute()
-    )
+    pf_today_result = await run_query(supabase_admin.table("pf_log").select("amount").eq("user_id", user_id).eq("log_date", today))
     pf_today = sum(int(row.get("amount") or 0) for row in (pf_today_result.data or []))
 
     xp_earned = max(0, min(xp_earned, daily_xp_cap - xp_today))
@@ -719,7 +684,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
 
     # Log XP and PF
     if xp_earned > 0:
-        supabase_admin.table("xp_log").insert(
+        await run_query(supabase_admin.table("xp_log").insert(
             {
                 "user_id": user_id,
                 "amount": xp_earned,
@@ -729,11 +694,11 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
                 "log_date": today,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
-        ).execute()
+        ))
 
     pet_stage = int(user.get("pet_stage") or 0)
     if pf_earned > 0:
-        supabase_admin.table("pf_log").insert(
+        await run_query(supabase_admin.table("pf_log").insert(
             {
                 "user_id": user_id,
                 "amount": pf_earned,
@@ -743,7 +708,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
                 "log_date": today,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
-        ).execute()
+        ))
 
     absence_before = int(user.get("absence_days") or 0)
     try:
@@ -763,7 +728,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         pass
 
     # Update user totals
-    supabase_admin.table("users").update({"total_xp": new_total_xp, "total_pf": new_total_pf}).eq("id", user_id).execute()
+    await run_query(supabase_admin.table("users").update({"total_xp": new_total_xp, "total_pf": new_total_pf}).eq("id", user_id))
 
     try:
         from app.services.strip_message_service import update_strip_message
@@ -803,13 +768,10 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         new_power_score = await calculate_power_score(user_id, log_event=False)
     except Exception:
         logger.exception("calculate_power_score failed after mission complete user=%s", user_id)
-        ps_row = (
-            supabase_admin.table("users")
+        ps_row = await run_query(supabase_admin.table("users")
             .select("power_score")
             .eq("id", user_id)
-            .single()
-            .execute()
-        )
+            .single())
         new_power_score = int((ps_row.data or {}).get("power_score") or 0)
 
     # Category C — milestone notifications (immediate, pre-written, no LLM)
@@ -865,28 +827,22 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     try:
         m_title = str(mission.get("title") or "").strip()
         if m_title:
-            twin_log = (
-                supabase_admin.table("twin_mission_log")
+            twin_log = await run_query(supabase_admin.table("twin_mission_log")
                 .select("id")
                 .eq("user_id", user_id)
                 .eq("mission_date", today)
                 .eq("mission_title", m_title)
-                .limit(1)
-                .execute()
-            )
+                .limit(1))
             twin_already_done = bool(twin_log.data)
     except Exception:
         twin_already_done = None
 
     twin_xp_for_copy = 0
     try:
-        twin_rec = (
-            supabase_admin.table("twin_daily_record")
+        twin_rec = await run_query(supabase_admin.table("twin_daily_record")
             .select("xp_earned")
             .eq("user_id", user_id)
-            .eq("record_date", today)
-            .execute()
-        )
+            .eq("record_date", today))
         tr = twin_rec.data or []
         twin_xp_for_copy = int(tr[0].get("xp_earned") or 0) if tr else 0
     except Exception:
@@ -898,13 +854,10 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
 
     all_complete_today = False
     try:
-        missions_today = (
-            supabase_admin.table("missions")
+        missions_today = await run_query(supabase_admin.table("missions")
             .select("id, completed")
             .eq("user_id", user_id)
-            .eq("mission_date", today)
-            .execute()
-        )
+            .eq("mission_date", today))
         rows = missions_today.data or []
         if rows:
             all_complete_today = all(m.get("completed") for m in rows)
@@ -983,9 +936,7 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
     from app.agents.interest_planner_agent import generate_interest_mission
     from app.services.quit_service import sync_quit_path_missions_for_date
 
-    interests_res = (
-        supabase_admin.table("interests").select("*").eq("user_id", user_id).execute()
-    )
+    interests_res = await run_query(supabase_admin.table("interests").select("*").eq("user_id", user_id))
     all_interests = interests_res.data or []
 
     eligible_interest_ids: set[str] = set()
@@ -997,14 +948,11 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
             eligible_interest_ids.add(str(row["id"]))
             active_interest_rows.append(row)
 
-    int_missions = (
-        supabase_admin.table("missions")
+    int_missions = await run_query(supabase_admin.table("missions")
         .select("id, interest_id, completed")
         .eq("user_id", user_id)
         .eq("mission_date", mission_date)
-        .eq("type", "interest")
-        .execute()
-    ).data or []
+        .eq("type", "interest")).data or []
 
     removed_interest = 0
     for m in int_missions:
@@ -1012,27 +960,21 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
             continue
         iid = m.get("interest_id")
         if iid is None or str(iid) not in eligible_interest_ids:
-            supabase_admin.table("missions").delete().eq("id", m["id"]).execute()
+            await run_query(supabase_admin.table("missions").delete().eq("id", m["id"]))
             removed_interest += 1
 
-    paths_res = (
-        supabase_admin.table("quit_paths")
+    paths_res = await run_query(supabase_admin.table("quit_paths")
         .select("id")
         .eq("user_id", user_id)
-        .eq("status", "active")
-        .execute()
-    )
+        .eq("status", "active"))
     quit_path_rows = paths_res.data or []
     eligible_path_ids = {str(p["id"]) for p in quit_path_rows}
 
-    res_missions = (
-        supabase_admin.table("missions")
+    res_missions = await run_query(supabase_admin.table("missions")
         .select("id, quit_path_id, completed")
         .eq("user_id", user_id)
         .eq("mission_date", mission_date)
-        .eq("type", "resistance")
-        .execute()
-    ).data or []
+        .eq("type", "resistance")).data or []
 
     removed_resistance = 0
     for m in res_missions:
@@ -1040,24 +982,18 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
             continue
         qpid = m.get("quit_path_id")
         if qpid is None or str(qpid) not in eligible_path_ids:
-            supabase_admin.table("missions").delete().eq("id", m["id"]).execute()
+            await run_query(supabase_admin.table("missions").delete().eq("id", m["id"]))
             removed_resistance += 1
 
-    user_row = (
-        supabase_admin.table("users")
+    user_row = await run_query(supabase_admin.table("users")
         .select("character_stage, daily_hours_floor, archetype, timezone")
         .eq("id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     user = user_row.data or {}
-    dna_row = (
-        supabase_admin.table("discipline_dna")
+    dna_row = await run_query(supabase_admin.table("discipline_dna")
         .select("completion_rate_7d, mission_skip_pattern, peak_day")
         .eq("user_id", user_id)
-        .single()
-        .execute()
-    )
+        .single())
     discipline_dna = dna_row.data or {}
 
     for interest in active_interest_rows:
@@ -1088,15 +1024,12 @@ async def sync_today_planner_missions(user_id: str, mission_date: str) -> dict:
 async def delete_stale_incomplete_personal_missions(user_id: str, today: str) -> None:
     """Remove incomplete personal missions dated before the user's local today (fresh daily list)."""
     try:
-        (
-            supabase_admin.table("missions")
+        await run_query(supabase_admin.table("missions")
             .delete()
             .eq("user_id", user_id)
             .eq("type", "personal")
             .eq("completed", False)
-            .lt("mission_date", today)
-            .execute()
-        )
+            .lt("mission_date", today))
     except Exception as e:
         logger.error(
             json.dumps(
@@ -1122,19 +1055,18 @@ async def recalibrate_core_pillar_difficulties(user_id: str) -> list[str]:
     now = datetime.now(timezone.utc)
     fourteen_days_ago = (now.date() - timedelta(days=14)).isoformat()
 
-    dna_res = supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id).limit(1).execute()
+    dna_res = await run_query(supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id).limit(1))
     if not dna_res.data:
         return []
     dna = dna_res.data[0]
 
     recent_missions = (
-        supabase_admin.table("missions")
+        await run_query(supabase_admin.table("missions")
         .select("core_pillar, completed, mission_date, is_journal_mission")
         .eq("user_id", user_id)
         .eq("type", "core")
         .gte("mission_date", fourteen_days_ago)
-        .eq("is_journal_mission", False)
-        .execute()
+        .eq("is_journal_mission", False))
         .data
         or []
     )
@@ -1216,7 +1148,7 @@ async def recalibrate_core_pillar_difficulties(user_id: str) -> list[str]:
         updates["pending_difficulty_change"] = " | ".join(pending_parts)
 
     if updates:
-        supabase_admin.table("discipline_dna").update(updates).eq("user_id", user_id).execute()
+        await run_query(supabase_admin.table("discipline_dna").update(updates).eq("user_id", user_id))
 
     if difficulty_changes:
         logger.info("Core difficulty changes for %s: %s", user_id, difficulty_changes)
@@ -1238,13 +1170,10 @@ async def update_pillar_difficulty(user_id: str, pillar: str, direction: str) ->
     col_changed = f"core_{pillar}_difficulty_changed_at"
     col_weeks = f"core_{pillar}_clean_weeks"
 
-    dna_res = (
-        supabase_admin.table("discipline_dna")
+    dna_res = await run_query(supabase_admin.table("discipline_dna")
         .select(f"{col_diff}, {col_changed}")
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
+        .limit(1))
     dna = (dna_res.data or [None])[0]
     if not dna:
         return {"updated": False, "reason": "No discipline profile yet."}
@@ -1273,13 +1202,13 @@ async def update_pillar_difficulty(user_id: str, pillar: str, direction: str) ->
         }
 
     new_difficulty = TIER_ORDER[new_idx]
-    supabase_admin.table("discipline_dna").update(
+    await run_query(supabase_admin.table("discipline_dna").update(
         {
             col_diff: new_difficulty,
             col_changed: now.isoformat(),
             col_weeks: 0,
         }
-    ).eq("user_id", user_id).execute()
+    ).eq("user_id", user_id))
 
     return {"updated": True, "pillar": pillar, "old": current, "new": new_difficulty}
 

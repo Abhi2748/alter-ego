@@ -68,6 +68,7 @@ class ChatResponse(BaseModel):
     emotional_register: str | None = None
     is_safety_response: bool = False
     safety_category: str | None = None
+    tone_used: str | None = None
 
 
 class TwinToneRatingBody(BaseModel):
@@ -93,6 +94,14 @@ def _normalize_twin_tone(raw: str | None) -> str:
     return t
 
 
+def _tone_type_for_rating(twin_msg: dict, dna_tone: str | None) -> str:
+    """Prefer per-message tone_used; fallback to DNA for legacy rows."""
+    raw = twin_msg.get("tone_used")
+    if raw:
+        return _normalize_twin_tone(str(raw))
+    return _normalize_twin_tone(dna_tone)
+
+
 class RateTwinMessageBody(BaseModel):
     rating: int = Field(..., description="Thumbs: -1 down, 0 neutral, 1 up")
 
@@ -106,6 +115,7 @@ class TwinMessage(BaseModel):
     tone_rating: str | None = None
     is_proactive: bool | None = None
     is_read: bool | None = None
+    tone_used: str | None = None
 
 
 class ChatHistoryResponse(BaseModel):
@@ -327,6 +337,7 @@ async def chat_with_twin(body: ChatRequest, authorization: str = Header(None)):
         emotional_register=result.get("emotional_register"),
         is_safety_response=bool(result.get("is_safety_response")),
         safety_category=result.get("safety_category"),
+        tone_used=result.get("tone_used"),
     )
 
 
@@ -340,7 +351,7 @@ async def get_chat_history(authorization: str = Header(None), limit: int = 50):
 
     result = (
         supabase_admin.table("twin_messages")
-        .select("id, role, content, created_at, message_rating, is_proactive, is_read")
+        .select("id, role, content, created_at, message_rating, is_proactive, is_read, tone_used")
         .eq("user_id", user_id)
         .order("created_at", desc=False)
         .limit(min(limit, 100))
@@ -396,7 +407,7 @@ async def rate_twin_message_endpoint(
 ):
     """
     Store thumbs up (+1) / neutral (0) / thumbs down (-1) on a twin message.
-    Also mirrors into twin_tone_ratings for Settings → Tone History.
+    Mirrors into twin_tone_ratings for Settings → Tone History using the message's tone_used (DNA fallback for legacy rows).
     """
     user_id = get_user_id_from_token(authorization)
     if body.rating not in (-1, 0, 1):
@@ -409,7 +420,7 @@ async def rate_twin_message_endpoint(
 
     msg_res = (
         supabase_admin.table("twin_messages")
-        .select("id, role")
+        .select("id, role, tone_used")
         .eq("id", message_id)
         .eq("user_id", user_id)
         .limit(1)
@@ -433,7 +444,7 @@ async def rate_twin_message_endpoint(
         .execute()
     )
     dna = (dna_res.data or [None])[0] or {}
-    tone_type = _normalize_twin_tone(dna.get("twin_tone_type"))
+    tone_type = _tone_type_for_rating(msg, dna.get("twin_tone_type"))
 
     existing = (
         supabase_admin.table("twin_tone_ratings")
@@ -463,7 +474,7 @@ async def rate_twin_message_endpoint(
 async def post_twin_tone_rating(body: TwinToneRatingBody, authorization: str = Header(None)):
     """
     Save or update the user's rating for one Twin chat message.
-    Tone type is taken from current discipline_dna (voice at time of rating).
+    Tone type is taken from twin_messages.tone_used (voice for that line), with DNA fallback for legacy rows.
     """
     user_id = get_user_id_from_token(authorization)
     try:
@@ -473,7 +484,7 @@ async def post_twin_tone_rating(body: TwinToneRatingBody, authorization: str = H
 
     msg_res = (
         supabase_admin.table("twin_messages")
-        .select("id, role")
+        .select("id, role, tone_used")
         .eq("id", body.message_id)
         .eq("user_id", user_id)
         .limit(1)
@@ -491,7 +502,7 @@ async def post_twin_tone_rating(body: TwinToneRatingBody, authorization: str = H
         .execute()
     )
     dna = (dna_res.data or [None])[0] or {}
-    tone_type = _normalize_twin_tone(dna.get("twin_tone_type"))
+    tone_type = _tone_type_for_rating(msg, dna.get("twin_tone_type"))
 
     existing = (
         supabase_admin.table("twin_tone_ratings")
@@ -514,7 +525,7 @@ async def post_twin_tone_rating(body: TwinToneRatingBody, authorization: str = H
     else:
         supabase_admin.table("twin_tone_ratings").insert(payload).execute()
 
-    return {"ok": True, "tone_type": tone_type}
+    return {"ok": True, "tone_type": tone_type, "tone_used": tone_type}
 
 
 @router.get("/tone-history", response_model=dict)

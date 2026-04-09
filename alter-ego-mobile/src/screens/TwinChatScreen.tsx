@@ -17,6 +17,7 @@ import {
   Keyboard,
   ListRenderItem,
   TouchableOpacity,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -26,6 +27,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { useTwinChatHistory, useSendTwinMessage, useRateTwinMessage } from "@/hooks/useTwin";
+import { TWIN_STRIP_IMAGE } from "@/constants/characterPetAssets";
 import { twinService } from "@/services/twin";
 import { useUserStore } from "@/store/userStore";
 import Animated, {
@@ -438,25 +440,17 @@ export function TwinChatScreen() {
             <Ionicons name="close" size={16} color={MUTED} />
           </Pressable>
           <View style={styles.avatarWrap}>
-            <LinearGradient
-              colors={["rgba(110,40,210,0.70)", "rgba(20,15,50,0.95)"]}
-              start={{ x: 0.2, y: 0.2 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.avatarCircle}
+            <Image
+              source={TWIN_STRIP_IMAGE}
+              style={styles.avatarImage}
+              resizeMode="cover"
+              accessibilityIgnoresInvertColors
             />
-            <View style={styles.petDot}>
-              <LinearGradient
-                colors={["rgba(100,40,200,0.80)", "rgba(20,15,50,0.95)"]}
-                start={{ x: 0.2, y: 0.2 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-            </View>
           </View>
           <View style={styles.nameColumn}>
             <Text style={styles.headerName}>Shadow Twin</Text>
             <Text style={styles.headerStage}>
-              {profile?.character_stage_name ?? "—"} · {profile?.pet_name ?? "—"}
+              {profile?.character_stage_name ?? "—"}
             </Text>
           </View>
         </View>
@@ -621,27 +615,12 @@ const styles = StyleSheet.create({
     position: "relative",
     flexShrink: 0,
   },
-  avatarCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1.5,
-    borderColor: "rgba(139,92,246,0.45)",
-    shadowColor: "rgba(109,40,217,0.35)",
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 6,
-  },
-  petDot: {
-    position: "absolute",
-    bottom: -2,
-    right: -3,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: "#08091A",
-    overflow: "hidden",
+  avatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.35)",
   },
   nameColumn: { marginLeft: 10, flex: 1 },
   headerName: { fontSize: 14, fontWeight: "700", color: USER_TEXT },

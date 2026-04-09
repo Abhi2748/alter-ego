@@ -589,7 +589,7 @@ async def _generate_category_a_nudge(
             break
 
     hours_left = max(0, 23 - local_hour)
-    pet_name = PET_NAMES[pet_stage - 1] if pet_stage > 0 else "Cub"
+    pet_name = PET_NAMES[pet_stage - 1] if pet_stage > 0 else "Cat"
     tone = dna.get("twin_tone_type", "rival")
 
     try:

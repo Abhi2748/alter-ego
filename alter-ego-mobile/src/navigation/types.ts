@@ -44,7 +44,7 @@ export type MainTabParamList = {
   Home: { journalJustCompleted?: boolean } | undefined;
   Today: undefined;
   Twin: undefined;
-  Report: undefined;
+  Focus: undefined;
   Profile: undefined;
 };
 
@@ -83,6 +83,8 @@ export type MainStackParamList = {
   /** Full-screen gap moment — also used as overlay from App; optional stack route. */
   GapMoment: undefined;
   Leaderboard: undefined;
+  /** Full-screen streak detail (mock-aligned) */
+  StreakDetail: undefined;
 };
 
 export type ProfileStackParamList = {
@@ -99,6 +101,11 @@ export type ProfileStackParamList = {
   ProfileIdentity: undefined;
   ProfileCompanion: undefined;
   ProfileQuits: undefined;
+  /** Weekly report (same UI as former Report tab) */
+  ProfileWeeklyReport: undefined;
   /** Full-screen interest arc & manage actions */
   ProfileInterestDetail: { pathId: string };
+  /** Quit path detail (card tap) */
+  QuitDetail: { pathId: string };
+  AbilityDetail: { statKey: string };
 };

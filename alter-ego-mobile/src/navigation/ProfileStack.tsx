@@ -13,6 +13,9 @@ import { ProfileIdentityScreen } from "../screens/ProfileIdentityScreen";
 import { ProfileCompanionScreen } from "../screens/ProfileCompanionScreen";
 import { ProfileQuitsScreen } from "../screens/ProfileQuitsScreen";
 import { InterestDetailScreen } from "../screens/InterestDetailScreen";
+import { QuitDetailScreen } from "../screens/QuitDetailScreen";
+import { AbilityDetailScreen } from "../screens/AbilityDetailScreen";
+import { WeeklyReportScreen } from "../screens/WeeklyReportScreen";
 import { COLORS } from "../constants/theme";
 
 const Stack = createStackNavigator<ProfileStackParamList>();
@@ -32,7 +35,18 @@ export function ProfileStack() {
       <Stack.Screen name="ProfileIdentity" component={ProfileIdentityScreen} />
       <Stack.Screen name="ProfileCompanion" component={ProfileCompanionScreen} />
       <Stack.Screen name="ProfileQuits" component={ProfileQuitsScreen} />
+      <Stack.Screen
+        name="AbilityDetail"
+        component={AbilityDetailScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="ProfileWeeklyReport"
+        component={WeeklyReportScreen}
+        options={{ headerShown: false }}
+      />
       <Stack.Screen name="ProfileInterestDetail" component={InterestDetailScreen} />
+      <Stack.Screen name="QuitDetail" component={QuitDetailScreen} />
     </Stack.Navigator>
   );
 }

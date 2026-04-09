@@ -100,9 +100,9 @@ The leaderboard updates every night. Your rank reflects your consistency — not
         "subject": "Your companion arrived.",
         "body": """Day 6. Your companion is here.
 
-It starts as a Cub. It grows through Pet Food — earned every time you complete a mission.
+It starts as a Cat. It grows through Pet Food — earned every time you complete a mission.
 
-Your companion has 8 stages: Cub → Cat → Fox → Wolf → Snow Leopard → Panther → Griffin → Dragon.
+Your companion has 8 stages: Cat → Fox → Wolf → Panther → Snow Leopard → Tiger → Phoenix → Dragon.
 
 At a consistent pace, reaching Dragon takes about a year. Your Shadow Twin's companion grows too — their stage reflects the gap between you.
 
@@ -204,6 +204,122 @@ Keep going.
 
 — ALTER EGO""",
     },
+
+    # ── Streak milestones ─────────────────────────────────────────────────────
+    "streak_milestone_7": {
+        "subject": "7 days. On a Roll.",
+        "body": """7 days.
+
+The first week is the hardest. Most people reset before this. You didn't.
+
+**Your streak tier has updated to On a Roll.** The ring on your home screen reflects it.
+
+Your Shadow Twin has been here every day too. The gap between you now reflects 7 days of real choices.
+
+Keep the standard.
+
+— ALTER EGO""",
+    },
+    "streak_milestone_30": {
+        "subject": "30 days. Inferno.",
+        "body": """30 consecutive days.
+
+Research on habit formation puts the critical inflection point at 21–66 days depending on complexity. You're through it.
+
+This doesn't mean it gets easier. It means the identity is consolidating. The part of you that negotiated with whether to show up is quieter now.
+
+**Your streak tier has updated to Inferno.**
+
+Your Shadow Twin's streak is tracked alongside yours. The gap is yours — every day of it.
+
+Keep going.
+
+— ALTER EGO""",
+    },
+    "streak_milestone_100": {
+        "subject": "100.",
+        "body": """100 consecutive days.
+
+This is rare. Most people who downloaded an app with the same intention as you did not make it here.
+
+The discipline you've built is real. It shows in the gap.
+
+— ALTER EGO""",
+    },
+
+    # ── Growth ────────────────────────────────────────────────────────────────
+    "ability_first_levelup": {
+        "subject": "Your first ability levelled up.",
+        "body": """One of your abilities just crossed its first threshold.
+
+**This is the first level-up in your system.** Every level from here requires more SP — and the daily cap means consistent effort over time beats any single good day.
+
+Tap the Abilities section in your Profile to see where you stand and what builds each stat.
+
+The other four abilities are watching.
+
+— ALTER EGO""",
+    },
+    "focus_first_session": {
+        "subject": "First focus session logged.",
+        "body": """Your first focus session is recorded.
+
+Every completed session earns **Focus SP** — contributing to your Focus ability alongside your mindfulness and no-phone missions. The Focus tab tracks your total time, sessions, and streaks.
+
+Three modes. Start with Pomodoro if you're unsure. Switch to Deep Work when you need longer blocks.
+
+— ALTER EGO""",
+    },
+
+    # ── Quit paths ────────────────────────────────────────────────────────────
+    "quit_path_started": {
+        "subject": "You started a quit path.",
+        "body": """You've committed to a quit path.
+
+The first 72 hours are the withdrawal window for most habits. Physical and psychological — both real, both temporary.
+
+**Your quit path runs in phases.** Each phase brings resistance missions calibrated to where you are. Completing them builds Discipline SP.
+
+The Conquer milestone is earned when you finish a full phase without a slip. Log slips honestly — the system is built for honesty, not perfection.
+
+One day at a time.
+
+— ALTER EGO""",
+    },
+    "quit_day_1_clean": {
+        "subject": "Day 1 clean.",
+        "body": """Day 1 complete.
+
+The first 24 hours are often the hardest — the habit is loudest when it's newest.
+
+You logged it. That's the entire job today.
+
+— ALTER EGO""",
+    },
+    "quit_week_1_clean": {
+        "subject": "7 days clean.",
+        "body": """7 days clean.
+
+For most habits, the first week covers the acute withdrawal window. The psychological pull continues — but it changes character after this point.
+
+The system has logged your progress. Your Discipline SP reflects it.
+
+Keep going.
+
+— ALTER EGO""",
+    },
+
+    # ── Stage evolution ───────────────────────────────────────────────────────
+    "stage_evolved": {
+        "subject": "You evolved. Stage {new_stage} — {stage_name}.",
+        "body": """Stage {new_stage}. {stage_name}.
+
+Your character evolved. Your XP daily cap has increased — you can now earn more per day than before.
+
+Your Shadow Twin's evolution is tracked alongside yours. The gap reflects who showed up.
+
+— ALTER EGO""",
+    },
 }
 
 
@@ -258,6 +374,11 @@ async def send_welcome_mail_sequence(user_id: str) -> None:
 
 
 async def check_and_send_scheduled_mails(user_id: str) -> None:
+    """
+    Called on login / daily mission generation (user_local_maintenance hour 1).
+    Fires day-based mails that haven't been sent yet.
+    Event-based mails are fired from their respective services.
+    """
     from app.services.mission_service import get_days_since_registration
 
     user_result = (
@@ -287,7 +408,190 @@ async def check_and_send_scheduled_mails(user_id: str) -> None:
 
     if days >= 2 and "twin_guide" not in sent_types:
         await send_app_mail(user_id, "twin_guide")
-    # twin_recalibration_note is sent from twin_recalibration_job after each recalibration (day 7 first, then every 7 days).
-    # day_7_checkin template kept for optional manual sends; not auto-sent (would duplicate day-7 recalibration mail).
+
+    if days >= 6 and "pet_unlock" not in sent_types:
+        await send_app_mail(user_id, "pet_unlock")
+
+    if days >= 7 and "day_7_checkin" not in sent_types:
+        await send_app_mail(user_id, "day_7_checkin")
+
     if days >= 28 and "week_4_encouragement" not in sent_types:
         await send_app_mail(user_id, "week_4_encouragement")
+
+
+async def check_and_send_streak_milestone(user_id: str, new_streak: int) -> None:
+    milestones = {
+        3: "first_streak_tip",
+        7: "streak_milestone_7",
+        30: "streak_milestone_30",
+        100: "streak_milestone_100",
+    }
+    mail_type = milestones.get(new_streak)
+    if not mail_type:
+        return
+
+    existing = (
+        supabase_admin.table("app_mails")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("mail_type", mail_type)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not existing:
+        await send_app_mail(user_id, mail_type)
+
+
+async def check_and_send_ability_levelup_mail(user_id: str) -> None:
+    existing = (
+        supabase_admin.table("app_mails")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("mail_type", "ability_first_levelup")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not existing:
+        await send_app_mail(user_id, "ability_first_levelup")
+
+
+async def check_and_send_focus_first_session_mail(user_id: str) -> None:
+    existing = (
+        supabase_admin.table("app_mails")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("mail_type", "focus_first_session")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not existing:
+        await send_app_mail(user_id, "focus_first_session")
+
+
+async def check_and_send_quit_path_started_mail(user_id: str) -> None:
+    existing = (
+        supabase_admin.table("app_mails")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("mail_type", "quit_path_started")
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not existing:
+        await send_app_mail(user_id, "quit_path_started")
+
+
+def _interest_dedupe_marker(interest_id: str) -> str:
+    return f"<!--interest:{interest_id}-->"
+
+
+def mail_exists_for_interest(
+    user_id: str, mail_type: str, interest_id: str
+) -> bool:
+    needle = _interest_dedupe_marker(interest_id)
+    rows = (
+        supabase_admin.table("app_mails")
+        .select("body_markdown")
+        .eq("user_id", user_id)
+        .eq("mail_type", mail_type)
+        .execute()
+        .data
+        or []
+    )
+    for r in rows:
+        if needle in (r.get("body_markdown") or ""):
+            return True
+    return False
+
+
+async def send_interest_mail_once(
+    user_id: str,
+    mail_type: str,
+    interest_id: str,
+    template_data: dict | None,
+) -> bool:
+    if mail_exists_for_interest(user_id, mail_type, interest_id):
+        return False
+    content = MAIL_CONTENT.get(mail_type)
+    if not content:
+        return False
+    data = dict(template_data or {})
+    body = _format_mail_text(content["body"], data) + f"\n\n{_interest_dedupe_marker(interest_id)}"
+    subject = _format_mail_text(content["subject"], data)
+    try:
+        supabase_admin.table("app_mails").insert(
+            {
+                "user_id": user_id,
+                "mail_type": mail_type,
+                "subject": subject,
+                "body_markdown": body,
+                "sent_at": datetime.utcnow().isoformat(),
+            }
+        ).execute()
+        return True
+    except Exception as e:
+        logger.error("send_interest_mail_once: failed for %s: %s", user_id, e)
+        return False
+
+
+async def send_stage_evolved_mail_if_needed(
+    user_id: str, new_stage: int, stage_name: str
+) -> None:
+    marker = f"Stage {new_stage}"
+    rows = (
+        supabase_admin.table("app_mails")
+        .select("subject")
+        .eq("user_id", user_id)
+        .eq("mail_type", "stage_evolved")
+        .execute()
+        .data
+        or []
+    )
+    for r in rows:
+        if marker in (r.get("subject") or ""):
+            return
+    await send_app_mail(
+        user_id,
+        "stage_evolved",
+        {"new_stage": new_stage, "stage_name": stage_name},
+    )
+
+
+async def maybe_send_quit_clean_mails(
+    user_id: str, days_since_path_start: int
+) -> None:
+    """days_since_path_start = calendar days since quit path created (0 = first day)."""
+    if days_since_path_start == 1:
+        existing = (
+            supabase_admin.table("app_mails")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("mail_type", "quit_day_1_clean")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not existing:
+            await send_app_mail(user_id, "quit_day_1_clean")
+    if days_since_path_start >= 7:
+        existing_w = (
+            supabase_admin.table("app_mails")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("mail_type", "quit_week_1_clean")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not existing_w:
+            await send_app_mail(user_id, "quit_week_1_clean")

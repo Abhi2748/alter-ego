@@ -679,6 +679,39 @@ async def weekly_report_local_job():
     count = 0
 
     async def _one(uid: str) -> None:
+        from datetime import datetime
+
+        from zoneinfo import ZoneInfo
+
+        from app.services.mission_service import local_completed_week_bounds
+        from app.services.report_service import weekly_report_week_eligible
+
+        urow = (
+            supabase_admin.table("users")
+            .select("registration_date, timezone")
+            .eq("id", uid)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
+        tz_str = str(urow.get("timezone") or "UTC")
+        try:
+            tz = ZoneInfo(tz_str)
+        except Exception:
+            from datetime import timezone as dt_utc
+
+            tz = dt_utc.utc
+        now_local = datetime.now(tz)
+        ws, we = local_completed_week_bounds(tz_str)
+        if not weekly_report_week_eligible(
+            urow.get("registration_date"),
+            tz_str,
+            ws,
+            we,
+            now_local=now_local,
+        ):
+            return
         await generate_weekly_report(uid)
 
     for i in range(0, len(due_ids), BATCH_SIZE):

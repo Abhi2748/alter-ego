@@ -14,6 +14,7 @@ import {
   Platform,
   Pressable,
   Modal,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +24,7 @@ import { CompanionShareCard } from "../components/CompanionShareCard";
 import { useProfileCompanion } from "@/hooks/useProfile";
 import { useUserStore } from "@/store/userStore";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
+import { getPetImageSource } from "@/constants/characterPetAssets";
 
 interface PetStageHistoryItem {
   stage: number;
@@ -83,7 +85,8 @@ export function ProfileCompanionScreen() {
   const navigation = useNavigation();
   const [cardVisible, setCardVisible] = useState(false);
   const [selectedStage, setSelectedStage] = useState<number>(1);
-  const [selectedPetName, setSelectedPetName] = useState<string>("Cub");
+  const [selectedPetName, setSelectedPetName] = useState<string>("Cat");
+  const [selectedUnlocked, setSelectedUnlocked] = useState(true);
   const cardRef = useRef<View>(null);
   const profile = useUserStore((state) => state.profile);
   const username = profile?.username ?? "";
@@ -110,7 +113,25 @@ export function ProfileCompanionScreen() {
   const loading = isPending && !display;
 
   const current = display;
-  const currentStage = current?.current_pet_stage ?? 0;
+
+  /** Merge profile when API omits pet_stage (keeps hero + list in sync with overview). */
+  const currentStage = useMemo(() => {
+    if (!current) return 0;
+    const api = Number(current.current_pet_stage ?? 0);
+    if (api > 0) return Math.min(8, api);
+    const unlocked = current.pet_unlocked ?? profile?.pet_unlocked ?? false;
+    const ps = Number(profile?.pet_stage ?? 0);
+    if (unlocked && ps > 0) return Math.min(8, ps);
+    return 0;
+  }, [current, profile]);
+
+  const heroPetStage = useMemo(() => {
+    if (!current) return 1;
+    const unlocked = current.pet_unlocked ?? profile?.pet_unlocked ?? false;
+    if (!unlocked) return 1;
+    return Math.min(8, Math.max(1, currentStage > 0 ? currentStage : 1));
+  }, [current, currentStage, profile]);
+
   const pfThreshold =
     current?.companions?.find((c) => c.stage === currentStage)?.pf_next ??
     current?.companions?.find((c) => c.stage === Math.max(1, currentStage))?.pf_required ??
@@ -118,9 +139,9 @@ export function ProfileCompanionScreen() {
   const pfPct = current ? Math.max(0, Math.min(1, (current.progress_pct ?? 0) / 100)) : 0;
 
   const openShareCardFor = (st: PetStageHistoryItem) => {
-    if (!st.unlocked) return;
     setSelectedStage(st.stage);
     setSelectedPetName(st.name);
+    setSelectedUnlocked(st.unlocked);
     setCardVisible(true);
   };
 
@@ -294,22 +315,12 @@ export function ProfileCompanionScreen() {
 
             <View style={styles.currentRow}>
               <View style={styles.petArtWrap}>
-                <LinearGradient
-                  colors={
-                    currentStage === 1
-                      ? ["rgba(6,78,59,0.35)", "rgba(4,40,25,0.75)"]
-                      : currentStage === 2
-                      ? ["rgba(6,78,59,0.45)", "rgba(4,40,25,0.85)"]
-                      : currentStage === 3
-                      ? ["rgba(5,95,75,0.45)", "rgba(4,50,35,0.85)"]
-                      : ["rgba(5,120,80,0.55)", "rgba(3,30,18,0.90)"]
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
-                  style={styles.petArt}
+                <Image
+                  source={getPetImageSource(heroPetStage)}
+                  style={[styles.petArtImage, !current.pet_unlocked && styles.petArtLocked]}
+                  resizeMode="contain"
+                  accessibilityIgnoresInvertColors
                 />
-                <View style={styles.petArtBorder} />
-                <Text style={styles.petArtLabel}>{current.current_pet_name ?? "—"}</Text>
               </View>
 
               <View style={styles.metaCol}>
@@ -344,27 +355,27 @@ export function ProfileCompanionScreen() {
                 ) : (
                   <Text style={styles.daysEstimate}>{`Progress: ${(current.progress_pct ?? 0).toFixed(1)}%`}</Text>
                 )}
+              </View>
+            </View>
 
-                <View style={styles.statsRow}>
-                  <View style={styles.statsPill}>
-                    <Text style={styles.statsValue}>
-                      {current.total_pf.toLocaleString()}
-                    </Text>
-                    <Text style={styles.statsLabel}>TOTAL PF</Text>
-                  </View>
-                  <View style={styles.statsPill}>
-                    <Text style={styles.statsValue}>
-                      {current.pf_to_next.toLocaleString()}
-                    </Text>
-                    <Text style={styles.statsLabel}>PF TO NEXT</Text>
-                  </View>
-                  <View style={styles.statsPill}>
-                    <Text style={styles.statsValue}>
-                      {Math.max(0, Math.min(8, current.current_pet_stage)).toString()}
-                    </Text>
-                    <Text style={styles.statsLabel}>STAGE</Text>
-                  </View>
-                </View>
+            <View style={styles.statsRow}>
+              <View style={styles.statsPill}>
+                <Text style={styles.statsValue}>
+                  {current.total_pf.toLocaleString()}
+                </Text>
+                <Text style={styles.statsLabel}>TOTAL PF</Text>
+              </View>
+              <View style={styles.statsPill}>
+                <Text style={styles.statsValue}>
+                  {current.pf_to_next.toLocaleString()}
+                </Text>
+                <Text style={styles.statsLabel}>PF TO NEXT</Text>
+              </View>
+              <View style={styles.statsPill}>
+                <Text style={styles.statsValue}>
+                  {Math.max(0, Math.min(8, currentStage)).toString()}
+                </Text>
+                <Text style={styles.statsLabel}>STAGE</Text>
               </View>
             </View>
 
@@ -375,11 +386,7 @@ export function ProfileCompanionScreen() {
               const isCurrent = st.current;
               const isLocked = !st.unlocked;
               const isCompleted = st.unlocked && !st.current;
-
-              const opacity =
-                isLocked && st.stage > Math.max(1, currentStage)
-                  ? 0.28 - 0.04 * Math.max(0, st.stage - currentStage - 1)
-                  : 1;
+              const canOpen = st.unlocked;
 
               return (
                 <Pressable
@@ -387,29 +394,23 @@ export function ProfileCompanionScreen() {
                   style={[
                     styles.stageRow,
                     !isLast && styles.stageRowBorder,
-                    { opacity },
+                    isLocked && styles.stageRowLocked,
                   ]}
-                  onPress={() => openShareCardFor(st)}
+                  onPress={canOpen ? () => openShareCardFor(st) : undefined}
+                  disabled={!canOpen}
                 >
                   {isCurrent && <View style={styles.currentAccentBar} />}
-                  <View
-                    style={[
-                      styles.stageThumb,
-                      isCurrent
-                        ? styles.stageThumbCurrent
-                        : isLocked
-                        ? styles.stageThumbLocked
-                        : styles.stageThumbDone,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.stageThumbText,
-                        isLocked && styles.stageThumbTextLocked,
-                      ]}
-                    >
-                      {`S${st.stage}`}
-                    </Text>
+                  <View style={[styles.stageThumb, isLocked && styles.stageThumbLocked]}>
+                    {isLocked ? (
+                      <Ionicons name="lock-closed" size={18} color="rgba(16,185,129,0.45)" />
+                    ) : (
+                      <Image
+                        source={getPetImageSource(st.stage)}
+                        style={styles.stageThumbImage}
+                        resizeMode="contain"
+                        accessibilityIgnoresInvertColors
+                      />
+                    )}
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text
@@ -422,7 +423,7 @@ export function ProfileCompanionScreen() {
                           : styles.stageRowNameDone,
                       ]}
                     >
-                      {st.name}
+                      {isLocked ? "Locked companion" : st.name}
                     </Text>
                     <Text
                       style={[
@@ -434,7 +435,7 @@ export function ProfileCompanionScreen() {
                         ? `Unlocked${st.earned_at ? ` · ${new Date(st.earned_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}`
                         : isCurrent
                         ? `Current · ${current.pf_to_next.toLocaleString()} PF to next`
-                        : `${st.pf_required.toLocaleString()} PF · ~${roughTimeForPf(st.pf_required)}`}
+                        : `Reach ${st.pf_required.toLocaleString()} PF to unlock`}
                     </Text>
                   </View>
                   {isCurrent ? (
@@ -466,17 +467,6 @@ export function ProfileCompanionScreen() {
               );
             })}
 
-            <View style={styles.dragonCard}>
-              <View style={styles.dragonIconBox}>
-                <Text style={styles.dragonIconText}>S8</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.dragonTitle}>Dragon · Stage 8</Text>
-                <Text style={styles.dragonBody}>
-                  150,000 PF · ~1,800 days. A Dragon is not an achievement. It is a biography.
-                </Text>
-              </View>
-            </View>
           </View>
         </ScrollView>
 
@@ -511,6 +501,10 @@ export function ProfileCompanionScreen() {
                 }
                 totalPF={current.total_pf}
                 tierLabel={tierLabelForStage(selectedStage)}
+                lockedPreview={!selectedUnlocked}
+                unlockPfRequired={
+                  current.companions.find((s) => s.stage === selectedStage)?.pf_required ?? 0
+                }
               />
               <Pressable onPress={() => setCardVisible(false)} style={styles.closeBtn}>
                 <Ionicons name="close" size={20} color="#6B7280" />
@@ -525,17 +519,7 @@ export function ProfileCompanionScreen() {
 }
 
 function nextPetName(stage: number): string {
-  const names = [
-    "Cub",
-    "Cat",
-    "Fox",
-    "Wolf",
-    "Snow Leopard",
-    "Panther",
-    "Griffin",
-    "Dragon",
-  ];
-  return names[Math.min(names.length - 1, Math.max(0, stage - 1))];
+  return PET_STAGE_NAMES[Math.min(PET_STAGE_NAMES.length - 1, Math.max(0, stage - 1))];
 }
 
 function roughTimeForPf(pf: number): string {
@@ -574,8 +558,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(16,185,129,0.20)",
-    padding: 18,
-    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+    marginTop: 12,
     marginBottom: 14,
     overflow: "hidden",
   },
@@ -588,36 +574,24 @@ const styles = StyleSheet.create({
   },
   currentRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "flex-start",
     columnGap: 16,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   petArtWrap: {
-    width: 90,
-    height: 90,
-    borderRadius: 18,
-    overflow: "hidden",
+    width: 100,
+    height: 100,
+    overflow: "visible",
     position: "relative",
   },
-  petArt: {
-    flex: 1,
-    borderRadius: 18,
+  petArtImage: {
+    width: "100%",
+    height: "100%",
   },
-  petArtBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.20)",
+  petArtLocked: {
+    opacity: 0.42,
   },
-  petArtLabel: {
-    position: "absolute",
-    bottom: 6,
-    left: 8,
-    fontSize: 10,
-    fontWeight: "600",
-    color: "rgba(16,185,129,0.55)",
-  },
-  metaCol: { flex: 1 },
+  metaCol: { flex: 1, minWidth: 0, paddingTop: 0 },
   stageBadge: {
     fontSize: 9,
     fontWeight: "700",
@@ -677,6 +651,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     columnGap: 8,
     marginTop: 4,
+    marginBottom: 4,
+    width: "100%",
+    alignSelf: "stretch",
   },
   statsPill: {
     flex: 1,
@@ -721,6 +698,9 @@ const styles = StyleSheet.create({
     columnGap: 12,
     position: "relative",
   },
+  stageRowLocked: {
+    opacity: 0.95,
+  },
   stageRightWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -749,34 +729,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#10B981",
   },
   stageThumb: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 48,
+    height: 48,
     alignItems: "center",
     justifyContent: "center",
   },
-  stageThumbDone: {
-    backgroundColor: "rgba(6,78,59,0.30)",
-    borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.22)",
-  },
-  stageThumbCurrent: {
-    backgroundColor: "rgba(6,78,59,0.40)",
-    borderWidth: 1.5,
-    borderColor: "rgba(16,185,129,0.40)",
-  },
   stageThumbLocked: {
-    backgroundColor: "rgba(5,15,8,0.50)",
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(10,25,12,0.40)",
+    borderColor: "rgba(16,185,129,0.14)",
+    backgroundColor: "rgba(5,20,10,0.55)",
   },
-  stageThumbText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "rgba(52,211,153,0.65)",
-  },
-  stageThumbTextLocked: {
-    color: "#0A1A0C",
+  stageThumbImage: {
+    width: "100%",
+    height: "100%",
   },
   stageRowName: {
     fontSize: 13,
@@ -810,44 +776,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "700",
     color: "#34D399",
-  },
-  dragonCard: {
-    marginTop: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.15)",
-    paddingVertical: 12,
-    paddingHorizontal: 13,
-    flexDirection: "row",
-    alignItems: "center",
-    columnGap: 12,
-    backgroundColor: "rgba(6,78,59,0.18)",
-  },
-  dragonIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
-    backgroundColor: "rgba(6,78,59,0.40)",
-    borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.22)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dragonIconText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "rgba(16,185,129,0.35)",
-  },
-  dragonTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "rgba(52,211,153,0.55)",
-    marginBottom: 3,
-  },
-  dragonBody: {
-    fontSize: 11,
-    color: "rgba(16,185,129,0.30)",
-    lineHeight: 16,
   },
   cardContainer: {
     ...StyleSheet.absoluteFillObject,

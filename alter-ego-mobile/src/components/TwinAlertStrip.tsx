@@ -23,6 +23,7 @@ import Animated, {
   Easing,
 } from "react-native-reanimated";
 import { COLORS, SPACING } from "../constants/theme";
+import { TWIN_CHARACTER_IMAGE } from "@/constants/characterPetAssets";
 
 const STRIP_HEIGHT = 56;
 const THUMB_SIZE = 40;
@@ -114,9 +115,11 @@ export function TwinAlertStrip({
                 resizeMode="cover"
               />
             ) : (
-              <View style={styles.thumbnailPlaceholder}>
-                <Text style={styles.thumbnailLabel}>T</Text>
-              </View>
+              <Image
+                source={TWIN_CHARACTER_IMAGE}
+                style={styles.thumbnail}
+                resizeMode="cover"
+              />
             )}
           </View>
           <Text

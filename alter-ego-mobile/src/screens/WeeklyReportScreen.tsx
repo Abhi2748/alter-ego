@@ -12,13 +12,14 @@ import {
   Pressable,
   ActivityIndicator,
   Platform,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Rect, Path, Circle, Defs, RadialGradient, Stop } from "react-native-svg";
-import { PetAnimation } from "../components/PetAnimation";
+import { getPetImageSource } from "@/constants/characterPetAssets";
 import { reportsService } from "@/services/reports";
 import {
   mapRowToWeeklyReportData,
@@ -275,13 +276,12 @@ export function ReportCard({
       {/* Block 3: Pet companion */}
       <View style={styles.block}>
         <View style={styles.petRow}>
-          <View style={styles.petCircle}>
-            <PetAnimation
-              stage={Math.min(8, Math.max(1, data.pet_stage))}
-              isHappy={!data.pet_was_sad}
-              size={48}
-            />
-          </View>
+          <Image
+            source={getPetImageSource(Math.min(8, Math.max(1, data.pet_stage)))}
+            style={[styles.petImage, data.pet_was_sad && styles.petImageSad]}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
           <View style={styles.petTextCol}>
             <Text style={styles.petName}>{data.pet_name} · Stage {data.pet_stage}</Text>
             <Text style={[styles.petSubtext, petSubtextStyle]}>{petSubtext}</Text>
@@ -364,6 +364,7 @@ function EmptyStateCard() {
 export function WeeklyReportScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const showBack = navigation.canGoBack();
   const scrollRef = useRef<ScrollView>(null);
   const pastReportsRef = useRef<View>(null);
 
@@ -442,7 +443,7 @@ export function WeeklyReportScreen() {
   };
 
   const handlePastReportPress = (summary: PastReportSummary) => {
-    (navigation.getParent() as any)?.navigate("PastReportDetail", { report_id: summary.report_id });
+    (navigation.getParent()?.getParent() as any)?.navigate("PastReportDetail", { report_id: summary.report_id });
   };
 
   const hasReport = data != null;
@@ -453,8 +454,20 @@ export function WeeklyReportScreen() {
       <View style={styles.container}>
         <LinearGradient colors={["#09091A", "#07080F"]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={StyleSheet.absoluteFill} />
         <View style={[styles.header, { paddingTop: insets.top + 10, paddingBottom: 14 }]}>
-          <Text style={styles.headerTitle}>Weekly Report</Text>
-          <Text style={styles.headerSubtitle}>Loading…</Text>
+          <View style={styles.headerTopRow}>
+            {showBack ? (
+              <Pressable onPress={() => navigation.goBack()} style={styles.headerBackBtn} hitSlop={12}>
+                <Ionicons name="chevron-back" size={24} color="#E5E7EB" />
+              </Pressable>
+            ) : (
+              <View style={styles.headerBackSpacer} />
+            )}
+            <View style={styles.headerTitleWrap}>
+              <Text style={styles.headerTitle}>Weekly Report</Text>
+              <Text style={styles.headerSubtitle}>Loading…</Text>
+            </View>
+            <View style={styles.headerBackSpacer} />
+          </View>
         </View>
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color="#8B5CF6" />
@@ -473,13 +486,25 @@ export function WeeklyReportScreen() {
       />
 
       <View style={[styles.header, { paddingTop: insets.top + 10, paddingBottom: 14 }]}>
-        <Text style={styles.headerTitle}>Weekly Report</Text>
-        <View style={styles.headerSubtitleRow}>
-          <Text style={styles.headerSubtitle}>{weekRange}</Text>
-          <Text style={styles.headerSubtitle}> · </Text>
-          <Pressable onPress={scrollToPastReports} hitSlop={8}>
-            <Text style={styles.headerLink}>View past reports</Text>
-          </Pressable>
+        <View style={styles.headerTopRow}>
+          {showBack ? (
+            <Pressable onPress={() => navigation.goBack()} style={styles.headerBackBtn} hitSlop={12}>
+              <Ionicons name="chevron-back" size={24} color="#E5E7EB" />
+            </Pressable>
+          ) : (
+            <View style={styles.headerBackSpacer} />
+          )}
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.headerTitle}>Weekly Report</Text>
+            <View style={styles.headerSubtitleRow}>
+              <Text style={styles.headerSubtitle}>{weekRange}</Text>
+              <Text style={styles.headerSubtitle}> · </Text>
+              <Pressable onPress={scrollToPastReports} hitSlop={8}>
+                <Text style={styles.headerLink}>View past reports</Text>
+              </Pressable>
+            </View>
+          </View>
+          <View style={styles.headerBackSpacer} />
         </View>
       </View>
 
@@ -563,11 +588,30 @@ export function WeeklyReportScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    alignItems: "center",
     backgroundColor: "rgba(9,9,26,0.85)",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(42,48,80,0.35)",
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
+  },
+  headerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+  },
+  headerBackBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerBackSpacer: {
+    width: 40,
+    height: 40,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    alignItems: "center",
+    minWidth: 0,
   },
   headerTitle: {
     fontSize: 20,
@@ -716,16 +760,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
   },
-  petCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    overflow: "hidden",
-    borderWidth: 1.5,
-    borderColor: "rgba(139,92,246,0.38)",
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(109,40,217,0.22)", shadowRadius: 16, shadowOffset: { width: 0, height: 0 } }
-      : { elevation: 8 }),
+  petImage: {
+    width: 56,
+    height: 56,
+  },
+  petImageSad: {
+    opacity: 0.65,
   },
   petTextCol: { flex: 1 },
   petName: {

@@ -12,6 +12,8 @@ import { QUIT_ORANGE } from "@/constants/missionColors";
 const PHASE_KEYS = ["mapping", "disruption", "consolidation"] as const;
 
 const POSITIVE = "#A78BFA";
+/** Advance phase link — green (distinct from violet trend / insights). */
+const ADVANCE_PHASE_GREEN = "#4ADE80";
 
 function urgeBarOpacity(level: number, maxLevel: number): number {
   if (maxLevel === 0) return 0.3;
@@ -106,11 +108,12 @@ export function QuitCard({
   }, [target.insights, onInsightPress]);
 
   return (
-    <View style={styles.card}>
-      {onCardPress ? (
-        <Pressable style={styles.cardHit} onPress={onCardPress} accessibilityRole="button" />
-      ) : null}
-      <View style={styles.cardContent} pointerEvents="box-none">
+    <Pressable
+      style={styles.card}
+      onPress={onCardPress ?? undefined}
+      disabled={!onCardPress}
+    >
+      <View style={styles.cardContent}>
       <LinearGradient
         colors={["transparent", "rgba(249,115,22,0.28)", "transparent"]}
         start={{ x: 0, y: 0 }}
@@ -215,8 +218,8 @@ export function QuitCard({
       ) : null}
 
       <View style={styles.freqStrip}>
-        <View style={styles.freqLeft}>
-          <Text style={styles.freqLabel}>{`TODAY — URGES I COULDN'T CONTROL`}</Text>
+        <View style={styles.freqTopRow}>
+          <Text style={styles.freqLabel}>TODAY — URGES I COULDN&apos;T CONTROL</Text>
           <View style={styles.microBars}>
             {microCounts.map((c, i) => {
               const isToday = i === microCounts.length - 1;
@@ -236,7 +239,8 @@ export function QuitCard({
             })}
           </View>
         </View>
-        <View style={styles.freqRight}>
+
+        <View style={styles.freqBottomRow}>
           <View style={styles.freqCtrl}>
             <Pressable
               onPress={(e) => {
@@ -260,20 +264,24 @@ export function QuitCard({
               <Text style={styles.fBtnText}>+</Text>
             </Pressable>
           </View>
-          <Pressable
-            onPress={(e) => {
-              e?.stopPropagation?.();
-              void handleLog();
-            }}
-            disabled={saving}
-            style={styles.logBtn}
-          >
-            {saving ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.logBtnText}>Log</Text>
-            )}
-          </Pressable>
+
+          <View style={styles.freqLogWrap}>
+            <Text style={styles.freqHint}>Adjust then Log</Text>
+            <Pressable
+              onPress={(e) => {
+                e?.stopPropagation?.();
+                void handleLog();
+              }}
+              disabled={saving}
+              style={styles.logBtn}
+            >
+              {saving ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.logBtnText}>Log</Text>
+              )}
+            </Pressable>
+          </View>
         </View>
       </View>
 
@@ -335,7 +343,7 @@ export function QuitCard({
               style={[styles.preserveLink, advancing && { opacity: 0.6 }]}
             >
               {advancing ? (
-                <ActivityIndicator color={POSITIVE} size="small" />
+                <ActivityIndicator color={ADVANCE_PHASE_GREEN} size="small" />
               ) : (
                 <Text style={styles.preserveAdvanceTxt}>Advance phase →</Text>
               )}
@@ -344,7 +352,7 @@ export function QuitCard({
         </View>
       ) : null}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -358,14 +366,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
   },
-  cardHit: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 0,
-  },
-  cardContent: {
-    position: "relative",
-    zIndex: 1,
-  },
+  cardContent: {},
   topEdge: {
     position: "absolute",
     top: 0,
@@ -528,26 +529,46 @@ const styles = StyleSheet.create({
     maxWidth: 100,
   },
   freqStrip: {
+    flexDirection: "column",
+    paddingHorizontal: 18,
+    paddingBottom: 16,
+    gap: 10,
+    zIndex: 1,
+  },
+  freqTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingBottom: 14,
-    zIndex: 1,
+    gap: 8,
   },
-  freqLeft: { flexDirection: "column", gap: 4 },
+  freqBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   freqLabel: {
     fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 1.5,
+    fontWeight: "700",
+    letterSpacing: 1.2,
     textTransform: "uppercase",
     color: "#374151",
     fontFamily: "Inter_700Bold",
+    flex: 1,
   },
   microBars: { flexDirection: "row", gap: 2, alignItems: "flex-end", height: 16 },
   mBar: { width: 6, borderRadius: 1 },
-  freqRight: { flexDirection: "row", alignItems: "center", gap: 10 },
   freqCtrl: { flexDirection: "row", alignItems: "center", gap: 8 },
+  freqLogWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  freqHint: {
+    fontSize: 9,
+    color: "rgba(249,115,22,0.3)",
+    fontWeight: "500",
+    fontStyle: "italic",
+  },
   fBtn: {
     width: 30,
     height: 30,
@@ -659,6 +680,6 @@ const styles = StyleSheet.create({
   preserveAdvanceTxt: {
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
-    color: POSITIVE,
+    color: ADVANCE_PHASE_GREEN,
   },
 });

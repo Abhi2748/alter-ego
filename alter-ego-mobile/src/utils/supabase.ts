@@ -1,6 +1,9 @@
 /**
  * Single Supabase client for ALTER EGO mobile. Uses anon key + RLS.
- * Session persisted with Expo SecureStore (iOS/Android) or AsyncStorage (web).
+ * Session JSON often exceeds Expo SecureStore’s ~2048-byte limit (refresh + user payload),
+ * so we persist auth with AsyncStorage on all platforms. Tokens are still short-lived;
+ * treat device compromise like other OAuth mobile apps using AsyncStorage.
+ *
  * Optional guest mode when "Sign in later" is used and anonymous sign-in is disabled.
  *
  * In .env: EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY
@@ -46,40 +49,10 @@ async function fetchWithRetry(
   throw lastErr;
 }
 
-const ExpoSecureStoreAdapter = {
-  getItem: async (key: string): Promise<string | null> => {
-    try {
-      if (Platform.OS === "web") {
-        return AsyncStorage.getItem(key);
-      }
-      const value = await SecureStore.getItemAsync(key);
-      return value ?? null;
-    } catch {
-      return AsyncStorage.getItem(key);
-    }
-  },
-  setItem: async (key: string, value: string): Promise<void> => {
-    try {
-      if (Platform.OS === "web") {
-        await AsyncStorage.setItem(key, value);
-        return;
-      }
-      await SecureStore.setItemAsync(key, value);
-    } catch {
-      await AsyncStorage.setItem(key, value);
-    }
-  },
-  removeItem: async (key: string): Promise<void> => {
-    try {
-      if (Platform.OS === "web") {
-        await AsyncStorage.removeItem(key);
-        return;
-      }
-      await SecureStore.deleteItemAsync(key);
-    } catch {
-      await AsyncStorage.removeItem(key);
-    }
-  },
+const SupabaseAuthStorageAdapter = {
+  getItem: (key: string) => AsyncStorage.getItem(key),
+  setItem: (key: string, value: string) => AsyncStorage.setItem(key, value),
+  removeItem: (key: string) => AsyncStorage.removeItem(key),
 };
 
 const GUEST_STORAGE_KEY = "alter_ego_guest";
@@ -123,10 +96,44 @@ function isInvalidRefreshAuthError(err: unknown): boolean {
   );
 }
 
+/**
+ * Supabase JS v2 uses `sb-<project-ref>-auth-token` (and `-user` suffix for user chunk).
+ * Older sessions may live only in SecureStore from before we switched to AsyncStorage.
+ * One-time copy so users keep their login after the storage migration.
+ */
+export async function migrateLegacyAuthSessionFromSecureStore(): Promise<void> {
+  if (Platform.OS === "web" || !url) return;
+  let projectRef: string;
+  try {
+    projectRef = new URL(url).hostname.split(".")[0];
+  } catch {
+    return;
+  }
+  const keys = [
+    `sb-${projectRef}-auth-token`,
+    `sb-${projectRef}-auth-token-user`,
+    "supabase.auth.token",
+    "supabase.auth.token-user",
+  ];
+  for (const key of keys) {
+    try {
+      const inAsync = await AsyncStorage.getItem(key);
+      if (inAsync) continue;
+      const legacy = await SecureStore.getItemAsync(key);
+      if (legacy) {
+        await AsyncStorage.setItem(key, legacy);
+        await SecureStore.deleteItemAsync(key).catch(() => {});
+      }
+    } catch {
+      /* SecureStore read can fail if key missing; continue */
+    }
+  }
+}
+
 export const supabase = createClient(url, anonKey, {
   global: { fetch: fetchWithRetry },
   auth: {
-    storage: ExpoSecureStoreAdapter,
+    storage: SupabaseAuthStorageAdapter,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

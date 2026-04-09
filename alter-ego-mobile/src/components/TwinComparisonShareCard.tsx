@@ -16,27 +16,37 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import type { TwinComparisonOut } from "../utils/api";
+import { getCharacterImageSource, getTwinCharacterImageSource } from "@/constants/characterPetAssets";
 
 const CARD_PADDING_H = 20;
-const CARD_MIN_WIDTH = 320;
-const FIGURE_W = 118;
-const FIGURE_H_TWIN_AHEAD = 160;
-const FIGURE_H_USER_AHEAD_USER = 170;
-const FIGURE_H_USER_AHEAD_TWIN = 130;
-const FIGURE_GAP = 12;
+const CARD_MIN_WIDTH = 360;
+const FIGURE_W = 142;
+const FIGURE_H_TWIN_AHEAD = 200;
+/** Gold card: same height for both figures — shorter twin frame + `cover` cropped head/feet; dim twin via opacity instead. */
+const FIGURE_H_USER_AHEAD = 212;
+const FIGURE_GAP = 14;
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   comparison: TwinComparisonOut | null;
+  userCharacterStage?: number;
+  twinCharacterStage?: number;
 };
 
-export function TwinComparisonShareCard({ visible, onClose, comparison }: Props) {
+export function TwinComparisonShareCard({
+  visible,
+  onClose,
+  comparison,
+  userCharacterStage = 1,
+  twinCharacterStage: _twinCharacterStage = 1,
+}: Props) {
   const cardRef = useRef<View>(null);
   const { width: screenWidth } = useWindowDimensions();
   const cardWidth = Math.max(CARD_MIN_WIDTH, screenWidth - CARD_PADDING_H * 2);
@@ -52,6 +62,8 @@ export function TwinComparisonShareCard({ visible, onClose, comparison }: Props)
   const twinXpDisp = twinXp.toLocaleString();
   const userStreak = comparison?.user_streak ?? 0;
   const twinStreak = comparison?.twin_streak ?? 0;
+
+  const uStage = Math.min(6, Math.max(1, Math.floor(userCharacterStage)));
 
   const monthYear = new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
@@ -102,20 +114,22 @@ export function TwinComparisonShareCard({ visible, onClose, comparison }: Props)
                   <Text style={styles.subtitleDim}>YOU vs TWIN</Text>
                 </View>
                 <View style={styles.figuresRow}>
-                  <View style={[styles.figureCard, styles.figureUserViolet]}>
-                    <LinearGradient
-                      colors={["rgba(40,20,80,0.5)", "rgba(8,8,18,0.9)"]}
-                      style={[styles.figureFill, { height: FIGURE_H_TWIN_AHEAD }]}
+                  <View style={styles.figureCard}>
+                    <Image
+                      source={getCharacterImageSource(uStage)}
+                      style={[styles.figureImg, { height: FIGURE_H_TWIN_AHEAD }]}
+                      resizeMode="cover"
+                      accessibilityIgnoresInvertColors
                     />
-                    <View style={[styles.petDot, styles.petDotUserViolet]} />
                   </View>
                   <View style={styles.fractureViolet} />
-                  <View style={[styles.figureCard, styles.figureTwinViolet]}>
-                    <LinearGradient
-                      colors={["rgba(80,30,160,0.6)", "rgba(15,10,30,0.92)"]}
-                      style={[styles.figureFill, { height: FIGURE_H_TWIN_AHEAD }]}
+                  <View style={styles.figureCard}>
+                    <Image
+                      source={getTwinCharacterImageSource()}
+                      style={[styles.figureImg, { height: FIGURE_H_TWIN_AHEAD }]}
+                      resizeMode="cover"
+                      accessibilityIgnoresInvertColors
                     />
-                    <View style={[styles.petDot, styles.petDotTwinViolet]} />
                   </View>
                 </View>
                 <View style={styles.statsRowCard}>
@@ -157,23 +171,23 @@ export function TwinComparisonShareCard({ visible, onClose, comparison }: Props)
                   <Text style={styles.subtitleDim}>YOU vs TWIN</Text>
                 </View>
                 <View style={styles.figuresRow}>
-                  <View style={[styles.figureCard, styles.figureUserGold]}>
+                  <View style={styles.figureCard}>
                     <Text style={styles.leadingBadge}>LEADING</Text>
-                    <LinearGradient
-                      colors={["rgba(200,140,40,0.4)", "rgba(30,22,10,0.9)"]}
-                      style={[styles.figureFill, { height: FIGURE_H_USER_AHEAD_USER }]}
+                    <Image
+                      source={getCharacterImageSource(uStage)}
+                      style={[styles.figureImg, { height: FIGURE_H_USER_AHEAD }]}
+                      resizeMode="cover"
+                      accessibilityIgnoresInvertColors
                     />
-                    <View style={[styles.petDot, styles.petDotUserGold]} />
                   </View>
                   <View style={styles.fractureGold} />
-                  <View style={[styles.figureCard, styles.figureTwinGold]}>
-                    <View style={styles.figureTwinGoldDim}>
-                      <LinearGradient
-                        colors={["rgba(60,40,15,0.5)", "rgba(15,10,5,0.95)"]}
-                        style={[styles.figureFill, { height: FIGURE_H_USER_AHEAD_TWIN }]}
-                      />
-                    </View>
-                    <View style={[styles.petDot, styles.petDotTwinGold]} />
+                  <View style={[styles.figureCard, styles.figureTwinGoldDim]}>
+                    <Image
+                      source={getTwinCharacterImageSource()}
+                      style={[styles.figureImg, { height: FIGURE_H_USER_AHEAD }]}
+                      resizeMode="cover"
+                      accessibilityIgnoresInvertColors
+                    />
                   </View>
                 </View>
                 <View style={[styles.statsRowCard, styles.statsRowGold]}>
@@ -279,7 +293,7 @@ const styles = StyleSheet.create({
   },
   figuresRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
     gap: FIGURE_GAP,
@@ -289,56 +303,12 @@ const styles = StyleSheet.create({
     position: "relative",
     alignItems: "center",
   },
-  figureFill: {
+  figureImg: {
     width: FIGURE_W,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  figureUserViolet: {
-    borderColor: "rgba(139,92,246,0.2)",
-  },
-  figureTwinViolet: {
-    borderColor: "rgba(139,92,246,0.35)",
-  },
-  figureUserGold: {
-    borderColor: "rgba(245,158,11,0.3)",
-  },
-  figureTwinGold: {
-    borderColor: "rgba(245,158,11,0.15)",
+    borderRadius: 4,
   },
   figureTwinGoldDim: {
     opacity: 0.55,
-  },
-  petDot: {
-    position: "absolute",
-    bottom: -8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-  },
-  petDotUserViolet: {
-    left: 4,
-    backgroundColor: "rgba(80,40,140,0.8)",
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.4)",
-  },
-  petDotTwinViolet: {
-    right: 4,
-    backgroundColor: "rgba(100,60,180,0.9)",
-    borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.5)",
-  },
-  petDotUserGold: {
-    left: 4,
-    backgroundColor: "rgba(200,150,50,0.8)",
-    borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.5)",
-  },
-  petDotTwinGold: {
-    right: 4,
-    backgroundColor: "rgba(100,80,30,0.6)",
-    borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.25)",
   },
   fractureViolet: {
     width: 1,

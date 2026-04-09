@@ -15,6 +15,8 @@ export interface StatProgress {
   sp_in_level: number;
   sp_needed: number;
   progress_percent: number;
+  daily_cap?: number;
+  contributing?: string[];
 }
 
 export interface AuraData {
@@ -33,6 +35,13 @@ export interface CharacterStats {
   missions_completed_today: number;
   total_missions_today: number;
   willpower_milestone_sp_awarded: number;
+  meta?: {
+    level_thresholds: number[];
+    level_names: string[];
+    daily_caps: Record<string, number>;
+    contributing: Record<string, string[]>;
+    willpower_bonus: Record<string, number>;
+  };
 }
 
 export interface StatGains {

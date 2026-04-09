@@ -20,11 +20,52 @@ import json
 import logging
 import random
 import re
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timezone
 
 from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_core_pillar_key(m: dict) -> str:
+    """Stable pillar id for core rows: journal mission uses pillar 'journal'."""
+    if m.get("is_journal_mission"):
+        return "journal"
+    return str(m.get("core_pillar") or "").lower()
+
+
+def _strip_hour_label(h: int | None) -> str:
+    """12h label for strip copy (e.g. 7am, 3pm)."""
+    if h is None:
+        return "—"
+    h = int(h) % 24
+    if h == 0:
+        return "12am"
+    if 1 <= h <= 11:
+        return f"{h}am"
+    if h == 12:
+        return "12pm"
+    return f"{h - 12}pm"
+
+
+def normalize_strip_gap_state(gap_state: str | None) -> str:
+    """Map DB gap_state to STRIP_MESSAGES keys."""
+    g = (gap_state or "neck_and_neck").strip().lower().replace("-", "_")
+    allowed = frozenset(
+        {"user_ahead", "neck_and_neck", "slightly_behind", "significantly_behind"}
+    )
+    if g in allowed:
+        return g
+    aliases = {
+        "userahead": "user_ahead",
+        "neckandneck": "neck_and_neck",
+        "slightlybehind": "slightly_behind",
+        "significantlybehind": "significantly_behind",
+        "behind": "slightly_behind",
+        "twin_ahead": "slightly_behind",
+    }
+    return aliases.get(g, "neck_and_neck")
 
 
 def normalize_strip_tone(tone_type: str | None) -> str:
@@ -164,18 +205,18 @@ EVENT_MESSAGES = {
 
 # ── CONTEXT-AWARE TEMPLATES ──────────────────────────────────────────────
 # Used when today's data produces a specific observation.
-# Variables: {pillar} = skipped pillar name, {count} = skip count this week,
-#            {hour} = hour user finished, {twin_hour} = hour twin finished,
-#            {done} = missions done, {total} = missions total
+# Variables: {pillar} = skipped pillar name, {count} = distinct local days skipped
+#            (Mon–Sun week through today); {user_time}/{twin_time} = 12h labels;
+#            {done}/{total}/{remaining} = mission counts.
 # guilt_orientation > 0.7: use _safe variants (no blame language)
 
 CONTEXT_MESSAGES = {
     # User skipped a specific pillar (and Twin completed it)
     "twin_done_user_skipped": {
         "rival": [
-            "You skipped {pillar} again. {count} times this week.",
+            "You skipped {pillar} again. {count} day(s) so far this week.",
             "{pillar} — you passed on it. I didn't.",
-            "I did {pillar} at {twin_hour}am. It took under 15 minutes.",
+            "I did {pillar} around {twin_time}. It took under 15 minutes.",
             "{pillar} keeps getting skipped. The pattern is yours.",
         ],
         "rival_safe": [  # guilt_orientation > 0.7
@@ -184,7 +225,7 @@ CONTEXT_MESSAGES = {
             "{pillar} — I got to it. You didn't.",
         ],
         "philosopher": [
-            "Skipping {pillar} this week {count} times. That's a pattern worth noticing.",
+            "Skipping {pillar} on {count} day(s) so far this week. That's a pattern worth noticing.",
             "The mission you keep skipping is the one that matters most.",
             "{pillar} keeps getting moved to tomorrow.",
         ],
@@ -212,15 +253,15 @@ CONTEXT_MESSAGES = {
             "Full day.",
         ],
     },
-    # User finished late, Twin finished early
+    # User finished late, Twin finished early (uses 12h labels, not raw 0–23)
     "timing_gap": {
         "rival": [
-            "You completed everything before {hour}pm. I was done by {twin_hour}am.",
-            "Same missions. You finished at {hour}. I was done hours earlier.",
+            "You finished at {user_time}. I was done by {twin_time}.",
+            "Same missions. You wrapped at {user_time}. I was done by {twin_time}.",
             "We both finished. I started where your day ended.",
         ],
         "philosopher": [
-            "Same missions completed. Different hours. That gap is worth thinking about.",
+            "Same missions completed. You at {user_time}, me by {twin_time}. Worth noticing.",
             "The work got done. The timing tells a different story.",
         ],
         "silent_force": [
@@ -268,6 +309,7 @@ def get_strip_message(
         return msg.replace("{username}", username)
 
     tone_type = tone_key
+    gap_state = normalize_strip_gap_state(gap_state)
     bank = STRIP_MESSAGES.get(gap_state, STRIP_MESSAGES["neck_and_neck"])
     messages = bank.get(tone_type, bank.get("rival", ["Still here."]))
     msg = random.choice(messages)
@@ -275,11 +317,23 @@ def get_strip_message(
 
 
 def _format_context_message(msg: str, **kwargs: object) -> str:
-    """Format only `{name}` placeholders present in msg; leaves text unchanged if none."""
+    """Format `{name}` placeholders; missing keys become empty string (no KeyError)."""
     keys = set(re.findall(r"\{(\w+)\}", msg))
     if not keys:
         return msg
-    return msg.format(**{k: kwargs[k] for k in keys})
+    base: dict[str, object] = {
+        "done": 0,
+        "total": 0,
+        "remaining": 0,
+        "hour": 0,
+        "twin_hour": 0,
+        "user_time": "",
+        "twin_time": "",
+        "pillar": "",
+        "count": 0,
+    }
+    merged = {**base, **kwargs}
+    return msg.format(**{k: merged.get(k, "") for k in keys})
 
 
 def _build_context_message(
@@ -298,15 +352,18 @@ def _build_context_message(
     Returns a context-specific strip message if today's data warrants one.
     Returns None if no specific context applies — caller falls back to bank.
     """
+    gap_state = normalize_strip_gap_state(gap_state)
     tone_key = normalize_strip_tone(tone_type)
     high_guilt = guilt_orientation > 0.7
 
-    fmt_kwargs = {
+    fmt_kwargs: dict[str, object] = {
         "done": 0,
         "total": 0,
         "remaining": 0,
         "hour": 0,
         "twin_hour": 0,
+        "user_time": "",
+        "twin_time": "",
         "pillar": "",
         "count": 0,
     }
@@ -383,15 +440,18 @@ def _build_context_message(
 
             if pool:
                 msg = random.choice(pool)
+                th = twin_start_hour if twin_start_hour is not None else 7
                 fmt_kwargs.update(
                     {
                         "pillar": pillar_display,
                         "count": skip_count,
-                        "twin_hour": twin_start_hour or 7,
+                        "twin_hour": th,
+                        "twin_time": _strip_hour_label(th),
                         "done": missions_completed_today,
                         "total": missions_total_today,
                         "remaining": max(0, missions_total_today - missions_completed_today),
                         "hour": user_finish_hour or 0,
+                        "user_time": _strip_hour_label(user_finish_hour),
                     }
                 )
                 return _format_context_message(msg, **fmt_kwargs)
@@ -403,7 +463,7 @@ def _build_context_message(
         and gap_state in ("slightly_behind", "significantly_behind", "neck_and_neck")
     ):
         remaining = missions_total_today - missions_completed_today
-        if remaining >= 2:
+        if remaining >= 1:
             pool = CONTEXT_MESSAGES["partial_progress"].get(
                 tone_key,
                 CONTEXT_MESSAGES["partial_progress"].get("rival", []),
@@ -479,7 +539,7 @@ async def update_strip_message(
 
     tone_type = normalize_strip_tone(dna.get("twin_tone_type", "rival"))
     frequency = dna.get("twin_message_frequency", "medium")
-    gap_state = twin.get("current_gap_state", "neck_and_neck")
+    gap_state = normalize_strip_gap_state(twin.get("current_gap_state", "neck_and_neck"))
     last_updated = twin.get("last_strip_updated")
     strip_empty = not (twin.get("strip_message") or "").strip()
     guilt_orientation = float(dna.get("guilt_orientation") or 0.0)
@@ -487,9 +547,15 @@ async def update_strip_message(
     # ── Frequency gate (events and empty strip always pass through) ──────
     if event is None and last_updated and not strip_empty and not force:
         try:
-            last_dt = datetime.fromisoformat(str(last_updated))
-            days_since = (datetime.utcnow() - last_dt).days
-        except ValueError:
+            raw = str(last_updated).replace("Z", "+00:00")
+            last_dt = datetime.fromisoformat(raw)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            tz_info = ZoneInfo(tz_str)
+            now_u = datetime.now(tz_info)
+            last_u = last_dt.astimezone(tz_info)
+            days_since = (now_u.date() - last_u.date()).days
+        except (ValueError, TypeError, OSError):
             days_since = 999
 
         if frequency == "high" and days_since < 1:
@@ -518,7 +584,7 @@ async def update_strip_message(
 
         user_missions = (
             supabase_admin.table("missions")
-            .select("completed, core_pillar, completed_at, type")
+            .select("completed, core_pillar, completed_at, type, is_journal_mission")
             .eq("user_id", user_id)
             .eq("mission_date", today)
             .execute()
@@ -544,11 +610,13 @@ async def update_strip_message(
             except Exception:
                 pass
 
-        user_skipped_pillars = {
-            str(m.get("core_pillar") or "").lower()
-            for m in user_missions
-            if not m.get("completed") and m.get("type") == "core" and m.get("core_pillar")
-        }
+        user_skipped_pillars = set()
+        for m in user_missions:
+            if m.get("type") != "core" or m.get("completed"):
+                continue
+            pk = _strip_core_pillar_key(m)
+            if pk:
+                user_skipped_pillars.add(pk)
 
         twin_log = (
             supabase_admin.table("twin_mission_log")
@@ -576,24 +644,36 @@ async def update_strip_message(
         pillar_skip_counts: dict[str, int] = {}
         if skipped_pillars_today:
             try:
-                week_ago = str(date_cls.fromisoformat(today) - timedelta(days=7))
+                td = date_cls.fromisoformat(today)
+                week_start = td - timedelta(days=td.weekday())
+                week_start_iso = week_start.isoformat()
                 week_missions = (
                     supabase_admin.table("missions")
-                    .select("mission_date, completed, core_pillar")
+                    .select("mission_date, completed, core_pillar, is_journal_mission")
                     .eq("user_id", user_id)
                     .eq("type", "core")
-                    .gte("mission_date", week_ago)
+                    .gte("mission_date", week_start_iso)
                     .lte("mission_date", today)
                     .execute()
                     .data
                     or []
                 )
+                skip_days_by_pillar: dict[str, set[str]] = defaultdict(set)
                 for m in week_missions:
-                    p = str(m.get("core_pillar") or "").lower()
-                    if p and not m.get("completed"):
-                        pillar_skip_counts[p] = pillar_skip_counts.get(p, 0) + 1
+                    if m.get("completed"):
+                        continue
+                    p = _strip_core_pillar_key(m)
+                    if not p:
+                        continue
+                    d = str(m.get("mission_date") or "")[:10]
+                    if d:
+                        skip_days_by_pillar[p].add(d)
+                pillar_skip_counts = {p: len(days) for p, days in skip_days_by_pillar.items()}
             except Exception:
                 pass
+            # Today is always at least one skip day for pillars still incomplete (covers query edge cases).
+            for p in skipped_pillars_today:
+                pillar_skip_counts[p] = max(int(pillar_skip_counts.get(p, 0)), 1)
 
         new_message = _build_context_message(
             gap_state=gap_state,

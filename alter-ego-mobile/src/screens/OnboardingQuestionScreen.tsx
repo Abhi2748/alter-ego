@@ -538,9 +538,7 @@ export function OnboardingQuestionScreen() {
       const res = await onboardingService.checkUsername(un);
       if (!res.available) {
         setUsernameChecking(false);
-        setUsernameError(
-          res.suggestion ? `That name is taken. Try ${res.suggestion}` : "Username already taken"
-        );
+        setUsernameError("Username already taken");
         return;
       }
       await onboardingService.saveStep({
@@ -890,9 +888,7 @@ export function OnboardingQuestionScreen() {
                   try {
                     const res = await onboardingService.checkUsername(un);
                     if (!res.available) {
-                      setUsernameError(
-                        res.suggestion ? `That name is taken. Try ${res.suggestion}` : "Username already taken"
-                      );
+                      setUsernameError("Username already taken");
                     } else {
                       setUsernameError(null);
                     }
@@ -921,9 +917,7 @@ export function OnboardingQuestionScreen() {
                     : usernameAvailable === true
                       ? "Available"
                       : usernameAvailable === false
-                        ? usernameSuggestion
-                          ? `Taken · try ${usernameSuggestion}`
-                          : "Taken"
+                        ? "Taken"
                         : ""}
                 </Text>
               ) : null}

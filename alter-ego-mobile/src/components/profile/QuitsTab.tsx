@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View,
   Text,
@@ -20,6 +21,9 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
+import { useNavigation } from "@react-navigation/native";
+import type { StackNavigationProp } from "@react-navigation/stack";
+import type { ProfileStackParamList } from "@/navigation/types";
 import type { QuitTarget, QuitTargetInput } from "@/types/quits";
 import {
   useQuits,
@@ -33,7 +37,6 @@ import {
 } from "@/hooks/useQuits";
 import { SlipContextPicker } from "@/components/profile/SlipContextPicker";
 import { WeeklyUrgeCard } from "@/components/WeeklyUrgeCard";
-import { QuitDetailScreen } from "@/screens/QuitDetailScreen";
 import { QuitCard } from "@/components/profile/QuitCard";
 import { QuitManageSheet } from "@/components/profile/QuitManageSheet";
 import { QuitInsightModal } from "@/components/profile/QuitInsightModal";
@@ -42,6 +45,28 @@ import type { QuitMilestoneOut } from "@/types/quitMilestone";
 import { QuitTargetProfileSheet } from "@/components/onboarding/QuitTargetProfileSheet";
 import { getErrorMessage, isApiError } from "@/services/api";
 import { QUIT_ORANGE } from "@/constants/missionColors";
+
+const MILESTONE_QUOTES: Record<string, string> = {
+  day_1: "Every journey begins with a single day. You have started.",
+  day_3: "Three days. The neural pathways are already beginning to rewire.",
+  day_7: "One full week. The habit is losing its automatic grip on you.",
+  day_14: "Two weeks of deliberate resistance. You are building a new identity.",
+  day_30: "One month clean. Your brain has measurably changed.",
+  day_60: "Two months. The competing response is becoming automatic.",
+  day_90: "Ninety days. This is clinically considered a new habit formed.",
+  day_365: "One year. You did not just quit — you became someone who does not do this.",
+};
+
+const MILESTONE_THRESHOLDS: Array<{ days: number; key: string }> = [
+  { days: 1, key: "day_1" },
+  { days: 3, key: "day_3" },
+  { days: 7, key: "day_7" },
+  { days: 14, key: "day_14" },
+  { days: 30, key: "day_30" },
+  { days: 60, key: "day_60" },
+  { days: 90, key: "day_90" },
+  { days: 365, key: "day_365" },
+];
 
 function SkeletonCard() {
   const o = useSharedValue(0.35);
@@ -70,6 +95,7 @@ function SkeletonCard() {
 }
 
 export function QuitsTab() {
+  const navigation = useNavigation<StackNavigationProp<ProfileStackParamList>>();
   const { data: targetsRaw = [], isLoading, isError, isFetching, refetch } = useQuits();
   const targets = targetsRaw as QuitTarget[];
   const logMutation = useLogFrequency();
@@ -98,10 +124,52 @@ export function QuitsTab() {
   const [advancingPathId, setAdvancingPathId] = useState<string | null>(null);
   const [slipPickerVisible, setSlipPickerVisible] = useState(false);
   const [slipPickerPath, setSlipPickerPath] = useState<QuitTarget | null>(null);
-  const [detailTarget, setDetailTarget] = useState<QuitTarget | null>(null);
   const editingPathIdRef = useRef<string | null>(null);
   /** True after submitting a new quit (not profile edit) until the list includes the path or error/timeout. */
   const [creatingQuitPath, setCreatingQuitPath] = useState(false);
+
+  useEffect(() => {
+    if (!targets.length) return;
+
+    void (async () => {
+      for (const t of targets) {
+        if (t.status !== "active") continue;
+        for (const ms of MILESTONE_THRESHOLDS) {
+          if (t.days_active < ms.days) continue;
+          const storageKey = `ae_quit_ms_${t.path_id}_${ms.key}`;
+          try {
+            const already = await AsyncStorage.getItem(storageKey);
+            if (already) continue;
+
+            await AsyncStorage.setItem(storageKey, "1");
+
+            const totalCravings = (t.frequency_history || []).reduce(
+              (sum, h) => sum + (h.count || 0),
+              0
+            );
+
+            setMilestoneModal({
+              milestone: {
+                milestone_type: ms.key,
+                earned_at: new Date().toISOString(),
+                clean_days_at_earn: t.days_active,
+                cravings_at_earn: totalCravings,
+                phase_at_earn: t.current_phase,
+                quote: MILESTONE_QUOTES[ms.key] ?? null,
+                slip_duration_hours: null,
+                return_speed: null,
+              },
+              quitName: t.habit_name,
+            });
+
+            return;
+          } catch {
+            // AsyncStorage failure is non-critical
+          }
+        }
+      }
+    })();
+  }, [targets]);
 
   const openManage = useCallback((t: QuitTarget) => {
     setManageTarget(t);
@@ -382,7 +450,7 @@ export function QuitsTab() {
                   });
                 }}
                 advancing={advancingPathId === t.path_id}
-                onCardPress={() => setDetailTarget(t)}
+                onCardPress={() => navigation.navigate("QuitDetail", { pathId: t.path_id })}
               />
             ))}
             {creatingQuitPath || createMutation.isPending ? (
@@ -485,58 +553,6 @@ export function QuitsTab() {
         habitName={slipPickerPath?.habit_name ?? ""}
         onSave={handleSlipSave}
         onSkip={handleSlipSkip}
-      />
-
-      <QuitDetailScreen
-        visible={!!detailTarget}
-        target={detailTarget}
-        onClose={() => setDetailTarget(null)}
-        onInsightPress={(title, body) => setInsight({ title, body })}
-        onLogSlip={() => {
-          const t = detailTarget;
-          setDetailTarget(null);
-          setTimeout(() => {
-            if (t) {
-              setSlipPickerPath(t);
-              setSlipPickerVisible(true);
-            }
-          }, 350);
-        }}
-        onAdvancePhase={() => {
-          const t = detailTarget;
-          if (!t) return;
-          setAdvancingPathId(t.path_id);
-          advanceMutation.mutate(t.path_id, {
-            onSettled: () => setAdvancingPathId(null),
-            onSuccess: (data) => {
-              setDetailTarget(null);
-              const ins =
-                data && typeof data === "object" && "insight" in data
-                  ? (data as { insight?: { title: string; body: string } }).insight
-                  : undefined;
-              if (ins?.title && ins?.body) setInsight({ title: ins.title, body: ins.body });
-            },
-            onError: () => setAdvancingPathId(null),
-          });
-        }}
-        onUpdateTriggers={() => {
-          const t = detailTarget;
-          setDetailTarget(null);
-          setTimeout(() => {
-            if (t) {
-              setManageTarget(t);
-              manageRef.current?.present();
-            }
-          }, 350);
-        }}
-        onDelete={() => {
-          const t = detailTarget;
-          setDetailTarget(null);
-          setTimeout(() => {
-            if (t) setDeleteTarget(t);
-          }, 350);
-        }}
-        advancing={!!(detailTarget && advancingPathId === detailTarget.path_id)}
       />
 
       {milestoneModal ? (

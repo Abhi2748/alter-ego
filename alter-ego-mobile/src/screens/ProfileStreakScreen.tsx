@@ -13,10 +13,14 @@ import {
   Pressable,
   Platform,
   Dimensions,
+  Switch,
+  ActivityIndicator,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
+import type { ProfileStackParamList } from "@/navigation/types";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   useSharedValue,
@@ -27,8 +31,11 @@ import Animated, {
   withTiming,
   Easing,
 } from "react-native-reanimated";
-import { PetAnimation } from "../components/PetAnimation";
-import { useProfileStreak } from "@/hooks/useProfile";
+import { getPetImageSource } from "@/constants/characterPetAssets";
+import type { StackNavigationProp } from "@react-navigation/stack";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useProfileStreak, PROFILE_KEYS } from "@/hooks/useProfile";
+import { profileService } from "@/services/profile";
 import { useUserStore } from "@/store/userStore";
 import {
   clampViewMonthToEarliest,
@@ -61,7 +68,24 @@ type StreakApiResponse = {
     xp_earned: number;
   }>;
   hint_text?: string;
+  streak_freeze_count?: number;
+  streak_freeze_auto_consume?: boolean;
+  freeze_reserved_next_miss?: boolean;
 };
+
+const VIOLET_GLOW = "#A78BFA";
+
+/** API / cache may send bool or string — keeps Switch from snapping back to ON. */
+function normalizeFreezeAutoConsume(v: unknown): boolean {
+  if (v === false || v === "false" || v === 0) return false;
+  if (v === true || v === "true" || v === 1) return true;
+  return true;
+}
+
+function normalizeReservedFreeze(v: unknown): boolean {
+  if (v === true || v === "true" || v === 1) return true;
+  return false;
+}
 
 const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 const MONTH_NAMES = [
@@ -79,18 +103,73 @@ const MONTH_NAMES = [
 
 export function ProfileStreakScreen() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const navigation = useNavigation<StackNavigationProp<ProfileStackParamList>>();
   const [viewMonth, setViewMonth] = useState<{ month: number; year: number }>(() => {
     const d = new Date();
     return { month: d.getMonth(), year: d.getFullYear() };
   });
   const profile = useUserStore((s) => s.profile);
+  const fetchProfile = useUserStore((s) => s.fetchProfile);
+  const updateStreakFreezeSettings = useUserStore((s) => s.updateStreakFreezeSettings);
+  const queryClient = useQueryClient();
   const { data, isLoading, error, refetch } = useProfileStreak() as {
     data: StreakApiResponse | undefined;
     isLoading: boolean;
     error: unknown;
     refetch: () => void;
   };
+
+  const patchFreeze = useMutation({
+    mutationFn: (streak_freeze_auto_consume: boolean) =>
+      profileService.patchStreakFreezeSettings(streak_freeze_auto_consume),
+    onSuccess: async (res, variables) => {
+      const v = normalizeFreezeAutoConsume(
+        res?.streak_freeze_auto_consume !== undefined
+          ? res.streak_freeze_auto_consume
+          : variables
+      );
+      updateStreakFreezeSettings(v);
+      queryClient.setQueryData(PROFILE_KEYS.streak, (old: StreakApiResponse | undefined) => ({
+        ...(old ?? {}),
+        streak_freeze_auto_consume: v,
+      }));
+      await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
+      await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
+      await fetchProfile();
+      // Re-apply confirmed value so a slow overview fetch can't leave the Switch wrong
+      updateStreakFreezeSettings(v);
+    },
+  });
+
+  const reserveFreeze = useMutation({
+    mutationFn: () => profileService.reserveStreakFreeze(),
+    onSuccess: async (res) => {
+      queryClient.setQueryData(PROFILE_KEYS.streak, (old: StreakApiResponse | undefined) => ({
+        ...(old ?? {}),
+        streak_freeze_count: res.streak_freeze_count,
+        freeze_reserved_next_miss: res.freeze_reserved_next_miss,
+      }));
+      await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
+      await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
+      await fetchProfile();
+    },
+  });
+
+  const autoConsume = useMemo(
+    () =>
+      normalizeFreezeAutoConsume(
+        data?.streak_freeze_auto_consume ?? profile?.streak_freeze_auto_consume
+      ),
+    [data?.streak_freeze_auto_consume, profile?.streak_freeze_auto_consume]
+  );
+
+  const reservedFreeze = useMemo(
+    () =>
+      normalizeReservedFreeze(
+        data?.freeze_reserved_next_miss ?? profile?.freeze_reserved_next_miss
+      ),
+    [data?.freeze_reserved_next_miss, profile?.freeze_reserved_next_miss]
+  );
 
   const petFloat = useSharedValue(0);
 
@@ -292,7 +371,23 @@ export function ProfileStreakScreen() {
 
         {/* Streak hero */}
         <View style={styles.hero}>
-          <View style={styles.heroLeftWrap}>
+          <Pressable
+            style={styles.heroLeftWrap}
+            onPress={() => {
+              let nav: { getParent?: () => unknown; getState?: () => { routeNames?: string[] }; navigate: (name: string) => void } =
+                navigation as never;
+              for (let i = 0; i < 6; i++) {
+                if (!nav) return;
+                const names = nav.getState?.()?.routeNames;
+                if (names?.includes("StreakDetail")) {
+                  nav.navigate("StreakDetail");
+                  return;
+                }
+                nav = nav.getParent?.() as never;
+              }
+            }}
+            hitSlop={8}
+          >
             <View style={styles.heroLeftGlow} pointerEvents="none" />
             <View style={styles.heroLeft}>
               <View style={styles.streakNumberRow}>
@@ -303,17 +398,14 @@ export function ProfileStreakScreen() {
               </View>
               <Text style={styles.streakLabel}>day streak</Text>
             </View>
-          </View>
-          <Animated.View style={[styles.petCircleWrap, petAnimatedStyle]}>
-            <View style={styles.petCircleOuter}>
-              <View style={styles.petCircleInner}>
-                <PetAnimation
-                stage={Math.min(8, Math.max(1, profile?.pet_stage ?? 1))}
-                isHappy
-                size={86}
-              />
-              </View>
-            </View>
+          </Pressable>
+          <Animated.View style={[styles.petWrap, petAnimatedStyle]}>
+            <Image
+              source={getPetImageSource(Math.min(8, Math.max(1, profile?.pet_stage ?? 1)))}
+              style={styles.petHeroImage}
+              resizeMode="contain"
+              accessibilityIgnoresInvertColors
+            />
           </Animated.View>
         </View>
 
@@ -335,7 +427,7 @@ export function ProfileStreakScreen() {
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statCardLabel}>OVERALL</Text>
-            <Text style={[styles.statCardValueYear, { color: "#E5E7EB" }]}>
+            <Text style={[styles.statCardValueYear, { color: VIOLET_GLOW }]}>
               {isLoading ? "—" : String(overallActiveDays)}
             </Text>
             <Text style={styles.statCardSub}>active days</Text>
@@ -456,7 +548,107 @@ export function ProfileStreakScreen() {
             <Text style={styles.tapHintText}>Tap any day to see your mission history</Text>
           </View>
         </View>
+
+        {/* Streak freezes — icy premium card + auto vs manual (below calendar) */}
+        <View style={styles.freezeCardOuter}>
+          <LinearGradient
+            colors={["#060d18", "#0a1628", "#071018"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.freezeCardGradient}
+          >
+            <LinearGradient
+              colors={["rgba(56, 189, 248, 0.16)", "rgba(14, 165, 233, 0.05)", "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+            <View style={styles.freezeCardInner}>
+              <View style={styles.freezeHeaderRow}>
+                <LinearGradient
+                  colors={["rgba(56, 189, 248, 0.28)", "rgba(14, 165, 233, 0.1)"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.freezeIconCircle}
+                >
+                  <Ionicons name="snow-outline" size={24} color="#BAE6FD" />
+                </LinearGradient>
+                <View style={styles.freezeHeaderTextCol}>
+                  <Text style={styles.freezeTitle}>Streak freeze</Text>
+                  <Text style={styles.freezeBody}>
+                    Earn freezes from Twin challenges and milestones. Spend them to protect your streak
+                    when you miss a day.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.freezeCountRow}>
+                <Text style={styles.freezeCountLabel}>Available</Text>
+                <Text style={styles.freezeCountValue}>
+                  {isLoading
+                    ? "—"
+                    : String(data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0)}
+                </Text>
+              </View>
+
+              <View style={styles.freezeSwitchRow}>
+                <View style={styles.freezeSwitchTextCol}>
+                  <Text style={styles.freezeSwitchTitle}>Auto-use on miss</Text>
+                  <Text style={styles.freezeSwitchSub}>
+                    When on, one freeze is used automatically if you miss a day (while you have any).
+                  </Text>
+                </View>
+                <Switch
+                  value={autoConsume}
+                  onValueChange={(v) => patchFreeze.mutate(v)}
+                  disabled={patchFreeze.isPending}
+                  trackColor={{ false: "#374151", true: "rgba(56, 189, 248, 0.42)" }}
+                  thumbColor={autoConsume ? "#7DD3FC" : "#9CA3AF"}
+                />
+              </View>
+
+              {!autoConsume ? (
+                <View style={styles.freezeManualBlock}>
+                  {reservedFreeze ? (
+                    <Text style={styles.freezeReservedNote}>
+                      Next missed day is covered — your streak will stay intact.
+                    </Text>
+                  ) : (
+                    <>
+                      <Text style={styles.freezeManualHint}>
+                        Turn off auto-use to save freezes. Reserve one when you know you might miss a
+                        day — it spends a freeze now and protects the next miss.
+                      </Text>
+                      <Pressable
+                        onPress={() => reserveFreeze.mutate()}
+                        disabled={
+                          reserveFreeze.isPending ||
+                          (data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0) < 1
+                        }
+                        style={({ pressed }) => [
+                          styles.freezeReserveBtn,
+                          ((data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0) < 1 ||
+                            reserveFreeze.isPending) &&
+                            styles.freezeReserveBtnDisabled,
+                          pressed && styles.freezeReserveBtnPressed,
+                        ]}
+                      >
+                        {reserveFreeze.isPending ? (
+                          <ActivityIndicator color="#E0F2FE" size="small" />
+                        ) : (
+                          <Text style={styles.freezeReserveBtnText}>Reserve next miss</Text>
+                        )}
+                      </Pressable>
+                    </>
+                  )}
+                </View>
+              ) : null}
+            </View>
+          </LinearGradient>
+        </View>
       </ScrollView>
+
     </View>
   );
 }
@@ -539,33 +731,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
     marginTop: 2,
   },
-  petCircleWrap: {
-    marginRight: 4,
+  petWrap: {
+    marginRight: 0,
+    flexShrink: 0,
   },
-  petCircleOuter: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    borderWidth: 2,
-    borderColor: "rgba(139,92,246,0.40)",
-    padding: 4,
-    backgroundColor: "rgba(109,40,217,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "rgba(109,40,217,0.28)",
-          shadowRadius: 24,
-          shadowOffset: { width: 0, height: 0 },
-        }
-      : { elevation: 12 }),
-  },
-  petCircleInner: {
-    width: 86,
-    height: 86,
-    borderRadius: 43,
-    overflow: "hidden",
-    backgroundColor: "rgba(20,15,50,0.95)",
+  petHeroImage: {
+    width: 120,
+    height: 120,
   },
 
   statCardsRow: {
@@ -611,6 +783,138 @@ const styles = StyleSheet.create({
     color: "#4B5563",
     marginTop: 3,
     letterSpacing: 0.2,
+  },
+
+  freezeCardOuter: {
+    borderRadius: 18,
+    marginBottom: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(56, 189, 248, 0.22)",
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "rgba(56, 189, 248, 0.2)",
+          shadowRadius: 16,
+          shadowOffset: { width: 0, height: 4 },
+        }
+      : { elevation: 6 }),
+  },
+  freezeCardGradient: {
+    borderRadius: 17,
+    overflow: "hidden",
+  },
+  freezeCardInner: {
+    padding: 16,
+  },
+  freezeHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 14,
+  },
+  freezeIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(125, 211, 252, 0.35)",
+  },
+  freezeHeaderTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  freezeTitle: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
+    color: "#E5E7EB",
+    letterSpacing: -0.2,
+    marginBottom: 4,
+  },
+  freezeBody: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#94A3B8",
+    lineHeight: 17,
+  },
+  freezeCountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(56, 189, 248, 0.08)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(56, 189, 248, 0.18)",
+  },
+  freezeCountLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: "#94A3B8",
+  },
+  freezeCountValue: {
+    fontSize: 22,
+    fontFamily: "Inter_700Bold",
+    color: "#7DD3FC",
+    letterSpacing: -0.5,
+  },
+  freezeSwitchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  freezeSwitchTextCol: {
+    flex: 1,
+  },
+  freezeSwitchTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#E5E7EB",
+  },
+  freezeSwitchSub: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7280",
+    marginTop: 4,
+    lineHeight: 15,
+  },
+  freezeManualBlock: {
+    marginTop: 12,
+  },
+  freezeManualHint: {
+    fontSize: 11,
+    color: "#6B7280",
+    lineHeight: 15,
+    marginBottom: 10,
+  },
+  freezeReservedNote: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: "#A78BFA",
+  },
+  freezeReserveBtn: {
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: "rgba(109,40,217,0.35)",
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  freezeReserveBtnDisabled: {
+    opacity: 0.45,
+  },
+  freezeReserveBtnPressed: {
+    opacity: 0.85,
+  },
+  freezeReserveBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#E0F2FE",
   },
 
   calendarCard: {
@@ -695,6 +999,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(139,92,246,0.08)",
     borderWidth: 1.5,
     borderColor: "rgba(139,92,246,0.3)",
+  },
+  calendarCellPressed: {
+    opacity: 0.88,
   },
   calendarCellText: {
     fontSize: 10,

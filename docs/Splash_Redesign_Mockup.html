@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ALTER EGO — Splash Redesign</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{
+  background:#03030A;
+  font-family:'Inter',sans-serif;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:48px 20px 80px;
+  gap:48px;
+  min-height:100vh;
+}
+.label{
+  font-size:9px;font-weight:700;letter-spacing:3px;
+  text-transform:uppercase;color:rgba(255,255,255,0.2);
+  font-family:'Inter',sans-serif;
+}
+.phone{
+  width:390px;height:844px;
+  border-radius:46px;
+  border:1.5px solid rgba(255,255,255,0.06);
+  box-shadow:0 0 0 1px #000,0 80px 160px rgba(0,0,0,0.95);
+  overflow:hidden;position:relative;flex-shrink:0;
+}
+
+/* ═══════════════════════════════════════════
+   SPLASH SCREEN
+═══════════════════════════════════════════ */
+.splash{
+  width:100%;height:100%;
+  background:#07080F;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+}
+
+/* Extremely subtle radial vignette — barely perceptible */
+.splash::before{
+  content:'';
+  position:absolute;inset:0;
+  background:radial-gradient(
+    ellipse 60% 50% at 50% 52%,
+    rgba(109,40,217,0.07) 0%,
+    transparent 70%
+  );
+  pointer-events:none;
+}
+
+/* The vertical axis line */
+.axis-line{
+  position:absolute;
+  top:0;
+  left:50%;
+  transform:translateX(-50%);
+  width:1px;
+  height:52%;
+  background:linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(139,92,246,0.18) 30%,
+    rgba(139,92,246,0.55) 85%,
+    rgba(139,92,246,0.9) 100%
+  );
+}
+
+/* The focus dot at the terminus of the line */
+.axis-dot{
+  position:absolute;
+  top:52%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  width:5px;height:5px;
+  border-radius:50%;
+  background:#8B5CF6;
+  /* glow rings */
+  box-shadow:
+    0 0 0 6px rgba(139,92,246,0.08),
+    0 0 0 14px rgba(139,92,246,0.04),
+    0 0 20px rgba(139,92,246,0.35);
+}
+
+/* Main content block — sits below the line terminus */
+.content{
+  position:absolute;
+  top:53.5%;
+  left:0;right:0;
+  display:flex;flex-direction:column;
+  align-items:center;
+  gap:0;
+  padding:0 40px;
+}
+
+/* The wordmark */
+.wordmark{
+  font-size:38px;
+  font-weight:900;
+  letter-spacing:0.28em;
+  color:#E8E9F0;
+  text-transform:uppercase;
+  line-height:1;
+  margin-bottom:14px;
+  /* Extremely subtle text shadow for depth */
+  text-shadow:0 0 60px rgba(139,92,246,0.15);
+}
+
+/* The thin rule under the wordmark */
+.rule{
+  width:40px;
+  height:1px;
+  background:linear-gradient(90deg,transparent,rgba(139,92,246,0.6),transparent);
+  margin-bottom:14px;
+}
+
+/* Engine tagline */
+.engine{
+  font-size:9px;
+  font-weight:500;
+  letter-spacing:0.32em;
+  text-transform:uppercase;
+  color:rgba(255,255,255,0.28);
+  margin-bottom:0;
+}
+
+/* Bottom — loading pulse */
+.loader{
+  position:absolute;
+  bottom:64px;
+  left:50%;transform:translateX(-50%);
+  display:flex;gap:6px;align-items:center;
+}
+.loader-dot{
+  width:4px;height:4px;
+  border-radius:50%;
+  background:rgba(139,92,246,0.4);
+  animation:pulse 1.4s ease-in-out infinite;
+}
+.loader-dot:nth-child(2){animation-delay:0.2s;}
+.loader-dot:nth-child(3){animation-delay:0.4s;}
+
+@keyframes pulse{
+  0%,80%,100%{opacity:0.3;transform:scale(0.85);}
+  40%{opacity:1;transform:scale(1);}
+}
+
+
+/* ═══════════════════════════════════════════
+   COMPARISON ROW (small reference)
+═══════════════════════════════════════════ */
+.row{display:flex;gap:24px;flex-wrap:wrap;justify-content:center;align-items:flex-start;}
+.col{display:flex;flex-direction:column;align-items:center;gap:10px;}
+.phone-sm{
+  width:200px;height:434px;
+  border-radius:30px;
+  border:1px solid rgba(255,255,255,0.06);
+  box-shadow:0 0 0 1px #000,0 40px 80px rgba(0,0,0,0.9);
+  overflow:hidden;position:relative;flex-shrink:0;
+}
+.splash-sm{
+  width:100%;height:100%;
+  background:#07080F;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+}
+.splash-sm::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse 60% 50% at 50% 52%,rgba(109,40,217,0.07) 0%,transparent 70%);
+  pointer-events:none;
+}
+.sm-line{
+  position:absolute;top:0;left:50%;transform:translateX(-50%);
+  width:1px;height:52%;
+  background:linear-gradient(180deg,transparent 0%,rgba(139,92,246,0.18) 30%,rgba(139,92,246,0.55) 85%,rgba(139,92,246,0.9) 100%);
+}
+.sm-dot{
+  position:absolute;top:52%;left:50%;transform:translate(-50%,-50%);
+  width:3px;height:3px;border-radius:50%;background:#8B5CF6;
+  box-shadow:0 0 0 4px rgba(139,92,246,0.08),0 0 0 8px rgba(139,92,246,0.04),0 0 12px rgba(139,92,246,0.4);
+}
+.sm-content{
+  position:absolute;top:54%;left:0;right:0;
+  display:flex;flex-direction:column;align-items:center;padding:0 20px;
+}
+.sm-wordmark{font-size:19px;font-weight:900;letter-spacing:0.28em;color:#E8E9F0;text-transform:uppercase;line-height:1;margin-bottom:7px;}
+.sm-rule{width:20px;height:1px;background:linear-gradient(90deg,transparent,rgba(139,92,246,0.6),transparent);margin-bottom:7px;}
+.sm-engine{font-size:5px;font-weight:500;letter-spacing:0.32em;text-transform:uppercase;color:rgba(255,255,255,0.28);}
+.sm-loader{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);display:flex;gap:3px;align-items:center;}
+.sm-ld{width:2.5px;height:2.5px;border-radius:50%;background:rgba(139,92,246,0.4);animation:pulse 1.4s ease-in-out infinite;}
+.sm-ld:nth-child(2){animation-delay:0.2s;}
+.sm-ld:nth-child(3){animation-delay:0.4s;}
+
+/* Variant B — icon-first */
+.splash-b{
+  width:100%;height:100%;background:#07080F;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+}
+.splash-b::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse 50% 40% at 50% 44%,rgba(109,40,217,0.09) 0%,transparent 65%);
+  pointer-events:none;
+}
+.b-mark{
+  width:48px;height:48px;border-radius:16px;
+  background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.25);
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:20px;position:relative;z-index:1;
+}
+.b-symbol{font-size:22px;color:#A78BFA;font-weight:800;line-height:1;}
+.b-wordmark{font-size:19px;font-weight:900;letter-spacing:0.28em;color:#E8E9F0;text-transform:uppercase;margin-bottom:6px;position:relative;z-index:1;}
+.b-engine{font-size:5px;font-weight:500;letter-spacing:0.32em;text-transform:uppercase;color:rgba(255,255,255,0.28);position:relative;z-index:1;}
+.b-loader{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);display:flex;gap:3px;}
+.b-ld{width:2.5px;height:2.5px;border-radius:50%;background:rgba(139,92,246,0.4);animation:pulse 1.4s ease-in-out infinite;}
+.b-ld:nth-child(2){animation-delay:0.2s;}
+.b-ld:nth-child(3){animation-delay:0.4s;}
+
+/* Variant C — pure wordmark, no line */
+.splash-c{
+  width:100%;height:100%;background:#07080F;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+}
+.c-wordmark{font-size:26px;font-weight:900;letter-spacing:0.32em;color:#E8E9F0;text-transform:uppercase;position:relative;z-index:1;margin-bottom:8px;}
+.c-rule{width:24px;height:1px;background:rgba(139,92,246,0.5);margin-bottom:8px;}
+.c-engine{font-size:5px;font-weight:500;letter-spacing:0.32em;text-transform:uppercase;color:rgba(255,255,255,0.25);}
+.c-loader{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);display:flex;gap:3px;}
+.c-ld{width:2.5px;height:2.5px;border-radius:50%;background:rgba(139,92,246,0.4);animation:pulse 1.4s ease-in-out infinite;}
+.c-ld:nth-child(2){animation-delay:0.2s;}
+.c-ld:nth-child(3){animation-delay:0.4s;}
+
+.pg-lbl{font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.15);font-family:'Inter',sans-serif;text-align:center;}
+.pg-sub{font-size:11px;color:rgba(255,255,255,0.2);text-align:center;max-width:500px;line-height:1.7;}
+.divider-text{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,0.12);font-weight:600;}
+</style>
+</head>
+<body>
+
+<div style="text-align:center;display:flex;flex-direction:column;gap:6px;">
+  <div class="pg-lbl">ALTER EGO · Splash Redesign</div>
+  <div class="pg-sub">Recommended: Option A — The Axis. Stripped down to the core metaphor.</div>
+</div>
+
+<!-- ════════════════ OPTION A — HERO VIEW (full size) ════════════════ -->
+<div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+  <div class="label">Option A · The Axis (recommended)</div>
+  <div class="phone">
+    <div class="splash">
+
+      <!-- Vertical axis line — razor thin, fades in from top -->
+      <div class="axis-line"></div>
+
+      <!-- Terminus dot — where the line stops -->
+      <div class="axis-dot"></div>
+
+      <!-- Content below the focal point -->
+      <div class="content">
+        <div class="wordmark">ALTER EGO</div>
+        <div class="rule"></div>
+        <div class="engine">The Adaptive Discipline Engine</div>
+      </div>
+
+      <!-- Loading indicator -->
+      <div class="loader">
+        <div class="loader-dot"></div>
+        <div class="loader-dot"></div>
+        <div class="loader-dot"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ COMPARISON ROW — three options at half size ════════════════ -->
+<div style="display:flex;flex-direction:column;align-items:center;gap:16px;">
+  <div class="label">All three options — side by side</div>
+  <div class="row">
+
+    <!-- A — The Axis -->
+    <div class="col">
+      <div class="phone-sm">
+        <div class="splash-sm">
+          <div class="sm-line"></div>
+          <div class="sm-dot"></div>
+          <div class="sm-content">
+            <div class="sm-wordmark">ALTER EGO</div>
+            <div class="sm-rule"></div>
+            <div class="sm-engine">The Adaptive Discipline Engine</div>
+          </div>
+          <div class="sm-loader">
+            <div class="sm-ld"></div><div class="sm-ld"></div><div class="sm-ld"></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:9px;color:rgba(255,255,255,0.2);letter-spacing:1px;">A · The Axis</div>
+    </div>
+
+    <!-- B — Icon + Wordmark -->
+    <div class="col">
+      <div class="phone-sm">
+        <div class="splash-b">
+          <div class="b-mark"><div class="b-symbol">◉</div></div>
+          <div class="b-wordmark">ALTER EGO</div>
+          <div class="b-engine">The Adaptive Discipline Engine</div>
+          <div class="b-loader">
+            <div class="b-ld"></div><div class="b-ld"></div><div class="b-ld"></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:9px;color:rgba(255,255,255,0.2);letter-spacing:1px;">B · Icon + Name</div>
+    </div>
+
+    <!-- C — Pure Wordmark -->
+    <div class="col">
+      <div class="phone-sm">
+        <div class="splash-c">
+          <div class="c-wordmark">ALTER EGO</div>
+          <div class="c-rule"></div>
+          <div class="c-engine">The Adaptive Discipline Engine</div>
+          <div class="c-loader">
+            <div class="c-ld"></div><div class="c-ld"></div><div class="c-ld"></div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:9px;color:rgba(255,255,255,0.2);letter-spacing:1px;">C · Pure Wordmark</div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

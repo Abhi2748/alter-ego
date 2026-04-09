@@ -10,10 +10,10 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Dimensions,
   Platform,
   Image,
   Alert,
+  InteractionManager,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
@@ -27,7 +27,7 @@ import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { XPProgressBar, XPProgressBarRef } from "../components/XPProgressBar";
 import { getNextStageNameForBar } from "@/constants/characterProgression";
-import { PetRoaming } from "../components/PetRoaming";
+import { PetEvolutionModal } from "../components/PetEvolutionModal";
 import { HomeMissionCard } from "../components/HomeMissionCard";
 import type { MissionType, MissionStatus } from "../components/MissionCard";
 import { AddMissionModal } from "../components/AddMissionModal";
@@ -66,6 +66,7 @@ import { FractureOverlay } from "@/components/FractureOverlay";
 import { SevenDayMirror } from "@/components/SevenDayMirror";
 import { AbsenceInterstitial } from "@/components/AbsenceInterstitial";
 import { RecoveryBanner } from "@/components/RecoveryBanner";
+import PetDialogueBubble from "@/components/PetDialogueBubble";
 import {
   fetchMirrorData,
   fetchReturnState,
@@ -79,6 +80,9 @@ import {
   resolveStatKeyForMission,
   type AbilityStatKey,
 } from "@/constants/stats";
+import { getCharacterImageSource, getPetImageSource } from "@/constants/characterPetAssets";
+import { PET_STAGE_NAMES } from "@/constants/petProgression";
+import { pickPetDialogue, type PetDialogueContext } from "@/constants/petDialogue";
 import { useCharacterStats } from "@/hooks/useStats";
 import { useInterests } from "@/hooks/useInterests";
 import {
@@ -132,11 +136,9 @@ const TEXT_DIM = "#4B5563";
 const PERSONAL_GREY = "#4B5563";
 const PERSONAL_GREY_DARK = "#1F2937";
 
-const CHARACTER_WIDTH = 118;
-const CHARACTER_HEIGHT = 178;
-const PET_SIZE = 72;
-const PET_OFFSET = 10;
-const ROAMING_PET_SIZE = 80;
+/** Match Profile hero character (`charWrap` 168×252). */
+const CHARACTER_WIDTH = 168;
+const CHARACTER_HEIGHT = 252;
 const TOP_BAR_HEIGHT = 56;
 const TAB_BAR_HEIGHT = 56;
 const CONTENT_PADDING_BOTTOM = 96;
@@ -178,6 +180,15 @@ type PlaceholderMission = {
   dayCounter?: number;
 };
 
+type PetDialogueTriggerReason = "session_open" | "mission_complete" | "reminder";
+
+const PET_DIALOGUE_MIN_COOLDOWN_MS = 45000;
+const PET_DIALOGUE_MIN_VISIBLE_MS = 4500;
+const PET_DIALOGUE_MAX_VISIBLE_MS = 6000;
+const PET_DIALOGUE_MIN_REMINDER_MS = 90000;
+const PET_DIALOGUE_MAX_REMINDER_MS = 150000;
+const PET_DIALOGUE_MAX_SHOWS_PER_SESSION = 3;
+
 function missionApiToCard(
   m: Partial<Mission> | null | undefined,
   category: "Core" | "Interest" | "Resistance" | "Personal"
@@ -212,8 +223,6 @@ function getGreeting(): string {
   if (h >= 17 && h < 21) return "Good evening 👋";
   return "Good night 🌙";
 }
-
-const PET_NAMES = ["Cub", "Cat", "Fox", "Wolf", "Snow Leopard", "Panther", "Griffin", "Dragon"] as const;
 
 function getTwinCompletionNote(mission: Mission): string | undefined {
   if (mission.twin_completed === false) return "You got there first.";
@@ -328,23 +337,25 @@ export function HomeScreen() {
   const route = useRoute<RouteProp<MainTabParamList, "Home">>();
   const insets = useSafeAreaInsets();
   const xpBarRef = useRef<XPProgressBarRef>(null);
-  const windowWidth = Dimensions.get("window").width;
-  const windowHeight = Dimensions.get("window").height;
-  const viewportHeight = Math.max(0, windowHeight - insets.top - TOP_BAR_HEIGHT - TAB_BAR_HEIGHT);
-  const heroX = (windowWidth - (CHARACTER_WIDTH + PET_OFFSET + ROAMING_PET_SIZE)) / 2 + CHARACTER_WIDTH + PET_OFFSET;
-  const heroY = 20 + 4 + CHARACTER_HEIGHT / 2 - ROAMING_PET_SIZE / 2;
 
   const profile = useUserStore((state) => state.profile);
   const fetchProfile = useUserStore((state) => state.fetchProfile);
+  const [deferSecondaryHomeData, setDeferSecondaryHomeData] = useState(false);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      setDeferSecondaryHomeData(true);
+    });
+    return () => task.cancel();
+  }, []);
   const { data: todayData, isPending, isFetching, error, refetch } = useTodayMissions();
-  const { data: characterStats } = useCharacterStats();
+  const { data: characterStats } = useCharacterStats({ enabled: deferSecondaryHomeData });
   /** No cached missions yet — show full mission-area skeleton (top may already render from profile). */
   const showMissionSkeletons = !error && !todayData && (isPending || isFetching);
   const { mutate: completeMission, isPending: isCompleting } = useCompleteMission();
   const { mutate: deletePersonalMission } = useDeletePersonalMission();
   const { data: twinStrip } = useTwinStrip();
   const { data: streakProfile } = useProfileStreak();
-  const { data: sigilSnapshot } = useSigilData();
+  const { data: sigilSnapshot } = useSigilData({ enabled: deferSecondaryHomeData });
   const sigilData = sigilSnapshot ?? SIGIL_PLACEHOLDER_DATA;
   const surgeActive = sigilData.surge_active === true;
 
@@ -400,6 +411,16 @@ export function HomeScreen() {
   const [mirrorDismissed, setMirrorDismissed] = useState(false);
   const [absenceInterstitialSessionOpen, setAbsenceInterstitialSessionOpen] = useState(false);
   const [absenceInterstitialDismissed, setAbsenceInterstitialDismissed] = useState(false);
+  const [petDialogueText, setPetDialogueText] = useState<string | null>(null);
+  const [petDialogueVisible, setPetDialogueVisible] = useState(false);
+  const petDialogueAutoHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const petDialogueReminderRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const petDialogueLastShownAtRef = useRef(0);
+  const petDialogueSessionCountRef = useRef(0);
+  const petDialogueLastLineRef = useRef<string | null>(null);
+  const petDialogueRecentLinesRef = useRef<string[]>([]);
+  const petDialogueAbsenceShownRef = useRef(false);
+  const petDialogueQueuedReasonRef = useRef<PetDialogueTriggerReason | null>(null);
 
   const mirrorDayCount = profileUsageDayCount(profile?.registration_date);
   const shouldFetchMirror =
@@ -439,6 +460,13 @@ export function HomeScreen() {
     absenceDays >= 3;
 
   const petAbsenceOpacity = absenceDays >= 2 ? 0.6 : 1;
+  const isPetUnlocked = (profile?.pet_unlocked ?? false) && (profile?.pet_stage ?? 0) >= 1;
+  const overlayBlockingPetDialogue =
+    fractureVisible ||
+    shouldShowAbsenceInterstitial ||
+    stageTwinMsgVisible ||
+    evolutionOverlayVisible ||
+    !!petEvolutionData;
 
   const handleLongAbsenceAck = useCallback(async () => {
     try {
@@ -534,13 +562,6 @@ export function HomeScreen() {
   const petStage = profile?.pet_stage ?? 0;
   const totalPetFood = profile?.total_pf ?? 0;
   const streak = profile?.current_streak ?? 0;
-  const totalToday = todayData?.summary?.total ?? 0;
-  const petHealthState: "happy" | "idle" | "sad" =
-    absenceDays >= 2
-      ? "sad"
-      : totalToday > 0 && completedToday > 0 && completedToday === totalToday
-        ? "happy"
-        : "idle";
 
   const streakHeatmap = streakProfile?.heatmap ?? [];
   const heatmapEligibleSince =
@@ -661,23 +682,10 @@ export function HomeScreen() {
     };
   }, [profile, profile?.current_streak, profile?.username]);
 
-  const nextPetName = petStage >= 1 && petStage < 8 ? PET_NAMES[petStage - 1] : null;
+  const nextPetName =
+    petStage >= 1 && petStage < 8 ? PET_STAGE_NAMES[petStage] : null;
   const pfProgress = profile?.pf_progress_pct ?? 0;
   const petLevelPct = pfProgress / 100;
-
-  const handleComplete = useCallback(
-    (missionId: string) => {
-      completeMission(missionId, {
-        onSuccess: (result) => {
-          emitMissionCompletionCelebration(result, { missionId });
-        },
-        onError: (e) => {
-          Alert.alert("Can't mark done", getErrorMessage(e));
-        },
-      });
-    },
-    [completeMission]
-  );
 
   useEffect(() => {
     const handler = (result: CompleteMissionResponse, source: { missionId?: string }) => {
@@ -709,6 +717,150 @@ export function HomeScreen() {
         refetch();
       }
     }, [route.params?.journalJustCompleted, refetch, navigation])
+  );
+
+  const clearPetDialogueTimers = useCallback(() => {
+    if (petDialogueAutoHideRef.current) {
+      clearTimeout(petDialogueAutoHideRef.current);
+      petDialogueAutoHideRef.current = null;
+    }
+    if (petDialogueReminderRef.current) {
+      clearTimeout(petDialogueReminderRef.current);
+      petDialogueReminderRef.current = null;
+    }
+  }, []);
+
+  const getPetDialogueContext = useCallback(
+    (reason: PetDialogueTriggerReason): PetDialogueContext => {
+      const total = todayData?.summary?.total ?? 0;
+      const completed = todayData?.summary?.completed ?? 0;
+      const shouldPreferAbsence = absenceDays >= 1 && !petDialogueAbsenceShownRef.current;
+
+      if (shouldPreferAbsence) {
+        petDialogueAbsenceShownRef.current = true;
+        return "absence_return";
+      }
+      if (reason === "mission_complete") return "mission_completed";
+      if (total > 0 && completed === 0) return "low_progress";
+      if (total > 0 && completed < total) return "missions_left";
+      return "warm_default";
+    },
+    [todayData?.summary?.completed, todayData?.summary?.total, absenceDays]
+  );
+
+  const showPetDialogue = useCallback(
+    (reason: PetDialogueTriggerReason) => {
+      if (!isPetUnlocked) return false;
+      if (overlayBlockingPetDialogue) {
+        petDialogueQueuedReasonRef.current = reason;
+        return false;
+      }
+      if (petDialogueSessionCountRef.current >= PET_DIALOGUE_MAX_SHOWS_PER_SESSION) return false;
+
+      const now = Date.now();
+      if (now - petDialogueLastShownAtRef.current < PET_DIALOGUE_MIN_COOLDOWN_MS) return false;
+
+      const context = getPetDialogueContext(reason);
+      const nextLine = pickPetDialogue(
+        context,
+        petDialogueLastLineRef.current,
+        petDialogueRecentLinesRef.current
+      );
+      if (!nextLine) return false;
+
+      clearPetDialogueTimers();
+      petDialogueLastShownAtRef.current = now;
+      petDialogueLastLineRef.current = nextLine;
+      petDialogueRecentLinesRef.current = [
+        ...petDialogueRecentLinesRef.current.filter((line) => line !== nextLine),
+        nextLine,
+      ].slice(-3);
+      petDialogueSessionCountRef.current += 1;
+      petDialogueQueuedReasonRef.current = null;
+
+      setPetDialogueText(nextLine);
+      setPetDialogueVisible(true);
+
+      const visibleFor =
+        PET_DIALOGUE_MIN_VISIBLE_MS +
+        Math.floor(Math.random() * (PET_DIALOGUE_MAX_VISIBLE_MS - PET_DIALOGUE_MIN_VISIBLE_MS + 1));
+      petDialogueAutoHideRef.current = setTimeout(() => {
+        setPetDialogueVisible(false);
+      }, visibleFor);
+      return true;
+    },
+    [clearPetDialogueTimers, getPetDialogueContext, isPetUnlocked, overlayBlockingPetDialogue]
+  );
+
+  const schedulePetDialogueReminder = useCallback(() => {
+    if (petDialogueReminderRef.current) {
+      clearTimeout(petDialogueReminderRef.current);
+      petDialogueReminderRef.current = null;
+    }
+    const delay =
+      PET_DIALOGUE_MIN_REMINDER_MS +
+      Math.floor(Math.random() * (PET_DIALOGUE_MAX_REMINDER_MS - PET_DIALOGUE_MIN_REMINDER_MS + 1));
+
+    petDialogueReminderRef.current = setTimeout(() => {
+      if (Math.random() <= 0.35) {
+        void showPetDialogue("reminder");
+      }
+      schedulePetDialogueReminder();
+    }, delay);
+  }, [showPetDialogue]);
+
+  useEffect(() => {
+    if (!overlayBlockingPetDialogue) return;
+    setPetDialogueVisible(false);
+  }, [overlayBlockingPetDialogue]);
+
+  useEffect(() => {
+    if (overlayBlockingPetDialogue) return;
+    if (!petDialogueQueuedReasonRef.current) return;
+    void showPetDialogue(petDialogueQueuedReasonRef.current);
+  }, [overlayBlockingPetDialogue, showPetDialogue]);
+
+  useFocusEffect(
+    useCallback(() => {
+      petDialogueSessionCountRef.current = 0;
+      petDialogueAbsenceShownRef.current = false;
+      petDialogueRecentLinesRef.current = [];
+      setPetDialogueVisible(false);
+      setPetDialogueText(null);
+      clearPetDialogueTimers();
+
+      const sessionChance = 0.3;
+      const starterDelay = setTimeout(() => {
+        if (Math.random() <= sessionChance) {
+          void showPetDialogue("session_open");
+        }
+      }, 1100);
+
+      schedulePetDialogueReminder();
+
+      return () => {
+        clearTimeout(starterDelay);
+        clearPetDialogueTimers();
+        petDialogueQueuedReasonRef.current = null;
+      };
+    }, [clearPetDialogueTimers, schedulePetDialogueReminder, showPetDialogue])
+  );
+
+  const handleComplete = useCallback(
+    (missionId: string) => {
+      completeMission(missionId, {
+        onSuccess: (result) => {
+          emitMissionCompletionCelebration(result, { missionId });
+          if (Math.random() <= 0.5) {
+            void showPetDialogue("mission_complete");
+          }
+        },
+        onError: (e) => {
+          Alert.alert("Can't mark done", getErrorMessage(e));
+        },
+      });
+    },
+    [completeMission, showPetDialogue]
   );
 
   const handleAddMission = useCallback(
@@ -812,7 +964,23 @@ export function HomeScreen() {
       </View>
 
       {/* 2. Streak strip */}
-      <View style={styles.streakStrip}>
+      <Pressable
+        style={styles.streakStrip}
+        onPress={() => {
+          let nav: { getParent?: () => unknown; getState?: () => { routeNames?: string[] }; navigate: (name: string) => void } =
+            navigation as never;
+          for (let i = 0; i < 6; i++) {
+            if (!nav) return;
+            const names = nav.getState?.()?.routeNames;
+            if (names?.includes("StreakDetail")) {
+              nav.navigate("StreakDetail");
+              return;
+            }
+            nav = nav.getParent?.() as never;
+          }
+        }}
+        hitSlop={4}
+      >
         <View style={styles.streakLeft}>
           <Text style={styles.streakFlame}>🔥</Text>
           <Text style={styles.streakNum}>{streak}</Text>
@@ -842,7 +1010,7 @@ export function HomeScreen() {
             )}
           </View>
         </View>
-      </View>
+      </Pressable>
 
       {error ? (
         <View style={styles.errorWrap}>
@@ -885,31 +1053,29 @@ export function HomeScreen() {
             />
           </View>
           <View style={styles.heroRow}>
-            <View style={styles.characterCard}>
-              <LinearGradient
-                colors={["rgba(60,25,130,0.30)", "rgba(10,10,22,0.75)"]}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={styles.characterRim} pointerEvents="none">
-                <LinearGradient
-                  colors={["transparent", "rgba(167,139,250,0.38)", "transparent"]}
-                  start={{ x: 0, y: 0.5 }}
-                  end={{ x: 1, y: 0.5 }}
-                  style={StyleSheet.absoluteFill}
+            <View style={styles.heroFiguresRow}>
+              <View style={styles.characterHero}>
+                <Image
+                  source={getCharacterImageSource(characterStage)}
+                  style={styles.characterHeroImage}
+                  resizeMode="cover"
+                  accessibilityIgnoresInvertColors
                 />
               </View>
-              <View style={styles.characterFade} pointerEvents="none">
-                <LinearGradient colors={["rgba(7,8,15,0.55)", "transparent"]} style={StyleSheet.absoluteFill} />
-              </View>
-              <Text style={styles.characterLabel}>Stage {characterStage}</Text>
+              {isPetUnlocked ? (
+                <View style={[styles.heroPetSlot, { opacity: petAbsenceOpacity }]} pointerEvents="none">
+                  {petDialogueText ? (
+                    <PetDialogueBubble visible={petDialogueVisible} text={petDialogueText} />
+                  ) : null}
+                  <Image
+                    source={getPetImageSource(petStage)}
+                    style={styles.heroPetImage}
+                    resizeMode="contain"
+                    accessibilityIgnoresInvertColors
+                  />
+                </View>
+              ) : null}
             </View>
-            {petStage >= 1 ? (
-              <View style={styles.petSpacer} />
-            ) : (
-              <View style={styles.petLocked}>
-                <Text style={styles.petLockedText}>7-day streak to unlock</Text>
-              </View>
-            )}
           </View>
           <View style={styles.xpWrap}>
             <View style={styles.xpLabelRow}>
@@ -926,7 +1092,7 @@ export function HomeScreen() {
               width={252}
               hideLabels
             />
-          {(profile?.pet_unlocked ?? false) && (
+          {isPetUnlocked && (
             <View style={styles.petFoodBar}>
               <View style={styles.petFoodLabelRow}>
                 <Text style={styles.petFoodLabelLeft}>🌿 {totalPetFood} PF</Text>
@@ -1181,27 +1347,6 @@ export function HomeScreen() {
         />
       ) : null}
 
-      {/* Pet roaming overlay */}
-      {viewportHeight > 0 && windowWidth > 0 && petStage >= 1 && (
-        <View
-          style={[
-            styles.petViewportOverlay,
-            { top: insets.top + TOP_BAR_HEIGHT, width: windowWidth, height: viewportHeight },
-          ]}
-          pointerEvents="box-none"
-        >
-          <PetRoaming
-            containerWidth={windowWidth}
-            containerHeight={viewportHeight}
-            heroX={heroX}
-            heroY={heroY}
-            stage={petStage}
-            isHappy={petHealthState === "happy"}
-            absenceOpacity={petAbsenceOpacity}
-          />
-        </View>
-      )}
-
       {/* Journal FAB — premium look (gradient + shadow, same as Twin chat FAB) */}
       <Pressable
         style={({ pressed }) => [styles.journalFab, { bottom: JOURNAL_FAB_BOTTOM_GAP }, pressed && styles.journalFabPressed]}
@@ -1228,13 +1373,21 @@ export function HomeScreen() {
         stageName={stageTwinMsgStageName}
         onComplete={handleStageTwinMsgComplete}
       />
-      {evolutionOverlayVisible && (
-        <CharacterEvolutionOverlay
-          visible={true}
-          onClose={() => setEvolutionOverlayVisible(false)}
-          stageName={evolutionStageName}
-        />
-      )}
+      <CharacterEvolutionOverlay
+        visible={evolutionOverlayVisible}
+        onClose={() => setEvolutionOverlayVisible(false)}
+        stageName={evolutionStageName}
+      />
+
+      <PetEvolutionModal
+        visible={
+          !!petEvolutionData &&
+          !stageTwinMsgVisible &&
+          !evolutionOverlayVisible
+        }
+        petName={petEvolutionData?.new_pet_name ?? ""}
+        onClose={() => setPetEvolutionData(null)}
+      />
 
       <DeleteMissionSheet
         visible={deleteSheetVisible}
@@ -1354,7 +1507,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: "rgba(80,30,160,0.7)",
+    backgroundColor: "#141824",
     borderWidth: 1.5,
     borderColor: "rgba(139,92,246,0.35)",
     shadowColor: "rgba(109,40,217,0.2)",
@@ -1365,7 +1518,7 @@ const styles = StyleSheet.create({
   },
   avatarPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center" },
   avatarInitial: { fontSize: 15, fontWeight: "700", color: "rgba(139,92,246,0.8)" },
-  avatarImg: { width: 38, height: 38, borderRadius: 19 },
+  avatarImg: { width: "100%", height: "100%" },
   greeting: { flex: 1, fontSize: 13, fontWeight: "400", color: TEXT_MUTED },
 
   streakStrip: {
@@ -1476,74 +1629,46 @@ const styles = StyleSheet.create({
   },
   heroRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     justifyContent: "center",
-    gap: 10,
     marginBottom: 16,
     position: "relative",
     zIndex: 1,
+    width: "100%",
   },
-  characterCard: {
+  heroFiguresRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    gap: 14,
+    width: "100%",
+    maxWidth: 400,
+    alignSelf: "center",
+    paddingLeft: 4,
+    paddingRight: 8,
+    transform: [{ translateX: -14 }],
+  },
+  characterHero: {
     width: CHARACTER_WIDTH,
     height: CHARACTER_HEIGHT,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.14)",
     overflow: "hidden",
-    position: "relative",
-    shadowColor: "#000",
-    shadowOpacity: 0.4,
-    shadowRadius: 32,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 8,
+    borderRadius: 20,
   },
-  characterRim: {
-    position: "absolute",
-    top: 0,
-    left: "18%",
-    right: "18%",
-    height: 1,
-    borderRadius: 1,
+  characterHeroImage: {
+    width: "100%",
+    height: "100%",
   },
-  characterFade: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 36,
-  },
-  characterLabel: {
-    position: "absolute",
-    bottom: 8,
-    left: 0,
-    right: 0,
-    fontSize: 8,
-    color: "rgba(107,114,128,0.35)",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    textAlign: "center",
-  },
-  petSpacer: {
-    width: PET_SIZE,
-    height: PET_SIZE,
+  heroPetSlot: {
+    width: 76,
+    height: 76,
     marginBottom: 14,
-  },
-  petLocked: {
-    width: PET_SIZE,
-    height: PET_SIZE,
-    borderRadius: PET_SIZE / 2,
-    marginBottom: 14,
-    backgroundColor: "rgba(75,85,99,0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(75,85,99,0.25)",
+    marginLeft: 2,
+    justifyContent: "flex-end",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
   },
-  petLockedText: {
-    fontSize: 8,
-    color: TEXT_DIM,
-    textAlign: "center",
+  heroPetImage: {
+    width: 76,
+    height: 76,
   },
   xpWrap: { width: 252, zIndex: 1 },
   xpLabelRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 5 },
@@ -1634,7 +1759,6 @@ const styles = StyleSheet.create({
   addPersonalPlus: { fontSize: 18, color: TEXT_DIM, lineHeight: 1 },
   addPersonalLabel: { fontSize: 13, fontWeight: "500", color: TEXT_DIM, letterSpacing: 0.1 },
 
-  petViewportOverlay: { position: "absolute", left: 0, zIndex: 10 },
   journalFab: {
     position: "absolute",
     right: SCROLL_PADDING_H,

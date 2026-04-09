@@ -8,10 +8,15 @@ import logging
 
 from fastapi import APIRouter, Header
 
+from datetime import datetime, timezone as dt_timezone
+
+from zoneinfo import ZoneInfo
+
 from app.api.auth import get_user_id_from_token
 from app.agents.report_agent import generate_day_summary, generate_weekly_report
 from app.core.supabase_client import supabase_admin
 from app.services.mission_service import local_completed_week_bounds
+from app.services.report_service import weekly_report_week_eligible
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +34,7 @@ async def get_weekly_report(authorization: str = Header(None)):
 
     user_row = (
         supabase_admin.table("users")
-        .select("timezone")
+        .select("timezone, registration_date")
         .eq("id", user_id)
         .single()
         .execute()
@@ -38,6 +43,19 @@ async def get_weekly_report(authorization: str = Header(None)):
     )
     tz_str = str(user_row.get("timezone") or "UTC")
     week_start, week_end = local_completed_week_bounds(tz_str)
+    try:
+        tz = ZoneInfo(tz_str)
+    except Exception:
+        tz = dt_timezone.utc
+    now_local = datetime.now(tz)
+
+    can_generate = weekly_report_week_eligible(
+        user_row.get("registration_date"),
+        tz_str,
+        week_start,
+        week_end,
+        now_local=now_local,
+    )
 
     result = (
         supabase_admin.table("weekly_reports")
@@ -48,7 +66,7 @@ async def get_weekly_report(authorization: str = Header(None)):
         .data
     )
 
-    if not result:
+    if not result and can_generate:
         try:
             await generate_weekly_report(user_id)
             result = (
@@ -69,7 +87,7 @@ async def get_weekly_report(authorization: str = Header(None)):
     if not result:
         return {
             "available": False,
-            "message": "Your weekly report will be ready this Sunday.",
+            "message": "Your first weekly report arrives Sunday evening after your first full week.",
         }
 
     report = result[0]

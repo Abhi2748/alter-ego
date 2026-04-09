@@ -10,12 +10,46 @@ from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from zoneinfo import ZoneInfo
+
 from app.core.constants import PET_NAMES, STAGE_NAMES
 from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
 
 MILESTONES = [3, 7, 10, 14, 30, 60, 100, 180, 365]
+
+
+def weekly_report_week_eligible(
+    registration_iso: str | None,
+    tz_str: str,
+    week_start: date,
+    week_end: date,
+    now_local: datetime | None = None,
+) -> bool:
+    """
+    Weekly report covers a completed Mon–Sun week. Do not generate for weeks that ended
+    before the user existed, or before the reporting window (Sunday 03:00 local on week_end).
+    """
+    try:
+        tz = ZoneInfo(tz_str)
+    except Exception:
+        tz = timezone.utc
+    if now_local is None:
+        now_local = datetime.now(tz)
+    try:
+        reg_dt = datetime.fromisoformat(str(registration_iso or "").replace("Z", "+00:00"))
+    except Exception:
+        reg_dt = datetime.now(timezone.utc)
+    reg_local = reg_dt.astimezone(tz).date()
+    if week_end < reg_local:
+        return False
+    today = now_local.date()
+    if today < week_end:
+        return False
+    if today == week_end and now_local.hour < 3:
+        return False
+    return True
 
 
 async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -> dict[str, Any]:

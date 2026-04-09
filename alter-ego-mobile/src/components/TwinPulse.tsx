@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, Platform, type DimensionValue } from "react-native";
+import { View, Text, Pressable, StyleSheet, Platform, Image, type DimensionValue } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   useSharedValue,
@@ -10,6 +10,7 @@ import Animated, {
   withDelay,
   Easing,
 } from "react-native-reanimated";
+import { TWIN_STRIP_IMAGE } from "@/constants/characterPetAssets";
 
 export interface TwinPulseProps {
   statusLine?: string | null;
@@ -148,13 +149,12 @@ export function TwinPulse({
       </View>
 
       <Animated.View style={[styles.avatarWrap, avatarStyle]}>
-        <LinearGradient
-          colors={["rgba(100,35,200,0.65)", "rgba(192,132,252,0.15)"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
+        <Image
+          source={TWIN_STRIP_IMAGE}
+          style={styles.avatarImg}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
         />
-        <Text style={styles.avatarLabel}>T</Text>
       </Animated.View>
 
       <View style={styles.content}>
@@ -236,11 +236,9 @@ const styles = StyleSheet.create({
         }
       : {}),
   },
-  avatarLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "rgba(215,185,255,0.85)",
-    position: "absolute",
+  avatarImg: {
+    width: "100%",
+    height: "100%",
   },
   content: {
     flex: 1,

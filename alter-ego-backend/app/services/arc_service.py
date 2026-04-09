@@ -12,7 +12,7 @@ from datetime import date as date_cls, datetime, timezone, timedelta
 from typing import Literal
 
 from app.core.supabase_client import supabase_admin
-from app.services.mail_service import send_app_mail
+from app.services.mail_service import send_interest_mail_once
 
 logger = logging.getLogger(__name__)
 
@@ -192,10 +192,11 @@ async def increment_sessions_and_check_phase(
         elif new_sessions == 7:
             milestone_hit = "7sessions"
             _log_milestone(user_id, interest_id, "sessions_7")
-            await send_app_mail(
+            await send_interest_mail_once(
                 user_id,
                 "interest_week_one",
-                template_data={"interest_name": interest_name},
+                str(interest_id),
+                {"interest_name": interest_name},
             )
 
         elif new_sessions in (25, 50, 100):
@@ -211,10 +212,11 @@ async def increment_sessions_and_check_phase(
             elif abs(pct - 0.50) < (0.5 / total_int):
                 milestone_hit = "50pct"
                 _log_milestone(user_id, interest_id, "arc_50pct")
-                await send_app_mail(
+                await send_interest_mail_once(
                     user_id,
                     "interest_halfway",
-                    template_data={"interest_name": interest_name},
+                    str(interest_id),
+                    {"interest_name": interest_name},
                 )
             elif new_sessions >= total_int:
                 milestone_hit = "goal"
@@ -224,10 +226,11 @@ async def increment_sessions_and_check_phase(
             if milestone_hit is None:
                 milestone_hit = "phase_complete"
             _log_milestone(user_id, interest_id, f"arc_phase_{old_phase}_complete")
-            await send_app_mail(
+            await send_interest_mail_once(
                 user_id,
                 "interest_phase_complete",
-                template_data={
+                str(interest_id),
+                {
                     "interest_name": interest_name,
                     "old_phase": ARC_PHASE_LABELS.get(old_phase, old_phase),
                     "new_phase": ARC_PHASE_LABELS.get(new_phase, new_phase),
@@ -445,10 +448,11 @@ async def run_adaptive_replanning_for_user(user_id: str) -> None:
                     # Scenario C — not engaged
                     adj_count = int(interest.get("timeline_adjusted_count") or 0)
                     if adj_count == 0:
-                        await send_app_mail(
+                        await send_interest_mail_once(
                             user_id,
                             "interest_not_engaged",
-                            template_data={"interest_name": interest_name},
+                            interest_id,
+                            {"interest_name": interest_name},
                         )
 
                 elif rate < 0.70:
@@ -483,10 +487,11 @@ async def run_adaptive_replanning_for_user(user_id: str) -> None:
                             }
                         ).eq("id", interest_id).eq("user_id", user_id).execute()
 
-                        await send_app_mail(
+                        await send_interest_mail_once(
                             user_id,
                             "interest_timeline_adjusted",
-                            template_data={
+                            interest_id,
+                            {
                                 "interest_name": interest_name,
                                 "new_date": new_target_date.strftime("%B %Y"),
                             },

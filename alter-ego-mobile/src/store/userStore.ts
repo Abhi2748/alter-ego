@@ -41,6 +41,12 @@ export interface UserProfile {
   twin_intensity?: number;
   /** Last answered return reason after 7+ day absence (users.return_reason) */
   return_reason?: string | null;
+  /** Earned streak freezes (challenges, arcs, etc.) */
+  streak_freeze_count?: number;
+  /** When true, a freeze is consumed automatically on a missed day (if count > 0) */
+  streak_freeze_auto_consume?: boolean;
+  /** Manual reserve: next miss is covered (freeze already spent at reserve time) */
+  freeze_reserved_next_miss?: boolean;
 }
 
 interface UserState {
@@ -67,6 +73,8 @@ interface UserState {
   updatePetStage: (newPetStage: number, newPetName: string) => void;
   incrementUnreadMail: () => void;
   updateAvatarUrl: (url: string | null) => void;
+  /** After PATCH streak-freeze — keeps Switch in sync with server */
+  updateStreakFreezeSettings: (streak_freeze_auto_consume: boolean) => void;
   clearProfile: () => void;
 }
 
@@ -202,6 +210,12 @@ export const useUserStore = create<UserState>((set, get) => ({
     const profile = get().profile;
     if (!profile) return;
     set({ profile: { ...profile, profile_photo_url: url } });
+  },
+
+  updateStreakFreezeSettings: (streak_freeze_auto_consume) => {
+    const profile = get().profile;
+    if (!profile) return;
+    set({ profile: { ...profile, streak_freeze_auto_consume } });
   },
 
   clearProfile: () => set({ profile: null, error: null }),

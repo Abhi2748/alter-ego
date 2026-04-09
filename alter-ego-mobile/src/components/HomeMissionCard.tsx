@@ -3,7 +3,7 @@
  * Left edge gradient by section + difficulty, section chip, ★ xp / 🌿 pf, streak or difficulty pill or checkmark.
  */
 
-import React, { useEffect, useCallback, useMemo } from "react";
+import React, { useEffect, useCallback, useMemo, memo } from "react";
 import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -112,7 +112,7 @@ export interface HomeMissionCardProps {
   accentColor?: string;
 }
 
-export function HomeMissionCard({
+function HomeMissionCardInner({
   title,
   category,
   difficulty,
@@ -357,6 +357,8 @@ export function HomeMissionCard({
     </GestureDetector>
   );
 }
+
+export const HomeMissionCard = memo(HomeMissionCardInner);
 
 const styles = StyleSheet.create({
   outer: { position: "relative", marginBottom: 7 },

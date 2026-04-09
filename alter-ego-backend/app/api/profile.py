@@ -37,11 +37,34 @@ from app.services.interest_path_service import (
 )
 from app.agents.interest_normaliser import normalise_interest
 from app.services.arc_service import ARC_PHASE_LABELS
-from app.services.mission_service import get_user_date, sync_today_planner_missions
+from app.services.mission_service import (
+    ensure_pet_unlocked_if_eligible,
+    get_user_date,
+    sync_today_planner_missions,
+)
 from app.services.streak_service import sync_streak_if_lapsed
 
 router = APIRouter(prefix="/api/v1/profile", tags=["profile"])
 logger = logging.getLogger(__name__)
+
+
+def _coerce_bool(v: object | None, default: bool = True) -> bool:
+    """Postgres/PostgREST may return bool, null, or occasionally string — normalize for JSON."""
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in ("false", "0", "no", "f", "off"):
+            return False
+        if s in ("true", "1", "yes", "t", "on"):
+            return True
+        return default
+    if isinstance(v, (int, float)):
+        return bool(v)
+    return bool(v)
+
 
 # Rotates on new interest creation (must match mobile INTEREST_COLORS primary + migration 027)
 INTEREST_COLOR_PALETTE = [
@@ -220,6 +243,7 @@ class AvatarUrlBody(BaseModel):
 @router.get("/overview", response_model=dict)
 async def get_profile_overview(authorization: str = Header(None)):
     user_id = get_user_id_from_token(authorization)
+    await ensure_pet_unlocked_if_eligible(user_id)
 
     user_result = (
         supabase_admin.table("users")
@@ -228,7 +252,8 @@ async def get_profile_overview(authorization: str = Header(None)):
             "pet_stage, pet_unlocked, total_pf, current_streak, "
             "longest_streak, power_score, registration_date, "
             "leaderboard_unlocked, email_connected, subscription_tier, "
-            "return_reason, avatar_url"
+            "return_reason, avatar_url, streak_freeze_count, "
+            "streak_freeze_auto_consume, freeze_reserved_next_miss"
         )
         .eq("id", user_id)
         .single()
@@ -320,6 +345,9 @@ async def get_profile_overview(authorization: str = Header(None)):
         "twin_intensity": int(dna_row.get("twin_intensity") or 3),
         "return_reason": user.get("return_reason"),
         "profile_photo_url": user.get("avatar_url"),
+        "streak_freeze_count": int(user.get("streak_freeze_count") or 0),
+        "streak_freeze_auto_consume": _coerce_bool(user.get("streak_freeze_auto_consume"), True),
+        "freeze_reserved_next_miss": _coerce_bool(user.get("freeze_reserved_next_miss"), False),
     }
 
 
@@ -424,6 +452,74 @@ async def get_profile_streak(authorization: str = Header(None)):
             for r in rows
         ],
         "hint_text": "Tap any day to see your mission history",
+        "streak_freeze_count": int(user.get("streak_freeze_count") or 0),
+        "streak_freeze_auto_consume": _coerce_bool(user.get("streak_freeze_auto_consume"), True),
+        "freeze_reserved_next_miss": _coerce_bool(user.get("freeze_reserved_next_miss"), False),
+    }
+
+
+class StreakFreezeSettingsBody(BaseModel):
+    streak_freeze_auto_consume: bool
+
+
+@router.patch("/streak-freeze", response_model=dict)
+async def patch_streak_freeze_settings(
+    body: StreakFreezeSettingsBody, authorization: str = Header(None)
+):
+    """Toggle auto-use of streak freezes when a day is missed (default: on)."""
+    user_id = get_user_id_from_token(authorization)
+    supabase_admin.table("users").update(
+        {"streak_freeze_auto_consume": body.streak_freeze_auto_consume}
+    ).eq("id", user_id).execute()
+    row = (
+        supabase_admin.table("users")
+        .select("streak_freeze_auto_consume")
+        .eq("id", user_id)
+        .single()
+        .execute()
+        .data
+        or {}
+    )
+    return {
+        "success": True,
+        "streak_freeze_auto_consume": _coerce_bool(row.get("streak_freeze_auto_consume"), True),
+    }
+
+
+@router.post("/streak-freeze/reserve", response_model=dict)
+async def reserve_streak_freeze_for_next_miss(authorization: str = Header(None)):
+    """
+    Manual mode: spend one freeze now to protect the streak on the next missed day.
+    (Count decrements immediately; next handle_streak_break clears the reservation flag.)
+    """
+    user_id = get_user_id_from_token(authorization)
+    u = (
+        supabase_admin.table("users")
+        .select("streak_freeze_count, freeze_reserved_next_miss")
+        .eq("id", user_id)
+        .single()
+        .execute()
+        .data
+        or {}
+    )
+    if u.get("freeze_reserved_next_miss"):
+        raise HTTPException(
+            status_code=400, detail="You already have a freeze reserved for your next miss."
+        )
+    c = int(u.get("streak_freeze_count") or 0)
+    if c < 1:
+        raise HTTPException(status_code=400, detail="No streak freezes available.")
+    new_c = c - 1
+    supabase_admin.table("users").update(
+        {
+            "streak_freeze_count": new_c,
+            "freeze_reserved_next_miss": True,
+        }
+    ).eq("id", user_id).execute()
+    return {
+        "success": True,
+        "streak_freeze_count": new_c,
+        "freeze_reserved_next_miss": True,
     }
 
 
@@ -1166,13 +1262,33 @@ async def put_profile_interest_difficulty(
     authorization: str = Header(None),
 ):
     user_id = get_user_id_from_token(authorization)
-    _interest_owned_row(user_id, interest_id)
+    row = _interest_owned_row(user_id, interest_id)
+    old_tier = str(row.get("current_difficulty_tier") or "easy").lower()
     tier = body.tier.lower()
     if tier not in ("easy", "medium", "hard"):
         raise HTTPException(status_code=400, detail="Invalid difficulty tier")
     supabase_admin.table("interests").update({"current_difficulty_tier": tier}).eq(
         "id", interest_id
     ).execute()
+    rank = {"easy": 0, "medium": 1, "hard": 2}
+    if rank.get(tier, 0) > rank.get(old_tier, 0):
+        try:
+            from app.services.mail_service import send_app_mail
+
+            existing = (
+                supabase_admin.table("app_mails")
+                .select("id")
+                .eq("user_id", user_id)
+                .eq("mail_type", "first_difficulty_upgrade")
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if not existing:
+                await send_app_mail(user_id, "first_difficulty_upgrade")
+        except Exception:
+            pass
     return {"success": True}
 
 

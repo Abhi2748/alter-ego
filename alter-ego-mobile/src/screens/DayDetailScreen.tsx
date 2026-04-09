@@ -603,7 +603,7 @@ export function DayDetailScreen() {
                 </Text>
               </View>
             </View>
-            <View style={{ flex: 1 }}>
+            <View style={styles.completionTextCol}>
               <Text style={styles.completionTitle}>
                 {history.missions_completed} of {history.missions_total} missions complete
               </Text>
@@ -1025,7 +1025,7 @@ const styles = StyleSheet.create({
 
   completionRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 16,
     backgroundColor: "rgba(14,13,28,0.90)",
     borderWidth: 1,
@@ -1066,6 +1066,12 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 2,
   },
+  completionTextCol: {
+    flex: 1,
+    minWidth: 0,
+    alignSelf: "stretch",
+    paddingTop: 2,
+  },
 
   summaryCard: {
     backgroundColor: "rgba(10,8,22,0.70)",
@@ -1096,7 +1102,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: "italic",
     color: "#6B7280",
-    lineHeight: 19,
+    lineHeight: 20,
+    flexShrink: 1,
+    width: "100%",
   },
   summaryTextMissed: { color: "#374151" },
   summaryTextEvolution: { color: "#9CA3AF" },

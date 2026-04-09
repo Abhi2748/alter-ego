@@ -13,6 +13,7 @@ import {
   Modal,
   Platform,
   Share,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +21,7 @@ import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import { TOTAL_CHARACTER_STAGES } from "@/constants/characterProgression";
+import { CHARACTER_IDENTITY_PAGE_IMAGE } from "@/constants/characterPetAssets";
 
 // -----------------------------------------------------------------------------
 // TYPES & STAGE COLOUR SYSTEM
@@ -459,7 +461,12 @@ export function AchievementCardModal({
                   />
                   <Text style={[styles.shareCardBrand, { color: config.accent }]}>ALTER EGO</Text>
                   <View style={styles.shareCardBody}>
-                    <View style={[styles.shareCardChar, { backgroundColor: config.thumbBg, borderColor: config.cardBorder }]} />
+                    <Image
+                      source={CHARACTER_IDENTITY_PAGE_IMAGE}
+                      style={[styles.shareCardChar, { borderColor: config.cardBorder }]}
+                      resizeMode="cover"
+                      accessibilityIgnoresInvertColors
+                    />
                     <View style={styles.shareCardMeta}>
                       <Text style={[styles.shareCardStageNum, { color: config.accent }]}>STAGE {num}</Text>
                       <Text style={[styles.shareCardTitle, isSix && { color: "#FBBF24" }]}>{stage.title}</Text>
@@ -551,17 +558,11 @@ export function ProfileTitlesScreen() {
         <View style={styles.hero}>
           <Text style={styles.heroLabel}>CURRENT TITLE</Text>
           <View style={styles.characterPlaceholder}>
-            <LinearGradient
-              colors={["rgba(60,25,130,0.32)", "rgba(10,10,22,0.75)"]}
-              start={{ x: 0.2, y: 0 }}
-              end={{ x: 0.8, y: 1 }}
+            <Image
+              source={CHARACTER_IDENTITY_PAGE_IMAGE}
               style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={["transparent", "rgba(167,139,250,0.4)", "transparent"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.characterRim}
+              resizeMode="cover"
+              accessibilityIgnoresInvertColors
             />
           </View>
           <Text style={styles.heroStageName}>{data.current_stage_title}</Text>
@@ -645,13 +646,6 @@ const styles = StyleSheet.create({
     ...(Platform.OS === "ios"
       ? { shadowColor: "rgba(80,20,160,0.18)", shadowRadius: 32, shadowOffset: { width: 0, height: 0 } }
       : { elevation: 10 }),
-  },
-  characterRim: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1,
   },
   heroStageName: {
     fontSize: 28,
@@ -860,6 +854,7 @@ const styles = StyleSheet.create({
     height: 105,
     borderRadius: 12,
     borderWidth: 1,
+    overflow: "hidden",
   },
   shareCardMeta: { flex: 1 },
   shareCardStageNum: {

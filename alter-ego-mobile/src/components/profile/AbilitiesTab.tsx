@@ -7,11 +7,14 @@ import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import Svg, { Circle, G } from "react-native-svg";
+import { useNavigation } from "@react-navigation/native";
+import type { StackNavigationProp } from "@react-navigation/stack";
 import { STATS, type AbilityStatKey } from "@/constants/stats";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
 import { useCharacterStats } from "@/hooks/useStats";
 import { useProfileStreak } from "@/hooks/useProfile";
 import type { StatProgress } from "@/services/stats";
+import type { ProfileStackParamList } from "@/navigation/types";
 
 const BG_CARD = "#0F111C";
 const BORDER_SUB = "#1A1F30";
@@ -66,13 +69,27 @@ function StatMiniRow({ stat }: { stat: StatProgress }) {
   );
 }
 
-function CoreStatCard({ stat }: { stat: StatProgress }) {
+function CoreStatCard({
+  stat,
+  onPress,
+}: {
+  stat: StatProgress;
+  onPress?: () => void;
+}) {
   const key = stat.key as AbilityStatKey;
   const s = STATS[key];
   const barPct = Math.min(1, stat.progress_percent / 100);
   const pctLabel = `${Math.round(stat.progress_percent)}%`;
   return (
-    <View style={[styles.coreCard, { width: "48.5%" }]}>
+    <Pressable
+      style={({ pressed }) => [
+        styles.coreCard,
+        { width: "48.5%" },
+        pressed && { opacity: 0.85 },
+      ]}
+      onPress={onPress}
+      disabled={!onPress}
+    >
       <View style={[styles.coreTopEdge, { backgroundColor: s.color }]} />
       <Text style={[styles.coreWatermark, { color: s.color }]}>{s.symbol}</Text>
       <View style={styles.coreHeader}>
@@ -99,7 +116,7 @@ function CoreStatCard({ stat }: { stat: StatProgress }) {
         <Text style={styles.coreSource}>{s.sources}</Text>
         <Text style={styles.corePct}>{pctLabel}</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -131,6 +148,7 @@ function AbilitiesLoadingSkeleton({ embedded }: { embedded?: boolean }) {
 }
 
 export function AbilitiesTab({ embedded = false }: { embedded?: boolean }) {
+  const navigation = useNavigation<StackNavigationProp<ProfileStackParamList>>();
   const { data: stats, isLoading, isError, refetch, isFetching } = useCharacterStats();
   const { data: streakData } = useProfileStreak();
 
@@ -258,12 +276,19 @@ export function AbilitiesTab({ embedded = false }: { embedded?: boolean }) {
       <SectionRule title="CORE ABILITIES" />
       <View style={styles.coreGrid}>
         {CORE_KEYS.map((k) => (
-          <CoreStatCard key={k} stat={stats[k]} />
+          <CoreStatCard
+            key={k}
+            stat={stats[k]}
+            onPress={() => navigation.navigate("AbilityDetail", { statKey: k })}
+          />
         ))}
       </View>
 
       <SectionRule title="DAILY AMBITION" />
-      <View style={styles.willCard}>
+      <Pressable
+        style={({ pressed }) => [styles.willCard, pressed && { opacity: 0.85 }]}
+        onPress={() => navigation.navigate("AbilityDetail", { statKey: "willpower" })}
+      >
         <View style={[styles.coreTopEdge, { backgroundColor: "#EF4444" }]} />
         <Text style={[styles.willWatermark, { color: "#EF4444" }]}>{STATS.willpower.symbol}</Text>
         <View style={styles.willInner}>
@@ -336,7 +361,7 @@ export function AbilitiesTab({ embedded = false }: { embedded?: boolean }) {
             <Text style={styles.fullDaysHint}>{fullDaysWeek} full days (streak view) ↑</Text>
           </View>
         </View>
-      </View>
+      </Pressable>
     </>
   );
 

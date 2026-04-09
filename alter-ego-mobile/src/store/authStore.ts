@@ -7,7 +7,7 @@
 
 import type { Session, User } from '@supabase/supabase-js';
 import { create } from 'zustand';
-import { supabase } from '@/utils/supabase';
+import { migrateLegacyAuthSessionFromSecureStore, supabase } from '@/utils/supabase';
 
 /** Avoid duplicate onAuthStateChange subscriptions if initialize() runs more than once. */
 let authListenerAttached = false;
@@ -47,10 +47,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   initialize: async () => {
-    // Called once on app startup
-    // Restores session from SecureStore
+    // Called once on app startup — restores session from AsyncStorage (legacy: copy from SecureStore once).
     set({ isLoading: true });
     try {
+      await migrateLegacyAuthSessionFromSecureStore();
       const {
         data: { session },
         error,

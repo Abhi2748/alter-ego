@@ -48,6 +48,13 @@ async def check_character_stage_progression(
         }
     ).execute()
 
+    try:
+        from app.services.mail_service import send_stage_evolved_mail_if_needed
+
+        await send_stage_evolved_mail_if_needed(user_id, new_stage, new_stage_name)
+    except Exception:
+        pass
+
     return {"new_stage": new_stage, "new_stage_name": new_stage_name}
 
 

@@ -5,6 +5,7 @@ import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/theme";
+import { useUserStore } from "@/store/userStore";
 
 const TAB_HEIGHT = 56;
 const TWIN_BUTTON_SIZE = 56;
@@ -16,12 +17,34 @@ const tabConfig: Record<string, { label: string; icon: keyof typeof Ionicons.gly
   Home: { label: "Home", icon: "home-outline" },
   Today: { label: "Today", icon: "radio-outline" },
   Twin: { label: "Twin", icon: "flash" },
-  Report: { label: "Report", icon: "document-text-outline" },
+  Focus: { label: "Focus", icon: "timer-outline" },
   Profile: { label: "Profile", icon: "person-outline" },
+};
+
+const profileTabMailBadge = {
+  position: "absolute" as const,
+  top: -2,
+  right: -4,
+  width: 8,
+  height: 8,
+  borderRadius: 4,
+  backgroundColor: "#A78BFA",
+  borderWidth: 1.5,
+  borderColor: "#07080F",
+  ...Platform.select({
+    ios: {
+      shadowColor: "#8B5CF6",
+      shadowOpacity: 1,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 0 },
+    },
+    android: { elevation: 6 },
+  }),
 };
 
 export function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const unreadMailCount = useUserStore((s) => s.profile?.unread_mail_count ?? 0);
   const tabNames = state.routeNames;
 
   return (
@@ -95,11 +118,22 @@ export function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             accessibilityRole="button"
             accessibilityState={isFocused ? { selected: true } : {}}
           >
-            <Ionicons
-              name={config.icon}
-              size={ICON_SIZE}
-              color={isFocused ? COLORS.violet : COLORS.muted}
-            />
+            {name === "Profile" ? (
+              <View style={{ position: "relative" }}>
+                <Ionicons
+                  name={config.icon}
+                  size={ICON_SIZE}
+                  color={isFocused ? COLORS.violet : COLORS.muted}
+                />
+                {unreadMailCount > 0 ? <View style={profileTabMailBadge} /> : null}
+              </View>
+            ) : (
+              <Ionicons
+                name={name === "Focus" ? (isFocused ? "timer" : "timer-outline") : config.icon}
+                size={ICON_SIZE}
+                color={isFocused ? COLORS.violet : COLORS.muted}
+              />
+            )}
             <Text
               style={{
                 fontSize: 11,

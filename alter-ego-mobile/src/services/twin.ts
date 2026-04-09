@@ -139,6 +139,8 @@ export interface TwinMessage {
   /** Twin-initiated (scheduler); shown with subtle affordance in chat */
   is_proactive?: boolean | null;
   is_read?: boolean | null;
+  /** Voice used for this line (rival / philosopher / silent_force) */
+  tone_used?: string | null;
 }
 
 export interface TwinChatHistoryResponse {
@@ -154,6 +156,7 @@ export interface TwinChatResponse {
   emotional_register?: string | null;
   is_safety_response?: boolean;
   safety_category?: string | null;
+  tone_used?: string | null;
 }
 
 export interface TwinToneHistoryResponse {

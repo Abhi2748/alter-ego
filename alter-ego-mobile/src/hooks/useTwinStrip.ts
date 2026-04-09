@@ -12,10 +12,10 @@ export function useTwinStrip() {
   return useQuery({
     queryKey: ["twin", "strip"],
     queryFn: () => twinService.getStrip(),
-    staleTime: 30 * 1000,
+    /** Strip is invalidated on mission complete; avoid 60s polling + focus churn on Home. */
+    staleTime: 90 * 1000,
     refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    refetchInterval: 60 * 1000,
-    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: false,
   });
 }

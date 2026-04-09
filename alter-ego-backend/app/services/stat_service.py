@@ -19,6 +19,44 @@ from app.core.supabase_client import supabase_admin
 
 logger = logging.getLogger(__name__)
 
+# Mirrors constants.py — duplicated here so GET /stats meta is self-contained for clients
+_STAT_LEVEL_THRESHOLDS = [0, 150, 450, 1_000, 2_200, 4_500, 8_500, 15_000, 25_000, 40_000]
+_STAT_LEVEL_NAMES = [
+    "Dormant",
+    "Stirring",
+    "Forming",
+    "Grounded",
+    "Rising",
+    "Forged",
+    "Honed",
+    "Sovereign",
+    "Transcendent",
+    "Eternal",
+]
+_STAT_DAILY_CAPS = {
+    "vitality": 80,
+    "focus": 80,
+    "craft": 50,
+    "discipline": 40,
+    "willpower": 80,
+}
+_STAT_CONTRIBUTING = {
+    "vitality": ["sleep", "movement", "hydration"],
+    "focus": ["mindfulness", "no_phone", "journal"],
+    "craft": ["interest"],
+    "discipline": ["core", "resistance", "recovery"],
+    "willpower": ["personal"],
+}
+_WILLPOWER_BONUS = {4: 20, 6: 45, "all": 80}
+
+_STATS_META = {
+    "level_thresholds": _STAT_LEVEL_THRESHOLDS,
+    "level_names": _STAT_LEVEL_NAMES,
+    "daily_caps": _STAT_DAILY_CAPS,
+    "contributing": _STAT_CONTRIBUTING,
+    "willpower_bonus": _WILLPOWER_BONUS,
+}
+
 STAT_KEYS = ("vitality", "focus", "craft", "discipline", "willpower")
 
 
@@ -266,6 +304,19 @@ async def award_sp_for_mission(
 
     supabase_admin.table("character_stats").update(update_payload).eq("user_id", user_id).execute()
 
+    try:
+        from app.services.mail_service import check_and_send_ability_levelup_mail
+
+        for s in STAT_KEYS:
+            if (
+                levels_after_plain[s] > levels_before[s]
+                and levels_after_plain[s] >= 2
+            ):
+                await check_and_send_ability_levelup_mail(user_id)
+                break
+    except Exception:
+        pass
+
     return {
         "primary_stat": primary_stat,
         "primary_sp_awarded": primary_sp_awarded,
@@ -278,8 +329,7 @@ async def award_sp_for_mission(
 
 
 def _build_empty_stats_response() -> dict:
-    empty = {
-        "key": "",
+    empty_base = {
         "sp": 0,
         "sp_today": 0,
         "level": 1,
@@ -290,16 +340,26 @@ def _build_empty_stats_response() -> dict:
         "sp_needed": 150,
         "progress_percent": 0.0,
     }
+
+    def empty_for(key: str) -> dict:
+        return {
+            "key": key,
+            **empty_base,
+            "daily_cap": _STAT_DAILY_CAPS.get(key, 0),
+            "contributing": list(_STAT_CONTRIBUTING.get(key, [])),
+        }
+
     return {
         "aura": {"level": 1, "level_name": "Dormant", "progress_percent": 0.0},
-        "vitality": {**empty, "key": "vitality"},
-        "focus": {**empty, "key": "focus"},
-        "craft": {**empty, "key": "craft"},
-        "discipline": {**empty, "key": "discipline"},
-        "willpower": {**empty, "key": "willpower"},
+        "vitality": empty_for("vitality"),
+        "focus": empty_for("focus"),
+        "craft": empty_for("craft"),
+        "discipline": empty_for("discipline"),
+        "willpower": empty_for("willpower"),
         "missions_completed_today": 0,
         "total_missions_today": 0,
         "willpower_milestone_sp_awarded": 0,
+        "meta": dict(_STATS_META),
     }
 
 
@@ -339,6 +399,8 @@ async def get_stats_for_user(user_id: str, timezone_str: str | None = None) -> d
             "sp": sp,
             "sp_today": int(stats.get(f"{key}_sp_today") or 0),
             **progress,
+            "daily_cap": _STAT_DAILY_CAPS.get(key, 0),
+            "contributing": list(_STAT_CONTRIBUTING.get(key, [])),
         }
 
     vitality = build_stat("vitality")
@@ -382,4 +444,5 @@ async def get_stats_for_user(user_id: str, timezone_str: str | None = None) -> d
         "missions_completed_today": int(stats.get("missions_completed_today") or 0),
         "total_missions_today": int(stats.get("total_missions_today") or 0),
         "willpower_milestone_sp_awarded": int(stats.get("willpower_milestone_sp_awarded") or 0),
+        "meta": dict(_STATS_META),
     }

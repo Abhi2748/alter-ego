@@ -279,15 +279,7 @@ async def check_username_availability(username: str) -> dict:
     if not taken:
         return {"available": True, "username": u, "suggestion": None}
 
-    suggestion = None
-    for _ in range(10):
-        num = random.randint(10, 99)
-        candidate = f"{u}_{num}"
-        if len(candidate) <= 20 and not await _is_username_taken(candidate):
-            suggestion = candidate
-            break
-
-    return {"available": False, "username": u, "reason": "taken", "suggestion": suggestion}
+    return {"available": False, "username": u, "reason": "taken", "suggestion": None}
 
 
 async def create_profile_if_missing(user_id: str) -> dict:

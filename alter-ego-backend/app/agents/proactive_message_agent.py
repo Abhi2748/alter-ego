@@ -15,6 +15,7 @@ from app.agents import twin_chat_prompts_v2 as twin_prompts
 from app.agents.base import run_agent
 from app.core.supabase_client import supabase_admin
 from app.services.mission_service import get_days_since_registration, get_user_date
+from app.services.twin_tone_mix import pick_mixed_tone_for_message
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,7 @@ async def generate_and_store_proactive_message(
                 "is_proactive": True,
                 "is_read": False,
                 "trigger_reason": trigger_reason,
+                "tone_used": tone_used,
             }
         ).execute()
 

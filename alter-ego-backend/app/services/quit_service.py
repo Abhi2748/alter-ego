@@ -346,6 +346,12 @@ async def create_quit_path(
     if not result.data:
         raise RuntimeError("Failed to insert quit_paths row")
     path_id = result.data[0]["id"]
+    try:
+        from app.services.mail_service import check_and_send_quit_path_started_mail
+
+        await check_and_send_quit_path_started_mail(user_id)
+    except Exception:
+        pass
     return {"path_id": path_id, "starting_phase": starting_phase, "status": status}
 
 
@@ -540,7 +546,7 @@ async def log_frequency(user_id: str, path_id: str, count: int) -> dict[str, Any
 
     path_res = (
         supabase_admin.table("quit_paths")
-        .select("frequency_unit,frequency_baseline,current_phase")
+        .select("frequency_unit,frequency_baseline,current_phase,created_at")
         .eq("id", path_id)
         .eq("user_id", user_id)
         .single()
@@ -588,6 +594,16 @@ async def log_frequency(user_id: str, path_id: str, count: int) -> dict[str, Any
             supabase_admin.table("quit_paths").update({"frequency_reduction_pct": reduction_pct}).eq(
                 "id", path_id
             ).execute()
+
+    try:
+        created_day = str(path.get("created_at") or "")[:10]
+        if created_day:
+            days_since = (date.fromisoformat(today) - date.fromisoformat(created_day)).days
+            from app.services.mail_service import maybe_send_quit_clean_mails
+
+            await maybe_send_quit_clean_mails(user_id, days_since)
+    except Exception:
+        pass
 
     return {"logged": True, "count": count, "date": today}
 

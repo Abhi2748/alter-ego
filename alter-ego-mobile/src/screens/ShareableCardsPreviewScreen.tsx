@@ -53,12 +53,12 @@ const QUIT_MILESTONE_PREVIEW_TYPES: { type: string; label: string }[] = [
 const MOCK_COMPARISON_TWIN_AHEAD: TwinComparisonOut = {
   user_xp: 1200,
   user_pet_stage: 1,
-  user_pet_stage_name: "Cub",
+  user_pet_stage_name: "Cat",
   user_streak: 4,
   user_power_score: 720,
   twin_xp: 2400,
   twin_pet_stage: 2,
-  twin_pet_stage_name: "Cat",
+  twin_pet_stage_name: "Fox",
   twin_streak: 12,
   twin_power_score: 890,
   current_gap_state: "CLOSING",
@@ -71,12 +71,12 @@ const MOCK_COMPARISON_TWIN_AHEAD: TwinComparisonOut = {
 const MOCK_COMPARISON_USER_AHEAD: TwinComparisonOut = {
   user_xp: 3200,
   user_pet_stage: 3,
-  user_pet_stage_name: "Fox",
+  user_pet_stage_name: "Wolf",
   user_streak: 14,
   user_power_score: 910,
   twin_xp: 1800,
   twin_pet_stage: 2,
-  twin_pet_stage_name: "Cat",
+  twin_pet_stage_name: "Fox",
   twin_streak: 8,
   twin_power_score: 780,
   current_gap_state: "PASSED",
@@ -290,11 +290,15 @@ export function ShareableCardsPreviewScreen() {
         visible={twinVariant === "twin"}
         onClose={() => setTwinVariant(null)}
         comparison={MOCK_COMPARISON_TWIN_AHEAD}
+        userCharacterStage={2}
+        twinCharacterStage={4}
       />
       <TwinComparisonShareCard
         visible={twinVariant === "user"}
         onClose={() => setTwinVariant(null)}
         comparison={MOCK_COMPARISON_USER_AHEAD}
+        userCharacterStage={3}
+        twinCharacterStage={2}
       />
 
       {/* Interest milestone card preview (one modal, theme by number) */}

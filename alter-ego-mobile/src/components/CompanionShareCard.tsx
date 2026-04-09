@@ -6,9 +6,11 @@ import {
   Pressable,
   Platform,
   Share,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { captureRef } from "react-native-view-shot";
+import { getPetImageSource } from "@/constants/characterPetAssets";
 
 export type CompanionShareCardProps = {
   stage: number; // 1-8
@@ -19,6 +21,10 @@ export type CompanionShareCardProps = {
   totalDays: number;
   totalPF: number;
   tierLabel: string;
+  /** Not yet unlocked — preview copy, share disabled */
+  lockedPreview?: boolean;
+  /** PF threshold to reach this stage (shown when lockedPreview) */
+  unlockPfRequired?: number;
 };
 
 type StageStyle = {
@@ -288,13 +294,13 @@ const STYLES: Record<number, StageStyle> = {
 };
 
 const QUOTES: Record<number, string> = {
-  1: "The day you proved you would show up. Your companion arrived.",
-  2: "Eighteen days. The Cub watched you work. It grew.",
+  1: "The day you proved you would show up. Your Cat arrived.",
+  2: "The Fox watched you work. It grew.",
   3: "Fifty days. Clever and capable. So are you.",
-  4: "Four months. The Wolf arrives for people who stayed.",
-  5: "Nine months. Rare. Patient. Exactly like you became.",
-  6: "550 days. The Panther is what discipline looks like when it stops being hard.",
-  7: "One thousand days. The Griffin exists because you refused to stop.",
+  4: "Four months. The Panther arrives for people who stayed.",
+  5: "Nine months. Snow Leopard. Rare. Patient. Exactly like you became.",
+  6: "The Tiger is what discipline looks like when it stops being hard.",
+  7: "The Phoenix exists because you refused to stop.",
   8: "A Dragon is not an achievement. It is a biography.",
 };
 
@@ -309,13 +315,21 @@ export const CompanionShareCard = forwardRef<View, CompanionShareCardProps>(
       totalDays,
       totalPF,
       tierLabel,
+      lockedPreview = false,
+      unlockPfRequired = 0,
     },
     ref
   ) => {
     const [sharing, setSharing] = useState(false);
     const innerRef = useRef<View>(null);
     const s = STYLES[Math.min(8, Math.max(1, stage))] ?? STYLES[1];
-    const quote = QUOTES[Math.min(8, Math.max(1, stage))] ?? "";
+    const quoteUnlocked = QUOTES[Math.min(8, Math.max(1, stage))] ?? "";
+    const quote =
+      lockedPreview && unlockPfRequired > 0
+        ? `Preview — reach ${unlockPfRequired.toLocaleString()} PF total to unlock ${petName}. Your companion art is waiting.`
+        : lockedPreview
+          ? `Preview — keep earning Pet Food to unlock ${petName}.`
+          : quoteUnlocked;
 
     useImperativeHandle(ref, () => innerRef.current as View, []);
 
@@ -344,6 +358,7 @@ export const CompanionShareCard = forwardRef<View, CompanionShareCardProps>(
     }, [s.shareShadow]);
 
     const handleShare = async () => {
+      if (lockedPreview) return;
       const node = innerRef.current;
       if (!node) return;
       setSharing(true);
@@ -435,29 +450,20 @@ export const CompanionShareCard = forwardRef<View, CompanionShareCardProps>(
 
           {/* Top row: pet left, info right (Identity-style) */}
           <View style={styles.topRow}>
-            <View
-              style={[
-                styles.petLeftBox,
-                { backgroundColor: s.creatureZone.bg, borderColor: s.creatureZone.border },
-              ]}
-            >
-              <View style={styles.petLeftCircle}>
-                <View
-                  pointerEvents="none"
-                  style={[
-                    styles.petLeftCircleBorder,
-                    { borderColor: s.creatureZone.border },
-                  ]}
-                />
-                <Text style={[styles.petLeftPlaceholder, { color: s.creatureZone.placeholder }]}>
-                  {petName.toUpperCase()}
-                </Text>
-                <Text style={styles.petLeftSoon}>Art coming soon</Text>
-              </View>
+            <View style={styles.petLeftArt}>
+              <Image
+                source={getPetImageSource(Math.min(8, Math.max(1, stage)))}
+                style={styles.petLeftImage}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
             </View>
             <View style={styles.petMetaCol}>
               <Text style={[styles.petName, { color: s.nameColor, fontSize: s.nameSize }]}>
                 {petName}
+                {lockedPreview ? (
+                  <Text style={styles.previewBadge}> · Preview</Text>
+                ) : null}
               </Text>
               <Text style={styles.userLine}>{`${username} · Day ${reachedDay}`}</Text>
               <Text style={[styles.dateLine, { color: s.dateColor }]}>{reachedDate}</Text>
@@ -504,15 +510,19 @@ export const CompanionShareCard = forwardRef<View, CompanionShareCardProps>(
           {/* Share button */}
           <Pressable
             onPress={handleShare}
-            disabled={sharing}
+            disabled={sharing || lockedPreview}
             style={({ pressed }) => [
               styles.shareBtnWrap,
               shareShadowStyle,
-              pressed && { transform: [{ scale: 0.98 }] },
+              !lockedPreview && pressed ? { transform: [{ scale: 0.98 }] } : null,
             ]}
           >
             <LinearGradient
-              colors={s.shareBtn.colors as [string, string, ...string[]]}
+              colors={
+                lockedPreview
+                  ? (["#1f2937", "#374151"] as [string, string, ...string[]])
+                  : (s.shareBtn.colors as [string, string, ...string[]])
+              }
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={[
@@ -520,10 +530,13 @@ export const CompanionShareCard = forwardRef<View, CompanionShareCardProps>(
                 {
                   height: s.shareBtn.height,
                   borderRadius: s.shareBtn.radius,
+                  opacity: lockedPreview ? 0.55 : 1,
                 },
               ]}
             >
-              <Text style={styles.shareBtnText}>{s.shareBtn.label}</Text>
+              <Text style={styles.shareBtnText}>
+                {lockedPreview ? "Unlock to share" : s.shareBtn.label}
+              </Text>
             </LinearGradient>
           </Pressable>
         </View>
@@ -601,43 +614,24 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 14,
     marginBottom: 14,
   },
-  petLeftBox: {
-    width: 88,
-    height: 88,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: "center",
+  petLeftArt: {
+    width: 92,
+    height: 92,
     justifyContent: "center",
-    overflow: "hidden",
-  },
-  petLeftCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 999,
     alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
   },
-  petLeftCircleBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 999,
-    borderWidth: 1,
-    opacity: 0.9,
+  petLeftImage: {
+    width: 92,
+    height: 92,
   },
-  petLeftPlaceholder: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    marginBottom: 2,
-  },
-  petLeftSoon: {
-    fontSize: 8,
-    color: "rgba(255,255,255,0.08)",
+  previewBadge: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(52,211,153,0.55)",
   },
   petMetaCol: {
     flex: 1,

@@ -20,9 +20,16 @@ import { SigilMiniPreview } from "@/components/sigil/SigilMiniPreview";
 import { useSigilData } from "@/hooks/useSigil";
 import { useQuery } from "@tanstack/react-query";
 import { leaderboardService } from "@/services/leaderboard";
+import { CHARACTER_IDENTITY_PAGE_IMAGE } from "@/constants/characterPetAssets";
 
 /** Matches stage badge / "Stage 1 · The Awakened" accent on this screen */
 const PROFILE_HERO_ACCENT = "rgba(167,139,250,0.95)";
+
+/** Stack routes opened from nav rows (no params). Excludes detail routes. */
+type ProfileNavRowKey = Exclude<
+  keyof ProfileStackParamList,
+  "ProfileMain" | "ProfileInterestDetail" | "QuitDetail"
+>;
 
 type Nav = CompositeNavigationProp<
   StackNavigationProp<ProfileStackParamList, "ProfileMain">,
@@ -75,7 +82,7 @@ function AetherSigilIcon() {
 
 const PROFILE_NAV_ROWS: {
   kind: "sigil" | "stack" | "journey" | "quits" | "leaderboard";
-  key?: keyof Omit<ProfileStackParamList, "ProfileMain">;
+  key?: ProfileNavRowKey;
   label: string;
   Icon: React.FC;
   iconWrap: "violet" | "ember" | "journey" | "quits";
@@ -113,6 +120,13 @@ const PROFILE_NAV_ROWS: {
     iconWrap: "violet",
   },
   { kind: "journey", key: "ProfileIdentity", label: "Journey", Icon: JourneyIcon, iconWrap: "journey" },
+  {
+    kind: "stack",
+    key: "ProfileWeeklyReport",
+    label: "Weekly Report",
+    Icon: () => <Ionicons name="bar-chart-outline" size={18} color="#8B5CF6" />,
+    iconWrap: "violet",
+  },
   { kind: "quits", key: "ProfileQuits", label: "Quits", Icon: QuitsIcon, iconWrap: "quits" },
 ];
 
@@ -160,7 +174,7 @@ export function ProfileScreen() {
     (navigation.getParent() as any)?.navigate("Leaderboard");
   };
 
-  const openEntry = (screen: keyof Omit<ProfileStackParamList, "ProfileMain">) => {
+  const openEntry = (screen: ProfileNavRowKey) => {
     navigation.navigate(screen);
   };
 
@@ -187,7 +201,13 @@ export function ProfileScreen() {
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
             {profile?.profile_photo_url ? (
-              <Image source={{ uri: profile.profile_photo_url }} style={styles.profilePic} />
+              <View style={styles.profilePicRing}>
+                <Image
+                  source={{ uri: profile.profile_photo_url }}
+                  style={styles.profilePicImage}
+                  resizeMode="cover"
+                />
+              </View>
             ) : (
               <LinearGradient
                 colors={["rgba(80,30,160,0.7)", "rgba(30,20,60,0.9)"]}
@@ -270,18 +290,11 @@ export function ProfileScreen() {
               <>
                 <View style={styles.charRow}>
                   <View style={styles.charWrap}>
-                    <LinearGradient
-                      colors={["transparent", "rgba(167,139,250,0.35)", "transparent"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.charRim}
-                      pointerEvents="none"
-                    />
-                    <LinearGradient
-                      colors={["rgba(60,25,130,0.32)", "rgba(10,10,22,0.75)"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 0.5, y: 1 }}
-                      style={styles.charPlaceholder}
+                    <Image
+                      source={CHARACTER_IDENTITY_PAGE_IMAGE}
+                      style={styles.charHeroImage}
+                      resizeMode="cover"
+                      accessibilityIgnoresInvertColors
                     />
                   </View>
                 </View>
@@ -497,6 +510,22 @@ const styles = StyleSheet.create({
     position: "relative",
     paddingBottom: 16,
   },
+  profilePicRing: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 2,
+    borderColor: "rgba(139,92,246,0.4)",
+    overflow: "hidden",
+    backgroundColor: "#141824",
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "rgba(109,40,217,0.25)", shadowRadius: 12, shadowOffset: { width: 0, height: 0 } }
+      : {}),
+  },
+  profilePicImage: {
+    width: "100%",
+    height: "100%",
+  },
   profilePic: {
     width: 42,
     height: 42,
@@ -529,12 +558,23 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 6,
     right: 6,
-    width: 7,
-    height: 7,
+    width: 8,
+    height: 8,
     borderRadius: 4,
-    backgroundColor: "#8B5CF6",
-    borderWidth: 1,
+    backgroundColor: "#A78BFA",
+    borderWidth: 1.5,
     borderColor: "#141824",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#8B5CF6",
+        shadowOpacity: 1,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 0 },
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
   },
   stageBadge: {
     alignSelf: "center",
@@ -561,27 +601,13 @@ const styles = StyleSheet.create({
   charWrap: {
     width: 168,
     height: 252,
-    borderRadius: 18,
+    borderRadius: 20,
+    overflow: "hidden",
     position: "relative",
   },
-  charRim: {
-    position: "absolute",
-    top: 0,
-    left: "15%",
-    right: "15%",
-    height: 1,
-    zIndex: 1,
-  },
-  charPlaceholder: {
+  charHeroImage: {
     width: "100%",
     height: "100%",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.15)",
-    overflow: "hidden",
-    ...(Platform.OS === "ios"
-      ? { shadowColor: "rgba(80,20,160,0.15)", shadowRadius: 30, shadowOffset: { width: 0, height: 0 } }
-      : {}),
   },
   heroNavDividerWrap: {
     marginHorizontal: 16,

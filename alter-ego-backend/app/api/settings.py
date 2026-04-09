@@ -21,52 +21,64 @@ logger = logging.getLogger(__name__)
 
 FAQ_ITEMS = [
     {
-        "q": "How does the streak work?",
-        "a": "Your streak counts if you complete your daily requirement. Right now that's any 2 core missions or 1 interest mission. The requirement grows as you progress — reaching Stage 2 requires 4 core + 1 interest, and so on. Check your streak tier in the Streak tab.",
+        "q": "What is ALTER EGO?",
+        "a": "ALTER EGO is a discipline operating system — not a habit tracker, not a wellness app. Every day you complete missions, build abilities, and evolve your character alongside a Shadow Twin who started in the exact same position as you. The difference between you and your Twin is built entirely by daily choices.",
     },
     {
-        "q": "What is the Shadow Twin?",
-        "a": "Your Twin is another version of you — built from your archetype — that runs in parallel. It starts at the same XP, same level, same pet. The gap between you is built by daily choices. Tap the Twin tab to see where you stand.",
+        "q": "What are the 6 core missions?",
+        "a": "Sleep (7+ hours), Movement (30 minutes of activity), Hydration (2 litres of water), Mindfulness (10 minutes of stillness or meditation), No-Phone (a screen-free window — length increases with your level), and Journal (write anything — reflection, observation, plan). These are non-negotiable daily requirements.",
     },
     {
-        "q": "How are my missions chosen?",
-        "a": "Core missions are fixed — the 6 biological foundations every day. Interest missions are generated fresh each day by an AI that knows your domain, your level, your goals, and your completion history. Tap any mission to see the research behind it.",
-    },
-    {
-        "q": "What is Pet Food?",
-        "a": "Pet Food is earned every time you complete a mission. It feeds your companion's growth — from Cub to Dragon across 8 stages. Your companion unlocks on Day 6.",
-    },
-    {
-        "q": "How do I change my interests?",
-        "a": "Go to Profile → Interests → tap any interest to edit it. Schedule and active-interest changes update today's missions when you open Home (incomplete missions that no longer apply are removed; missing ones are added). Completed missions stay in your history.",
+        "q": "How is my streak calculated?",
+        "a": "A streak day is earned when you meet your minimum mission requirement. Early on that's 2 core missions or 1 interest mission. The requirement grows as your character advances — you can see your current threshold in your streak detail screen. If you miss a day, your streak resets to zero unless a Streak Freeze activates.",
     },
     {
         "q": "What happens if I miss a day?",
-        "a": "For the first 29 days of absence, your XP is frozen and your streak resets — but full recovery is possible. After 30 days, a dynamic penalty applies. Your companion goes to Sad state when you miss days.",
+        "a": "Your streak resets to zero. Your XP, abilities, character stage, and all other progress are not lost — only the streak counter. If you had a Streak Freeze in your inventory, it activates automatically (or manually, depending on your freeze settings) and protects the streak for that miss.",
     },
     {
-        "q": "How do I change my username?",
-        "a": "Go to Profile → Settings → tap your username to edit it. Usernames must be 3-20 characters, letters, numbers, and underscores only.",
+        "q": "What is my Shadow Twin?",
+        "a": "Your Twin is an AI version of you that started at the same position on Day 1 — same XP, same level, no pet, zero streak. From that point it evolved based on your onboarding archetype and is recalibrated every 7 days using your real completion data. The gap between you and your Twin is built by your daily choices. The Twin does not coach — it simply exists as a mirror.",
     },
     {
-        "q": "What is my Power Score?",
-        "a": "Power Score is your leaderboard ranking metric. It combines: XP stage progress (35%), pet stage (20%), current streak (25%), and 30-day completion rate (20%). It recalculates around 1:00 in your timezone (with other nightly jobs).",
+        "q": "How does the Twin chat work?",
+        "a": "Tap the Twin tab, then tap the message icon. Your Twin speaks in one of three voices — Rival (competitive, direct), Philosopher (reflective, principled), or Silent Force (minimal, deliberate) — based on your archetype. It responds as the version of you that showed up every day. It does not give advice.",
     },
     {
-        "q": "How do I connect my Google account?",
-        "a": "Go to Settings → Connect Google Account. This links your anonymous session to a real account so you never lose your data.",
+        "q": "How often does my Twin recalibrate?",
+        "a": "The first recalibration happens at Day 7. After that, every 7 days. Each recalibration updates the Twin's intensity and approach based on your completion rate and how you engage. You receive a mail notification each time it recalibrates.",
     },
     {
-        "q": "What are the daily XP and Pet Food caps?",
-        "a": "Your daily caps increase with your character stage. Stage 1: 200 XP / 160 PF. Stage 2: 300 / 240. Stage 3: 450 / 360. Stage 4: 600 / 480. Stage 5: 800 / 640. Stage 6: 1000 / 800.",
+        "q": "What are the 5 Abilities?",
+        "a": "Vitality (built by sleep, movement, and hydration), Focus (built by mindfulness, no-phone, and journal missions), Craft (built by completing interest missions), Discipline (built by core missions, resistance, and recovery), and Willpower (built by personal missions and daily completion bonuses). Each has 10 levels from Dormant to Eternal. Tap any ability in your Profile to see its full progression.",
     },
     {
-        "q": "Can the Twin ever be wrong about my archetype?",
-        "a": "The Twin recalibrates every 7 days based on your actual behaviour — completion rate, how you respond to the gap, how often you chat. The first full behaviour calibration runs after your first week. Over time it becomes more accurately tuned to you regardless of your initial archetype.",
+        "q": "What is XP and how do I earn it?",
+        "a": "XP is earned by completing missions. Harder missions give more XP. Your daily XP cap starts at 200 and increases at each character stage — Stage 2 gives 300/day, Stage 3 gives 450/day, up to 1,000/day at Stage 6. Completing missions beyond the cap still counts toward your streak and abilities; only the XP accumulation stops.",
     },
     {
-        "q": "Why does my Twin sometimes pull ahead after I cross it?",
-        "a": "When you cross your Twin, it enters a 6-day push period where it performs slightly better. If you stay consistent through those 6 days, you hold the lead. After 14 days ahead, the Twin calibrates its performance to match your own level + a small offset — so consistent effort keeps you ahead.",
+        "q": "What is the Power Score?",
+        "a": "Power Score is your composite ranking metric. It combines how far you are through your current character stage (35%), your pet companion's stage (20%), your current streak (25%), and your 30-day completion rate (20%). It updates every night. Consistent daily effort outranks occasional intensity.",
+    },
+    {
+        "q": "When does my companion unlock?",
+        "a": "Your companion unlocks on Day 6. Until then, any Pet Food you earn is accumulating. It starts as a Cat and grows through 8 stages — Cat, Fox, Wolf, Panther, Snow Leopard, Tiger, Phoenix, Dragon. At a consistent pace, reaching Dragon takes roughly a year.",
+    },
+    {
+        "q": "How do interest missions get assigned?",
+        "a": "Interest missions are generated daily by the Planner — an AI system calibrated to your goal, current level, available time, and recent performance. As your completion rate improves, the Planner upgrades your difficulty. You can rate any mission from its detail view and the Planner reads your feedback.",
+    },
+    {
+        "q": "What is a quit path?",
+        "a": "A quit path is a structured program for stopping a habit. It runs in phases, each with resistance missions calibrated to where you are. Completing a full phase without a slip earns the Conquer milestone. Completing missions on a quit path builds Discipline SP. Log slips honestly — the system is built for honesty, not perfection.",
+    },
+    {
+        "q": "How does the Focus timer work?",
+        "a": "The Focus tab has three modes — Pomodoro (25/5/15 minute cycles, configurable rounds), Deep Work (30–120 minute single countdown), and Stopwatch (count-up, no target). Sessions are optionally tagged. Every completed session earns Focus SP up to your daily cap. Your stats, weekly chart, and session history are in the Stats sub-tab.",
+    },
+    {
+        "q": "How is my weekly report generated?",
+        "a": "Your weekly report is generated every Sunday evening by an AI agent that reviews your full week — completion rates, mission patterns, Twin gap, and what you skipped most. It appears in the Report section of your Profile. Your first report arrives after your first full week.",
     },
 ]
 

@@ -1,6 +1,7 @@
 /**
  * Pet / companion progression — must match alter-ego-backend/app/core/constants.py
  * (PF_THRESHOLDS, PET_NAMES, TOTAL_PET_STAGES).
+ * Order: Cat → Fox → Wolf → Panther → Snow Leopard → Tiger → Phoenix → Dragon.
  */
 
 export const PET_PF_THRESHOLDS = [
@@ -8,13 +9,13 @@ export const PET_PF_THRESHOLDS = [
 ] as const;
 
 export const PET_STAGE_NAMES = [
-  "Cub",
   "Cat",
   "Fox",
   "Wolf",
-  "Snow Leopard",
   "Panther",
-  "Griffin",
+  "Snow Leopard",
+  "Tiger",
+  "Phoenix",
   "Dragon",
 ] as const;
 

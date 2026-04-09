@@ -25,18 +25,18 @@ TOTAL_CHARACTER_STAGES = 6
 # ── PET / COMPANION PROGRESSION ──────────────────────────────────────────
 
 # Pet Food required to REACH each pet stage
-# Stage 1 (Cub) unlocks automatically on Day 6 — no PF required
+# Stage 1 (Cat) unlocks automatically on Day 6 — no PF required
 PF_THRESHOLDS = [0, 400, 2_800, 10_000, 26_800, 62_000, 113_200, 242_800]
 
 PET_NAMES = [
-    "Cub",          # Stage 1: auto-unlock Day 6
-    "Cat",          # Stage 2: 400 PF
-    "Fox",          # Stage 3: 2,000 PF
-    "Wolf",         # Stage 4: 7,000 PF
-    "Snow Leopard", # Stage 5: 18,000 PF
-    "Panther",      # Stage 6: 40,000 PF
-    "Griffin",      # Stage 7: 80,000 PF
-    "Dragon",       # Stage 8: 150,000 PF — legendary
+    "Cat",          # Stage 1: auto-unlock Day 6
+    "Fox",          # Stage 2: 400 PF
+    "Wolf",         # Stage 3: 2,800 PF
+    "Panther",      # Stage 4: 10,000 PF
+    "Snow Leopard", # Stage 5: 26,800 PF
+    "Tiger",        # Stage 6: 62,000 PF
+    "Phoenix",      # Stage 7: 113,200 PF
+    "Dragon",       # Stage 8: 242,800 PF — legendary
 ]
 
 TOTAL_PET_STAGES = 8
@@ -1463,15 +1463,15 @@ MILESTONE_MESSAGES = {
     },
     "pet_stage_2": {
         "title": "Your Twin",
-        "body": "Your companion evolved. It reflects who you've become.",
+        "body": "Fox. Your companion evolved. It reflects who you've become.",
     },
     "pet_stage_3": {
         "title": "Your Twin",
-        "body": "Fox. Your companion is growing. So is the gap.",
+        "body": "Wolf. Your companion matches your discipline now.",
     },
     "pet_stage_4": {
         "title": "Your Twin",
-        "body": "Wolf. Your companion matches your discipline now.",
+        "body": "Panther. Your companion is formidable. Are you keeping up?",
     },
     "pet_stage_5": {
         "title": "Your Twin",
@@ -1479,11 +1479,11 @@ MILESTONE_MESSAGES = {
     },
     "pet_stage_6": {
         "title": "Your Twin",
-        "body": "Panther. Your companion is formidable. Are you keeping up?",
+        "body": "Tiger. Your companion has outpaced most people who started.",
     },
     "pet_stage_7": {
         "title": "Your Twin",
-        "body": "Griffin. Your companion has outpaced most people who started.",
+        "body": "Phoenix. Your companion has outpaced most people who started.",
     },
     "pet_stage_8": {
         "title": "Your Twin",
@@ -1550,15 +1550,15 @@ MILESTONE_MESSAGES_GUILT_SAFE = {
     },
     "pet_stage_2": {
         "title": "Your Twin",
-        "body": "Your companion evolved. Keep going.",
+        "body": "Fox. Your companion evolved. Keep going.",
     },
     "pet_stage_3": {
         "title": "Your Twin",
-        "body": "Fox. Your companion is growing with you.",
+        "body": "Wolf. Consistency built this.",
     },
     "pet_stage_4": {
         "title": "Your Twin",
-        "body": "Wolf. Consistency built this.",
+        "body": "Panther. Keep moving.",
     },
     "pet_stage_5": {
         "title": "Your Twin",
@@ -1566,11 +1566,11 @@ MILESTONE_MESSAGES_GUILT_SAFE = {
     },
     "pet_stage_6": {
         "title": "Your Twin",
-        "body": "Panther. Keep moving.",
+        "body": "Tiger. Your companion is growing with you.",
     },
     "pet_stage_7": {
         "title": "Your Twin",
-        "body": "Griffin. You've come a long way.",
+        "body": "Phoenix. You've come a long way.",
     },
     "pet_stage_8": {
         "title": "Your Twin",

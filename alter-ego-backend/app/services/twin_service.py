@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.constants import GAP_THRESHOLDS
 from app.core.supabase_client import supabase_admin
+from app.services.twin_tone_mix import normalize_twin_tone, pick_mixed_tone_for_message
 
 logger = logging.getLogger(__name__)
 
@@ -872,6 +873,7 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
         PF_THRESHOLDS,
         TOTAL_CHARACTER_STAGES,
         TOTAL_PET_STAGES,
+        TWIN_XP_CEILING_PCT,
         XP_THRESHOLDS,
     )
     from app.services.mission_service import get_days_since_registration, get_user_date
@@ -1041,6 +1043,11 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
         user_xp_last_7_days=user_xp_last_7,
         user_completion_rate_7d=user_completion_7d,
     )
+    # Shadow rival: never finish the day below the user's same-day XP when they earned any —
+    # keeps multi-mission Twin totals competitive vs fewer user missions (same daily cap ceiling).
+    _twin_ceiling = int(_daily_cap * TWIN_XP_CEILING_PCT)
+    if user_xp_today_earned > 0:
+        twin_xp_budget = min(_twin_ceiling, max(twin_xp_budget, user_xp_today_earned))
 
     archetype = user.get("archetype", "structured_climber")
     # Mission selection rate only (not used for XP budget)
@@ -1160,42 +1167,6 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
     user_passed_twin = user_xp > new_twin_xp
     gap_state = compute_gap_state_from_totals(user_xp, new_twin_xp)
 
-    supabase_admin.table("twin_daily_record").upsert(
-        {
-            "user_id": user_id,
-            "record_date": today,
-            "missions_assigned": len(today_missions),
-            "missions_completed": len(all_completed),
-            "completed_mission_ids": [m["id"] for m in all_completed],
-            "missed_mission_titles": [m["title"] for m in all_missed],
-            "xp_earned": xp_earned,
-            "pf_earned": pf_earned,
-            "consistency_ceiling_used": today_rate,
-        },
-        on_conflict="user_id,record_date",
-    ).execute()
-
-    update_twin_adaptive_state(
-        supabase=supabase_admin,
-        user_id=user_id,
-        twin_xp_earned_today=xp_earned,
-        user_xp_earned_today=user_xp_today_earned,
-        new_comeback_day=new_comeback_day,
-        new_consecutive_absent=new_consecutive_absent,
-        today=today,
-        prev_rolling_avg=twin_rolling_avg,
-        prev_character_stage=_stage,
-        new_character_stage=int(user.get("character_stage") or 1),
-        daily_cap=_daily_cap,
-    )
-
-    await record_twin_mission_log_from_daily_record(
-        user_id,
-        today,
-        [m["id"] for m in all_completed],
-        timezone_str,
-    )
-
     from app.services.streak_service import evaluate_streak_requirement
 
     done_ids = {str(m.get("id")) for m in all_completed}
@@ -1244,6 +1215,44 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
         new_twin_streak = prev_twin_streak + 1
     else:
         new_twin_streak = 1
+
+    daily_payload: dict = {
+        "user_id": user_id,
+        "record_date": today,
+        "missions_assigned": len(today_missions),
+        "missions_completed": len(all_completed),
+        "completed_mission_ids": [m["id"] for m in all_completed],
+        "missed_mission_titles": [m["title"] for m in all_missed],
+        "xp_earned": xp_earned,
+        "pf_earned": pf_earned,
+        "consistency_ceiling_used": today_rate,
+        "twin_streak_after": new_twin_streak,
+    }
+    supabase_admin.table("twin_daily_record").upsert(
+        daily_payload,
+        on_conflict="user_id,record_date",
+    ).execute()
+
+    update_twin_adaptive_state(
+        supabase=supabase_admin,
+        user_id=user_id,
+        twin_xp_earned_today=xp_earned,
+        user_xp_earned_today=user_xp_today_earned,
+        new_comeback_day=new_comeback_day,
+        new_consecutive_absent=new_consecutive_absent,
+        today=today,
+        prev_rolling_avg=twin_rolling_avg,
+        prev_character_stage=_stage,
+        new_character_stage=int(user.get("character_stage") or 1),
+        daily_cap=_daily_cap,
+    )
+
+    await record_twin_mission_log_from_daily_record(
+        user_id,
+        today,
+        [m["id"] for m in all_completed],
+        timezone_str,
+    )
 
     twin_update = {
         "twin_xp": new_twin_xp,
@@ -1417,7 +1426,7 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
     from app.agents.twin_chat_agent import get_relationship_phase
     from app.agents.twin_journal_agent import generate_twin_journal_entry
     from app.core.constants import TWIN_JOURNAL_FALLBACKS
-    from app.services.mission_service import get_days_since_registration, get_user_date
+    from app.services.mission_service import get_user_date
 
     try:
         existing = (
@@ -1446,7 +1455,7 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
 
         rec_res = (
             supabase_admin.table("twin_daily_record")
-            .select("missions_completed, missions_assigned, missed_mission_titles")
+            .select("missions_completed, missions_assigned, missed_mission_titles, xp_earned, twin_streak_after")
             .eq("user_id", user_id)
             .eq("record_date", today)
             .limit(1)
@@ -1488,7 +1497,7 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
 
         user_res = (
             supabase_admin.table("users")
-            .select("archetype, registration_date, timezone, current_streak")
+            .select("archetype, registration_date, timezone, current_streak, last_streak_date")
             .eq("id", user_id)
             .single()
             .execute()
@@ -1499,7 +1508,7 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         try:
             dna_res = (
                 supabase_admin.table("discipline_dna")
-                .select("narrative_seed, twin_streak")
+                .select("narrative_seed")
                 .eq("user_id", user_id)
                 .single()
                 .execute()
@@ -1508,11 +1517,23 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         except Exception:
             journal_dna = {}
         narrative_seed: str | None = journal_dna.get("narrative_seed") or None
-        twin_streak = int(journal_dna.get("twin_streak") or 0)
+        # Twin streak for this journal day — from the same simulation row (not live twin_state).
+        twin_streak = int(twin_record.get("twin_streak_after") or 0)
 
         tz = str(journal_user.get("timezone") or "UTC")
-        reg_n = get_days_since_registration(str(journal_user.get("registration_date") or ""), tz)
-        days_active = max(0, int(reg_n) - 1)
+        try:
+            reg_dt = datetime.fromisoformat(
+                str(journal_user.get("registration_date") or "").replace("Z", "+00:00")
+            )
+            reg_day = reg_dt.astimezone(ZoneInfo(tz)).date()
+        except Exception:
+            reg_day = date_type.today()
+        try:
+            journal_day = date_type.fromisoformat(today[:10])
+        except Exception:
+            journal_day = date_type.today()
+        reg_n_as_of = max(1, (journal_day - reg_day).days + 1)
+        days_active = max(0, reg_n_as_of - 1)
         phase_data = get_relationship_phase(days_active)
         relationship_phase = str(phase_data.get("phase") or "observer")
         archetype = str(journal_user.get("archetype") or "structured_climber")
@@ -1520,7 +1541,7 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         # User's actual missions that day (not Twin's simulated completion counts)
         um_rows = (
             supabase_admin.table("missions")
-            .select("completed")
+            .select("completed, xp_value")
             .eq("user_id", user_id)
             .eq("mission_date", today)
             .execute()
@@ -1529,6 +1550,9 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
         )
         missions_total = len(um_rows)
         missions_completed = sum(1 for m in um_rows if m.get("completed"))
+        xp_from_completed_missions = sum(
+            int(m.get("xp_value") or 0) for m in um_rows if m.get("completed")
+        )
 
         twin_xp_today = int(twin_record.get("xp_earned") or 0)
         xp_log_rows = (
@@ -1540,8 +1564,37 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
             .data
             or []
         )
-        user_xp_today = sum(int(r.get("amount") or 0) for r in xp_log_rows)
-        user_streak = int(journal_user.get("current_streak") or 0)
+        xp_log_sum = sum(int(r.get("amount") or 0) for r in xp_log_rows)
+
+        streak_row_res = (
+            supabase_admin.table("streak_log")
+            .select("xp_earned, streak_count")
+            .eq("user_id", user_id)
+            .eq("log_date", today)
+            .limit(1)
+            .execute()
+        )
+        streak_day = (streak_row_res.data or [None])[0]
+
+        # XP: ledger first; streak_log matches process_streak snapshot; mission sum if ledger empty
+        # (avoids 0 XP when journal is backfilled or xp_log rows are missing but missions completed).
+        if xp_log_sum > 0:
+            user_xp_today = xp_log_sum
+        elif streak_day is not None and int(streak_day.get("xp_earned") or 0) > 0:
+            user_xp_today = int(streak_day.get("xp_earned") or 0)
+        elif xp_from_completed_missions > 0:
+            user_xp_today = xp_from_completed_missions
+        else:
+            user_xp_today = 0
+
+        # Streak: never use users.current_streak alone — it reflects *now*, so backfills show 0 after a break.
+        last_sd = str(journal_user.get("last_streak_date") or "")[:10]
+        if streak_day is not None:
+            user_streak = int(streak_day.get("streak_count") or 0)
+        elif last_sd == today:
+            user_streak = int(journal_user.get("current_streak") or 0)
+        else:
+            user_streak = 0
 
         completion_hour: int | None = None
         try:
@@ -2526,18 +2579,36 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     ]
 
     if block_response is not None:
-        supabase_admin.table("twin_messages").insert(
-            {"user_id": user_id, "role": "user", "content": message, "created_at": now}
-        ).execute()
-        supabase_admin.table("twin_messages").insert(
-            {
-                "user_id": user_id,
-                "role": "twin",
-                "content": block_response,
-                "emotional_register": f"safety_block_{safety.category}",
-                "created_at": now,
-            }
-        ).execute()
+        dna_line = str(dna.get("twin_tone_type") or "rival")
+        user_ins_s = (
+            supabase_admin.table("twin_messages")
+            .insert({"user_id": user_id, "role": "user", "content": message, "created_at": now})
+            .execute()
+        )
+        u_row = (user_ins_s.data or [None])[0] or {}
+        uid_safety = u_row.get("id")
+        if twin_tone_override_active:
+            tone_used_safety = normalize_twin_tone(twin_tone_override_active)
+        else:
+            tone_used_safety = pick_mixed_tone_for_message(
+                dna_line, f"{user_id}:{uid_safety}:safety"
+            )
+        twin_ins_s = (
+            supabase_admin.table("twin_messages")
+            .insert(
+                {
+                    "user_id": user_id,
+                    "role": "twin",
+                    "content": block_response,
+                    "emotional_register": f"safety_block_{safety.category}",
+                    "created_at": now,
+                    "tone_used": tone_used_safety,
+                }
+            )
+            .execute()
+        )
+        twin_row_s = (twin_ins_s.data or [None])[0] or {}
+        tid_s = twin_row_s.get("id")
         logger.info(
             json.dumps(
                 {
@@ -2551,12 +2622,13 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         return {
             "response": block_response,
             "message": block_response,
-            "message_id": None,
-            "twin_message_id": None,
-            "user_message_id": None,
+            "message_id": str(tid_s) if tid_s else None,
+            "twin_message_id": str(tid_s) if tid_s else None,
+            "user_message_id": str(uid_safety) if uid_safety else None,
             "emotional_register": f"safety_block_{safety.category}",
             "is_safety_response": True,
             "safety_category": safety.category,
+            "tone_used": tone_used_safety,
         }
 
     user_msg_safe = sanitize_for_prompt(message, max_len=500, field_name="user_message")
@@ -2588,6 +2660,12 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     archetype_confidence = float(dna.get("archetype_confidence") or 0.5)
     twin_gap_behavior = str(dna.get("twin_gap_behavior") or "rubber_band")
     tone_type = str(dna.get("twin_tone_type") or "rival")
+    if twin_tone_override_active:
+        tone_used = normalize_twin_tone(twin_tone_override_active)
+    else:
+        tone_used = pick_mixed_tone_for_message(
+            tone_type, f"{user_id}:{user_message_id}"
+        )
     intensity = int(dna.get("twin_intensity") or 3)
 
     today_context = _assemble_today_context(
@@ -2625,7 +2703,7 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         narrative_seed=narrative_seed,
         archetype=archetype,
         archetype_confidence=archetype_confidence,
-        twin_tone_type=tone_type,
+        twin_tone_type=tone_used,
         twin_relationship_style=twin_relationship_style,
         twin_intensity=intensity,
         twin_gap_behavior=twin_gap_behavior,
@@ -2663,7 +2741,7 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     check = await check_consistency(
         twin_response=response_text,
         user_message=user_msg_safe,
-        twin_tone_type=tone_type,
+        twin_tone_type=tone_used,
         twin_relationship_style=twin_relationship_style,
         guilt_orientation=guilt_orientation,
         user_mood=tone.user_mood,
@@ -2696,6 +2774,7 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
                 "emotional_register": emotional_register,
                 "conversation_note": conversation_note,
                 "created_at": now,
+                "tone_used": tone_used,
             }
         )
         .execute()
@@ -2739,6 +2818,7 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         "emotional_register": emotional_register,
         "is_safety_response": False,
         "safety_category": None,
+        "tone_used": tone_used,
     }
 
 

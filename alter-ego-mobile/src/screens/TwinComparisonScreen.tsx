@@ -11,6 +11,7 @@ import {
   Pressable,
   Platform,
   ScrollView,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,6 +29,7 @@ import {
   CHARACTER_STAGE_NAMES,
   DAILY_XP_CAPS,
 } from "@/constants/characterProgression";
+import { getCharacterImageSource, getTwinCharacterImageSource } from "@/constants/characterPetAssets";
 
 const CHAT_FAB_BOTTOM = 8;
 const CHAT_FAB_RIGHT = 16;
@@ -578,9 +580,6 @@ export function TwinComparisonScreen() {
     twinData?.twin.character_stage_name ??
     CHARACTER_STAGE_NAMES[twinStage - 1] ??
     "The Awakened";
-  const userStageLbl = (CHARACTER_STAGE_NAMES[userStage - 1] ?? "Awakened").toUpperCase();
-  const twinStageLbl = (CHARACTER_STAGE_NAMES[twinStage - 1] ?? "Awakened").toUpperCase();
-
   const todayTab = (
     <>
       <View style={styles.arena}>
@@ -595,7 +594,12 @@ export function TwinComparisonScreen() {
         <View style={styles.arenaSide}>
           <Text style={styles.arenaSideLabel}>YOU</Text>
           <View style={styles.charCard}>
-            <Text style={styles.charStageLbl}>{userStageLbl}</Text>
+            <Image
+              source={getCharacterImageSource(userStage)}
+              style={styles.charCardImage}
+              resizeMode="cover"
+              accessibilityIgnoresInvertColors
+            />
           </View>
           <Text style={styles.charName}>{comparison?.username ?? "You"}</Text>
           <Text style={styles.charStageName}>{userStageName}</Text>
@@ -613,7 +617,12 @@ export function TwinComparisonScreen() {
         <View style={styles.arenaSide}>
           <Text style={[styles.arenaSideLabel, styles.arenaSideLabelTwin]}>TWIN</Text>
           <View style={[styles.charCard, styles.charCardTwin]}>
-            <Text style={[styles.charStageLbl, styles.charStageLblTwin]}>{twinStageLbl}</Text>
+            <Image
+              source={getTwinCharacterImageSource()}
+              style={styles.charCardImage}
+              resizeMode="cover"
+              accessibilityIgnoresInvertColors
+            />
           </View>
           <Text style={[styles.charName, styles.charNameTwin]}>Shadow</Text>
           <Text style={[styles.charStageName, styles.charStageNameTwin]}>{twinStageName}</Text>
@@ -858,7 +867,8 @@ export function TwinComparisonScreen() {
         <View style={{ flex: 1, width: "100%" }}>
           <View
             style={{
-              height: 218,
+              minHeight: 300,
+              paddingTop: 24,
               flexDirection: "row",
               paddingHorizontal: 16,
               alignItems: "flex-end",
@@ -867,12 +877,12 @@ export function TwinComparisonScreen() {
             }}
           >
             <View style={{ alignItems: "center", gap: 8, flex: 1 }}>
-              <SkeletonBlock width={72} height={120} borderRadius={14} />
+              <SkeletonBlock width={168} height={252} borderRadius={18} />
               <SkeletonBlock width={56} height={10} delay={80} />
             </View>
-            <View style={{ width: 2, height: 100, backgroundColor: "#1E2333", opacity: 0.5 }} />
+            <View style={{ width: 2, height: 160, backgroundColor: "#1E2333", opacity: 0.5 }} />
             <View style={{ alignItems: "center", gap: 8, flex: 1 }}>
-              <SkeletonBlock width={72} height={120} borderRadius={14} delay={40} />
+              <SkeletonBlock width={168} height={252} borderRadius={18} delay={40} />
               <SkeletonBlock width={56} height={10} delay={120} />
             </View>
           </View>
@@ -1003,6 +1013,8 @@ export function TwinComparisonScreen() {
         visible={shareVisible}
         onClose={() => setShareVisible(false)}
         comparison={comparison}
+        userCharacterStage={userStage}
+        twinCharacterStage={twinStage}
       />
     </View>
   );
@@ -1083,7 +1095,9 @@ const styles = StyleSheet.create({
   sectionTabTextActive: { color: "#A78BFA" },
 
   arena: {
-    height: 218,
+    minHeight: 300,
+    paddingTop: 24,
+    paddingBottom: 8,
     flexDirection: "row",
     alignItems: "stretch",
     position: "relative",
@@ -1111,29 +1125,16 @@ const styles = StyleSheet.create({
   },
   arenaSideLabelTwin: { color: "rgba(167,139,250,0.28)" },
   charCard: {
-    width: 92,
-    height: 136,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(42,48,80,0.45)",
-    backgroundColor: "rgba(20,15,48,0.7)",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    paddingBottom: 9,
+    width: 168,
+    height: 252,
+    borderRadius: 20,
     overflow: "hidden",
   },
-  charCardTwin: {
-    borderColor: "rgba(139,92,246,0.22)",
-    backgroundColor: "rgba(35,15,68,0.75)",
+  charCardImage: {
+    width: "100%",
+    height: "100%",
   },
-  charStageLbl: {
-    fontSize: 7,
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    color: "rgba(107,114,128,0.35)",
-    fontFamily: "Inter_600SemiBold",
-  },
-  charStageLblTwin: { color: "rgba(139,92,246,0.32)" },
+  charCardTwin: {},
   charName: {
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",

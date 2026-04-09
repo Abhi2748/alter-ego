@@ -25,6 +25,7 @@ import { DayDetailScreen } from "../screens/DayDetailScreen";
 import { MissionDetailScreen } from "../screens/MissionDetailScreen";
 import { SigilScreen } from "../screens/SigilScreen";
 import { LeaderboardScreen } from "../screens/LeaderboardScreen";
+import { StreakDetailScreen } from "../screens/StreakDetailScreen";
 import { COLORS } from "../constants/theme";
 
 const Stack = createStackNavigator<MainStackParamList>();
@@ -71,6 +72,11 @@ export function MainStack() {
         <Stack.Screen name="JournalCalendar" component={JournalCalendarScreen} />
         <Stack.Screen name="DayDetail" component={DayDetailScreen} />
         <Stack.Screen name="MissionDetail" component={MissionDetailScreen} />
+        <Stack.Screen
+          name="StreakDetail"
+          component={StreakDetailScreen}
+          options={{ headerShown: false }}
+        />
       </Stack.Navigator>
     </BottomSheetModalProvider>
   );

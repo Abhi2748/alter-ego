@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +24,7 @@ import {
 } from "@/constants/characterProgression";
 import { AchievementCardModal, type TitleStage } from "./ProfileTitlesScreen";
 import { SkeletonBlock } from "@/components/SkeletonBlock";
+import { CHARACTER_IDENTITY_PAGE_IMAGE } from "@/constants/characterPetAssets";
 
 type IdentityStage = {
   stage: number;
@@ -295,20 +297,12 @@ export function ProfileIdentityScreen() {
 
             <View style={styles.currentRow}>
               <View style={styles.stageArtWrap}>
-                <LinearGradient
-                  colors={
-                    currentStage === 1
-                      ? ["rgba(50,20,90,0.55)", "rgba(10,10,20,0.90)"]
-                      : currentStage === 2
-                      ? ["rgba(70,20,130,0.65)", "rgba(10,10,25,0.92)"]
-                      : ["rgba(90,35,160,0.70)", "rgba(12,10,30,0.95)"]
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
+                <Image
+                  source={CHARACTER_IDENTITY_PAGE_IMAGE}
                   style={styles.stageArt}
+                  resizeMode="cover"
+                  accessibilityIgnoresInvertColors
                 />
-                <View style={styles.stageArtBorder} />
-                <Text style={styles.stageArtLabel}>{`STAGE ${currentStage}`}</Text>
               </View>
 
               <View style={styles.metaCol}>
@@ -341,25 +335,25 @@ export function ProfileIdentityScreen() {
                 ) : (
                   <Text style={styles.daysEstimate}>{`Progress: ${progressPct.toFixed(1)}%`}</Text>
                 )}
+              </View>
+            </View>
 
-                <View style={styles.statsRow}>
-                  <View style={styles.statsPill}>
-                    <Text style={styles.statsValue}>{currentStage}</Text>
-                    <Text style={styles.statsLabel}>STAGE</Text>
-                  </View>
-                  <View style={styles.statsPill}>
-                    <Text style={styles.statsValue}>
-                      {current.total_xp.toLocaleString()}
-                    </Text>
-                    <Text style={styles.statsLabel}>TOTAL XP</Text>
-                  </View>
-                  <View style={styles.statsPill}>
-                    <Text style={styles.statsValue}>
-                      {xpToNext.toLocaleString()}
-                    </Text>
-                    <Text style={styles.statsLabel}>XP TO NEXT</Text>
-                  </View>
-                </View>
+            <View style={styles.statsRow}>
+              <View style={styles.statsPill}>
+                <Text style={styles.statsValue}>{currentStage}</Text>
+                <Text style={styles.statsLabel}>STAGE</Text>
+              </View>
+              <View style={styles.statsPill}>
+                <Text style={styles.statsValue}>
+                  {current.total_xp.toLocaleString()}
+                </Text>
+                <Text style={styles.statsLabel}>TOTAL XP</Text>
+              </View>
+              <View style={styles.statsPill}>
+                <Text style={styles.statsValue}>
+                  {xpToNext.toLocaleString()}
+                </Text>
+                <Text style={styles.statsLabel}>XP TO NEXT</Text>
               </View>
             </View>
 
@@ -537,35 +531,20 @@ const styles = StyleSheet.create({
   },
   currentRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "flex-start",
     columnGap: 16,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   stageArtWrap: {
-    width: 90,
-    height: 120,
-    borderRadius: 14,
+    width: 96,
+    height: 128,
+    borderRadius: 12,
     overflow: "hidden",
     position: "relative",
   },
   stageArt: {
-    flex: 1,
-    borderRadius: 14,
-  },
-  stageArtBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.28)",
-  },
-  stageArtLabel: {
-    position: "absolute",
-    bottom: 6,
-    left: 8,
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 1,
-    color: "rgba(139,92,246,0.40)",
+    width: "100%",
+    height: "100%",
   },
   metaCol: { flex: 1 },
   stageBadgeTextLabel: {
@@ -627,7 +606,10 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: "row",
     columnGap: 8,
-    marginTop: 12,
+    marginTop: 4,
+    marginBottom: 4,
+    width: "100%",
+    alignSelf: "stretch",
   },
   statsPill: {
     flex: 1,

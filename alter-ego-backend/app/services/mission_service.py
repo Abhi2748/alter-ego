@@ -44,6 +44,7 @@ from app.core.constants import (
     DAILY_XP_CAPS,
     MISSION_PF,
     MISSION_XP_BY_TYPE,
+    PET_UNLOCK_DAY,
     RECOVERY_MISSION_OVERRIDES,
     get_completion_copy,
     resolve_stat_tag,
@@ -178,6 +179,44 @@ def get_days_since_registration(registration_date: str, timezone_str: str) -> in
 
     delta = (today - reg_day).days
     return max(1, delta + 1)
+
+
+async def ensure_pet_unlocked_if_eligible(user_id: str) -> bool:
+    """
+    If the user has been registered >= PET_UNLOCK_DAY and pet_unlocked is still false,
+    unlock the companion (idempotent). Used from GET /profile/overview so unlock does not
+    depend only on the hourly scheduler at local hour 1.
+    """
+    from app.core.constants import PET_UNLOCK_DAY
+
+    res = (
+        supabase_admin.table("users")
+        .select("registration_date, pet_unlocked, pet_stage, timezone")
+        .eq("id", user_id)
+        .single()
+        .execute()
+    )
+    row = res.data or {}
+    if row.get("pet_unlocked"):
+        return False
+    tz = str(row.get("timezone") or "UTC")
+    days = get_days_since_registration(str(row.get("registration_date") or ""), tz)
+    if days < PET_UNLOCK_DAY:
+        return False
+    updates: dict = {"pet_unlocked": True, "pet_state": "happy"}
+    if not row.get("pet_stage"):
+        updates["pet_stage"] = 1
+    supabase_admin.table("users").update(updates).eq("id", user_id).execute()
+    logger.info(
+        json.dumps(
+            {
+                "event": "pet_unlocked_on_demand",
+                "user_id": str(user_id),
+                "days_since_registration": days,
+            }
+        )
+    )
+    return True
 
 
 async def generate_core_missions_for_user(user_id: str, mission_date: str) -> list[dict]:
@@ -561,13 +600,31 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         supabase_admin.table("users")
         .select(
             "total_xp, total_pf, character_stage, timezone, pet_stage, pet_unlocked, "
-            "current_streak, power_score, absence_days"
+            "current_streak, power_score, absence_days, registration_date"
         )
         .eq("id", user_id)
         .single()
         .execute()
     )
     user = user_result.data or {}
+
+    # PF is disabled until companion unlock (day 6). If scheduler hasn't run yet on day 6,
+    # unlock on-demand so rewards start immediately on the correct day.
+    pet_unlocked = bool(user.get("pet_unlocked"))
+    if not pet_unlocked:
+        tz = str(user.get("timezone") or "UTC")
+        days_since_registration = get_days_since_registration(
+            str(user.get("registration_date") or ""), tz
+        )
+        if days_since_registration >= PET_UNLOCK_DAY:
+            unlock_updates: dict = {"pet_unlocked": True, "pet_state": "happy"}
+            if not int(user.get("pet_stage") or 0):
+                unlock_updates["pet_stage"] = 1
+            supabase_admin.table("users").update(unlock_updates).eq("id", user_id).execute()
+            pet_unlocked = True
+            user["pet_unlocked"] = True
+            if "pet_stage" in unlock_updates:
+                user["pet_stage"] = unlock_updates["pet_stage"]
 
     _sigil_empty = {
         "aether_awarded": 0,
@@ -635,7 +692,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
 
     # Calculate XP/PF earned from stored values
     xp_earned = int(mission.get("xp_value") or 0)
-    pf_earned = int(mission.get("pf_value") or 0)
+    pf_earned = int(mission.get("pf_value") or 0) if pet_unlocked else 0
 
     # Enforce daily cap
     character_stage = int(user.get("character_stage") or 1)
@@ -727,7 +784,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
         except Exception:
             pass
 
-    pet_evolved = await check_pet_stage_progression(user_id, new_total_pf, pet_stage, bool(user.get("pet_unlocked")))
+    pet_evolved = await check_pet_stage_progression(user_id, new_total_pf, pet_stage, pet_unlocked)
     if pet_evolved:
         try:
             from app.services.gap_moment_service import queue_gap_moment

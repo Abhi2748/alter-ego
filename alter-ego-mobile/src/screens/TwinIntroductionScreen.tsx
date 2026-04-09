@@ -12,6 +12,7 @@ import {
   Dimensions,
   Pressable,
   Platform,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,6 +36,8 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const ARENA_HEIGHT = SCREEN_HEIGHT * 0.52;
 const CHAR_WIDTH = 130;
 const CHAR_HEIGHT = 180;
+const TWIN_INTRO_USER_IMAGE = require("../../assets/images/onboarding/twin_intro_user.png.png");
+const TWIN_INTRO_TWIN_IMAGE = require("../../assets/images/onboarding/twin_intro_twin.png.png");
 
 /**
  * First Shadow Twin line on Twin Introduction — voice-led by archetype (not Q13 commitment).
@@ -199,19 +202,7 @@ export function TwinIntroductionScreen() {
           {/* User half */}
           <Animated.View style={[styles.half, styles.userHalf, userStyle]}>
             <View style={styles.charWrap}>
-              <LinearGradient
-                colors={["rgba(50,20,90,0.55)", "rgba(10,10,20,0.85)"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0.2, y: 1 }}
-                style={styles.userCharPlaceholder}
-              >
-                <LinearGradient
-                  colors={["transparent", "rgba(139,92,246,0.25)", "transparent"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.rimGradient}
-                />
-              </LinearGradient>
+              <Image source={TWIN_INTRO_USER_IMAGE} style={styles.characterImage} resizeMode="contain" />
               <Text style={styles.youLabel}>YOU</Text>
             </View>
             <Animated.View style={[styles.labelsWrap, labelsStyle]}>
@@ -236,19 +227,7 @@ export function TwinIntroductionScreen() {
           {/* Twin half */}
           <Animated.View style={[styles.half, styles.twinHalf, twinStyle]}>
             <View style={styles.charWrap}>
-              <LinearGradient
-                colors={["rgba(30,15,80,0.75)", "rgba(10,10,25,0.92)"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0.2, y: 1 }}
-                style={styles.twinCharPlaceholder}
-              >
-                <LinearGradient
-                  colors={["transparent", "rgba(192,132,252,0.40)", "transparent"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.rimGradient}
-                />
-              </LinearGradient>
+              <Image source={TWIN_INTRO_TWIN_IMAGE} style={styles.characterImage} resizeMode="contain" />
               <Text style={styles.twinCharLabel}>TWIN</Text>
             </View>
             <Animated.View style={[styles.labelsWrap, labelsStyle]}>
@@ -348,45 +327,17 @@ const styles = StyleSheet.create({
   charWrap: {
     position: "relative",
   },
-  userCharPlaceholder: {
+  characterImage: {
     width: CHAR_WIDTH,
     height: CHAR_HEIGHT,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.20)",
-    overflow: "hidden",
     ...Platform.select({
       ios: {
-        shadowColor: "rgba(0,0,0,0.40)",
-        shadowRadius: 32,
-        shadowOffset: { width: 0, height: 4 },
-      },
-      android: { elevation: 8 },
-    }),
-  },
-  twinCharPlaceholder: {
-    width: CHAR_WIDTH,
-    height: CHAR_HEIGHT,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(192,132,252,0.30)",
-    overflow: "hidden",
-    ...Platform.select({
-      ios: {
-        shadowColor: "rgba(50,20,120,0.35)",
-        shadowRadius: 40,
+        shadowColor: "rgba(50,20,120,0.22)",
+        shadowRadius: 22,
         shadowOffset: { width: 0, height: 0 },
       },
-      android: { elevation: 10 },
+      android: { elevation: 6 },
     }),
-  },
-  rimGradient: {
-    position: "absolute",
-    top: 0,
-    left: "20%",
-    right: "20%",
-    height: 1,
-    width: "60%",
   },
   youLabel: {
     position: "absolute",

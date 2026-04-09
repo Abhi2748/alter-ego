@@ -18,13 +18,14 @@ import {
   KeyboardAvoidingView,
   Share,
   Switch,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
-import { PetAnimation } from "../components/PetAnimation";
+import { getCharacterImageSource, getPetImageSource } from "@/constants/characterPetAssets";
 import type { MainStackParamList } from "../navigation/types";
 import { useUserStore } from "@/store/userStore";
 import { twinService } from "@/services/twin";
@@ -359,66 +360,22 @@ export function RankCardScreen() {
             {/* Art zone: character + pet */}
             <View style={styles.artZone}>
               <View style={styles.charCardWrap}>
-                <View
-                  style={[
-                    styles.charGlow,
-                    { backgroundColor: theme.charGlowColor },
-                  ]}
-                  pointerEvents="none"
+                <Image
+                  source={getCharacterImageSource(profile?.character_stage ?? 1)}
+                  style={styles.charImage}
+                  resizeMode="cover"
+                  accessibilityIgnoresInvertColors
                 />
-                <LinearGradient
-                  colors={[
-                    "rgba(60,25,130,0.32)",
-                    "rgba(10,10,22,0.75)",
-                  ]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0.5, y: 1 }}
-                  style={[
-                    styles.charFill,
-                    { borderColor: theme.charFillBorder },
-                  ]}
-                />
-                <View
-                  style={[
-                    styles.stageBadge,
-                    {
-                      backgroundColor: theme.stageBadgeBg,
-                      borderColor: theme.stageBadgeBorder,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.stageBadgeText,
-                      { color: theme.stageBadgeTextColor },
-                    ]}
-                  >
-                    Stage {profile?.character_stage ?? 1}
-                  </Text>
-                </View>
               </View>
               <View style={styles.petZone}>
-                <View
-                  style={[
-                    styles.petCircle,
-                    { borderColor: theme.petCircleBorder },
-                  ]}
-                >
-                  {profile?.pet_unlocked && (profile.pet_stage ?? 0) > 0 ? (
-                    <PetAnimation
-                      stage={Math.min(8, Math.max(1, profile.pet_stage))}
-                      isHappy
-                      size={60}
-                    />
-                  ) : (
-                    <Text style={{ fontSize: 9, color: "#6B7280", textAlign: "center", padding: 8 }}>
-                      Pet soon
-                    </Text>
-                  )}
-                </View>
-                <Text style={styles.petName}>
-                  {profile?.pet_name ?? "—"}
-                </Text>
+                {profile?.pet_unlocked && (profile.pet_stage ?? 0) > 0 ? (
+                  <Image
+                    source={getPetImageSource(Math.min(8, Math.max(1, profile.pet_stage)))}
+                    style={styles.petImage}
+                    resizeMode="contain"
+                    accessibilityIgnoresInvertColors
+                  />
+                ) : null}
               </View>
             </View>
 
@@ -712,73 +669,22 @@ const styles = StyleSheet.create({
     height: CHAR_H,
     borderRadius: 14,
     position: "relative",
+    overflow: "hidden",
   },
-  charGlow: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 14,
-    backgroundColor: "rgba(100,40,200,0.20)",
-  },
-  charFill: {
+  charImage: {
     width: "100%",
     height: "100%",
     borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.16)",
-    overflow: "hidden",
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "#000",
-          shadowOpacity: 0.4,
-          shadowRadius: 32,
-          shadowOffset: { width: 0, height: 0 },
-        }
-      : {}),
-  },
-  stageBadge: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    backgroundColor: "rgba(139,92,246,0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.25)",
-    borderRadius: 6,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-  },
-  stageBadgeText: {
-    fontSize: 8,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 0.5,
-    color: "#A78BFA",
   },
   petZone: {
     flexDirection: "column",
     alignItems: "center",
-    gap: 5,
+    justifyContent: "flex-end",
     marginBottom: 10,
   },
-  petCircle: {
+  petImage: {
     width: PET_SIZE,
     height: PET_SIZE,
-    borderRadius: PET_SIZE / 2,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "rgba(139,92,246,0.38)",
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "rgba(109,40,217,0.25)",
-          shadowRadius: 20,
-          shadowOffset: { width: 0, height: 0 },
-        }
-      : {}),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  petName: {
-    fontSize: 10,
-    fontFamily: "Inter_600SemiBold",
-    color: "#6B7280",
-    letterSpacing: 0.5,
   },
   identityRow: {
     flexDirection: "row",

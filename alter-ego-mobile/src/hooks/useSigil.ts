@@ -7,12 +7,12 @@ export const SIGIL_KEYS = {
   detail: () => [...SIGIL_KEYS.all, "detail"] as const,
 };
 
-export function useSigilData() {
+export function useSigilData(options?: { enabled?: boolean }) {
   const profile = useUserStore((s) => s.profile);
   return useQuery({
     queryKey: SIGIL_KEYS.detail(),
     queryFn: fetchSigilData,
-    enabled: profile != null,
+    enabled: profile != null && options?.enabled !== false,
     staleTime: 1000 * 60 * 2,
     retry: 1,
   });

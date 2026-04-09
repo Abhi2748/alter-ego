@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 
 from app.api.auth import router as auth_router
 from app.api.feedback import router as feedback_router
@@ -55,3 +56,8 @@ async def shutdown_event():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_panel():
+    return FileResponse("admin.html")

@@ -64,6 +64,9 @@ DAILY_PF_CAPS = {
     6: 800,
 }
 
+# Twin chat — cost / abuse protection (user messages in rolling 1h window; stops token-drain spam)
+TWIN_CHAT_MAX_USER_MSGS_PER_HOUR = 40
+
 # ── ADAPTIVE SHADOW MODEL ─────────────────────────────────────────────────────
 
 TWIN_XP_CEILING_PCT = 0.93  # Twin never exceeds 93% of daily cap

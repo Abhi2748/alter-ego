@@ -336,6 +336,11 @@ def _format_context_message(msg: str, **kwargs: object) -> str:
     return msg.format(**{k: merged.get(k, "") for k in keys})
 
 
+def _pool_without_clock_time(pool: list[str]) -> list[str]:
+    """Strip lines that claim a specific time — simulated_hour is for sim order, not lifelike copy."""
+    return [m for m in pool if "{twin_time}" not in m and "{twin_hour}" not in m]
+
+
 def _build_context_message(
     gap_state: str,
     tone_type: str,
@@ -439,14 +444,21 @@ def _build_context_message(
                 )
 
             if pool:
+                # Journal: never claim a simulated “7am” style time — users often journal at night;
+                # twin_mission_log uses simulated_hour for ordering, not a literal clock story.
+                use_clock_in_copy = target_pillar != "journal" and twin_start_hour is not None
+                if not use_clock_in_copy:
+                    filtered = _pool_without_clock_time(pool)
+                    if filtered:
+                        pool = filtered
                 msg = random.choice(pool)
-                th = twin_start_hour if twin_start_hour is not None else 7
+                th = twin_start_hour if twin_start_hour is not None else 0
                 fmt_kwargs.update(
                     {
                         "pillar": pillar_display,
                         "count": skip_count,
                         "twin_hour": th,
-                        "twin_time": _strip_hour_label(th),
+                        "twin_time": _strip_hour_label(twin_start_hour) if twin_start_hour is not None else "",
                         "done": missions_completed_today,
                         "total": missions_total_today,
                         "remaining": max(0, missions_total_today - missions_completed_today),

@@ -39,6 +39,7 @@ from app.services.twin_comparison_copy import (
 )
 from app.services.absence_service import compute_absence_days, get_twin_accomplishments
 from app.services.twin_service import (
+    TwinChatRateLimited,
     build_twin_day_timeline,
     ensure_twin_journal_backfilled,
     ensure_twin_simulated_for_today,
@@ -325,6 +326,11 @@ async def chat_with_twin(body: ChatRequest, authorization: str = Header(None)):
 
     try:
         result = await send_twin_message(user_id, message)
+    except TwinChatRateLimited:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many messages in a short period. Take a break and try again shortly.",
+        ) from None
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -349,16 +355,21 @@ async def get_chat_history(authorization: str = Header(None), limit: int = 50):
     """
     user_id = get_user_id_from_token(authorization)
 
+    # Most recent N messages (chronological for the client).
+    # IMPORTANT: asc + limit returns the *oldest* N rows — refetches would drop recent turns
+    # and look like “disappearing” / reordered replies.
+    lim = min(limit, 100)
     result = (
         supabase_admin.table("twin_messages")
         .select("id, role, content, created_at, message_rating, is_proactive, is_read, tone_used")
         .eq("user_id", user_id)
-        .order("created_at", desc=False)
-        .limit(min(limit, 100))
+        .order("created_at", desc=True)
+        .order("id", desc=True)
+        .limit(lim)
         .execute()
     )
 
-    rows = list(result.data or [])
+    rows = list(reversed(result.data or []))
     twin_ids = [str(r["id"]) for r in rows if r.get("role") == "twin"]
     ratings_map: dict[str, str] = {}
     if twin_ids:

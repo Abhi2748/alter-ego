@@ -1,11 +1,15 @@
-import React, { useEffect } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo } from "react";
+import { Dimensions, Platform, StyleSheet, Text, View } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+
+const { width: SCREEN_W } = Dimensions.get("window");
+/** Wide enough for natural wrapping; caps on small devices */
+const BUBBLE_WIDTH = Math.min(318, Math.max(260, SCREEN_W * 0.82));
 
 type PetDialogueBubbleProps = {
   visible: boolean;
@@ -15,6 +19,11 @@ type PetDialogueBubbleProps = {
 export default function PetDialogueBubble({ visible, text }: PetDialogueBubbleProps) {
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(8);
+
+  const wrapStyle = useMemo(
+    () => [styles.wrap, { width: BUBBLE_WIDTH }],
+    []
+  );
 
   useEffect(() => {
     if (visible) {
@@ -45,10 +54,23 @@ export default function PetDialogueBubble({ visible, text }: PetDialogueBubblePr
   }));
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.wrap, bubbleAnimStyle]}>
+    <Animated.View pointerEvents="none" style={[wrapStyle, bubbleAnimStyle]}>
       <View style={styles.bubble}>
-        <Text style={styles.label}>Companion</Text>
-        <Text style={styles.text}>{text}</Text>
+        <Text
+          style={styles.label}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          maxFontSizeMultiplier={1.25}
+        >
+          Companion
+        </Text>
+        <Text
+          style={styles.text}
+          maxFontSizeMultiplier={1.35}
+          {...(Platform.OS === "android" ? { textBreakStrategy: "simple" as const } : {})}
+        >
+          {text}
+        </Text>
       </View>
       <View style={styles.tailOuter} />
       <View style={styles.tailInner} />
@@ -57,20 +79,22 @@ export default function PetDialogueBubble({ visible, text }: PetDialogueBubblePr
 }
 
 const styles = StyleSheet.create({
+  /** Anchored to the right edge of the pet column; explicit width avoids 76px parent text layout */
   wrap: {
     position: "absolute",
-    right: -10,
-    bottom: 74,
-    maxWidth: 250,
-    zIndex: 6,
+    right: 0,
+    bottom: 78,
+    zIndex: 20,
   },
   bubble: {
+    width: "100%",
+    minWidth: BUBBLE_WIDTH,
     backgroundColor: "rgba(12,10,20,0.88)",
     borderColor: "rgba(139,92,246,0.62)",
     borderWidth: 1,
     borderRadius: 15,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 9,
     shadowColor: "#8B5CF6",
     shadowOpacity: 0.28,
     shadowRadius: 12,
@@ -79,17 +103,18 @@ const styles = StyleSheet.create({
   },
   label: {
     color: "rgba(167,139,250,0.84)",
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: "600",
-    letterSpacing: 0.4,
-    marginBottom: 4,
+    letterSpacing: 0.6,
+    marginBottom: 5,
     textTransform: "uppercase",
   },
   text: {
     color: "#E5E7EB",
-    fontSize: 12,
+    fontSize: 11,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
+    letterSpacing: 0.2,
   },
   tailOuter: {
     position: "absolute",
@@ -118,4 +143,3 @@ const styles = StyleSheet.create({
     borderTopColor: "rgba(12,10,20,0.88)",
   },
 });
-

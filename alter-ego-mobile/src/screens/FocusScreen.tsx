@@ -156,6 +156,10 @@ export function FocusScreen() {
   const tagSheetRef = useRef<BottomSheetModal>(null);
   const settingsSheetRef = useRef<BottomSheetModal>(null);
   const createTagSheetRef = useRef<BottomSheetModal>(null);
+  /** Only react to keyboard when Create Tag sheet is presented (avoid snapping other sheets). */
+  const createTagSheetActiveRef = useRef(false);
+
+  const createTagSnapPoints = useMemo<(string | number)[]>(() => ["58%", "92%"], []);
 
   type DurationSettingKey =
     | "pomodoro_work_minutes"
@@ -221,6 +225,36 @@ export function FocusScreen() {
   useEffect(() => {
     if (subTab === "stats") void refetchStats();
   }, [subTab, refetchStats]);
+
+  /** Expand Create Tag sheet when keyboard opens so color row + button stay visible */
+  useEffect(() => {
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const onShow = () => {
+      if (!createTagSheetActiveRef.current) return;
+      requestAnimationFrame(() => {
+        try {
+          createTagSheetRef.current?.snapToIndex(1);
+        } catch {
+          /* sheet may be unmounted */
+        }
+      });
+    };
+    const onHide = () => {
+      if (!createTagSheetActiveRef.current) return;
+      try {
+        createTagSheetRef.current?.snapToIndex(0);
+      } catch {
+        /* noop */
+      }
+    };
+    const s = Keyboard.addListener(showEvt, onShow);
+    const h = Keyboard.addListener(hideEvt, onHide);
+    return () => {
+      s.remove();
+      h.remove();
+    };
+  }, []);
 
   // 1s tick
   useEffect(() => {
@@ -958,7 +992,10 @@ export function FocusScreen() {
               style={styles.createTagBtn}
               onPress={() => {
                 tagSheetRef.current?.dismiss();
-                setTimeout(() => createTagSheetRef.current?.present(), 250);
+                setTimeout(() => {
+                  createTagSheetActiveRef.current = true;
+                  createTagSheetRef.current?.present();
+                }, 250);
               }}
             >
               <View style={styles.createTagIconWrap}>
@@ -972,13 +1009,21 @@ export function FocusScreen() {
 
       <BottomSheetModal
         ref={createTagSheetRef}
-        snapPoints={["50%", "88%"]}
+        snapPoints={createTagSnapPoints}
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         backgroundStyle={styles.sheetBg}
         handleIndicatorStyle={styles.sheetHandle}
+        topInset={insets.top}
         keyboardBehavior="interactive"
         keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+        onChange={(index) => {
+          createTagSheetActiveRef.current = index >= 0;
+        }}
+        onDismiss={() => {
+          createTagSheetActiveRef.current = false;
+        }}
       >
         <BottomSheetScrollView
           keyboardShouldPersistTaps="handled"
@@ -1549,7 +1594,12 @@ const styles = StyleSheet.create({
   sheetBg: { backgroundColor: "#141824" },
   sheetHandle: { backgroundColor: "#2A3050" },
   sheetContent: { paddingHorizontal: 20, paddingBottom: 24, flex: 1 },
-  createTagSheetScroll: { paddingHorizontal: 20, paddingBottom: 40, paddingTop: 8 },
+  createTagSheetScroll: {
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+    paddingTop: 8,
+    flexGrow: 1,
+  },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
   sheetTitle: { fontSize: 16, fontWeight: "700", color: TEXT, marginBottom: 12 },
   sheetClear: { fontSize: 13, color: MUTED },

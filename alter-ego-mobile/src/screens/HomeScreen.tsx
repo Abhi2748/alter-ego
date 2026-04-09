@@ -1037,6 +1037,7 @@ export function HomeScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: CONTENT_PADDING_BOTTOM }]}
         showsVerticalScrollIndicator={false}
         bounces={true}
+        removeClippedSubviews={false}
       >
         {/* 3. Hero zone */}
         <View style={styles.heroZone}>
@@ -1063,17 +1064,23 @@ export function HomeScreen() {
                 />
               </View>
               {isPetUnlocked ? (
-                <View style={[styles.heroPetSlot, { opacity: petAbsenceOpacity }]} pointerEvents="none">
+                <>
+                  <View style={styles.heroPetColumn} pointerEvents="none">
+                    <View style={[styles.heroPetSlot, { opacity: petAbsenceOpacity }]}>
+                      <Image
+                        source={getPetImageSource(petStage)}
+                        style={styles.heroPetImage}
+                        resizeMode="contain"
+                        accessibilityIgnoresInvertColors
+                      />
+                    </View>
+                  </View>
                   {petDialogueText ? (
-                    <PetDialogueBubble visible={petDialogueVisible} text={petDialogueText} />
+                    <View style={styles.petDialogueOverlay} pointerEvents="none">
+                      <PetDialogueBubble visible={petDialogueVisible} text={petDialogueText} />
+                    </View>
                   ) : null}
-                  <Image
-                    source={getPetImageSource(petStage)}
-                    style={styles.heroPetImage}
-                    resizeMode="contain"
-                    accessibilityIgnoresInvertColors
-                  />
-                </View>
+                </>
               ) : null}
             </View>
           </View>
@@ -1647,6 +1654,14 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
     paddingRight: 8,
     transform: [{ translateX: -14 }],
+    overflow: "visible",
+    position: "relative",
+  },
+  /** Full row-sized layer so dialogue Text measures at bubble width, not 76px pet column */
+  petDialogueOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    overflow: "visible",
   },
   characterHero: {
     width: CHARACTER_WIDTH,
@@ -1658,11 +1673,18 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  /** Pet + dialogue: overflow visible so wide bubble is not clipped by 76px slot */
+  heroPetColumn: {
+    width: 76,
+    overflow: "visible",
+    alignItems: "center",
+    marginLeft: 2,
+    marginBottom: 14,
+    zIndex: 4,
+  },
   heroPetSlot: {
     width: 76,
     height: 76,
-    marginBottom: 14,
-    marginLeft: 2,
     justifyContent: "flex-end",
     alignItems: "center",
   },

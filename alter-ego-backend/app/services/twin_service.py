@@ -22,11 +22,31 @@ import random
 from datetime import datetime, timedelta, date as date_type, timezone
 from zoneinfo import ZoneInfo
 
-from app.core.constants import GAP_THRESHOLDS
+from app.core.constants import GAP_THRESHOLDS, TWIN_CHAT_MAX_USER_MSGS_PER_HOUR
 from app.core.supabase_client import supabase_admin
 from app.services.twin_tone_mix import normalize_twin_tone, pick_mixed_tone_for_message
 
 logger = logging.getLogger(__name__)
+
+
+class TwinChatRateLimited(Exception):
+    """Too many user messages in the rolling window — avoids runaway LLM cost."""
+
+
+def _assert_twin_chat_rate_limit(user_id: str) -> None:
+    """Hard cap user messages per hour (DB count before any LLM calls)."""
+    window_start = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    res = (
+        supabase_admin.table("twin_messages")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("role", "user")
+        .gte("created_at", window_start)
+        .limit(TWIN_CHAT_MAX_USER_MSGS_PER_HOUR + 1)
+        .execute()
+    )
+    if len(res.data or []) > TWIN_CHAT_MAX_USER_MSGS_PER_HOUR:
+        raise TwinChatRateLimited()
 
 
 def compute_gap_state_from_totals(user_xp: int, twin_xp: int) -> str:
@@ -2358,6 +2378,8 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     user = (user_res.data or [None])[0]
     if not user:
         raise ValueError("User not found")
+
+    _assert_twin_chat_rate_limit(user_id)
 
     tz = user.get("timezone", "UTC") or "UTC"
     today = get_user_date(tz)

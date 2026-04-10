@@ -2856,7 +2856,504 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     }
 
 
-async def proactive_twin_message_job() -> None:
+def _parse_sse_data_line(chunk: str) -> dict | None:
+    for line in chunk.split("\n"):
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        raw = line[5:].strip()
+        if not raw.startswith("{"):
+            continue
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+async def stream_twin_message(user_id: str, message: str):
+    """
+    Streaming variant: same preprocessing as _send_twin_message_impl, then SSE chunks.
+    Per-user rate limit via _assert_twin_chat_rate_limit. Persists twin row after stream.
+    """
+    import asyncio
+
+    from app.agents.agent_guardrails import sanitize_for_prompt, sanitize_username
+    from app.agents.memory_anchor_agent import classify_and_store_anchor
+    from app.agents.tone_detector import detect_tone
+    from app.agents.twin_chat_agent import (
+        SAFETY_RESPONSES,
+        build_conversation_messages,
+        classify_message_safety,
+        get_last_openings,
+        get_relationship_phase,
+        get_relevant_anchors,
+        get_tone_rating_summary,
+        _generate_twin_response_sync,
+    )
+    from app.agents.twin_consistency_checker import check_consistency
+    from app.agents.twin_response_generator import (
+        _build_response_prompt,
+        build_conversation_history_text,
+        format_gap_percentage_label,
+        generate_twin_response_stream,
+    )
+    from app.core.constants import STAGE_NAMES
+    from app.services.mission_service import get_days_since_registration, get_user_date
+    from app.services.twin_tone_mix import normalize_twin_tone, pick_mixed_tone_for_message
+
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+
+        user_res = await run_query(
+            supabase_admin.table("users")
+            .select(
+                "username, archetype, registration_date, timezone, "
+                "twin_tone_override, twin_tone_override_until"
+            )
+            .eq("id", user_id)
+            .limit(1)
+        )
+        user = (user_res.data or [None])[0]
+        if not user:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'User not found'})}\n\n"
+            return
+
+        _assert_twin_chat_rate_limit(user_id)
+
+        tz = user.get("timezone", "UTC") or "UTC"
+        today = get_user_date(tz)
+
+        twin_result = await run_query(
+            supabase_admin.table("twin_state").select("*").eq("user_id", user_id)
+        )
+        twin = twin_result.data[0] if twin_result.data else {
+            "twin_xp": 0,
+            "current_gap_state": "neck_and_neck",
+            "twin_character_stage": 1,
+            "twin_pet_stage": 0,
+            "twin_streak": 0,
+        }
+
+        char_res = await run_query(
+            supabase_admin.table("users")
+            .select("total_xp, current_streak, character_stage")
+            .eq("id", user_id)
+            .limit(1)
+        )
+        char = (char_res.data or [None])[0] or {
+            "total_xp": 0,
+            "current_streak": 0,
+            "character_stage": 1,
+        }
+
+        dna_result = await run_query(
+            supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id)
+        )
+        dna = dna_result.data[0] if dna_result.data else {
+            "twin_tone_type": "rival",
+            "twin_intensity": 2,
+            "twin_gap_behavior": "rubber_band",
+            "tone_preference_signal": 0.5,
+            "chat_rating_count": 0,
+        }
+
+        reg_day_n = get_days_since_registration(user.get("registration_date", ""), tz)
+        days_active = max(0, int(reg_day_n) - 1)
+        if days_active < 3 and int(dna.get("twin_intensity") or 3) > 2:
+            dna = {**dna, "twin_intensity": 2}
+
+        twin_tone_override_active: str | None = None
+        try:
+            raw_until = user.get("twin_tone_override_until")
+            if raw_until:
+                from datetime import datetime as dt_module, timezone as tz_module
+
+                until_dt = dt_module.fromisoformat(str(raw_until).replace("Z", "+00:00"))
+                if until_dt.tzinfo is None:
+                    until_dt = until_dt.replace(tzinfo=tz_module.utc)
+                if dt_module.now(tz_module.utc) < until_dt:
+                    raw_ov = user.get("twin_tone_override")
+                    if raw_ov:
+                        twin_tone_override_active = str(raw_ov).strip() or None
+        except Exception:
+            twin_tone_override_active = None
+
+        interests_rows = (
+            (
+                (
+                    await run_query(
+                        supabase_admin.table("interests")
+                        .select("normalised_name")
+                        .eq("user_id", user_id)
+                        .eq("is_active", True)
+                    )
+                ).data
+            )
+            or []
+        )
+        interests = [r["normalised_name"] for r in interests_rows if r.get("normalised_name")]
+
+        if not interests:
+            onboarding = (
+                (
+                    (
+                        await run_query(
+                            supabase_admin.table("onboarding_answers")
+                            .select("answer_json, question_key")
+                            .eq("user_id", user_id)
+                            .in_("question_key", ["q12_interests", "q11_interests"])
+                        )
+                    ).data
+                )
+            )
+            row = None
+            if onboarding:
+                for r in onboarding:
+                    if isinstance(r, dict) and r.get("question_key") == "q12_interests":
+                        row = r
+                        break
+                if row is None:
+                    row = onboarding[0] if isinstance(onboarding[0], dict) else None
+            if row:
+                raw = (row.get("answer_json") or {}) if isinstance(row, dict) else {}
+                items = raw.get("interests") if isinstance(raw, dict) else []
+                if isinstance(items, list):
+                    for it in items:
+                        if isinstance(it, dict):
+                            nm = (it.get("normalised_name") or it.get("raw_text") or "").strip()
+                            if nm:
+                                interests.append(nm)
+
+        history = (
+            (
+                (
+                    await run_query(
+                        supabase_admin.table("twin_messages")
+                        .select("role, content, created_at")
+                        .eq("user_id", user_id)
+                        .order("created_at", desc=True)
+                        .limit(15)
+                    )
+                ).data
+            )
+            or []
+        )
+        history = list(reversed(history))
+
+        today_missions = (
+            (
+                (
+                    await run_query(
+                        supabase_admin.table("missions")
+                        .select("title, type, completed")
+                        .eq("user_id", user_id)
+                        .eq("mission_date", today)
+                    )
+                ).data
+            )
+            or []
+        )
+
+        completed_count = sum(1 for m in today_missions if m.get("completed"))
+        total_count = len(today_missions)
+        missed_types = [str(m["type"]) for m in today_missions if not m.get("completed")]
+
+        if total_count > 0:
+            missions_summary = (
+                f"Completed {completed_count}/{total_count} today."
+                + (
+                    f" Missed types: {', '.join(missed_types[:3])}."
+                    if missed_types
+                    else " All complete."
+                )
+            )
+        else:
+            missions_summary = "No missions generated yet today."
+
+        seven_start = (date_type.fromisoformat(today) - timedelta(days=7)).isoformat()
+        recent_missions = (
+            (
+                (
+                    await run_query(
+                        supabase_admin.table("missions")
+                        .select("completed")
+                        .eq("user_id", user_id)
+                        .gte("mission_date", seven_start)
+                    )
+                ).data
+            )
+            or []
+        )
+        _ = (
+            sum(1 for m in recent_missions if m.get("completed")) / len(recent_missions)
+            if recent_missions
+            else 0.5
+        )
+
+        safety = await classify_message_safety(
+            user_message=message,
+            username=str(user.get("username") or "you"),
+        )
+        logger.info(
+            json.dumps(
+                {
+                    "event": "twin_chat_safety_checked",
+                    "user_id": user_id,
+                    "safety_category": str(safety.category),
+                }
+            )
+        )
+
+        block_response = None
+        if safety.category == "crisis":
+            severity = safety.crisis_severity or "passive"
+            if severity not in ("passive", "active"):
+                severity = "passive"
+            block_response = SAFETY_RESPONSES[f"crisis_{severity}"]
+        elif safety.category == "harmful_content":
+            block_response = SAFETY_RESPONSES["harmful_content"]
+        elif safety.category == "jailbreak":
+            block_response = SAFETY_RESPONSES["jailbreak"]
+        elif safety.category == "sexual":
+            block_response = SAFETY_RESPONSES["sexual"]
+        elif safety.category == "dependency" and safety.confidence > 0.8:
+            block_response = SAFETY_RESPONSES["dependency"]
+
+        chat_history = [
+            {"sender": "user" if m.get("role") == "user" else "twin", "message": m.get("content") or ""}
+            for m in history
+        ]
+
+        if block_response is not None:
+            dna_line = str(dna.get("twin_tone_type") or "rival")
+            user_ins_s = await run_query(
+                supabase_admin.table("twin_messages").insert(
+                    {"user_id": user_id, "role": "user", "content": message, "created_at": now}
+                )
+            )
+            u_row = (user_ins_s.data or [None])[0] or {}
+            uid_safety = u_row.get("id")
+            if twin_tone_override_active:
+                tone_used_safety = normalize_twin_tone(twin_tone_override_active)
+            else:
+                tone_used_safety = pick_mixed_tone_for_message(
+                    dna_line, f"{user_id}:{uid_safety}:safety"
+                )
+            twin_ins_s = await run_query(
+                supabase_admin.table("twin_messages").insert(
+                    {
+                        "user_id": user_id,
+                        "role": "twin",
+                        "content": block_response,
+                        "emotional_register": f"safety_block_{safety.category}",
+                        "created_at": now,
+                        "tone_used": tone_used_safety,
+                    }
+                )
+            )
+            twin_row_s = (twin_ins_s.data or [None])[0] or {}
+            tid = str(twin_row_s.get("id")) if twin_row_s.get("id") else None
+            uid = str(uid_safety) if uid_safety else None
+            yield f"data: {json.dumps({'type': 'chunk', 'text': block_response})}\n\n"
+            yield f"data: {json.dumps({'type': 'meta', 'twin_message_id': tid, 'user_message_id': uid, 'tone_used': tone_used_safety, 'is_safety_response': True})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return
+
+        user_msg_safe = sanitize_for_prompt(message, max_len=500, field_name="user_message")
+        username_safe = sanitize_username(str(user.get("username") or "you"))
+
+        user_ins = await run_query(
+            supabase_admin.table("twin_messages").insert(
+                {
+                    "user_id": user_id,
+                    "role": "user",
+                    "content": message,
+                    "created_at": now,
+                }
+            )
+        )
+        user_row = (user_ins.data or [None])[0] or {}
+        user_message_id = user_row.get("id")
+
+        recent_msgs = chat_history[-3:] if chat_history else []
+        tone = await detect_tone(user_msg_safe, recent_msgs)
+
+        archetype = str(user.get("archetype") or "structured_climber")
+        narrative_seed = (dna.get("narrative_seed") or "").strip() or f"User archetype: {archetype}."
+        guilt_orientation = float(dna.get("guilt_orientation") or 0.5)
+        twin_relationship_style = str(dna.get("twin_relationship_style") or "mentor_rival")
+        archetype_confidence = float(dna.get("archetype_confidence") or 0.5)
+        twin_gap_behavior = str(dna.get("twin_gap_behavior") or "rubber_band")
+        tone_type = str(dna.get("twin_tone_type") or "rival")
+        if twin_tone_override_active:
+            tone_used = normalize_twin_tone(twin_tone_override_active)
+        else:
+            tone_used = pick_mixed_tone_for_message(tone_type, f"{user_id}:{user_message_id}")
+        intensity = int(dna.get("twin_intensity") or 3)
+
+        today_context = _assemble_today_context(
+            missions_summary=missions_summary,
+            tone_topic=tone.topic,
+            tone_intent=tone.intent,
+            user_streak=int(char.get("current_streak") or 0),
+            completed_count=completed_count,
+            total_count=total_count,
+        )
+        if twin_tone_override_active:
+            today_context += f"\nTemporary tone override: {twin_tone_override_active}."
+
+        rp = get_relationship_phase(days_active)
+        relationship_phase_section = (
+            f"{rp['label']}\n{rp['tone_modifier']}\n{rp.get('self_reference', '')}"
+        )
+
+        gap_state_str = str(twin.get("current_gap_state") or "neck_and_neck")
+        gap_pct = format_gap_percentage_label(
+            gap_state_str,
+            int(twin.get("twin_xp") or 0),
+            int(char.get("total_xp") or 0),
+        )
+
+        char_stage = int(char.get("character_stage") or 1)
+        user_stage_name = STAGE_NAMES[max(0, min(5, char_stage - 1))]
+        twin_char_stage = int(twin.get("twin_character_stage") or 1)
+        twin_stage_name = STAGE_NAMES[max(0, min(5, twin_char_stage - 1))]
+
+        conv_hist_text = build_conversation_history_text(chat_history, max_turns=10)
+
+        system_prompt = _build_response_prompt(
+            username=username_safe,
+            narrative_seed=narrative_seed,
+            archetype=archetype,
+            archetype_confidence=archetype_confidence,
+            twin_tone_type=tone_used,
+            twin_relationship_style=twin_relationship_style,
+            twin_intensity=intensity,
+            twin_gap_behavior=twin_gap_behavior,
+            gap_state=gap_state_str,
+            gap_percentage=gap_pct,
+            twin_xp=int(twin.get("twin_xp") or 0),
+            user_xp=int(char.get("total_xp") or 0),
+            twin_streak=int(twin.get("twin_streak") or 0),
+            user_streak=int(char.get("current_streak") or 0),
+            user_stage=user_stage_name,
+            twin_stage=twin_stage_name,
+            day_number=days_active,
+            today_context=today_context,
+            user_mood=tone.user_mood,
+            user_intent=tone.intent,
+            energy_level=tone.energy_level,
+            topic=tone.topic,
+            conversation_depth=tone.conversation_depth,
+            tone_rating_history=get_tone_rating_summary(user_id),
+            memory_anchors=get_relevant_anchors(user_id),
+            last_three_openings=get_last_openings(user_id),
+            conversation_history=conv_hist_text,
+            user_message=user_msg_safe,
+            relationship_phase_section=relationship_phase_section,
+            guilt_orientation=guilt_orientation,
+            requires_sensitivity=tone.requires_sensitivity,
+        )
+
+        conversation_messages = build_conversation_messages(chat_history, user_msg_safe)
+
+        full_response_text = ""
+        async for sse_chunk in generate_twin_response_stream(system_prompt, conversation_messages):
+            ev = _parse_sse_data_line(sse_chunk)
+            if ev and ev.get("type") == "done":
+                continue
+            if ev:
+                if ev.get("type") == "chunk":
+                    full_response_text += ev.get("text") or ""
+                elif ev.get("type") == "replace":
+                    full_response_text = ev.get("text") or full_response_text
+            yield sse_chunk
+
+        response_text = full_response_text.strip() or "I'm here. Say that again."
+        conversation_note = None
+
+        check = await check_consistency(
+            twin_response=response_text,
+            user_message=user_msg_safe,
+            twin_tone_type=tone_used,
+            twin_relationship_style=twin_relationship_style,
+            guilt_orientation=guilt_orientation,
+            user_mood=tone.user_mood,
+            user_intent=tone.intent,
+            requires_sensitivity=tone.requires_sensitivity,
+        )
+
+        emotional_register = "twin_chat_stream"
+        if check.should_regenerate:
+            logger.warning(
+                "Twin consistency check requested regenerate (stream): %s",
+                [i.model_dump() for i in (check.issues or [])],
+            )
+            fallback = await asyncio.to_thread(
+                _generate_twin_response_sync,
+                system_prompt,
+                conversation_messages,
+            )
+            response_text = fallback.response
+            conversation_note = fallback.conversation_note
+            emotional_register = str(
+                getattr(fallback, "emotional_register", None) or "twin_chat_stream_regenerated"
+            )
+
+        twin_created = datetime.now(timezone.utc).isoformat()
+        twin_ins = await run_query(
+            supabase_admin.table("twin_messages").insert(
+                {
+                    "user_id": user_id,
+                    "role": "twin",
+                    "content": response_text,
+                    "emotional_register": emotional_register,
+                    "conversation_note": conversation_note,
+                    "created_at": twin_created,
+                    "tone_used": tone_used,
+                }
+            )
+        )
+        twin_row = (twin_ins.data or [None])[0] or {}
+        twin_msg_id = twin_row.get("id")
+        uid_str = str(user_message_id) if user_message_id else None
+        tid_str = str(twin_msg_id) if twin_msg_id else None
+
+        logger.info(
+            json.dumps(
+                {
+                    "event": "twin_chat_response",
+                    "user_id": user_id,
+                    "safety_category": str(safety.category),
+                    "emotional_register": emotional_register,
+                    "stream": True,
+                }
+            )
+        )
+
+        try:
+            asyncio.create_task(
+                classify_and_store_anchor(
+                    user_id=user_id,
+                    user_message=user_msg_safe,
+                    twin_response=response_text,
+                    source_message_id=uid_str,
+                )
+            )
+        except Exception as e:
+            logger.warning("memory anchor task schedule failed: %s", e)
+
+        yield f"data: {json.dumps({'type': 'meta', 'twin_message_id': tid_str, 'user_message_id': uid_str, 'tone_used': tone_used, 'is_safety_response': False})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    except TwinChatRateLimited:
+        yield f"data: {json.dumps({'type': 'error', 'message': 'Too many messages. Try again shortly.'})}\n\n"
+    except Exception as e:
+        logger.error(
+            json.dumps({"event": "twin_stream_error", "user_id": user_id, "error": str(e)[:200]})
+        )
+        yield f"data: {json.dumps({'type': 'error', 'message': 'Something went wrong. Try again.'})}\n\n"
     """
     Hourly tick: for users in local hour 10, may send a proactive Twin line (max 3/week).
     Triggers: all missions complete today, inactive 2+ days, or occasional random_thought.

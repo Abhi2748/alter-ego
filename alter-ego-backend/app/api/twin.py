@@ -15,6 +15,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api.auth import get_user_id_from_token
@@ -348,6 +349,41 @@ async def chat_with_twin(request: Request, body: ChatRequest, authorization: str
         is_safety_response=bool(result.get("is_safety_response")),
         safety_category=result.get("safety_category"),
         tone_used=result.get("tone_used"),
+    )
+
+
+@router.post("/chat/stream")
+@limiter.limit("10/minute")
+async def chat_with_twin_stream(
+    request: Request,
+    body: ChatRequest,
+    authorization: str = Header(None),
+):
+    """
+    Streaming version of /chat. Returns SSE chunks as they are generated.
+    Events:
+      {"type": "chunk", "text": "..."} — token chunk
+      {"type": "replace", "text": "..."} — full replacement if tags were stripped
+      {"type": "meta", ...} — message ids after persistence
+      {"type": "done"} — stream complete
+      {"type": "error", "message": "..."}
+    """
+    from app.services.twin_service import stream_twin_message
+
+    user_id = get_user_id_from_token(authorization)
+
+    if not body.message or not body.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    message = body.message.strip()[:500]
+
+    return StreamingResponse(
+        stream_twin_message(user_id, message),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

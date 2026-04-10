@@ -159,6 +159,24 @@ export interface TwinChatResponse {
   tone_used?: string | null;
 }
 
+export interface TwinStreamEvent {
+  type: 'chunk' | 'replace' | 'done' | 'meta' | 'error';
+  text?: string;
+  twin_message_id?: string | null;
+  user_message_id?: string | null;
+  tone_used?: string | null;
+  is_safety_response?: boolean;
+  message?: string;
+}
+
+export interface StreamCallbacks {
+  onChunk: (text: string) => void;
+  onReplace: (text: string) => void;
+  onMeta: (meta: Pick<TwinStreamEvent, 'twin_message_id' | 'user_message_id' | 'tone_used' | 'is_safety_response'>) => void;
+  onError: (message: string) => void;
+  onDone: () => void;
+}
+
 export interface TwinToneHistoryResponse {
   ratings: Array<{
     tone_id: string;
@@ -311,6 +329,97 @@ export const twinService = {
   // Send message to twin
   sendMessage: (message: string) =>
     apiClient.post<TwinChatResponse>('/api/v1/twin/chat', { message }),
+
+  sendMessageStream: async (
+    message: string,
+    token: string,
+    callbacks: StreamCallbacks
+  ): Promise<void> => {
+    const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
+
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}/api/v1/twin/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          Accept: 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({ message }),
+      });
+    } catch {
+      callbacks.onError('Network error. Check your connection.');
+      return;
+    }
+
+    if (!response.ok) {
+      callbacks.onError(`Request failed (${response.status})`);
+      return;
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      callbacks.onError('Streaming not supported on this device.');
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const raw = trimmed.slice(5).trim();
+          if (!raw) continue;
+
+          let event: TwinStreamEvent;
+          try {
+            event = JSON.parse(raw) as TwinStreamEvent;
+          } catch {
+            continue;
+          }
+
+          switch (event.type) {
+            case 'chunk':
+              if (event.text) callbacks.onChunk(event.text);
+              break;
+            case 'replace':
+              if (event.text) callbacks.onReplace(event.text);
+              break;
+            case 'done':
+              callbacks.onDone();
+              break;
+            case 'meta':
+              callbacks.onMeta({
+                twin_message_id: event.twin_message_id ?? null,
+                user_message_id: event.user_message_id ?? null,
+                tone_used: event.tone_used ?? null,
+                is_safety_response: event.is_safety_response ?? false,
+              });
+              break;
+            case 'error':
+              callbacks.onError(event.message ?? 'Unknown error');
+              break;
+          }
+        }
+      }
+    } catch {
+      callbacks.onError('Stream interrupted.');
+    } finally {
+      reader.releaseLock();
+    }
+  },
 
   submitToneRating: (messageId: string, rating: 'positive' | 'neutral' | 'negative') =>
     apiClient.post<{ ok: boolean; tone_type?: string }>('/api/v1/twin/tone-rating', {

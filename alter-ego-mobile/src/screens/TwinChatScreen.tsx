@@ -26,9 +26,11 @@ import type { MainStackParamList } from "../navigation/types";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import { useTwinChatHistory, useSendTwinMessage, useRateTwinMessage } from "@/hooks/useTwin";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTwinChatHistory, useRateTwinMessage, TWIN_KEYS } from "@/hooks/useTwin";
+import { getAuthToken } from "@/services/auth";
 import { TWIN_STRIP_IMAGE } from "@/constants/characterPetAssets";
-import { twinService } from "@/services/twin";
+import { twinService, type TwinMessage } from "@/services/twin";
 import { useUserStore } from "@/store/userStore";
 import Animated, {
   type SharedValue,
@@ -60,6 +62,8 @@ const DIM = "#374151";
 const VERY_DIM = "#2D3146";
 const TWIN_TEXT = "#C4B5FD";
 const USER_TEXT = "#E5E7EB";
+
+const CHAT_HISTORY_LIMIT = 50;
 
 // -----------------------------------------------------------------------------
 // TYPES & DATA — Spec §12, §13
@@ -214,12 +218,15 @@ export function TwinChatScreen() {
   const [inputText, setInputText] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
   const [ratedMessageIds, setRatedMessageIds] = useState<Record<string, boolean>>({});
+  const [streamingContent, setStreamingContent] = useState<string>("");
+  const [isStreaming, setIsStreaming] = useState(false);
+  const streamingContentRef = useRef("");
   const listRef = useRef<FlatList<ListItem> | null>(null);
   const initialMessageSentRef = useRef(false);
 
   const profile = useUserStore((state) => state.profile);
-  const { data: chatData, isLoading: historyLoading } = useTwinChatHistory(50);
-  const { mutate: sendTwinMessage, isPending: isSending } = useSendTwinMessage();
+  const queryClient = useQueryClient();
+  const { data: chatData, isLoading: historyLoading } = useTwinChatHistory(CHAT_HISTORY_LIMIT);
   const { mutate: rateTwinMessageMutate } = useRateTwinMessage();
 
   const messages: ChatMessage[] = useMemo(() => {
@@ -262,25 +269,83 @@ export function TwinChatScreen() {
   );
 
   const sendMessage = useCallback(
-    (overrideText?: string) => {
+    async (overrideText?: string) => {
       const raw = overrideText !== undefined ? overrideText : inputText;
       const text = (typeof raw === "string" ? raw : "").trim();
       if (!text) return;
-      if (isSending) return;
+      if (isStreaming) return;
 
       if (overrideText === undefined) {
         setInputText("");
       }
 
-      sendTwinMessage(text, {
+      const tempUserId = `temp-user-${Date.now()}`;
+      const optimisticUserMsg: TwinMessage = {
+        id: tempUserId,
+        role: "user",
+        content: text,
+        created_at: new Date().toISOString(),
+      };
+
+      queryClient.setQueryData(
+        [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+        (old: { messages: TwinMessage[] } | undefined) => ({
+          messages: [...(old?.messages ?? []), optimisticUserMsg],
+        })
+      );
+
+      setStreamingContent("");
+      streamingContentRef.current = "";
+      setIsStreaming(true);
+
+      setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 50);
+
+      const token = await getAuthToken();
+      if (!token) {
+        setIsStreaming(false);
+        queryClient.setQueryData(
+          [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+          (old: { messages: TwinMessage[] } | undefined) => ({
+            messages: (old?.messages ?? []).filter((m) => m.id !== tempUserId),
+          })
+        );
+        if (overrideText === undefined) setInputText(text);
+        return;
+      }
+
+      await twinService.sendMessageStream(text, token, {
+        onChunk: (chunk) => {
+          streamingContentRef.current += chunk;
+          setStreamingContent(streamingContentRef.current);
+          listRef.current?.scrollToOffset({ offset: 0, animated: false });
+        },
+        onReplace: (fullText) => {
+          streamingContentRef.current = fullText;
+          setStreamingContent(fullText);
+        },
+        onMeta: () => {},
+        onDone: () => {
+          setIsStreaming(false);
+          setStreamingContent("");
+          streamingContentRef.current = "";
+          queryClient.invalidateQueries({ queryKey: TWIN_KEYS.chat });
+          setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+        },
         onError: () => {
-          if (overrideText === undefined) {
-            setInputText(text);
-          }
+          setIsStreaming(false);
+          setStreamingContent("");
+          streamingContentRef.current = "";
+          queryClient.setQueryData(
+            [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+            (old: { messages: TwinMessage[] } | undefined) => ({
+              messages: (old?.messages ?? []).filter((m) => m.id !== tempUserId),
+            })
+          );
+          if (overrideText === undefined) setInputText(text);
         },
       });
     },
-    [inputText, isSending, sendTwinMessage]
+    [inputText, isStreaming, queryClient]
   );
 
   useEffect(() => {
@@ -469,9 +534,29 @@ export function TwinChatScreen() {
         keyboardDismissMode="none"
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
-          isSending ? (
+          isStreaming ? (
             <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
-              <TypingDots />
+              {streamingContent ? (
+                <View style={[styles.twinBubbleWrap, { marginTop: 12 }]}>
+                  <View style={styles.twinBubble}>
+                    <View style={styles.twinBubbleAccentLine}>
+                      <LinearGradient
+                        colors={["transparent", "rgba(139,92,246,0.50)", "transparent"]}
+                        start={{ x: 0.5, y: 0 }}
+                        end={{ x: 0.5, y: 1 }}
+                        style={StyleSheet.absoluteFill}
+                      />
+                    </View>
+                    <View style={styles.twinBubbleTopGlow} />
+                    <View style={styles.streamingTextRow}>
+                      <Text style={styles.twinBubbleText}>{streamingContent}</Text>
+                      <Text style={styles.streamingCursor}>▊</Text>
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <TypingDots />
+              )}
             </Animated.View>
           ) : null
         }
@@ -537,10 +622,10 @@ export function TwinChatScreen() {
           )}
           <Pressable
             onPress={() => sendMessage()}
-            disabled={!(inputText ?? "").trim() || isSending}
+            disabled={!(inputText ?? "").trim() || isStreaming}
             style={({ pressed }) => [
               styles.sendBtnWrap,
-              (!(inputText ?? "").trim() || isSending) && styles.sendBtnDisabled,
+              (!(inputText ?? "").trim() || isStreaming) && styles.sendBtnDisabled,
               pressed && styles.sendBtnPressed,
             ]}
           >
@@ -697,6 +782,17 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     lineHeight: 21.7,
     letterSpacing: 0.1,
+  },
+  streamingTextRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "flex-end",
+  },
+  streamingCursor: {
+    color: VIOLET,
+    fontSize: 14,
+    lineHeight: 21.7,
+    marginLeft: 1,
   },
   timestampLeft: { fontSize: 10, color: "#374151", marginTop: 5, textAlign: "right" },
 

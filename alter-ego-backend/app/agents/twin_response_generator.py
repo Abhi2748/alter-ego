@@ -5,6 +5,7 @@ Uses Claude Sonnet 4 via Anthropic SDK. Falls back to run_agent.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Optional
@@ -140,7 +141,7 @@ async def generate_twin_response_v2(
         messages = [{"role": m["role"], "content": m["content"]} for m in conversation_messages]
 
         response = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=500,
             system=system_prompt,
             messages=messages,
@@ -167,3 +168,55 @@ async def generate_twin_response_v2(
     except Exception as e:
         logger.error("Both twin response attempts failed: %s", e)
         return "I'm here. Say that again.", None
+
+
+async def generate_twin_response_stream(
+    system_prompt: str,
+    conversation_messages: list[dict],
+):
+    """
+    Stream the Twin's response token by token using Claude Sonnet 4.
+    Yields SSE-formatted strings. The final event contains metadata.
+
+    Yield format:
+      data: {"type": "chunk", "text": "..."}\\n\\n
+      data: {"type": "done"}\\n\\n
+      data: {"type": "error", "message": "..."}\\n\\n  ← on failure
+    """
+    try:
+        import anthropic
+
+        client = anthropic.AsyncAnthropic()
+        messages = [{"role": m["role"], "content": m["content"]} for m in conversation_messages]
+
+        full_text = ""
+        async with client.messages.stream(
+            model="claude-sonnet-4-6",
+            max_tokens=500,
+            system=system_prompt,
+            messages=messages,
+        ) as stream:
+            async for text_chunk in stream.text_stream:
+                full_text += text_chunk
+                yield f"data: {json.dumps({'type': 'chunk', 'text': text_chunk})}\n\n"
+
+        parsed = _parse_response(full_text)
+        if parsed != full_text:
+            yield f"data: {json.dumps({'type': 'replace', 'text': parsed})}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        logger.info("Twin response streamed via Anthropic")
+
+    except Exception as e:
+        logger.warning("Anthropic streaming failed, falling back: %s", e)
+        try:
+            response_text, _ = await generate_twin_response_v2(
+                system_prompt, conversation_messages
+            )
+            yield f"data: {json.dumps({'type': 'chunk', 'text': response_text})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        except Exception as e2:
+            logger.error("Streaming fallback also failed: %s", e2)
+            fallback_text = "I'm here. Say that again."
+            yield f"data: {json.dumps({'type': 'chunk', 'text': fallback_text})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"

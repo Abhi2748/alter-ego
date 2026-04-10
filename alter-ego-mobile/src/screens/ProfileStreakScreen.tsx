@@ -145,9 +145,8 @@ export function ProfileStreakScreen() {
       await fetchProfile();
     },
     onError: () => {
-      const streak = queryClient.getQueryData(PROFILE_KEYS.streak) as StreakApiResponse | undefined;
       const serverValue = normalizeFreezeAutoConsume(
-        streak?.streak_freeze_auto_consume ?? useUserStore.getState().profile?.streak_freeze_auto_consume
+        data?.streak_freeze_auto_consume ?? profile?.streak_freeze_auto_consume
       );
       setLocalAutoConsume(serverValue);
     },
@@ -197,7 +196,7 @@ export function ProfileStreakScreen() {
   }, []);
 
   useEffect(() => {
-    if (patchFreeze.isPending) return;
+    if (patchFreeze.isPending) return; // Don't override optimistic state mid-flight
     const serverValue = normalizeFreezeAutoConsume(
       data?.streak_freeze_auto_consume ?? profile?.streak_freeze_auto_consume
     );
@@ -617,7 +616,6 @@ export function ProfileStreakScreen() {
                     : "freezes available"}
                 </Text>
               </View>
-              <View style={freezeStyles.countGlow} pointerEvents="none" />
             </View>
 
             <Text style={freezeStyles.description}>
@@ -1044,14 +1042,6 @@ const freezeStyles = StyleSheet.create({
     color: "#BAE6FD",
     letterSpacing: -2,
     lineHeight: 46,
-    ...Platform.select({
-      ios: {
-        shadowColor: "rgba(125,211,252,0.6)",
-        shadowOpacity: 1,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 0 },
-      },
-    }),
   },
   countLabel: {
     fontSize: 11,
@@ -1059,15 +1049,6 @@ const freezeStyles = StyleSheet.create({
     color: "rgba(56,189,248,0.45)",
     letterSpacing: 0.3,
     marginTop: 1,
-  },
-  countGlow: {
-    position: "absolute",
-    left: 56,
-    top: -10,
-    width: 120,
-    height: 80,
-    backgroundColor: "rgba(56,189,248,0.06)",
-    borderRadius: 60,
   },
 
   description: {

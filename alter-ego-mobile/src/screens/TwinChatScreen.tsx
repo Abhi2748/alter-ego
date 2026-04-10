@@ -28,7 +28,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTwinChatHistory, useRateTwinMessage, TWIN_KEYS } from "@/hooks/useTwin";
-import { getAuthToken } from "@/services/auth";
+import { supabase } from "@/utils/supabase";
 import { TWIN_STRIP_IMAGE } from "@/constants/characterPetAssets";
 import { twinService, type TwinMessage } from "@/services/twin";
 import { useUserStore } from "@/store/userStore";
@@ -300,7 +300,10 @@ export function TwinChatScreen() {
 
       setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 50);
 
-      const token = await getAuthToken();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token ?? null;
       if (!token) {
         setIsStreaming(false);
         queryClient.setQueryData(
@@ -313,37 +316,50 @@ export function TwinChatScreen() {
         return;
       }
 
-      await twinService.sendMessageStream(text, token, {
-        onChunk: (chunk) => {
-          streamingContentRef.current += chunk;
-          setStreamingContent(streamingContentRef.current);
-          listRef.current?.scrollToOffset({ offset: 0, animated: false });
-        },
-        onReplace: (fullText) => {
-          streamingContentRef.current = fullText;
-          setStreamingContent(fullText);
-        },
-        onMeta: () => {},
-        onDone: () => {
-          setIsStreaming(false);
-          setStreamingContent("");
-          streamingContentRef.current = "";
-          queryClient.invalidateQueries({ queryKey: TWIN_KEYS.chat });
-          setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
-        },
-        onError: () => {
-          setIsStreaming(false);
-          setStreamingContent("");
-          streamingContentRef.current = "";
-          queryClient.setQueryData(
-            [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-            (old: { messages: TwinMessage[] } | undefined) => ({
-              messages: (old?.messages ?? []).filter((m) => m.id !== tempUserId),
-            })
-          );
-          if (overrideText === undefined) setInputText(text);
-        },
-      });
+      try {
+        await twinService.sendMessageStream(text, token, {
+          onChunk: (chunk) => {
+            streamingContentRef.current += chunk;
+            setStreamingContent(streamingContentRef.current);
+            listRef.current?.scrollToOffset({ offset: 0, animated: false });
+          },
+          onReplace: (fullText) => {
+            streamingContentRef.current = fullText;
+            setStreamingContent(fullText);
+          },
+          onMeta: () => {},
+          onDone: () => {
+            setIsStreaming(false);
+            setStreamingContent("");
+            streamingContentRef.current = "";
+            queryClient.invalidateQueries({ queryKey: TWIN_KEYS.chat });
+            setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+          },
+          onError: () => {
+            setIsStreaming(false);
+            setStreamingContent("");
+            streamingContentRef.current = "";
+            queryClient.setQueryData(
+              [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+              (old: { messages: TwinMessage[] } | undefined) => ({
+                messages: (old?.messages ?? []).filter((m) => m.id !== tempUserId),
+              })
+            );
+            if (overrideText === undefined) setInputText(text);
+          },
+        });
+      } catch {
+        setIsStreaming(false);
+        setStreamingContent("");
+        streamingContentRef.current = "";
+        queryClient.setQueryData(
+          [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+          (old: { messages: TwinMessage[] } | undefined) => ({
+            messages: (old?.messages ?? []).filter((m) => m.id !== tempUserId),
+          })
+        );
+        if (overrideText === undefined) setInputText(text);
+      }
     },
     [inputText, isStreaming, queryClient]
   );
@@ -360,6 +376,13 @@ export function TwinChatScreen() {
     if (messages.length <= 0) return;
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [messages.length]);
+
+  useEffect(() => {
+    return () => {
+      setIsStreaming(false);
+      streamingContentRef.current = "";
+    };
+  }, []);
 
   const getMarginTop = useCallback(
     (index: number) => {

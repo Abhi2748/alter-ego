@@ -1563,7 +1563,7 @@ const styles = StyleSheet.create({
   avatarWrap: {
     width: 38,
     height: 38,
-    borderRadius: 19,
+    borderRadius: 10,
     backgroundColor: "#141824",
     borderWidth: 1.5,
     borderColor: "rgba(139,92,246,0.35)",

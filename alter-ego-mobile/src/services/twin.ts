@@ -335,7 +335,10 @@ export const twinService = {
     token: string,
     callbacks: StreamCallbacks
   ): Promise<void> => {
-    const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
+    const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
+      /\/$/,
+      ''
+    );
 
     let response: Response;
     try {

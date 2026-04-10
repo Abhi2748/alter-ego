@@ -708,7 +708,7 @@ const styles = StyleSheet.create({
     position: "relative",
     width: 46,
     height: 46,
-    borderRadius: 23,
+    borderRadius: 10,
     borderWidth: 1.5,
     shadowOffset: { width: 0, height: 0 },
     elevation: 6,
@@ -716,15 +716,14 @@ const styles = StyleSheet.create({
   top3Avatar: {
     width: 46,
     height: 46,
-    borderRadius: 23,
+    borderRadius: 10,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
   top3AvatarImg: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: "100%",
+    height: "100%",
   },
   top3StageNum: {
     fontSize: 16,
@@ -831,7 +830,7 @@ const styles = StyleSheet.create({
     position: "relative",
     width: 38,
     height: 38,
-    borderRadius: 19,
+    borderRadius: 10,
   },
   ownAvatarWrap: {
     borderWidth: 1,
@@ -840,7 +839,7 @@ const styles = StyleSheet.create({
   standardAvatar: {
     width: 38,
     height: 38,
-    borderRadius: 19,
+    borderRadius: 10,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
@@ -848,9 +847,8 @@ const styles = StyleSheet.create({
     borderColor: "rgba(139,92,246,0.2)",
   },
   standardAvatarImg: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: "100%",
+    height: "100%",
   },
   standardStageNum: {
     fontSize: 13,

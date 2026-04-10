@@ -513,7 +513,7 @@ const styles = StyleSheet.create({
   profilePicRing: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: "rgba(139,92,246,0.4)",
     overflow: "hidden",
@@ -529,7 +529,7 @@ const styles = StyleSheet.create({
   profilePic: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 10,
     borderWidth: 2,
     borderColor: "rgba(139,92,246,0.4)",
     alignItems: "center",

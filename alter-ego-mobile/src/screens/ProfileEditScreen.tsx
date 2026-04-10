@@ -130,10 +130,6 @@ export function ProfileEditScreen() {
         aspect: [1, 1],
         quality: 1,
       };
-      // Android supports circular crop UI; iOS keeps square editor.
-      if (Platform.OS === "android") {
-        (pickerOptions as Record<string, unknown>).shape = "circle";
-      }
       const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
       if (result.canceled || !result.assets?.[0]?.uri) return;
 
@@ -150,8 +146,8 @@ export function ProfileEditScreen() {
       try {
         const manipulated = await ImageManipulator.manipulateAsync(
           uploadUri,
-          [{ resize: { width: 400, height: 400 } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+          [{ resize: { width: 512, height: 512 } }],
+          { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
         );
         uploadUri = manipulated.uri;
       } catch {
@@ -273,7 +269,11 @@ export function ProfileEditScreen() {
           <View style={styles.avatarAndBadgeWrap}>
             <Pressable onPress={handleAvatarPress} style={styles.avatarOuter}>
               {photoUri ? (
-                <Image source={{ uri: photoUri }} style={styles.avatarImage} />
+                <Image
+                  source={{ uri: photoUri }}
+                  style={styles.avatarImage}
+                  resizeMode="cover"
+                />
               ) : (
                 <LinearGradient
                   colors={["rgba(80,30,160,0.70)", "rgba(30,20,60,0.90)"]}
@@ -388,13 +388,14 @@ const styles = StyleSheet.create({
   avatarOuter: {
     width: 88,
     height: 88,
-    borderRadius: 44,
+    borderRadius: 16,
     borderWidth: 2,
     borderColor: "rgba(139,92,246,0.40)",
     overflow: "hidden",
     position: "absolute",
     top: 0,
     left: 0,
+    backgroundColor: "#141824",
     shadowColor: "rgba(109,40,217,0.25)",
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 0 },

@@ -1264,8 +1264,8 @@ const styles = StyleSheet.create({
   tbAvatar: {
     width: 34,
     height: 34,
-    borderRadius: 17,
-    backgroundColor: "rgba(80,30,160,0.7)",
+    borderRadius: 10,
+    backgroundColor: "#141824",
     borderWidth: 1.5,
     borderColor: "rgba(139,92,246,0.35)",
     overflow: "hidden",

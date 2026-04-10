@@ -52,6 +52,12 @@ def setup_scheduler():
         replace_existing=True,
     )
     scheduler.add_job(
+        twin_xp_finalization_job,
+        trigger=IntervalTrigger(minutes=60),
+        id="twin_xp_finalization",
+        replace_existing=True,
+    )
+    scheduler.add_job(
         twin_journal_midnight_job,
         trigger=IntervalTrigger(minutes=60),
         id="twin_journal_midnight",
@@ -297,13 +303,13 @@ async def daily_mission_reset_job():
 async def twin_simulation_job():
     """
     Runs every hour. Only processes users whose local hour is 1 (1:00–1:59).
-    Simulates the twin's day for all users who have completed onboarding.
+    Runs twin mission selection for the day (twin_daily_record with XP placeholders).
+    Twin XP is finalized at local 11pm by twin_xp_finalization_job; strip updates then.
     """
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     from app.services.twin_service import simulate_twin_day
-    from app.services.strip_message_service import update_strip_message
     from app.core.supabase_client import supabase_admin
     from app.services.mission_service import get_user_date
 
@@ -331,10 +337,7 @@ async def twin_simulation_job():
 
             await simulate_twin_day(user["id"])
 
-            # Twin journal is written at local midnight for the day that just ended, not at 1am for "today"
-            # (avoids empty user mission counts and premature release). See twin_journal_midnight_job.
-
-            await update_strip_message(user["id"])
+            # Twin journal: twin_journal_midnight_job (local hour 0). Strip: twin_xp_finalization_job (hour 23).
             success_count += 1
             logger.info(
                 json.dumps(
@@ -362,6 +365,70 @@ async def twin_simulation_job():
             {
                 "event": "twin_simulation_job_done",
                 "success_count": success_count,
+            }
+        )
+    )
+
+
+async def twin_xp_finalization_job():
+    """
+    Runs every hour. Only processes users whose local hour is 23 (11pm).
+    Finalizes the twin's XP for the day using the Mirror Formula.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.core.supabase_client import supabase_admin
+    from app.services.strip_message_service import update_strip_message
+    from app.services.twin_service import finalize_twin_xp_for_day
+
+    logger.info(json.dumps({"event": "twin_xp_finalization_job_start"}))
+
+    users_result = (
+        supabase_admin.table("users")
+        .select("id, timezone")
+        .eq("onboarding_complete", True)
+        .execute()
+    )
+
+    count = 0
+    for user in users_result.data or []:
+        try:
+            timezone_str = user.get("timezone", "UTC") or "UTC"
+            try:
+                tz = ZoneInfo(timezone_str)
+            except Exception:
+                tz = ZoneInfo("UTC")
+            local_now = datetime.now(tz)
+
+            if local_now.hour != 23:
+                continue
+
+            result = await finalize_twin_xp_for_day(str(user["id"]))
+            if result.get("finalized"):
+                count += 1
+                try:
+                    await update_strip_message(str(user["id"]))
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "twin_xp_finalization_error",
+                        "user_id": str(user.get("id", "")),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
+            continue
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "twin_xp_finalization_job_done",
+                "count": count,
             }
         )
     )

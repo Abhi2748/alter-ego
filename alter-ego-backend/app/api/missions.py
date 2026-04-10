@@ -602,6 +602,19 @@ async def personal_create(body: PersonalMissionCreateRequest, authorization: str
     # Always anchor to the user's server-side local calendar day (avoids device vs profile TZ drift).
     mission_date = get_user_date(tz_str)
 
+    existing_personal_res = await run_query(
+        supabase_admin.table("missions")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("mission_date", mission_date)
+        .eq("type", "personal")
+    )
+    if len(existing_personal_res.data or []) >= 5:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum 5 personal missions per day. Complete or remove one before adding more.",
+        )
+
     # Accept tier exactly as sent by client; do not re-estimate or validate it here.
     tier = (body.tier or "medium").lower()
 

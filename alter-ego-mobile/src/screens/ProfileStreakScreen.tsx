@@ -119,6 +119,12 @@ export function ProfileStreakScreen() {
     refetch: () => void;
   };
 
+  const [localAutoConsume, setLocalAutoConsume] = useState<boolean>(() =>
+    normalizeFreezeAutoConsume(
+      data?.streak_freeze_auto_consume ?? profile?.streak_freeze_auto_consume
+    )
+  );
+
   const patchFreeze = useMutation({
     mutationFn: (streak_freeze_auto_consume: boolean) =>
       profileService.patchStreakFreezeSettings(streak_freeze_auto_consume),
@@ -128,6 +134,7 @@ export function ProfileStreakScreen() {
           ? res.streak_freeze_auto_consume
           : variables
       );
+      setLocalAutoConsume(v);
       updateStreakFreezeSettings(v);
       queryClient.setQueryData(PROFILE_KEYS.streak, (old: StreakApiResponse | undefined) => ({
         ...(old ?? {}),
@@ -136,8 +143,13 @@ export function ProfileStreakScreen() {
       await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
       await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
       await fetchProfile();
-      // Re-apply confirmed value so a slow overview fetch can't leave the Switch wrong
-      updateStreakFreezeSettings(v);
+    },
+    onError: () => {
+      const streak = queryClient.getQueryData(PROFILE_KEYS.streak) as StreakApiResponse | undefined;
+      const serverValue = normalizeFreezeAutoConsume(
+        streak?.streak_freeze_auto_consume ?? useUserStore.getState().profile?.streak_freeze_auto_consume
+      );
+      setLocalAutoConsume(serverValue);
     },
   });
 
@@ -154,14 +166,6 @@ export function ProfileStreakScreen() {
       await fetchProfile();
     },
   });
-
-  const autoConsume = useMemo(
-    () =>
-      normalizeFreezeAutoConsume(
-        data?.streak_freeze_auto_consume ?? profile?.streak_freeze_auto_consume
-      ),
-    [data?.streak_freeze_auto_consume, profile?.streak_freeze_auto_consume]
-  );
 
   const reservedFreeze = useMemo(
     () =>
@@ -191,6 +195,23 @@ export function ProfileStreakScreen() {
       )
     );
   }, []);
+
+  useEffect(() => {
+    if (patchFreeze.isPending) return;
+    const serverValue = normalizeFreezeAutoConsume(
+      data?.streak_freeze_auto_consume ?? profile?.streak_freeze_auto_consume
+    );
+    setLocalAutoConsume(serverValue);
+  }, [
+    data?.streak_freeze_auto_consume,
+    profile?.streak_freeze_auto_consume,
+    patchFreeze.isPending,
+  ]);
+
+  const handleAutoConsumeToggle = (v: boolean) => {
+    setLocalAutoConsume(v);
+    patchFreeze.mutate(v);
+  };
 
   const petAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: petFloat.value }],
@@ -413,7 +434,7 @@ export function ProfileStreakScreen() {
         <View style={styles.statCardsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statCardLabel}>LONGEST</Text>
-            <Text style={[styles.statCardValue, { color: "#E5E7EB" }]}>
+            <Text style={[styles.statCardValue, { color: VIOLET_GLOW }]}>
               {isLoading ? "—" : String(data?.longest_streak ?? 0)}
             </Text>
             <Text style={styles.statCardSub}>days</Text>
@@ -549,103 +570,124 @@ export function ProfileStreakScreen() {
           </View>
         </View>
 
-        {/* Streak freezes — icy premium card + auto vs manual (below calendar) */}
-        <View style={styles.freezeCardOuter}>
+        {/* ── Streak Freeze Card ──────────────────────────────────────────── */}
+        <View style={freezeStyles.outerWrap}>
           <LinearGradient
-            colors={["#060d18", "#0a1628", "#071018"]}
+            colors={["transparent", "rgba(125,211,252,0.55)", "transparent"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={freezeStyles.shimmerLine}
+            pointerEvents="none"
+          />
+
+          <LinearGradient
+            colors={["#050d1a", "#080f20", "#050c18"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.freezeCardGradient}
-          >
-            <LinearGradient
-              colors={["rgba(56, 189, 248, 0.16)", "rgba(14, 165, 233, 0.05)", "transparent"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-              pointerEvents="none"
-            />
-            <View style={styles.freezeCardInner}>
-              <View style={styles.freezeHeaderRow}>
-                <LinearGradient
-                  colors={["rgba(56, 189, 248, 0.28)", "rgba(14, 165, 233, 0.1)"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.freezeIconCircle}
-                >
-                  <Ionicons name="snow-outline" size={24} color="#BAE6FD" />
-                </LinearGradient>
-                <View style={styles.freezeHeaderTextCol}>
-                  <Text style={styles.freezeTitle}>Streak freeze</Text>
-                  <Text style={styles.freezeBody}>
-                    Earn freezes from Twin challenges and milestones. Spend them to protect your streak
-                    when you miss a day.
-                  </Text>
-                </View>
-              </View>
+            style={StyleSheet.absoluteFill}
+          />
 
-              <View style={styles.freezeCountRow}>
-                <Text style={styles.freezeCountLabel}>Available</Text>
-                <Text style={styles.freezeCountValue}>
+          <LinearGradient
+            colors={["rgba(56,189,248,0.08)", "transparent", "rgba(14,165,233,0.04)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+
+          <View style={freezeStyles.inner}>
+            <View style={freezeStyles.eyebrowRow}>
+              <View style={freezeStyles.eyebrowDot} />
+              <Text style={freezeStyles.eyebrow}>STREAK SHIELD</Text>
+            </View>
+
+            <View style={freezeStyles.countHero}>
+              <View style={freezeStyles.snowflakeWrap}>
+                <Text style={freezeStyles.snowflakeGlyph}>❄</Text>
+              </View>
+              <View style={freezeStyles.countTextWrap}>
+                <Text style={freezeStyles.countNumber}>
                   {isLoading
                     ? "—"
                     : String(data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0)}
                 </Text>
+                <Text style={freezeStyles.countLabel}>
+                  {(data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0) === 1
+                    ? "freeze available"
+                    : "freezes available"}
+                </Text>
               </View>
-
-              <View style={styles.freezeSwitchRow}>
-                <View style={styles.freezeSwitchTextCol}>
-                  <Text style={styles.freezeSwitchTitle}>Auto-use on miss</Text>
-                  <Text style={styles.freezeSwitchSub}>
-                    When on, one freeze is used automatically if you miss a day (while you have any).
-                  </Text>
-                </View>
-                <Switch
-                  value={autoConsume}
-                  onValueChange={(v) => patchFreeze.mutate(v)}
-                  disabled={patchFreeze.isPending}
-                  trackColor={{ false: "#374151", true: "rgba(56, 189, 248, 0.42)" }}
-                  thumbColor={autoConsume ? "#7DD3FC" : "#9CA3AF"}
-                />
-              </View>
-
-              {!autoConsume ? (
-                <View style={styles.freezeManualBlock}>
-                  {reservedFreeze ? (
-                    <Text style={styles.freezeReservedNote}>
-                      Next missed day is covered — your streak will stay intact.
-                    </Text>
-                  ) : (
-                    <>
-                      <Text style={styles.freezeManualHint}>
-                        Turn off auto-use to save freezes. Reserve one when you know you might miss a
-                        day — it spends a freeze now and protects the next miss.
-                      </Text>
-                      <Pressable
-                        onPress={() => reserveFreeze.mutate()}
-                        disabled={
-                          reserveFreeze.isPending ||
-                          (data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0) < 1
-                        }
-                        style={({ pressed }) => [
-                          styles.freezeReserveBtn,
-                          ((data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0) < 1 ||
-                            reserveFreeze.isPending) &&
-                            styles.freezeReserveBtnDisabled,
-                          pressed && styles.freezeReserveBtnPressed,
-                        ]}
-                      >
-                        {reserveFreeze.isPending ? (
-                          <ActivityIndicator color="#E0F2FE" size="small" />
-                        ) : (
-                          <Text style={styles.freezeReserveBtnText}>Reserve next miss</Text>
-                        )}
-                      </Pressable>
-                    </>
-                  )}
-                </View>
-              ) : null}
+              <View style={freezeStyles.countGlow} pointerEvents="none" />
             </View>
-          </LinearGradient>
+
+            <Text style={freezeStyles.description}>
+              Earn freezes by completing Twin challenges and hitting milestones. Each freeze protects
+              your streak for one missed day.
+            </Text>
+
+            <View style={freezeStyles.divider} />
+
+            <View style={freezeStyles.toggleRow}>
+              <View style={freezeStyles.toggleTextCol}>
+                <Text style={freezeStyles.toggleTitle}>Auto-use on miss</Text>
+                <Text style={freezeStyles.toggleSub}>
+                  A freeze activates automatically when you miss a day.
+                </Text>
+              </View>
+              <Switch
+                value={localAutoConsume}
+                onValueChange={handleAutoConsumeToggle}
+                disabled={patchFreeze.isPending}
+                trackColor={{ false: "rgba(42,48,80,0.6)", true: "rgba(56,189,248,0.35)" }}
+                thumbColor={localAutoConsume ? "#7DD3FC" : "#4B5563"}
+                ios_backgroundColor="rgba(42,48,80,0.6)"
+              />
+            </View>
+
+            {!localAutoConsume ? (
+              <View style={freezeStyles.manualBlock}>
+                <View style={freezeStyles.manualDivider} />
+                {reservedFreeze ? (
+                  <View style={freezeStyles.reservedBadge}>
+                    <Ionicons name="shield-checkmark" size={13} color="#7DD3FC" />
+                    <Text style={freezeStyles.reservedBadgeText}>
+                      Next missed day is covered — streak protected.
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={freezeStyles.manualHint}>
+                      Reserve a freeze now if you know you might miss a day. It spends one freeze
+                      immediately and protects the next miss.
+                    </Text>
+                    <Pressable
+                      onPress={() => reserveFreeze.mutate()}
+                      disabled={
+                        reserveFreeze.isPending ||
+                        (data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0) < 1
+                      }
+                      style={({ pressed }) => [
+                        freezeStyles.reserveBtn,
+                        ((data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0) < 1 ||
+                          reserveFreeze.isPending) &&
+                          freezeStyles.reserveBtnDisabled,
+                        pressed && freezeStyles.reserveBtnPressed,
+                      ]}
+                    >
+                      {reserveFreeze.isPending ? (
+                        <ActivityIndicator color="#BAE6FD" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="shield-outline" size={14} color="#BAE6FD" />
+                          <Text style={freezeStyles.reserveBtnText}>Reserve next miss</Text>
+                        </>
+                      )}
+                    </Pressable>
+                  </>
+                )}
+              </View>
+            ) : null}
+          </View>
         </View>
       </ScrollView>
 
@@ -785,138 +827,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  freezeCardOuter: {
-    borderRadius: 18,
-    marginBottom: 16,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(56, 189, 248, 0.22)",
-    ...(Platform.OS === "ios"
-      ? {
-          shadowColor: "rgba(56, 189, 248, 0.2)",
-          shadowRadius: 16,
-          shadowOffset: { width: 0, height: 4 },
-        }
-      : { elevation: 6 }),
-  },
-  freezeCardGradient: {
-    borderRadius: 17,
-    overflow: "hidden",
-  },
-  freezeCardInner: {
-    padding: 16,
-  },
-  freezeHeaderRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 14,
-  },
-  freezeIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(125, 211, 252, 0.35)",
-  },
-  freezeHeaderTextCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  freezeTitle: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: "#E5E7EB",
-    letterSpacing: -0.2,
-    marginBottom: 4,
-  },
-  freezeBody: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: "#94A3B8",
-    lineHeight: 17,
-  },
-  freezeCountRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "rgba(56, 189, 248, 0.08)",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(56, 189, 248, 0.18)",
-  },
-  freezeCountLabel: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-    color: "#94A3B8",
-  },
-  freezeCountValue: {
-    fontSize: 22,
-    fontFamily: "Inter_700Bold",
-    color: "#7DD3FC",
-    letterSpacing: -0.5,
-  },
-  freezeSwitchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  freezeSwitchTextCol: {
-    flex: 1,
-  },
-  freezeSwitchTitle: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-    color: "#E5E7EB",
-  },
-  freezeSwitchSub: {
-    fontSize: 11,
-    fontFamily: "Inter_400Regular",
-    color: "#6B7280",
-    marginTop: 4,
-    lineHeight: 15,
-  },
-  freezeManualBlock: {
-    marginTop: 12,
-  },
-  freezeManualHint: {
-    fontSize: 11,
-    color: "#6B7280",
-    lineHeight: 15,
-    marginBottom: 10,
-  },
-  freezeReservedNote: {
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-    color: "#A78BFA",
-  },
-  freezeReserveBtn: {
-    minHeight: 44,
-    borderRadius: 12,
-    backgroundColor: "rgba(109,40,217,0.35)",
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.45)",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-  },
-  freezeReserveBtnDisabled: {
-    opacity: 0.45,
-  },
-  freezeReserveBtnPressed: {
-    opacity: 0.85,
-  },
-  freezeReserveBtnText: {
-    fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
-    color: "#E0F2FE",
-  },
-
   calendarCard: {
     backgroundColor: "#111623",
     borderWidth: 1,
@@ -1028,60 +938,6 @@ const styles = StyleSheet.create({
     fontSize: 8,
   },
 
-  freezesCard: {
-    backgroundColor: "#111623",
-    borderWidth: 1,
-    borderColor: "#1A1F30",
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  freezesHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 6,
-  },
-  freezesTitle: {
-    fontSize: 13,
-    fontFamily: "Inter_700Bold",
-    color: "#E5E7EB",
-  },
-  freezesCount: {
-    marginLeft: "auto",
-    fontSize: 11,
-    color: "#4B5563",
-  },
-  freezesDesc: {
-    fontSize: 11,
-    color: "#4B5563",
-    lineHeight: 16.5,
-  },
-  freezesBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(139,92,246,0.10)",
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.22)",
-    borderRadius: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    marginTop: 8,
-  },
-  freezesBadgeDanger: {
-    backgroundColor: "rgba(127,29,29,0.15)",
-    borderColor: "rgba(239,68,68,0.2)",
-  },
-  freezesBadgeText: {
-    fontSize: 10,
-    fontFamily: "Inter_600SemiBold",
-    color: "#8B5CF6",
-  },
-  freezesBadgeTextDanger: {
-    color: "#F87171",
-  },
   tapHint: {
     flexDirection: "row",
     alignItems: "center",
@@ -1095,5 +951,213 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#374151",
     fontStyle: "italic",
+  },
+});
+
+const freezeStyles = StyleSheet.create({
+  outerWrap: {
+    borderRadius: 20,
+    marginBottom: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(56,189,248,0.18)",
+    position: "relative",
+    ...Platform.select({
+      ios: {
+        shadowColor: "rgba(56,189,248,0.25)",
+        shadowRadius: 20,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 1,
+      },
+      android: { elevation: 8 },
+    }),
+  },
+  shimmerLine: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    zIndex: 2,
+  },
+  inner: {
+    padding: 18,
+    paddingTop: 20,
+    zIndex: 1,
+  },
+  eyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginBottom: 18,
+  },
+  eyebrowDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#38BDF8",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#38BDF8",
+        shadowOpacity: 1,
+        shadowRadius: 5,
+        shadowOffset: { width: 0, height: 0 },
+      },
+    }),
+  },
+  eyebrow: {
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 2.5,
+    color: "rgba(56,189,248,0.55)",
+    textTransform: "uppercase",
+  },
+
+  countHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    marginBottom: 14,
+    position: "relative",
+  },
+  snowflakeWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: "rgba(56,189,248,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(56,189,248,0.22)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  snowflakeGlyph: {
+    fontSize: 26,
+    color: "#7DD3FC",
+  },
+  countTextWrap: {
+    flex: 1,
+  },
+  countNumber: {
+    fontSize: 44,
+    fontFamily: "Inter_700Bold",
+    color: "#BAE6FD",
+    letterSpacing: -2,
+    lineHeight: 46,
+    ...Platform.select({
+      ios: {
+        shadowColor: "rgba(125,211,252,0.6)",
+        shadowOpacity: 1,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 0 },
+      },
+    }),
+  },
+  countLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: "rgba(56,189,248,0.45)",
+    letterSpacing: 0.3,
+    marginTop: 1,
+  },
+  countGlow: {
+    position: "absolute",
+    left: 56,
+    top: -10,
+    width: 120,
+    height: 80,
+    backgroundColor: "rgba(56,189,248,0.06)",
+    borderRadius: 60,
+  },
+
+  description: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#64748B",
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: "rgba(56,189,248,0.10)",
+    marginBottom: 16,
+  },
+
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  toggleTextCol: {
+    flex: 1,
+  },
+  toggleTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#E2E8F0",
+    marginBottom: 3,
+  },
+  toggleSub: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "#475569",
+    lineHeight: 15,
+  },
+
+  manualBlock: {
+    marginTop: 14,
+  },
+  manualDivider: {
+    height: 1,
+    backgroundColor: "rgba(42,48,80,0.5)",
+    marginBottom: 12,
+  },
+  manualHint: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "#475569",
+    lineHeight: 16,
+    marginBottom: 12,
+  },
+  reservedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(56,189,248,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(56,189,248,0.2)",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  reservedBadgeText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: "#7DD3FC",
+    flex: 1,
+  },
+  reserveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: "rgba(56,189,248,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(56,189,248,0.25)",
+    paddingHorizontal: 16,
+  },
+  reserveBtnDisabled: {
+    opacity: 0.38,
+  },
+  reserveBtnPressed: {
+    opacity: 0.75,
+  },
+  reserveBtnText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#BAE6FD",
   },
 });

@@ -256,7 +256,10 @@ async def get_focus_stats(user_id: str) -> dict:
                 session_dates.add(dt.astimezone(tz).date())
             except Exception:
                 pass
-        check_date = datetime.now(tz).date()
+        today_d = datetime.now(tz).date()
+        # Streak counts consecutive days with ≥1 session. Today with no session yet is still
+        # "in progress" — continue from yesterday so we don't show 0 until the day is missed.
+        check_date = today_d if today_d in session_dates else today_d - timedelta(days=1)
         while check_date in session_dates:
             focus_streak += 1
             check_date -= timedelta(days=1)

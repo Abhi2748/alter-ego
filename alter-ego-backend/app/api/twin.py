@@ -42,8 +42,10 @@ from app.services.absence_service import compute_absence_days, get_twin_accompli
 from app.services.twin_service import (
     TwinChatRateLimited,
     build_twin_day_timeline,
+    compute_mirror_factor,
     ensure_twin_journal_backfilled,
     ensure_twin_simulated_for_today,
+    get_archetype_day_modifier,
     get_home_strip_context,
     get_twin_xp_comparison,
     mission_ids_for_revealed_twin_logs,
@@ -1372,7 +1374,7 @@ async def _build_twin_state_response(user_id: str) -> dict:
     user_result = await run_query(supabase_admin.table("users")
         .select(
             "total_xp, character_stage, pet_stage, pet_unlocked, "
-            "current_streak, timezone, username, power_score, archetype"
+            "current_streak, timezone, username, power_score, archetype, registration_date"
         )
         .eq("id", user_id)
         .single())
@@ -1436,8 +1438,53 @@ async def _build_twin_state_response(user_id: str) -> dict:
     n_twin_log_all = len(twin_log_rows_state)
     n_twin_revealed = len(revealed_twin_logs)
     twin_xp_today_full = int(twin_record.get("xp_earned") or 0) if twin_record else 0
+
+    if twin_xp_today_full == 0:
+        _xp_today_res = await run_query(
+            supabase_admin.table("xp_log")
+            .select("amount")
+            .eq("user_id", user_id)
+            .eq("log_date", today)
+        )
+        _xp_today_rows = _xp_today_res.data or []
+        _user_xp_today_check = sum(int(r.get("amount") or 0) for r in _xp_today_rows)
+
+        if _user_xp_today_check > 0:
+            try:
+                _archetype = str(user.get("archetype") or "structured_climber")
+                _tz_str = str(user.get("timezone") or "UTC")
+                _reg = str(user.get("registration_date") or "")
+
+                _days_active = max(0, get_days_since_registration(_reg, _tz_str) - 1)
+
+                _dna_proj = await run_query(
+                    supabase_admin.table("discipline_dna")
+                    .select("completion_rate_7d, calibration_count")
+                    .eq("user_id", user_id)
+                    .single()
+                )
+                _dna_d = _dna_proj.data or {}
+                _cr7d = float(_dna_d.get("completion_rate_7d") or 50)
+                if _cr7d <= 1.0:
+                    _cr7d *= 100.0
+                _cal_count = int(_dna_d.get("calibration_count") or 0)
+                _dow = now_local_state.isoweekday()
+
+                _mirror = compute_mirror_factor(
+                    _days_active, _archetype, _cr7d, _cal_count
+                )
+                _day_mod = get_archetype_day_modifier(_archetype, _dow)
+
+                twin_xp_today_full = int(
+                    round(_user_xp_today_check * _mirror * _day_mod)
+                )
+            except Exception:
+                pass
+
     twin_xp_today_revealed = (
-        int(round(twin_xp_today_full * (n_twin_revealed / n_twin_log_all))) if n_twin_log_all > 0 else 0
+        int(round(twin_xp_today_full * (n_twin_revealed / n_twin_log_all)))
+        if n_twin_log_all > 0
+        else 0
     )
     revealed_mission_ids = mission_ids_for_revealed_twin_logs(user_id, today, revealed_twin_logs)
 

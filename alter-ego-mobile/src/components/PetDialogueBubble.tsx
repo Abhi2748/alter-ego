@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from "react";
-import { Dimensions, Platform, StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -7,23 +7,49 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-const { width: SCREEN_W } = Dimensions.get("window");
-/** Wide enough for natural wrapping; caps on small devices */
-const BUBBLE_WIDTH = Math.min(318, Math.max(260, SCREEN_W * 0.82));
+/** Ideal width from screen size; clamped by maxWidth so left edge stays on-screen. */
+function idealBubbleWidth(screenW: number) {
+  return Math.min(318, Math.max(260, screenW * 0.82));
+}
+
+const MIN_BUBBLE_W = 168;
 
 type PetDialogueBubbleProps = {
   visible: boolean;
   text: string;
+  /** Distance from overlay right to pet column center (for tail aim). */
+  tailCenterFromRight?: number;
+  /** Distance from hero row bottom to bubble wrap bottom (larger = bubble sits higher). */
+  wrapBottom?: number;
+  /** Max width so bubble does not extend past safe left inset (from measureInWindow). */
+  maxWidth?: number;
 };
 
-export default function PetDialogueBubble({ visible, text }: PetDialogueBubbleProps) {
+const TAIL_HALF_W = 9;
+
+export default function PetDialogueBubble({
+  visible,
+  text,
+  tailCenterFromRight = 42,
+  wrapBottom = 112,
+  maxWidth,
+}: PetDialogueBubbleProps) {
+  const { width: winW } = useWindowDimensions();
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(8);
 
+  const bubbleW = useMemo(() => {
+    const ideal = idealBubbleWidth(winW);
+    const capped = maxWidth != null ? Math.min(ideal, maxWidth) : ideal;
+    return Math.max(MIN_BUBBLE_W, capped);
+  }, [winW, maxWidth]);
+
   const wrapStyle = useMemo(
-    () => [styles.wrap, { width: BUBBLE_WIDTH }],
-    []
+    () => [styles.wrap, { width: bubbleW, bottom: wrapBottom }],
+    [bubbleW, wrapBottom]
   );
+
+  const tailWrapRight = Math.max(TAIL_HALF_W, tailCenterFromRight - TAIL_HALF_W);
 
   useEffect(() => {
     if (visible) {
@@ -72,23 +98,31 @@ export default function PetDialogueBubble({ visible, text }: PetDialogueBubblePr
           {text}
         </Text>
       </View>
-      <View style={styles.tailOuter} />
-      <View style={styles.tailInner} />
+      <View style={[styles.tailWrap, { right: tailWrapRight }]}>
+        <View style={styles.tailOuter} />
+        <View style={styles.tailInner} />
+      </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  /** Anchored to the right edge of the pet column; explicit width avoids 76px parent text layout */
+  /** Anchored to hero row right; explicit width avoids narrow parent text layout */
   wrap: {
     position: "absolute",
     right: 0,
-    bottom: 78,
     zIndex: 20,
+  },
+  tailWrap: {
+    position: "absolute",
+    bottom: -10,
+    width: TAIL_HALF_W * 2,
+    minHeight: 11,
+    alignItems: "center",
+    justifyContent: "flex-end",
   },
   bubble: {
     width: "100%",
-    minWidth: BUBBLE_WIDTH,
     backgroundColor: "rgba(12,10,20,0.88)",
     borderColor: "rgba(139,92,246,0.62)",
     borderWidth: 1,
@@ -117,9 +151,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   tailOuter: {
-    position: "absolute",
-    right: 24,
-    bottom: -10,
     width: 0,
     height: 0,
     borderLeftWidth: 9,
@@ -131,8 +162,8 @@ const styles = StyleSheet.create({
   },
   tailInner: {
     position: "absolute",
-    right: 25,
-    bottom: -8,
+    bottom: 2,
+    marginLeft: 1,
     width: 0,
     height: 0,
     borderLeftWidth: 8,

@@ -14,6 +14,8 @@ import {
   Image,
   Alert,
   InteractionManager,
+  Dimensions,
+  useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
@@ -139,6 +141,15 @@ const PERSONAL_GREY_DARK = "#1F2937";
 /** Match Profile hero character (`charWrap` 168×252). */
 const CHARACTER_WIDTH = 168;
 const CHARACTER_HEIGHT = 252;
+/** Home hero companion art (~10% larger than prior 76×76). */
+const HERO_PET_SIZE = Math.round(76 * 1.1);
+const HERO_PET_COLUMN_MARGIN_BOTTOM = 14;
+/** Tight stack above companion: pet column + margin + small gap; tail sits just above head. */
+const PET_DIALOGUE_WRAP_BOTTOM = HERO_PET_SIZE + HERO_PET_COLUMN_MARGIN_BOTTOM + 8;
+/** Floor for dialogue width when measuring (readable single column). */
+const PET_DIALOGUE_MIN_SCREEN_W = 168;
+/** Pet art uses `contain` and often sits left; tail aim slightly past geometric center toward the head. */
+const PET_DIALOGUE_TAIL_CENTER_NUDGE = 10;
 const TOP_BAR_HEIGHT = 56;
 const TAB_BAR_HEIGHT = 56;
 const CONTENT_PADDING_BOTTOM = 96;
@@ -336,7 +347,28 @@ export function HomeScreen() {
   const queryClient = useQueryClient();
   const route = useRoute<RouteProp<MainTabParamList, "Home">>();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const xpBarRef = useRef<XPProgressBarRef>(null);
+  const petHeroBlockRef = useRef<View>(null);
+  const [petDialogueMaxWidth, setPetDialogueMaxWidth] = useState(() => {
+    const w = Dimensions.get("window").width;
+    return Math.min(318, Math.max(PET_DIALOGUE_MIN_SCREEN_W, w - SCROLL_PADDING_H * 2 - 8));
+  });
+
+  const updatePetDialogueMaxWidth = useCallback(() => {
+    const node = petHeroBlockRef.current;
+    if (!node) return;
+    node.measureInWindow((x, _y, w, _h) => {
+      const minLeft = insets.left + SCROLL_PADDING_H;
+      const petRight = x + w;
+      const cap = Math.floor(petRight - minLeft - 6);
+      setPetDialogueMaxWidth(Math.max(PET_DIALOGUE_MIN_SCREEN_W, cap));
+    });
+  }, [insets.left]);
+
+  useEffect(() => {
+    updatePetDialogueMaxWidth();
+  }, [windowWidth, updatePetDialogueMaxWidth]);
 
   const profile = useUserStore((state) => state.profile);
   const fetchProfile = useUserStore((state) => state.fetchProfile);
@@ -413,6 +445,13 @@ export function HomeScreen() {
   const [absenceInterstitialDismissed, setAbsenceInterstitialDismissed] = useState(false);
   const [petDialogueText, setPetDialogueText] = useState<string | null>(null);
   const [petDialogueVisible, setPetDialogueVisible] = useState(false);
+
+  useEffect(() => {
+    if (!petDialogueText) return;
+    const id = requestAnimationFrame(() => updatePetDialogueMaxWidth());
+    return () => cancelAnimationFrame(id);
+  }, [petDialogueText, updatePetDialogueMaxWidth]);
+
   const petDialogueAutoHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const petDialogueReminderRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const petDialogueLastShownAtRef = useRef(0);
@@ -1064,7 +1103,12 @@ export function HomeScreen() {
                 />
               </View>
               {isPetUnlocked ? (
-                <>
+                <View
+                  ref={petHeroBlockRef}
+                  style={styles.heroPetBlock}
+                  onLayout={updatePetDialogueMaxWidth}
+                  collapsable={false}
+                >
                   <View style={styles.heroPetColumn} pointerEvents="none">
                     <View style={[styles.heroPetSlot, { opacity: petAbsenceOpacity }]}>
                       <Image
@@ -1077,10 +1121,16 @@ export function HomeScreen() {
                   </View>
                   {petDialogueText ? (
                     <View style={styles.petDialogueOverlay} pointerEvents="none">
-                      <PetDialogueBubble visible={petDialogueVisible} text={petDialogueText} />
+                      <PetDialogueBubble
+                        visible={petDialogueVisible}
+                        text={petDialogueText}
+                        tailCenterFromRight={HERO_PET_SIZE / 2 + PET_DIALOGUE_TAIL_CENTER_NUDGE}
+                        wrapBottom={PET_DIALOGUE_WRAP_BOTTOM}
+                        maxWidth={petDialogueMaxWidth}
+                      />
                     </View>
                   ) : null}
-                </>
+                </View>
               ) : null}
             </View>
           </View>
@@ -1657,11 +1707,25 @@ const styles = StyleSheet.create({
     overflow: "visible",
     position: "relative",
   },
-  /** Full row-sized layer so dialogue Text measures at bubble width, not 76px pet column */
+  /**
+   * Fills heroPetBlock only (pet column width). Row uses justifyContent center; a full-row overlay
+   * made right:0 the row edge, not the companion — tail pointed into empty margin.
+   */
   petDialogueOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 20,
     overflow: "visible",
+  },
+  heroPetBlock: {
+    width: HERO_PET_SIZE,
+    minHeight: CHARACTER_HEIGHT,
+    position: "relative",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    overflow: "visible",
+    marginLeft: 2,
+    marginBottom: HERO_PET_COLUMN_MARGIN_BOTTOM,
+    zIndex: 4,
   },
   characterHero: {
     width: CHARACTER_WIDTH,
@@ -1675,22 +1739,19 @@ const styles = StyleSheet.create({
   },
   /** Pet + dialogue: overflow visible so wide bubble is not clipped by 76px slot */
   heroPetColumn: {
-    width: 76,
+    width: HERO_PET_SIZE,
     overflow: "visible",
     alignItems: "center",
-    marginLeft: 2,
-    marginBottom: 14,
-    zIndex: 4,
   },
   heroPetSlot: {
-    width: 76,
-    height: 76,
+    width: HERO_PET_SIZE,
+    height: HERO_PET_SIZE,
     justifyContent: "flex-end",
     alignItems: "center",
   },
   heroPetImage: {
-    width: 76,
-    height: 76,
+    width: HERO_PET_SIZE,
+    height: HERO_PET_SIZE,
   },
   xpWrap: { width: 252, zIndex: 1 },
   xpLabelRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 5 },

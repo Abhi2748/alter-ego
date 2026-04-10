@@ -356,7 +356,6 @@ async def chat_with_twin(request: Request, body: ChatRequest, authorization: str
 @limiter.limit("10/minute")
 async def chat_with_twin_stream(
     request: Request,
-    body: ChatRequest,
     authorization: str = Header(None),
 ):
     """
@@ -368,14 +367,22 @@ async def chat_with_twin_stream(
       {"type": "done"} — stream complete
       {"type": "error", "message": "..."}
     """
+    import json as _json
     from app.services.twin_service import stream_twin_message
 
     user_id = get_user_id_from_token(authorization)
 
-    if not body.message or not body.message.strip():
+    try:
+        body_bytes = await request.body()
+        body_data = _json.loads(body_bytes)
+        message_raw = body_data.get("message", "")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request body")
+
+    if not message_raw or not str(message_raw).strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    message = body.message.strip()[:500]
+    message = str(message_raw).strip()[:500]
 
     return StreamingResponse(
         stream_twin_message(user_id, message),

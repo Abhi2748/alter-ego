@@ -142,7 +142,6 @@ export function ProfileStreakScreen() {
       }));
       await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
       await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
-      await fetchProfile();
     },
     onError: () => {
       const serverValue = normalizeFreezeAutoConsume(

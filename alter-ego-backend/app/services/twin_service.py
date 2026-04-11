@@ -3357,6 +3357,9 @@ async def stream_twin_message(user_id: str, message: str):
             json.dumps({"event": "twin_stream_error", "user_id": user_id, "error": str(e)[:200]})
         )
         yield f"data: {json.dumps({'type': 'error', 'message': 'Something went wrong. Try again.'})}\n\n"
+
+
+async def proactive_twin_message_job() -> None:
     """
     Hourly tick: for users in local hour 10, may send a proactive Twin line (max 3/week).
     Triggers: all missions complete today, inactive 2+ days, or occasional random_thought.

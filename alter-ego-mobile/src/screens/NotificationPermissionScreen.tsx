@@ -17,10 +17,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, CommonActions } from "@react-navigation/native";
 import { dispatchResetToMain } from "../navigation/resetToMain";
-import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { isAndroidExpoGoRemotePushUnavailable } from "@/utils/expoPushEnvironment";
 import { Ionicons } from "@expo/vector-icons";
-import { supabase } from "@/utils/supabase";
 import { apiClient } from "@/services/api";
 import { NOTIF_PERMISSION_ASKED_KEY } from "../constants/notificationPermission";
 
@@ -51,20 +50,30 @@ export function NotificationPermissionScreen() {
   const finishAndGoMain = async (didRequest: boolean) => {
     if (didRequest) {
       try {
-        const { status } = await Notifications.requestPermissionsAsync();
-        if (status === "granted") {
-          const tokenData = await Notifications.getExpoPushTokenAsync();
-          const pushToken = tokenData?.data ?? "";
-          const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
-          const { data } = await supabase.auth.getSession();
-          if (pushToken || timezone) {
-            await apiClient
-              .post("/api/v1/settings/notifications", {
-                push_token: pushToken || undefined,
-                timezone,
-                notifications_enabled: true,
-              })
-              .catch(() => {});
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+
+        if (isAndroidExpoGoRemotePushUnavailable()) {
+          await apiClient
+            .post("/api/v1/settings/notifications", {
+              timezone,
+              notifications_enabled: false,
+            })
+            .catch(() => {});
+        } else {
+          const Notifications = await import("expo-notifications");
+          const { status } = await Notifications.requestPermissionsAsync();
+          if (status === "granted") {
+            const tokenData = await Notifications.getExpoPushTokenAsync();
+            const pushToken = tokenData?.data ?? "";
+            if (pushToken || timezone) {
+              await apiClient
+                .post("/api/v1/settings/notifications", {
+                  push_token: pushToken || undefined,
+                  timezone,
+                  notifications_enabled: true,
+                })
+                .catch(() => {});
+            }
           }
         }
       } catch (_) {}

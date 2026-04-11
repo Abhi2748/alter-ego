@@ -349,11 +349,13 @@ export function TwinChatScreen() {
               cancelAnimationFrame(streamingFlushRafRef.current);
               streamingFlushRafRef.current = null;
             }
-            setIsStreaming(false);
-            setStreamingContent("");
-            streamingContentRef.current = "";
-            queryClient.invalidateQueries({ queryKey: TWIN_KEYS.chat });
-            setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+            queryClient.invalidateQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] });
+            setTimeout(() => {
+              setIsStreaming(false);
+              setStreamingContent("");
+              streamingContentRef.current = "";
+              listRef.current?.scrollToOffset({ offset: 0, animated: true });
+            }, 300);
           },
           onError: () => {
             if (streamingFlushRafRef.current != null) {

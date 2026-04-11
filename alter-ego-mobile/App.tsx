@@ -8,7 +8,6 @@ import {
   Inter_700Bold,
   Inter_800ExtraBold,
 } from "@expo-google-fonts/inter";
-import * as Notifications from "expo-notifications";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState, useCallback } from "react";
 import { View, ActivityIndicator, AppState, StyleSheet } from "react-native";
@@ -22,6 +21,7 @@ import { apiClient } from "./src/services/api";
 import { useAuthStore } from "./src/store/authStore";
 import { twinService, type GapMoment } from "./src/services/twin";
 import { GapMomentScreen } from "./src/screens/GapMomentScreen";
+import { isAndroidExpoGoRemotePushUnavailable } from "./src/utils/expoPushEnvironment";
 
 // Suppress React 19 ref warning from dependencies (e.g. React Navigation) until they support ref-as-prop
 const originalError = console.error;
@@ -40,6 +40,13 @@ console.error = (...args: unknown[]) => {
   ) {
     return;
   }
+  // Android Expo Go SDK 53+: native module still logs when push APIs are touched; avoid LogBox noise.
+  if (
+    flat.includes("expo-notifications") &&
+    flat.includes("removed from expo go")
+  ) {
+    return;
+  }
   originalError.apply(console, args);
 };
 
@@ -54,12 +61,21 @@ const navTheme = {
 
 /**
  * Register push token and timezone with backend when the user has a session.
- * In Expo Go (SDK 53+), expo-notifications shows a warning and push does not work;
- * use a development build for real push. The warning appears when this code runs
- * (e.g. after sign-in or on app open with existing session).
+ * Android Expo Go (SDK 53+): remote push is disabled — only sync timezone, no expo-notifications calls.
  */
 async function registerPushTokenAndTimezone() {
   try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+
+    if (isAndroidExpoGoRemotePushUnavailable()) {
+      await apiClient.post("/api/v1/settings/notifications", {
+        timezone,
+        notifications_enabled: false,
+      });
+      return;
+    }
+
+    const Notifications = await import("expo-notifications");
     const { status: existing } = await Notifications.getPermissionsAsync();
     let final = existing;
     if (existing !== "granted") {
@@ -69,7 +85,6 @@ async function registerPushTokenAndTimezone() {
     if (final !== "granted") return;
     const tokenData = await Notifications.getExpoPushTokenAsync();
     const pushToken = tokenData?.data ?? "";
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
     if (pushToken || timezone) {
       await apiClient.post("/api/v1/settings/notifications", {
         push_token: pushToken || undefined,

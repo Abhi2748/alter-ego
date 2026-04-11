@@ -342,44 +342,8 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
                 if cap_rank.get(cur, 0) > c:
                     pillar_difficulties[pk] = cap
 
-    # Per-pillar streaks + typical completion hour (Phase 3 context for core agent)
-    pillar_streaks: dict[str, int] = {}
+    pillar_streaks = await compute_core_pillar_streak_bases(user_id, mission_date)
     pillar_completion_hour: dict[str, str] = {}
-    try:
-        streak_cutoff = (mday - timedelta(days=30)).isoformat()
-        streak_rows = (
-            ((await run_query(supabase_admin.table("missions")
-            .select("core_pillar, mission_date, completed, is_journal_mission")
-            .eq("user_id", user_id)
-            .eq("type", "core")
-            .gte("mission_date", streak_cutoff)
-            .lte("mission_date", mission_date)
-            .order("mission_date", desc=True))).data)
-            or []
-        )
-        by_pillar: dict[str, list[dict]] = defaultdict(list)
-        for row in streak_rows:
-            if row.get("is_journal_mission"):
-                continue
-            p = str(row.get("core_pillar") or "")
-            if p:
-                by_pillar[p].append(row)
-        mission_day = mday
-        for pillar, rows in by_pillar.items():
-            dates_completed = {
-                str(row["mission_date"])
-                for row in rows
-                if row.get("completed")
-            }
-            streak = 0
-            check_date = mission_day - timedelta(days=1)
-            while str(check_date) in dates_completed:
-                streak += 1
-                check_date -= timedelta(days=1)
-            pillar_streaks[pillar] = streak
-    except Exception:
-        pass
-
     try:
         hour_rows = (
             ((await run_query(supabase_admin.table("missions")
@@ -551,6 +515,49 @@ async def get_today_missions(user_id: str, mission_date: str) -> list[dict]:
     rows = result.data or []
     order = {"core": 0, "interest": 1, "resistance": 2, "personal": 3, "recovery": 4}
     return sorted(rows, key=lambda r: order.get(r.get("type") or "", 99))
+
+
+async def compute_core_pillar_streak_bases(user_id: str, mission_date: str) -> dict[str, int]:
+    """
+    Per core pillar (non-journal): count consecutive calendar days *before* mission_date
+    where that pillar's mission was completed. Used for core agent context and mission_streak UI.
+    """
+    pillar_streaks: dict[str, int] = {}
+    try:
+        mday = date.fromisoformat(str(mission_date)[:10])
+        streak_cutoff = (mday - timedelta(days=30)).isoformat()
+        streak_rows = (
+            ((await run_query(supabase_admin.table("missions")
+            .select("core_pillar, mission_date, completed, is_journal_mission")
+            .eq("user_id", user_id)
+            .eq("type", "core")
+            .gte("mission_date", streak_cutoff)
+            .lte("mission_date", mission_date)
+            .order("mission_date", desc=True))).data)
+            or []
+        )
+        by_pillar: dict[str, list[dict]] = defaultdict(list)
+        for row in streak_rows:
+            if row.get("is_journal_mission"):
+                continue
+            p = str(row.get("core_pillar") or "")
+            if p:
+                by_pillar[p].append(row)
+        for pillar, prow in by_pillar.items():
+            dates_completed = {
+                str(row["mission_date"])
+                for row in prow
+                if row.get("completed")
+            }
+            streak = 0
+            check_date = mday - timedelta(days=1)
+            while str(check_date) in dates_completed:
+                streak += 1
+                check_date -= timedelta(days=1)
+            pillar_streaks[pillar] = streak
+    except Exception:
+        pass
+    return pillar_streaks
 
 
 async def get_today_missions_by_type(user_id: str, mission_date: str, mission_type: str) -> list[dict]:

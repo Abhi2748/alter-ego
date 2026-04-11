@@ -24,24 +24,6 @@ from app.services.mission_row_utils import mission_row_completed
 logger = logging.getLogger(__name__)
 
 
-def _coerce_bool(v: object | None, default: bool = True) -> bool:
-    """Supabase/PostgREST may return bool or string — avoid truthy \"false\" strings."""
-    if v is None:
-        return default
-    if isinstance(v, bool):
-        return v
-    if isinstance(v, str):
-        s = v.strip().lower()
-        if s in ("false", "0", "no", "f", "off"):
-            return False
-        if s in ("true", "1", "yes", "t", "on"):
-            return True
-        return default
-    if isinstance(v, (int, float)):
-        return bool(v)
-    return bool(v)
-
-
 def evaluate_streak_requirement(completed_missions: list[dict], streak_tier: str) -> bool:
     """
     Returns True if today's completions satisfy the streak requirement
@@ -352,8 +334,7 @@ async def handle_streak_break(user_id: str) -> None:
 
     user_result = await run_query(supabase_admin.table("users")
         .select(
-            "current_streak, last_streak_date, total_xp, timezone, "
-            "streak_freeze_count, streak_freeze_auto_consume, freeze_reserved_next_miss"
+            "current_streak, last_streak_date, total_xp, timezone, streak_freeze_count"
         )
         .eq("id", user_id)
         .single())
@@ -374,44 +355,10 @@ async def handle_streak_break(user_id: str) -> None:
 
     old_streak = int(user.get("current_streak") or 0)
 
-    # ── Manual reserve: user spent a freeze earlier to cover the next miss ──
-    if _coerce_bool(user.get("freeze_reserved_next_miss"), False):
-        try:
-            await run_query(supabase_admin.table("users").update({"freeze_reserved_next_miss": False}).eq(
-                "id", user_id
-            ))
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "streak_freeze_reserved_used",
-                        "user_id": user_id,
-                    }
-                )
-            )
-            try:
-                from app.services.gap_moment_service import queue_gap_moment
-
-                await queue_gap_moment(user_id, "absence_return", "freeze_used")
-            except Exception:
-                pass
-            return
-        except Exception as e:
-            logger.error(
-                json.dumps(
-                    {
-                        "event": "streak_freeze_reserved_error",
-                        "user_id": user_id,
-                        "error": str(e)[:200],
-                    }
-                )
-            )
-
-    # ── Auto-consume inventory when user prefers automatic protection ───────
-    # User-earned freezes (challenges, arcs, etc.) apply here when enabled.
-    auto_consume = _coerce_bool(user.get("streak_freeze_auto_consume"), True)
+    # ── Streak freeze: consume one inventory freeze if available ─────────────
     try:
         freeze_count = int(user.get("streak_freeze_count") or 0)
-        if freeze_count > 0 and auto_consume:
+        if freeze_count > 0:
             await run_query(supabase_admin.table("users").update(
                 {"streak_freeze_count": freeze_count - 1}
             ).eq("id", user_id))

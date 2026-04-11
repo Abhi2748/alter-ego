@@ -6,7 +6,6 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Image, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import type { CompositeNavigationProp } from "@react-navigation/native";
@@ -155,8 +154,7 @@ export function ProfileScreen() {
     lbData?.current_user?.rank != null && lbData.current_user.rank > 0
       ? String(lbData.current_user.rank)
       : "—";
-  const [journeyDropdownVisible, setJourneyDropdownVisible] = useState(false);
-  const journeyDropdownTop = 260;
+  const [journeyOpen, setJourneyOpen] = useState(false);
 
   const openSettings = () => {
     (navigation.getParent() as any)?.navigate("Settings");
@@ -368,101 +366,92 @@ export function ProfileScreen() {
             const onPress = () => {
               if (kind === "sigil") openSigil();
               else if (kind === "leaderboard") openLeaderboard();
-              else if (kind === "journey") setJourneyDropdownVisible(true);
+              else if (kind === "journey") setJourneyOpen((prev) => !prev);
               else if (key) openEntry(key);
             };
             return (
-              <Pressable
-                key={rowKey}
-                style={({ pressed }) => [styles.navRow, pressed && styles.navRowPressed]}
-                onPress={onPress}
-              >
-                <View style={navIconWrapStyle(iconWrap)}>
-                  <Icon />
-                </View>
-                {isJourney ? (
-                  <View style={styles.navRowTitleWrap}>
-                    <Text style={styles.navRowTitle}>Journey</Text>
-                    <Ionicons name="chevron-down" size={10} color="#6B7280" />
+              <View key={rowKey}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.navRow,
+                    isJourney && journeyOpen && styles.navRowJourneyOpen,
+                    pressed && styles.navRowPressed,
+                  ]}
+                  onPress={onPress}
+                >
+                  <View style={navIconWrapStyle(iconWrap)}>
+                    <Icon />
                   </View>
-                ) : (
-                  <Text style={[styles.navRowTitle, styles.navRowTitleGrow]}>{label}</Text>
+                  {isJourney ? (
+                    <View style={styles.navRowTitleWrap}>
+                      <Text style={[styles.navRowTitle, journeyOpen && { color: "#C4B5FD" }]}>Journey</Text>
+                    </View>
+                  ) : (
+                    <Text style={[styles.navRowTitle, styles.navRowTitleGrow]}>{label}</Text>
+                  )}
+                  <Ionicons
+                    name={isJourney ? (journeyOpen ? "chevron-down" : "chevron-forward") : "chevron-forward"}
+                    size={isJourney ? 14 : 16}
+                    color={isJourney && journeyOpen ? "#8B5CF6" : "#374151"}
+                  />
+                </Pressable>
+
+                {/* Inline accordion — only for Journey row */}
+                {isJourney && journeyOpen && (
+                  <View style={styles.journeyAccordion}>
+                    {/* Vertical connector line */}
+                    <View style={styles.journeyConnectorLine} />
+
+                    {/* Identity */}
+                    <Pressable
+                      style={({ pressed }) => [styles.journeyChild, pressed && { opacity: 0.75 }]}
+                      onPress={() => {
+                        setJourneyOpen(false);
+                        navigation.navigate("ProfileIdentity");
+                      }}
+                    >
+                      <View style={styles.journeyChildConnector} />
+                      <View style={styles.journeyIconBoxIdentity}>
+                        <Svg width={16} height={20} viewBox="0 0 18 22" fill="none">
+                          <Path d="M9 2.5C6.514 2.5 4.5 4.514 4.5 7C4.5 10.25 9 19.5 9 19.5C9 19.5 13.5 10.25 13.5 7C13.5 4.514 11.486 2.5 9 2.5Z" stroke="#8B5CF6" strokeWidth={1.4} />
+                          <Circle cx={9} cy={7} r={2} fill="#8B5CF6" />
+                        </Svg>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.journeyChildTitle}>Identity</Text>
+                        <Text style={styles.journeyChildSub}>Character stages & XP progress</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={14} color="#374151" />
+                    </Pressable>
+
+                    {/* Companion */}
+                    <Pressable
+                      style={({ pressed }) => [styles.journeyChild, styles.journeyChildLast, pressed && { opacity: 0.75 }]}
+                      onPress={() => {
+                        setJourneyOpen(false);
+                        navigation.navigate("ProfileCompanion");
+                      }}
+                    >
+                      <View style={styles.journeyChildConnector} />
+                      <View style={styles.journeyIconBoxCompanion}>
+                        <Svg width={18} height={18} viewBox="0 0 20 20" fill="none">
+                          <Path d="M5 14C5 10 7 7 10 7C13 7 15 9 15 12C15 14.5 13.5 16 11.5 16C10 16 9 15 8.5 14" stroke="#10B981" strokeWidth={1.4} strokeLinecap="round" />
+                          <Circle cx={7} cy={6} r={1.3} fill="#10B981" />
+                        </Svg>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.journeyChildTitle}>Companion</Text>
+                        <Text style={styles.journeyChildSub}>Pet stages & food progress</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={14} color="#374151" />
+                    </Pressable>
+                  </View>
                 )}
-                <Ionicons name="chevron-forward" size={16} color="#374151" />
-              </Pressable>
+              </View>
             );
           })}
         </View>
       </ScrollView>
-
-      {journeyDropdownVisible && (
-        <>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setJourneyDropdownVisible(false)}
-          >
-            <BlurView intensity={6} tint="dark" style={StyleSheet.absoluteFill} />
-          </Pressable>
-          <View style={[styles.journeyDropdownCard, { top: journeyDropdownTop }]}>
-            <LinearGradient
-              colors={["transparent", "rgba(139,92,246,0.30)", "transparent"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.journeyDropdownAccent}
-            />
-            <Text style={styles.journeyDropdownTitle}>Journey</Text>
-            <Pressable
-              style={styles.journeyOption}
-              onPress={() => {
-                setJourneyDropdownVisible(false);
-                navigation.navigate("ProfileIdentity");
-              }}
-            >
-              <View style={styles.journeyIconBoxIdentity}>
-                <Svg width={18} height={22} viewBox="0 0 18 22" fill="none">
-                  <Path
-                    d="M9 2.5C6.514 2.5 4.5 4.514 4.5 7C4.5 10.25 9 19.5 9 19.5C9 19.5 13.5 10.25 13.5 7C13.5 4.514 11.486 2.5 9 2.5Z"
-                    stroke="#8B5CF6"
-                    strokeWidth={1.4}
-                  />
-                  <Circle cx={9} cy={7} r={2} fill="#8B5CF6" />
-                </Svg>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.journeyOptionTitle}>Identity</Text>
-                <Text style={styles.journeyOptionSub}>
-                  Your character stages, XP progress & evolution history
-                </Text>
-              </View>
-            </Pressable>
-            <Pressable
-              style={[styles.journeyOption, styles.journeyOptionLast]}
-              onPress={() => {
-                setJourneyDropdownVisible(false);
-                navigation.navigate("ProfileCompanion");
-              }}
-            >
-              <View style={styles.journeyIconBoxCompanion}>
-                <Svg width={20} height={20} viewBox="0 0 20 20" fill="none">
-                  <Path
-                    d="M5 14C5 10 7 7 10 7C13 7 15 9 15 12C15 14.5 13.5 16 11.5 16C10 16 9 15 8.5 14"
-                    stroke="#10B981"
-                    strokeWidth={1.4}
-                    strokeLinecap="round"
-                  />
-                  <Circle cx={7} cy={6} r={1.3} fill="#10B981" />
-                </Svg>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.journeyOptionTitle}>Companion</Text>
-                <Text style={styles.journeyOptionSub}>
-                  Your pet stages, Pet Food progress & companion history
-                </Text>
-              </View>
-            </Pressable>
-          </View>
-        </>
-      )}
     </View>
   );
 }
@@ -780,11 +769,17 @@ const styles = StyleSheet.create({
     gap: 12,
     backgroundColor: "#111623",
     borderWidth: 1,
-    borderColor: "#1A1F30",
-    borderRadius: 14,
+    borderColor: "rgba(42,48,80,0.3)",
+    borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 16,
     marginBottom: 8,
+  },
+  navRowJourneyOpen: {
+    backgroundColor: "rgba(139,92,246,0.06)",
+    borderColor: "rgba(139,92,246,0.2)",
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
   },
   navRowPressed: {
     transform: [{ scale: 0.98 }],
@@ -841,49 +836,56 @@ const styles = StyleSheet.create({
     color: "#E5E7EB",
   },
   navRowTitleGrow: { flex: 1 },
-  journeyDropdownCard: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    top: 260,
-    backgroundColor: "#111623",
-    borderRadius: 18,
+  journeyAccordion: {
+    backgroundColor: "rgba(139,92,246,0.04)",
     borderWidth: 1,
-    borderColor: "rgba(42,48,80,0.60)",
+    borderTopWidth: 0,
+    borderColor: "rgba(139,92,246,0.2)",
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
     overflow: "hidden",
-    shadowColor: "rgba(0,0,0,0.60)",
-    shadowRadius: 48,
-    shadowOffset: { width: 0, height: 16 },
-    elevation: 20,
+    position: "relative",
+    marginBottom: 8,
   },
-  journeyDropdownAccent: {
+  journeyConnectorLine: {
     position: "absolute",
+    left: 29,
     top: 0,
-    left: "15%",
-    right: "15%",
-    height: 1,
+    bottom: 0,
+    width: 1,
+    backgroundColor: "rgba(139,92,246,0.2)",
   },
-  journeyDropdownTitle: {
-    paddingTop: 14,
-    paddingBottom: 10,
-    paddingHorizontal: 16,
-    fontSize: 10,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-    color: "#374151",
-    textAlign: "center",
-  },
-  journeyOption: {
+  journeyChild: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 11,
+    paddingRight: 14,
+    paddingLeft: 52,
+    gap: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(42,48,80,0.35)",
+    borderBottomColor: "rgba(42,48,80,0.25)",
   },
-  journeyOptionLast: {
+  journeyChildLast: {
     borderBottomWidth: 0,
+  },
+  journeyChildConnector: {
+    position: "absolute",
+    left: 29,
+    top: "50%",
+    width: 12,
+    height: 1,
+    backgroundColor: "rgba(139,92,246,0.25)",
+  },
+  journeyChildTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+    color: "#E5E7EB",
+    marginBottom: 1,
+  },
+  journeyChildSub: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "#6B7280",
   },
   journeyIconBoxIdentity: {
     width: 46,
@@ -906,16 +908,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
-  },
-  journeyOptionTitle: {
-    fontSize: 15,
-    fontFamily: "Inter_700Bold",
-    color: "#E5E7EB",
-    marginBottom: 2,
-  },
-  journeyOptionSub: {
-    fontSize: 12,
-    color: "#4B5563",
-    lineHeight: 16,
   },
 });

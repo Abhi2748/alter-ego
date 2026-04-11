@@ -494,7 +494,16 @@ const styles = StyleSheet.create({
   },
   mailCardUnread: {
     borderColor: "rgba(139,92,246,0.35)",
-    ...SHADOWS.violet,
+    ...Platform.select({
+      ios: SHADOWS.violet,
+      android: {
+        // Android elevation creates a grey drop shadow that looks wrong
+        // on dark backgrounds — use a stronger border instead of shadow
+        elevation: 0,
+        borderColor: "rgba(139,92,246,0.55)",
+        borderWidth: 1.5,
+      },
+    }),
   },
   mailCardPressed: { opacity: 0.94, transform: [{ scale: 0.99 }] },
   mailCardAccent: {

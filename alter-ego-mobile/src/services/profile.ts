@@ -118,18 +118,5 @@ export const profileService = {
       new_arc_phase: string;
       total_planned_sessions: number | null;
     }>(`/api/v1/profile/interests/${interestId}/timeline`, { target_timeline }),
-
-  patchStreakFreezeSettings: (streak_freeze_auto_consume: boolean) =>
-    apiClient.patch<{ success: boolean; streak_freeze_auto_consume: boolean }>(
-      '/api/v1/profile/streak-freeze',
-      { streak_freeze_auto_consume }
-    ),
-
-  reserveStreakFreeze: () =>
-    apiClient.post<{
-      success: boolean;
-      streak_freeze_count: number;
-      freeze_reserved_next_miss: boolean;
-    }>('/api/v1/profile/streak-freeze/reserve', {}),
 };
 

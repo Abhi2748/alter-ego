@@ -38,6 +38,8 @@ export interface Mission {
   /** Present when twin_mission_log + inject succeeded */
   twin_completed?: boolean;
   twin_completed_at_hour?: number | null;
+  /** Consecutive days completing this core pillar (non-journal); from GET today / date */
+  mission_streak?: number;
 }
 
 /** Full row from GET /api/v1/missions/{uuid} */

@@ -5,7 +5,16 @@
  */
 
 import React, { useCallback, useMemo } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet, Dimensions } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Dimensions,
+  Platform,
+  StatusBar,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MaskedView from "@react-native-masked-view/masked-view";
@@ -303,6 +312,11 @@ export function StreakDetailContent({
   heatmap,
 }: StreakDetailContentProps) {
   const insets = useSafeAreaInsets();
+  /** Android often reports insets.top as 0 with edge-to-edge; status bar would eat taps on the close control. */
+  const topPad = Math.max(
+    insets.top,
+    Platform.OS === "android" ? StatusBar.currentHeight ?? 24 : 0
+  );
   const tier = getTier(currentStreak);
   const next = nextMilestone(currentStreak);
   const weekActivity = useMemo(() => currentWeekActivity(heatmap), [heatmap]);
@@ -353,31 +367,36 @@ export function StreakDetailContent({
       end={{ x: 0, y: 1 }}
       style={styles.root}
     >
-      <ScrollView
-        style={[styles.scrollView, { paddingTop: insets.top }]}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 24) + 16 }]}
-        showsVerticalScrollIndicator={false}
-        bounces
-      >
-        <View style={styles.headerRow}>
-          <Pressable
-            onPress={onClose}
-            style={({ pressed }) => [
-              styles.closeBtn,
-              {
-                backgroundColor: tier.closeBg,
-                borderColor: tier.closeBorder,
-                opacity: pressed ? 0.85 : 1,
-              },
-            ]}
-            hitSlop={8}
-          >
-            <Text style={[styles.closeBtnText, { color: tier.headerTitleColor }]}>✕</Text>
-          </Pressable>
-          <Text style={[styles.headerTitle, { color: tier.headerTitleColor }]}>STREAK</Text>
-          <View style={{ width: HEADER_SIDE }} />
+      <View style={styles.shell}>
+        <View style={[styles.headerSafe, { paddingTop: topPad }]}>
+          <View style={styles.headerRow}>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              style={({ pressed }) => [
+                styles.closeBtn,
+                {
+                  backgroundColor: tier.closeBg,
+                  borderColor: tier.closeBorder,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Text style={[styles.closeBtnText, { color: tier.headerTitleColor }]}>✕</Text>
+            </Pressable>
+            <Text style={[styles.headerTitle, { color: tier.headerTitleColor }]}>STREAK</Text>
+            <View style={{ width: HEADER_SIDE }} />
+          </View>
         </View>
 
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 24) + 16 }]}
+          showsVerticalScrollIndicator={false}
+          bounces
+        >
         <View style={styles.heroSection}>
           <HeroRadialGlow color={tier.heroGlowTint} />
           <View
@@ -517,7 +536,8 @@ export function StreakDetailContent({
             <Text style={styles.freezeCount}>×{freezeCount}</Text>
           </View>
         ) : null}
-      </ScrollView>
+        </ScrollView>
+      </View>
     </LinearGradient>
   );
 }
@@ -525,6 +545,12 @@ export function StreakDetailContent({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  shell: {
+    flex: 1,
+  },
+  headerSafe: {
+    paddingHorizontal: 20,
   },
   scrollView: { flex: 1 },
   scrollContent: {

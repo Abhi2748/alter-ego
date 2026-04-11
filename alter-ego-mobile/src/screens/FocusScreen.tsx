@@ -20,7 +20,12 @@ import {
   Platform,
   Keyboard,
   Image,
+  AppState,
+  type AppStateStatus,
 } from "react-native";
+import { Audio } from "expo-av";
+import * as Haptics from "expo-haptics";
+import * as Notifications from "expo-notifications";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -160,6 +165,47 @@ export function FocusScreen() {
   /** Only react to keyboard when Create Tag sheet is presented (avoid snapping other sheets). */
   const createTagSheetActiveRef = useRef(false);
 
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const backgroundStartTimeRef = useRef<number | null>(null);
+  const backgroundSecondsLeftRef = useRef<number>(0);
+  const notificationIdRef = useRef<string | null>(null);
+
+  const dismissBackgroundNotification = useCallback(async () => {
+    if (notificationIdRef.current) {
+      await Notifications.dismissNotificationAsync(notificationIdRef.current).catch(() => {});
+      notificationIdRef.current = null;
+    }
+    await Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
+  }, []);
+
+  const triggerSessionCompleteAlert = useCallback(async () => {
+    const soundEnabled = settings?.sound_enabled ?? true;
+    if (!soundEnabled) return;
+
+    try {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      /* noop */
+    }
+
+    try {
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: "https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" },
+        { shouldPlay: true, volume: 1.0 }
+      );
+      soundRef.current = sound;
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          sound.unloadAsync().catch(() => {});
+          soundRef.current = null;
+        }
+      });
+    } catch {
+      /* noop */
+    }
+  }, [settings?.sound_enabled]);
+
   const createTagSnapPoints = useMemo<(string | number)[]>(() => ["58%", "92%"], []);
 
   type DurationSettingKey =
@@ -195,6 +241,7 @@ export function FocusScreen() {
   }, []);
 
   const logAbandonAndReset = useCallback(async () => {
+    void dismissBackgroundNotification();
     const endedAt = new Date().toISOString();
     if (startedAtRef.current && (elapsedFocus > 0 || elapsedBreak > 0)) {
       try {
@@ -219,7 +266,17 @@ export function FocusScreen() {
       }
     }
     resetTimerUi();
-  }, [currentRound, elapsedBreak, elapsedFocus, logSession, mode, resetTimerUi, segment, selectedTag?.id]);
+  }, [
+    currentRound,
+    dismissBackgroundNotification,
+    elapsedBreak,
+    elapsedFocus,
+    logSession,
+    mode,
+    resetTimerUi,
+    segment,
+    selectedTag?.id,
+  ]);
 
   const zeroTransitionKeyRef = useRef<string | null>(null);
 
@@ -256,6 +313,82 @@ export function FocusScreen() {
       h.remove();
     };
   }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", async (nextState: AppStateStatus) => {
+      const prev = appStateRef.current;
+      appStateRef.current = nextState;
+
+      if (prev === "active" && nextState === "background") {
+        if (run && segment !== "idle" && segment !== "sw" && secondsLeft > 0) {
+          backgroundStartTimeRef.current = Date.now();
+          backgroundSecondsLeftRef.current = secondsLeft;
+
+          const soundEnabled = settings?.sound_enabled ?? true;
+          const triggerSeconds = secondsLeft;
+          const id = await Notifications.scheduleNotificationAsync({
+            content: {
+              title: segment === "work" ? "Focus session complete ✓" : "Break time over",
+              body:
+                segment === "work"
+                  ? "Your focus session has ended. Great work."
+                  : "Break is over — ready for the next round?",
+              sound: soundEnabled ? "default" : undefined,
+            },
+            trigger: {
+              seconds: triggerSeconds,
+              type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            },
+          }).catch(() => "");
+          notificationIdRef.current = id || null;
+        }
+      }
+
+      if (prev === "background" && nextState === "active") {
+        if (run && backgroundStartTimeRef.current !== null && segment !== "idle" && segment !== "sw") {
+          const elapsedMs = Date.now() - backgroundStartTimeRef.current;
+          const elapsedSec = Math.floor(elapsedMs / 1000);
+          const remaining = Math.max(0, backgroundSecondsLeftRef.current - elapsedSec);
+          backgroundStartTimeRef.current = null;
+
+          await dismissBackgroundNotification();
+
+          if (remaining === 0) {
+            setSecondsLeft(0);
+          } else {
+            setSecondsLeft(remaining);
+            if (segment === "work") {
+              setElapsedFocus((f) => f + Math.min(elapsedSec, backgroundSecondsLeftRef.current));
+            } else {
+              setElapsedBreak((b) => b + Math.min(elapsedSec, backgroundSecondsLeftRef.current));
+            }
+          }
+        }
+      }
+    });
+
+    return () => subscription.remove();
+  }, [run, segment, secondsLeft, settings?.sound_enabled, dismissBackgroundNotification]);
+
+  useEffect(() => {
+    Notifications.requestPermissionsAsync().catch(() => {});
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      soundRef.current?.unloadAsync().catch(() => {});
+      void dismissBackgroundNotification();
+    };
+  }, [dismissBackgroundNotification]);
 
   // 1s tick
   useEffect(() => {
@@ -304,6 +437,8 @@ export function FocusScreen() {
         setRun(false);
         setSegment("idle");
         setSessionComplete(true);
+        void triggerSessionCompleteAlert();
+        void dismissBackgroundNotification();
         void logSession.mutateAsync({
           mode: "deep_work",
           tag_id: selectedTag?.id ?? null,
@@ -321,6 +456,8 @@ export function FocusScreen() {
           setRun(false);
           setSegment("idle");
           setSessionComplete(true);
+          void triggerSessionCompleteAlert();
+          void dismissBackgroundNotification();
           void logSession.mutateAsync({
             mode: "pomodoro",
             tag_id: selectedTag?.id ?? null,
@@ -348,6 +485,7 @@ export function FocusScreen() {
     autoBreaks,
     autoWork,
     currentRound,
+    dismissBackgroundNotification,
     logSession,
     longBreakSecs,
     mode,
@@ -356,6 +494,7 @@ export function FocusScreen() {
     selectedTag?.id,
     shortBreakSecs,
     totalRounds,
+    triggerSessionCompleteAlert,
     workSecs,
   ]);
 
@@ -399,6 +538,8 @@ export function FocusScreen() {
     setRun(false);
     setSegment("idle");
     setSessionComplete(true);
+    void triggerSessionCompleteAlert();
+    void dismissBackgroundNotification();
     void logSession.mutateAsync({
       mode: "stopwatch",
       tag_id: selectedTag?.id ?? null,

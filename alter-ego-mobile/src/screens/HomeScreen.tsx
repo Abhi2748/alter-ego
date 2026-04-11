@@ -221,7 +221,10 @@ function missionApiToCard(
         : category === "Resistance"
           ? "resistance"
           : "personal") as MissionType,
-    missionStreak: 0,
+    missionStreak:
+      typeof m?.mission_streak === "number" && Number.isFinite(m.mission_streak)
+        ? Math.max(0, Math.floor(m.mission_streak))
+        : 0,
     interestName: (m?.interest_name ?? "").trim() || undefined,
     quitTargetName: (m?.quit_target_name ?? "").trim() || undefined,
   };

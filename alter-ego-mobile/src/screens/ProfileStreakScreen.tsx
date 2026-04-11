@@ -13,8 +13,6 @@ import {
   Pressable,
   Platform,
   Dimensions,
-  Switch,
-  ActivityIndicator,
   Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -33,9 +31,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { getPetImageSource } from "@/constants/characterPetAssets";
 import type { StackNavigationProp } from "@react-navigation/stack";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useProfileStreak, PROFILE_KEYS } from "@/hooks/useProfile";
-import { profileService } from "@/services/profile";
+import { useProfileStreak } from "@/hooks/useProfile";
 import { useUserStore } from "@/store/userStore";
 import {
   clampViewMonthToEarliest,
@@ -69,23 +65,9 @@ type StreakApiResponse = {
   }>;
   hint_text?: string;
   streak_freeze_count?: number;
-  streak_freeze_auto_consume?: boolean;
-  freeze_reserved_next_miss?: boolean;
 };
 
 const VIOLET_GLOW = "#A78BFA";
-
-/** API / cache may send bool or string — keeps Switch from snapping back to ON. */
-function normalizeFreezeAutoConsume(v: unknown): boolean {
-  if (v === false || v === "false" || v === 0) return false;
-  if (v === true || v === "true" || v === 1) return true;
-  return true;
-}
-
-function normalizeReservedFreeze(v: unknown): boolean {
-  if (v === true || v === "true" || v === 1) return true;
-  return false;
-}
 
 const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 const MONTH_NAMES = [
@@ -109,69 +91,12 @@ export function ProfileStreakScreen() {
     return { month: d.getMonth(), year: d.getFullYear() };
   });
   const profile = useUserStore((s) => s.profile);
-  const fetchProfile = useUserStore((s) => s.fetchProfile);
-  const updateStreakFreezeSettings = useUserStore((s) => s.updateStreakFreezeSettings);
-  const queryClient = useQueryClient();
   const { data, isLoading, error, refetch } = useProfileStreak() as {
     data: StreakApiResponse | undefined;
     isLoading: boolean;
     error: unknown;
     refetch: () => void;
   };
-
-  const [localAutoConsume, setLocalAutoConsume] = useState<boolean>(() =>
-    normalizeFreezeAutoConsume(
-      data?.streak_freeze_auto_consume ?? profile?.streak_freeze_auto_consume
-    )
-  );
-
-  const patchFreeze = useMutation({
-    mutationFn: (streak_freeze_auto_consume: boolean) =>
-      profileService.patchStreakFreezeSettings(streak_freeze_auto_consume),
-    onSuccess: async (res, variables) => {
-      const v = normalizeFreezeAutoConsume(
-        res?.streak_freeze_auto_consume !== undefined
-          ? res.streak_freeze_auto_consume
-          : variables
-      );
-      setLocalAutoConsume(v);
-      updateStreakFreezeSettings(v);
-      queryClient.setQueryData(PROFILE_KEYS.streak, (old: StreakApiResponse | undefined) => ({
-        ...(old ?? {}),
-        streak_freeze_auto_consume: v,
-      }));
-      await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
-      await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
-    },
-    onError: () => {
-      const serverValue = normalizeFreezeAutoConsume(
-        data?.streak_freeze_auto_consume ?? profile?.streak_freeze_auto_consume
-      );
-      setLocalAutoConsume(serverValue);
-    },
-  });
-
-  const reserveFreeze = useMutation({
-    mutationFn: () => profileService.reserveStreakFreeze(),
-    onSuccess: async (res) => {
-      queryClient.setQueryData(PROFILE_KEYS.streak, (old: StreakApiResponse | undefined) => ({
-        ...(old ?? {}),
-        streak_freeze_count: res.streak_freeze_count,
-        freeze_reserved_next_miss: res.freeze_reserved_next_miss,
-      }));
-      await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.streak });
-      await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
-      await fetchProfile();
-    },
-  });
-
-  const reservedFreeze = useMemo(
-    () =>
-      normalizeReservedFreeze(
-        data?.freeze_reserved_next_miss ?? profile?.freeze_reserved_next_miss
-      ),
-    [data?.freeze_reserved_next_miss, profile?.freeze_reserved_next_miss]
-  );
 
   const petFloat = useSharedValue(0);
 
@@ -193,23 +118,6 @@ export function ProfileStreakScreen() {
       )
     );
   }, []);
-
-  useEffect(() => {
-    if (patchFreeze.isPending) return; // Don't override optimistic state mid-flight
-    const serverValue = normalizeFreezeAutoConsume(
-      data?.streak_freeze_auto_consume ?? profile?.streak_freeze_auto_consume
-    );
-    setLocalAutoConsume(serverValue);
-  }, [
-    data?.streak_freeze_auto_consume,
-    profile?.streak_freeze_auto_consume,
-    patchFreeze.isPending,
-  ]);
-
-  const handleAutoConsumeToggle = (v: boolean) => {
-    setLocalAutoConsume(v);
-    patchFreeze.mutate(v);
-  };
 
   const petAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: petFloat.value }],
@@ -618,72 +526,9 @@ export function ProfileStreakScreen() {
             </View>
 
             <Text style={freezeStyles.description}>
-              Earn freezes by completing Twin challenges and hitting milestones. Each freeze protects
-              your streak for one missed day.
+              Earn freezes by completing Twin challenges and hitting milestones.{"\n"}
+              When you miss a day, one freeze is used automatically to protect your streak.
             </Text>
-
-            <View style={freezeStyles.divider} />
-
-            <View style={freezeStyles.toggleRow}>
-              <View style={freezeStyles.toggleTextCol}>
-                <Text style={freezeStyles.toggleTitle}>Auto-use on miss</Text>
-                <Text style={freezeStyles.toggleSub}>
-                  A freeze activates automatically when you miss a day.
-                </Text>
-              </View>
-              <Switch
-                value={localAutoConsume}
-                onValueChange={handleAutoConsumeToggle}
-                disabled={patchFreeze.isPending}
-                trackColor={{ false: "rgba(42,48,80,0.6)", true: "rgba(56,189,248,0.35)" }}
-                thumbColor={localAutoConsume ? "#7DD3FC" : "#4B5563"}
-                ios_backgroundColor="rgba(42,48,80,0.6)"
-              />
-            </View>
-
-            {!localAutoConsume ? (
-              <View style={freezeStyles.manualBlock}>
-                <View style={freezeStyles.manualDivider} />
-                {reservedFreeze ? (
-                  <View style={freezeStyles.reservedBadge}>
-                    <Ionicons name="shield-checkmark" size={13} color="#7DD3FC" />
-                    <Text style={freezeStyles.reservedBadgeText}>
-                      Next missed day is covered — streak protected.
-                    </Text>
-                  </View>
-                ) : (
-                  <>
-                    <Text style={freezeStyles.manualHint}>
-                      Reserve a freeze now if you know you might miss a day. It spends one freeze
-                      immediately and protects the next miss.
-                    </Text>
-                    <Pressable
-                      onPress={() => reserveFreeze.mutate()}
-                      disabled={
-                        reserveFreeze.isPending ||
-                        (data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0) < 1
-                      }
-                      style={({ pressed }) => [
-                        freezeStyles.reserveBtn,
-                        ((data?.streak_freeze_count ?? profile?.streak_freeze_count ?? 0) < 1 ||
-                          reserveFreeze.isPending) &&
-                          freezeStyles.reserveBtnDisabled,
-                        pressed && freezeStyles.reserveBtnPressed,
-                      ]}
-                    >
-                      {reserveFreeze.isPending ? (
-                        <ActivityIndicator color="#BAE6FD" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons name="shield-outline" size={14} color="#BAE6FD" />
-                          <Text style={freezeStyles.reserveBtnText}>Reserve next miss</Text>
-                        </>
-                      )}
-                    </Pressable>
-                  </>
-                )}
-              </View>
-            ) : null}
           </View>
         </View>
       </ScrollView>
@@ -1055,89 +900,6 @@ const freezeStyles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: "#64748B",
     lineHeight: 18,
-    marginBottom: 16,
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: "rgba(56,189,248,0.10)",
-    marginBottom: 16,
-  },
-
-  toggleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  toggleTextCol: {
-    flex: 1,
-  },
-  toggleTitle: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-    color: "#E2E8F0",
-    marginBottom: 3,
-  },
-  toggleSub: {
-    fontSize: 11,
-    fontFamily: "Inter_400Regular",
-    color: "#475569",
-    lineHeight: 15,
-  },
-
-  manualBlock: {
-    marginTop: 14,
-  },
-  manualDivider: {
-    height: 1,
-    backgroundColor: "rgba(42,48,80,0.5)",
-    marginBottom: 12,
-  },
-  manualHint: {
-    fontSize: 11,
-    fontFamily: "Inter_400Regular",
-    color: "#475569",
-    lineHeight: 16,
-    marginBottom: 12,
-  },
-  reservedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "rgba(56,189,248,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.2)",
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-  reservedBadgeText: {
-    fontSize: 12,
-    fontFamily: "Inter_500Medium",
-    color: "#7DD3FC",
-    flex: 1,
-  },
-  reserveBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    minHeight: 44,
-    borderRadius: 12,
-    backgroundColor: "rgba(56,189,248,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(56,189,248,0.25)",
-    paddingHorizontal: 16,
-  },
-  reserveBtnDisabled: {
-    opacity: 0.38,
-  },
-  reserveBtnPressed: {
-    opacity: 0.75,
-  },
-  reserveBtnText: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
-    color: "#BAE6FD",
+    marginBottom: 0,
   },
 });

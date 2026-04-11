@@ -12,6 +12,7 @@ import {
   Pressable,
   Platform,
   ScrollView,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,6 +23,7 @@ import { isAndroidExpoGoRemotePushUnavailable } from "@/utils/expoPushEnvironmen
 import { Ionicons } from "@expo/vector-icons";
 import { apiClient } from "@/services/api";
 import { NOTIF_PERMISSION_ASKED_KEY } from "../constants/notificationPermission";
+import { TWIN_STRIP_IMAGE } from "@/constants/characterPetAssets";
 
 const TWIN_STAGE_TITLE = "The Focused";
 
@@ -110,13 +112,12 @@ export function NotificationPermissionScreen() {
           {/* Twin avatar row */}
           <View style={styles.avatarRow}>
             <View style={styles.avatarCircle}>
-              <LinearGradient
-                colors={["rgba(110,40,210,0.70)", "rgba(20,15,50,0.95)"]}
-                style={StyleSheet.absoluteFill}
-                start={{ x: 0.35, y: 0.35 }}
-                end={{ x: 1, y: 1 }}
+              <Image
+                source={TWIN_STRIP_IMAGE}
+                style={styles.avatarImage}
+                resizeMode="cover"
+                accessibilityIgnoresInvertColors
               />
-              <View style={styles.avatarInner} />
             </View>
             <View style={styles.avatarTextCol}>
               <Text style={styles.avatarLabel}>Shadow Twin</Text>
@@ -268,7 +269,7 @@ const styles = StyleSheet.create({
       elevation: 8,
     }),
   },
-  avatarInner: { flex: 1, width: 48, height: 48 },
+  avatarImage: { width: "100%", height: "100%" },
   avatarTextCol: {},
   avatarLabel: { fontSize: 14, fontWeight: "700", color: "#E5E7EB" },
   avatarStage: { fontSize: 11, color: "#6B7280", marginTop: 2 },

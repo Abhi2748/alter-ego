@@ -48,24 +48,6 @@ router = APIRouter(prefix="/api/v1/profile", tags=["profile"])
 logger = logging.getLogger(__name__)
 
 
-def _coerce_bool(v: object | None, default: bool = True) -> bool:
-    """Postgres/PostgREST may return bool, null, or occasionally string — normalize for JSON."""
-    if v is None:
-        return default
-    if isinstance(v, bool):
-        return v
-    if isinstance(v, str):
-        s = v.strip().lower()
-        if s in ("false", "0", "no", "f", "off"):
-            return False
-        if s in ("true", "1", "yes", "t", "on"):
-            return True
-        return default
-    if isinstance(v, (int, float)):
-        return bool(v)
-    return bool(v)
-
-
 # Rotates on new interest creation (must match mobile INTEREST_COLORS primary + migration 027)
 INTEREST_COLOR_PALETTE = [
     "#14B8A6",
@@ -252,8 +234,7 @@ async def get_profile_overview(authorization: str = Header(None)):
             "pet_stage, pet_unlocked, total_pf, current_streak, "
             "longest_streak, power_score, registration_date, "
             "leaderboard_unlocked, email_connected, subscription_tier, "
-            "return_reason, avatar_url, streak_freeze_count, "
-            "streak_freeze_auto_consume, freeze_reserved_next_miss"
+            "return_reason, avatar_url, streak_freeze_count"
         )
         .eq("id", user_id)
         .single())
@@ -343,8 +324,6 @@ async def get_profile_overview(authorization: str = Header(None)):
         "return_reason": user.get("return_reason"),
         "profile_photo_url": user.get("avatar_url"),
         "streak_freeze_count": int(user.get("streak_freeze_count") or 0),
-        "streak_freeze_auto_consume": _coerce_bool(user.get("streak_freeze_auto_consume"), True),
-        "freeze_reserved_next_miss": _coerce_bool(user.get("freeze_reserved_next_miss"), False),
     }
 
 
@@ -381,7 +360,7 @@ async def get_profile_streak(authorization: str = Header(None)):
         await run_query(supabase_admin.table("users")
         .select(
             "current_streak, longest_streak, streak_requirement_tier, timezone, "
-            "registration_date"
+            "registration_date, streak_freeze_count"
         )
         .eq("id", user_id)
         .single())
@@ -447,69 +426,6 @@ async def get_profile_streak(authorization: str = Header(None)):
         ],
         "hint_text": "Tap any day to see your mission history",
         "streak_freeze_count": int(user.get("streak_freeze_count") or 0),
-        "streak_freeze_auto_consume": _coerce_bool(user.get("streak_freeze_auto_consume"), True),
-        "freeze_reserved_next_miss": _coerce_bool(user.get("freeze_reserved_next_miss"), False),
-    }
-
-
-class StreakFreezeSettingsBody(BaseModel):
-    streak_freeze_auto_consume: bool
-
-
-@router.patch("/streak-freeze", response_model=dict)
-async def patch_streak_freeze_settings(
-    body: StreakFreezeSettingsBody, authorization: str = Header(None)
-):
-    """Toggle auto-use of streak freezes when a day is missed (default: on)."""
-    user_id = get_user_id_from_token(authorization)
-    await run_query(supabase_admin.table("users").update(
-        {"streak_freeze_auto_consume": body.streak_freeze_auto_consume}
-    ).eq("id", user_id))
-    row = (
-        ((await run_query(supabase_admin.table("users")
-        .select("streak_freeze_auto_consume")
-        .eq("id", user_id)
-        .single())).data)
-        or {}
-    )
-    return {
-        "success": True,
-        "streak_freeze_auto_consume": _coerce_bool(row.get("streak_freeze_auto_consume"), True),
-    }
-
-
-@router.post("/streak-freeze/reserve", response_model=dict)
-async def reserve_streak_freeze_for_next_miss(authorization: str = Header(None)):
-    """
-    Manual mode: spend one freeze now to protect the streak on the next missed day.
-    (Count decrements immediately; next handle_streak_break clears the reservation flag.)
-    """
-    user_id = get_user_id_from_token(authorization)
-    u = (
-        ((await run_query(supabase_admin.table("users")
-        .select("streak_freeze_count, freeze_reserved_next_miss")
-        .eq("id", user_id)
-        .single())).data)
-        or {}
-    )
-    if u.get("freeze_reserved_next_miss"):
-        raise HTTPException(
-            status_code=400, detail="You already have a freeze reserved for your next miss."
-        )
-    c = int(u.get("streak_freeze_count") or 0)
-    if c < 1:
-        raise HTTPException(status_code=400, detail="No streak freezes available.")
-    new_c = c - 1
-    await run_query(supabase_admin.table("users").update(
-        {
-            "streak_freeze_count": new_c,
-            "freeze_reserved_next_miss": True,
-        }
-    ).eq("id", user_id))
-    return {
-        "success": True,
-        "streak_freeze_count": new_c,
-        "freeze_reserved_next_miss": True,
     }
 
 

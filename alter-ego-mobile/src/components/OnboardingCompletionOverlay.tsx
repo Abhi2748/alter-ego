@@ -18,6 +18,8 @@ import Svg, {
   Circle,
   Defs,
   LinearGradient as SvgLinearGradient,
+  RadialGradient,
+  Rect,
   Stop,
 } from "react-native-svg";
 import AnimatedRe, {
@@ -426,12 +428,19 @@ export function OnboardingCompletionOverlay({ active }: { active: boolean }) {
         {/* Single hero stack: backdrop + geometry share the same centre (100,100) in 200×200 SVG space */}
         <View style={styles.heroVisual}>
           <View style={styles.heroBackdrop} pointerEvents="none">
-            <LinearGradient
-              colors={["rgba(139,92,246,0.14)", "rgba(139,92,246,0.04)", "transparent"]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0.5, y: 0.5 }}
-              end={{ x: 1, y: 1 }}
-            />
+            {/* True radial glow (expo-linear-gradient is directional — reads as a disc in a circle). */}
+            <Svg width={256} height={256} style={StyleSheet.absoluteFill}>
+              <Defs>
+                <RadialGradient id="onbHeroAmbGlow" cx="50%" cy="50%" r="68%" fx="50%" fy="50%">
+                  <Stop offset="0%" stopColor="#8B5CF6" stopOpacity={0.2} />
+                  <Stop offset="34%" stopColor="#8B5CF6" stopOpacity={0.08} />
+                  <Stop offset="56%" stopColor="#8B5CF6" stopOpacity={0.028} />
+                  <Stop offset="78%" stopColor="#8B5CF6" stopOpacity={0.007} />
+                  <Stop offset="100%" stopColor="#8B5CF6" stopOpacity={0} />
+                </RadialGradient>
+              </Defs>
+              <Rect x={0} y={0} width={256} height={256} fill="url(#onbHeroAmbGlow)" />
+            </Svg>
           </View>
 
           <View style={styles.heroCanvas}>
@@ -542,9 +551,9 @@ const styles = StyleSheet.create({
     height: 256,
     borderRadius: 128,
     overflow: "hidden",
-    backgroundColor: "rgba(139,92,246,0.06)",
+    backgroundColor: "transparent",
     borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.14)",
+    borderColor: "rgba(139,92,246,0.1)",
   },
   heroCanvas: {
     width: 200,

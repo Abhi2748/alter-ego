@@ -35,7 +35,7 @@ FAQ_ITEMS = [
     },
     {
         "q": "What happens if I miss a day?",
-        "a": "Your streak resets to zero. Your XP, abilities, character stage, and all other progress are not lost — only the streak counter. If you had a Streak Freeze in your inventory, it activates automatically (or manually, depending on your freeze settings) and protects the streak for that miss.",
+        "a": "Your streak resets to zero. Your XP, abilities, character stage, and all other progress are not lost — only the streak counter. If you have a Streak Freeze in your inventory, one is always used automatically to protect your streak for that missed day (each freeze covers one miss).",
     },
     {
         "q": "What is my Shadow Twin?",

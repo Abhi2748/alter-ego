@@ -761,12 +761,42 @@ export function OnboardingQuestionScreen() {
       const q13Value = c.questionNumber === 14 ? (typeof answer === "number" ? answer : 1.0) : sliderVal;
       const q13Percent = c.questionNumber === 14 ? (q13Value - 0.5) / 2.5 : 0;
       const words = c.questionText.trim().split(/\s+/);
-      const splitAt =
-        words.length <= 4
-          ? Math.max(1, Math.floor(words.length / 2))
-          : Math.max(2, Math.min(words.length - 2, Math.round(words.length * 0.52)));
-      const headingTop = words.slice(0, splitAt).join(" ");
-      const headingBottom = words.slice(splitAt).join(" ");
+
+      // Manual split overrides for questions where the automatic 52% split
+      // produces awkward breaks mid-sentence or orphaned words.
+      // Format: { white part, purple part }
+      const MANUAL_SPLITS: Record<number, [string, string]> = {
+        6: [
+          "It's 6AM. Your alarm goes off for the workout you planned.",
+          "It's cold. Your bed is warm. What actually happens?",
+        ],
+        7: [
+          "You've been consistent for 2 weeks.",
+          "Then you miss a day. What happens next?",
+        ],
+        8: [
+          "Someone close to you says\n'I don't think you'll stick with this.'",
+          "What do you feel?",
+        ],
+        9: [
+          "When you've succeeded at something hard before,",
+          "what was the real reason?",
+        ],
+      };
+
+      let headingTop: string;
+      let headingBottom: string;
+
+      if (MANUAL_SPLITS[c.questionNumber]) {
+        [headingTop, headingBottom] = MANUAL_SPLITS[c.questionNumber];
+      } else {
+        const splitAt =
+          words.length <= 4
+            ? Math.max(1, Math.floor(words.length / 2))
+            : Math.max(2, Math.min(words.length - 2, Math.round(words.length * 0.52)));
+        headingTop = words.slice(0, splitAt).join(" ");
+        headingBottom = words.slice(splitAt).join(" ");
+      }
 
       return (
         <>

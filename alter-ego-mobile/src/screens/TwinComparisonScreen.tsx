@@ -526,10 +526,13 @@ export function TwinComparisonScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Refetch twin state every time screen comes into focus so XP bar
+      // and gap line reflect the latest mission completions immediately.
+      void refetch();
       if (activeTab === "journal" && twinData) {
         void refetchJournal();
       }
-    }, [activeTab, twinData, refetchJournal])
+    }, [activeTab, twinData, refetch, refetchJournal])
   );
 
   const handleTabPress = useCallback((tab: "today" | "journal") => {

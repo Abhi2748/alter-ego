@@ -12,8 +12,10 @@ from app.core.supabase_client import supabase_admin, run_query
 from app.core.constants import MISSION_PF, PERSONAL_MISSION_XP_BY_TIER, resolve_stat_tag
 from app.core.journal_rules import journal_stored_qualifies_for_mission, word_count as journal_word_count
 from app.agents.personal_mission_agent import estimate_personal_mission_tier
+from app.services.mission_row_utils import mission_row_completed
 from app.services.mission_service import (
     complete_mission,
+    compute_core_pillar_streak_bases,
     delete_stale_incomplete_personal_missions,
     generate_core_missions_for_user,
     get_days_since_registration,
@@ -66,6 +68,19 @@ async def _inject_twin_completions(user_id: str, today: str, grouped: dict) -> N
                 }
             )
         )
+
+
+async def _attach_mission_streak_fields(user_id: str, mission_date: str, rows: list[dict]) -> None:
+    """Set mission_streak on core (non-journal) rows for list UIs; 0 for other types."""
+    pillar_bases = await compute_core_pillar_streak_bases(user_id, mission_date)
+    for r in rows or []:
+        if r.get("type") == "core" and not r.get("is_journal_mission"):
+            p = str(r.get("core_pillar") or "")
+            base = pillar_bases.get(p, 0) if p else 0
+            done = mission_row_completed(r)
+            r["mission_streak"] = base + (1 if done else 0)
+        else:
+            r["mission_streak"] = 0
 
 
 def _enrich_mission_rows(rows: list[dict]) -> None:
@@ -140,6 +155,7 @@ def _group_missions(rows: list[dict]) -> dict:
                     "interest_name": r.get("interest_name"),
                     "quit_target_name": r.get("quit_target_name"),
                     "is_quit_mission": bool(r.get("quit_path_id")),
+                    "mission_streak": int(r.get("mission_streak") or 0),
                 }
             )
     return grouped
@@ -271,6 +287,7 @@ async def get_missions_today(authorization: str = Header(None)):
     await delete_stale_incomplete_personal_missions(user_id, mission_date)
 
     rows = await get_today_missions(user_id, mission_date)
+    await _attach_mission_streak_fields(user_id, mission_date, rows)
     _enrich_mission_rows(rows)
 
     from app.services.stat_service import ensure_sp_day_aligned, set_total_missions_for_day
@@ -299,6 +316,7 @@ async def get_missions_for_date(date_str: str, authorization: str = Header(None)
         .eq("user_id", user_id)
         .eq("mission_date", date_str))
     rows = result.data or []
+    await _attach_mission_streak_fields(user_id, date_str, rows)
     _enrich_mission_rows(rows)
     return {
         "date": date_str,

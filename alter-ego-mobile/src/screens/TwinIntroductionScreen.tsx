@@ -33,9 +33,9 @@ import { useOnboardingAnswers } from "../context/OnboardingAnswersContext";
 import { useUserStore } from "@/store/userStore";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const ARENA_HEIGHT = SCREEN_HEIGHT * 0.52;
-const CHAR_WIDTH = 130;
-const CHAR_HEIGHT = 180;
+const ARENA_HEIGHT = SCREEN_HEIGHT * 0.48;
+const CHAR_WIDTH = SCREEN_HEIGHT * 0.18;
+const CHAR_HEIGHT = SCREEN_HEIGHT * 0.36;
 const TWIN_INTRO_USER_IMAGE = require("../../assets/images/onboarding/twin_intro_user.png.png");
 const TWIN_INTRO_TWIN_IMAGE = require("../../assets/images/onboarding/twin_intro_twin.png.png");
 
@@ -325,6 +325,10 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
   },
   charWrap: {
+    flex: 1,
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "flex-end",
     position: "relative",
   },
   characterImage: {
@@ -415,7 +419,7 @@ const styles = StyleSheet.create({
   contentZone: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 20,
+    paddingTop: 8,
     justifyContent: "flex-start",
     position: "relative",
     zIndex: 1,

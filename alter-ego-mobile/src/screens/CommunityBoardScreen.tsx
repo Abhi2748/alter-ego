@@ -9,6 +9,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   StyleSheet,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -50,6 +51,13 @@ export function CommunityBoardScreen() {
   const onRefresh = useCallback(() => {
     void refresh(activeTag);
   }, [activeTag, refresh]);
+
+  const renderPost = useCallback(
+    ({ item }: { item: (typeof posts)[number] }) => (
+      <PostCard post={item} onUpvote={toggleUpvote} />
+    ),
+    [toggleUpvote]
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -122,7 +130,12 @@ export function CommunityBoardScreen() {
           data={posts}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => <PostCard post={item} onUpvote={toggleUpvote} />}
+          renderItem={renderPost}
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={8}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={Platform.OS === "android"}
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={onRefresh} tintColor="#8B5CF6" />
           }

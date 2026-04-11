@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
+  Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -99,7 +100,7 @@ const CONNECTOR_TWIN = ["rgba(139,92,246,0.5)", "rgba(139,92,246,0)"] as const;
 const CONNECTOR_USER = ["rgba(249,115,22,0.5)", "rgba(249,115,22,0)"] as const;
 const CONNECTOR_GREY = ["rgba(55,65,81,0.5)", "rgba(55,65,81,0)"] as const;
 
-function TwinEntry({ entry }: { entry: FeedEntry }) {
+const TwinEntry = React.memo(function TwinEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={[styles.entry, styles.twinEntryBg]}>
       <View style={styles.timeCol}>
@@ -126,9 +127,9 @@ function TwinEntry({ entry }: { entry: FeedEntry }) {
       </View>
     </View>
   );
-}
+});
 
-function UserDoneEntry({ entry }: { entry: FeedEntry }) {
+const UserDoneEntry = React.memo(function UserDoneEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={[styles.entry, styles.userDoneEntryBg]}>
       <View style={styles.timeCol}>
@@ -148,9 +149,9 @@ function UserDoneEntry({ entry }: { entry: FeedEntry }) {
       </View>
     </View>
   );
-}
+});
 
-function UserIncompleteEntry({ entry }: { entry: FeedEntry }) {
+const UserIncompleteEntry = React.memo(function UserIncompleteEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={[styles.entry, styles.userIncompleteEntryBg]}>
       <View style={styles.timeCol} />
@@ -168,9 +169,9 @@ function UserIncompleteEntry({ entry }: { entry: FeedEntry }) {
       </View>
     </View>
   );
-}
+});
 
-function TwinIncompleteEntry({ entry }: { entry: FeedEntry }) {
+const TwinIncompleteEntry = React.memo(function TwinIncompleteEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={[styles.entry, styles.twinIncompleteEntryBg]}>
       <View style={styles.timeCol} />
@@ -188,17 +189,17 @@ function TwinIncompleteEntry({ entry }: { entry: FeedEntry }) {
       </View>
     </View>
   );
-}
+});
 
-function ObservationEntry({ entry }: { entry: FeedEntry }) {
+const ObservationEntry = React.memo(function ObservationEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={styles.obsCard}>
       <Text style={styles.obsText}>{entry.observation_text}</Text>
     </View>
   );
-}
+});
 
-function DaySummaryEntry({ entry }: { entry: FeedEntry }) {
+const DaySummaryEntry = React.memo(function DaySummaryEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={styles.summaryCard}>
       <LinearGradient
@@ -227,9 +228,9 @@ function DaySummaryEntry({ entry }: { entry: FeedEntry }) {
       ) : null}
     </View>
   );
-}
+});
 
-function PendingEntry({ count }: { count: number }) {
+const PendingEntry = React.memo(function PendingEntry({ count }: { count: number }) {
   return (
     <View style={styles.pendingZone}>
       <View style={styles.pendingDot} />
@@ -240,9 +241,9 @@ function PendingEntry({ count }: { count: number }) {
       </Text>
     </View>
   );
-}
+});
 
-function InsightCard({ text }: { text: string }) {
+const InsightCard = React.memo(function InsightCard({ text }: { text: string }) {
   return (
     <View style={styles.insightSection}>
       <View style={styles.insightCard}>
@@ -251,9 +252,9 @@ function InsightCard({ text }: { text: string }) {
       </View>
     </View>
   );
-}
+});
 
-function DayDivider({ label }: { label: string }) {
+const DayDivider = React.memo(function DayDivider({ label }: { label: string }) {
   return (
     <View style={styles.dayDivider}>
       <View style={styles.divLine} />
@@ -261,7 +262,7 @@ function DayDivider({ label }: { label: string }) {
       <View style={styles.divLine} />
     </View>
   );
-}
+});
 
 type ListItem =
   | { type: "entry"; data: FeedEntry }
@@ -431,6 +432,11 @@ export function TodaysStoryScreen() {
           keyExtractor={keyExtractor}
           contentContainerStyle={{ paddingBottom: insets.bottom + 88 }}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={8}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={Platform.OS === "android"}
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}

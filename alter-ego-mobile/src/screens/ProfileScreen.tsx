@@ -202,11 +202,13 @@ export function ProfileScreen() {
           <View style={styles.headerLeft}>
             {profile?.profile_photo_url ? (
               <View style={styles.profilePicRing}>
-                <Image
-                  source={{ uri: profile.profile_photo_url }}
-                  style={styles.profilePicImage}
-                  resizeMode="cover"
-                />
+                <View style={styles.profilePicClip}>
+                  <Image
+                    source={{ uri: profile.profile_photo_url }}
+                    style={styles.profilePicImage}
+                    resizeMode="cover"
+                  />
+                </View>
               </View>
             ) : (
               <LinearGradient
@@ -521,6 +523,12 @@ const styles = StyleSheet.create({
     ...(Platform.OS === "ios"
       ? { shadowColor: "rgba(109,40,217,0.25)", shadowRadius: 12, shadowOffset: { width: 0, height: 0 } }
       : {}),
+  },
+  profilePicClip: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 10,
+    overflow: "hidden",
   },
   profilePicImage: {
     width: "100%",

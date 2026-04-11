@@ -486,25 +486,33 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
         inserted = await run_query(supabase_admin.table("missions").insert(rows))
         out: list[dict] = list(inserted.data) if inserted.data else []
         if not out:
+            # Insert may have succeeded but returned nothing — re-fetch
             fetched = await run_query(supabase_admin.table("missions")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("mission_date", mission_date)
                 .eq("type", "core"))
             out = fetched.data or []
-        logger.info(
-            json.dumps(
-                {
-                    "event": "missions_generated",
-                    "user_id": user_id,
-                    "date": mission_date,
-                    "count": len(out),
-                    "recovery_active": bool(recovery_overrides),
-                }
-            )
-        )
-        return out
     except Exception as e:
+        err_str = str(e).lower()
+        if "duplicate" in err_str or "unique" in err_str or "conflict" in err_str:
+            # Concurrent insert beat us — return what's already there
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "missions_concurrent_insert_skipped",
+                        "user_id": user_id,
+                        "date": mission_date,
+                    }
+                )
+            )
+            fetched = await run_query(supabase_admin.table("missions")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("mission_date", mission_date)
+                .eq("type", "core"))
+            return fetched.data or []
+        # Real error — re-raise
         logger.error(
             json.dumps(
                 {
@@ -516,6 +524,19 @@ async def generate_core_missions_for_user(user_id: str, mission_date: str) -> li
             )
         )
         raise
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "missions_generated",
+                "user_id": user_id,
+                "date": mission_date,
+                "count": len(out),
+                "recovery_active": bool(recovery_overrides),
+            }
+        )
+    )
+    return out
 
 
 async def get_today_missions(user_id: str, mission_date: str) -> list[dict]:

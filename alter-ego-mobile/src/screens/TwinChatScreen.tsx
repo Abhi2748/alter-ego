@@ -221,8 +221,20 @@ export function TwinChatScreen() {
   const [streamingContent, setStreamingContent] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState(false);
   const streamingContentRef = useRef("");
+  const streamingFlushRafRef = useRef<number | null>(null);
   const listRef = useRef<FlatList<ListItem> | null>(null);
   const initialMessageSentRef = useRef(false);
+
+  const flushStreamingToState = useCallback(() => {
+    streamingFlushRafRef.current = null;
+    setStreamingContent(streamingContentRef.current);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, []);
+
+  const scheduleStreamingFlush = useCallback(() => {
+    if (streamingFlushRafRef.current != null) return;
+    streamingFlushRafRef.current = requestAnimationFrame(flushStreamingToState);
+  }, [flushStreamingToState]);
 
   const profile = useUserStore((state) => state.profile);
   const queryClient = useQueryClient();
@@ -320,15 +332,23 @@ export function TwinChatScreen() {
         await twinService.sendMessageStream(text, token, {
           onChunk: (chunk) => {
             streamingContentRef.current += chunk;
-            setStreamingContent(streamingContentRef.current);
-            listRef.current?.scrollToOffset({ offset: 0, animated: false });
+            scheduleStreamingFlush();
           },
           onReplace: (fullText) => {
             streamingContentRef.current = fullText;
+            if (streamingFlushRafRef.current != null) {
+              cancelAnimationFrame(streamingFlushRafRef.current);
+              streamingFlushRafRef.current = null;
+            }
             setStreamingContent(fullText);
+            listRef.current?.scrollToOffset({ offset: 0, animated: false });
           },
           onMeta: () => {},
           onDone: () => {
+            if (streamingFlushRafRef.current != null) {
+              cancelAnimationFrame(streamingFlushRafRef.current);
+              streamingFlushRafRef.current = null;
+            }
             setIsStreaming(false);
             setStreamingContent("");
             streamingContentRef.current = "";
@@ -336,6 +356,10 @@ export function TwinChatScreen() {
             setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
           },
           onError: () => {
+            if (streamingFlushRafRef.current != null) {
+              cancelAnimationFrame(streamingFlushRafRef.current);
+              streamingFlushRafRef.current = null;
+            }
             setIsStreaming(false);
             setStreamingContent("");
             streamingContentRef.current = "";
@@ -349,6 +373,10 @@ export function TwinChatScreen() {
           },
         });
       } catch {
+        if (streamingFlushRafRef.current != null) {
+          cancelAnimationFrame(streamingFlushRafRef.current);
+          streamingFlushRafRef.current = null;
+        }
         setIsStreaming(false);
         setStreamingContent("");
         streamingContentRef.current = "";
@@ -361,7 +389,7 @@ export function TwinChatScreen() {
         if (overrideText === undefined) setInputText(text);
       }
     },
-    [inputText, isStreaming, queryClient]
+    [inputText, isStreaming, queryClient, scheduleStreamingFlush]
   );
 
   useEffect(() => {
@@ -379,6 +407,10 @@ export function TwinChatScreen() {
 
   useEffect(() => {
     return () => {
+      if (streamingFlushRafRef.current != null) {
+        cancelAnimationFrame(streamingFlushRafRef.current);
+        streamingFlushRafRef.current = null;
+      }
       setIsStreaming(false);
       streamingContentRef.current = "";
     };
@@ -408,91 +440,64 @@ export function TwinChatScreen() {
   const renderItem: ListRenderItem<ListItem> = useCallback(
     ({ item, index }) => {
       if (item.type === "date") {
-        return (
-          <View style={styles.dateSep}>
-            <View style={styles.dateLine} />
-            <Text style={styles.dateLabel}>{item.label}</Text>
-            <View style={styles.dateLine} />
-          </View>
-        );
+        return <ChatDateRow label={item.label} />;
       }
       const msg = item.message;
       const marginTop = getMarginTopReversed(index);
 
       if (msg.role === "user") {
         return (
-          <View style={[styles.userBubbleWrap, { marginTop }]}>
-            <LinearGradient
-              colors={["rgba(26,28,68,0.95)", "rgba(18,20,52,0.98)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.userBubble}
-            >
-              <Text style={styles.userBubbleText}>{msg.content}</Text>
-              <Text style={styles.timestampRight}>{formatTime(msg.timestamp)}</Text>
-            </LinearGradient>
-          </View>
+          <ChatUserBubbleRow
+            marginTop={marginTop}
+            content={msg.content}
+            timestamp={msg.timestamp}
+          />
         );
       }
 
-      const showToneRow = !msg.rated;
-      const proactive = msg.isProactive;
       return (
-        <View style={[styles.twinBubbleWrap, { marginTop }]}>
-          <View
-            style={[
-              styles.twinBubble,
-              proactive && { borderColor: "rgba(192,132,252,0.45)", borderWidth: 1 },
-            ]}
-          >
-            {proactive ? (
-              <Text style={styles.proactiveLabel} accessibilityLabel="Unprompted message">
-                Unprompted
-              </Text>
-            ) : null}
-            <View style={styles.twinBubbleAccentLine}>
-              <LinearGradient
-                colors={["transparent", "rgba(139,92,246,0.50)", "transparent"]}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-            </View>
-            <View style={styles.twinBubbleTopGlow} />
-            <Text style={styles.twinBubbleText}>{msg.content}</Text>
-            <Text style={styles.timestampLeft}>{formatTime(msg.timestamp)}</Text>
-          </View>
-          {showToneRow && (
-            <View style={styles.toneRow}>
-              <TouchableOpacity
-                onPress={() => rateTone(msg.id, "positive")}
-                style={styles.toneBtn}
-                activeOpacity={0.6}
-              >
-                <Ionicons name="thumbs-up-outline" size={14} color={MUTED} />
-              </TouchableOpacity>
-              <View style={styles.toneSep} />
-              <TouchableOpacity
-                onPress={() => rateTone(msg.id, "neutral")}
-                style={styles.toneBtn}
-                activeOpacity={0.6}
-              >
-                <Text style={styles.toneBtnDash}>—</Text>
-              </TouchableOpacity>
-              <View style={styles.toneSep} />
-              <TouchableOpacity
-                onPress={() => rateTone(msg.id, "negative")}
-                style={styles.toneBtn}
-                activeOpacity={0.6}
-              >
-                <Ionicons name="thumbs-down-outline" size={14} color={MUTED} />
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
+        <ChatTwinBubbleRow
+          marginTop={marginTop}
+          id={msg.id}
+          content={msg.content}
+          timestamp={msg.timestamp}
+          rated={Boolean(msg.rated)}
+          isProactive={msg.isProactive}
+          onRateTone={rateTone}
+        />
       );
     },
     [getMarginTopReversed, rateTone]
+  );
+
+  const streamingListHeader = useMemo(
+    () =>
+      isStreaming ? (
+        <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
+          {streamingContent ? (
+            <View style={[styles.twinBubbleWrap, { marginTop: 12 }]}>
+              <View style={styles.twinBubble}>
+                <View style={styles.twinBubbleAccentLine}>
+                  <LinearGradient
+                    colors={["transparent", "rgba(139,92,246,0.50)", "transparent"]}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                </View>
+                <View style={styles.twinBubbleTopGlow} />
+                <View style={styles.streamingTextRow}>
+                  <Text style={styles.twinBubbleText}>{streamingContent}</Text>
+                  <Text style={styles.streamingCursor}>▊</Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <TypingDots />
+          )}
+        </Animated.View>
+      ) : null,
+    [isStreaming, streamingContent]
   );
 
   const keyExtractor = useCallback((item: ListItem) => {
@@ -556,33 +561,11 @@ export function TwinChatScreen() {
         showsVerticalScrollIndicator={true}
         keyboardDismissMode="none"
         keyboardShouldPersistTaps="handled"
-        ListHeaderComponent={
-          isStreaming ? (
-            <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
-              {streamingContent ? (
-                <View style={[styles.twinBubbleWrap, { marginTop: 12 }]}>
-                  <View style={styles.twinBubble}>
-                    <View style={styles.twinBubbleAccentLine}>
-                      <LinearGradient
-                        colors={["transparent", "rgba(139,92,246,0.50)", "transparent"]}
-                        start={{ x: 0.5, y: 0 }}
-                        end={{ x: 0.5, y: 1 }}
-                        style={StyleSheet.absoluteFill}
-                      />
-                    </View>
-                    <View style={styles.twinBubbleTopGlow} />
-                    <View style={styles.streamingTextRow}>
-                      <Text style={styles.twinBubbleText}>{streamingContent}</Text>
-                      <Text style={styles.streamingCursor}>▊</Text>
-                    </View>
-                  </View>
-                </View>
-              ) : (
-                <TypingDots />
-              )}
-            </Animated.View>
-          ) : null
-        }
+        ListHeaderComponent={streamingListHeader}
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        windowSize={10}
+        updateCellsBatchingPeriod={50}
         ListEmptyComponent={
           historyLoading ? (
             <View style={{ paddingVertical: 24 }}>
@@ -971,4 +954,118 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 20,
   },
+});
+
+type TwinChatRateToneFn = (
+  messageId: string,
+  rating: "positive" | "neutral" | "negative"
+) => void;
+
+const ChatDateRow = React.memo(function ChatDateRow({ label }: { label: string }) {
+  return (
+    <View style={styles.dateSep}>
+      <View style={styles.dateLine} />
+      <Text style={styles.dateLabel}>{label}</Text>
+      <View style={styles.dateLine} />
+    </View>
+  );
+});
+
+const ChatUserBubbleRow = React.memo(function ChatUserBubbleRow({
+  marginTop,
+  content,
+  timestamp,
+}: {
+  marginTop: number;
+  content: string;
+  timestamp: string;
+}) {
+  return (
+    <View style={[styles.userBubbleWrap, { marginTop }]}>
+      <LinearGradient
+        colors={["rgba(26,28,68,0.95)", "rgba(18,20,52,0.98)"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.userBubble}
+      >
+        <Text style={styles.userBubbleText}>{content}</Text>
+        <Text style={styles.timestampRight}>{formatTime(timestamp)}</Text>
+      </LinearGradient>
+    </View>
+  );
+});
+
+const ChatTwinBubbleRow = React.memo(function ChatTwinBubbleRow({
+  marginTop,
+  id,
+  content,
+  timestamp,
+  rated,
+  isProactive,
+  onRateTone,
+}: {
+  marginTop: number;
+  id: string;
+  content: string;
+  timestamp: string;
+  rated: boolean;
+  isProactive?: boolean;
+  onRateTone: TwinChatRateToneFn;
+}) {
+  const showToneRow = !rated;
+  const proactive = isProactive;
+  return (
+    <View style={[styles.twinBubbleWrap, { marginTop }]}>
+      <View
+        style={[
+          styles.twinBubble,
+          proactive ? { borderColor: "rgba(192,132,252,0.45)", borderWidth: 1 } : null,
+        ]}
+      >
+        {proactive ? (
+          <Text style={styles.proactiveLabel} accessibilityLabel="Unprompted message">
+            Unprompted
+          </Text>
+        ) : null}
+        <View style={styles.twinBubbleAccentLine}>
+          <LinearGradient
+            colors={["transparent", "rgba(139,92,246,0.50)", "transparent"]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
+        <View style={styles.twinBubbleTopGlow} />
+        <Text style={styles.twinBubbleText}>{content}</Text>
+        <Text style={styles.timestampLeft}>{formatTime(timestamp)}</Text>
+      </View>
+      {showToneRow ? (
+        <View style={styles.toneRow}>
+          <TouchableOpacity
+            onPress={() => onRateTone(id, "positive")}
+            style={styles.toneBtn}
+            activeOpacity={0.6}
+          >
+            <Ionicons name="thumbs-up-outline" size={14} color={MUTED} />
+          </TouchableOpacity>
+          <View style={styles.toneSep} />
+          <TouchableOpacity
+            onPress={() => onRateTone(id, "neutral")}
+            style={styles.toneBtn}
+            activeOpacity={0.6}
+          >
+            <Text style={styles.toneBtnDash}>—</Text>
+          </TouchableOpacity>
+          <View style={styles.toneSep} />
+          <TouchableOpacity
+            onPress={() => onRateTone(id, "negative")}
+            style={styles.toneBtn}
+            activeOpacity={0.6}
+          >
+            <Ionicons name="thumbs-down-outline" size={14} color={MUTED} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
+    </View>
+  );
 });

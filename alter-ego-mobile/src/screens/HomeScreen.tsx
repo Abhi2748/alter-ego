@@ -987,15 +987,17 @@ export function HomeScreen() {
         ) : null}
         <View style={styles.topBarRow}>
           <View style={styles.avatarWrap}>
-            {profile?.profile_photo_url ? (
-              <Image source={{ uri: profile.profile_photo_url }} style={styles.avatarImg} resizeMode="cover" />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <Text style={styles.avatarInitial}>
-                  {(username || "?").charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
+            <View style={styles.avatarClip}>
+              {profile?.profile_photo_url ? (
+                <Image source={{ uri: profile.profile_photo_url }} style={styles.avatarImg} resizeMode="cover" />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarInitial}>
+                    {(username || "?").charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
           <Text style={styles.greeting} numberOfLines={1}>{greeting}</Text>
           {surgeActive && <SurgeIndicator visible />}
@@ -1571,6 +1573,12 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 0 },
     elevation: 6,
+    overflow: "hidden",
+  },
+  avatarClip: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 10,
     overflow: "hidden",
   },
   avatarPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center" },

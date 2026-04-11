@@ -15,6 +15,7 @@ import {
   Modal,
   ScrollView,
   Platform,
+  type ListRenderItem,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
@@ -125,20 +126,28 @@ export function MailInboxScreen() {
 
   const unreadCount = useMemo(() => mails.filter((m) => !m.read_at).length, [mails]);
 
-  const openMail = async (m: AppMail) => {
-    setSelected(m);
-    if (!m.read_at) {
-      try {
-        await mailService.markRead(m.id);
-        setMails((prev) =>
-          prev.map((x) => (x.id === m.id ? { ...x, read_at: new Date().toISOString() } : x))
-        );
-        void fetchProfile();
-      } catch {
-        /* ignore */
+  const openMail = useCallback(
+    async (m: AppMail) => {
+      setSelected(m);
+      if (!m.read_at) {
+        try {
+          await mailService.markRead(m.id);
+          setMails((prev) =>
+            prev.map((x) => (x.id === m.id ? { ...x, read_at: new Date().toISOString() } : x))
+          );
+          void fetchProfile();
+        } catch {
+          /* ignore */
+        }
       }
-    }
-  };
+    },
+    [fetchProfile]
+  );
+
+  const renderMailItem = useCallback<ListRenderItem<AppMail>>(
+    ({ item, index }) => <MailInboxRow item={item} index={index} onOpen={openMail} />,
+    [openMail]
+  );
 
   const handleMarkAllRead = async () => {
     if (unreadCount === 0 || markingAll) return;
@@ -258,50 +267,12 @@ export function MailInboxScreen() {
             flexGrow: 1,
           }}
           ListEmptyComponent={emptyState}
-          renderItem={({ item, index }) => {
-            const unread = !item.read_at;
-            return (
-              <Pressable
-                onPress={() => openMail(item)}
-                style={({ pressed }) => [
-                  styles.mailCard,
-                  unread && styles.mailCardUnread,
-                  pressed && styles.mailCardPressed,
-                  { marginTop: index === 0 ? 0 : SPACING.cardGap },
-                ]}
-              >
-                <LinearGradient
-                  colors={
-                    unread
-                      ? ["rgba(139,92,246,0.14)", "rgba(20,24,36,0.95)"]
-                      : ["rgba(30,35,51,0.5)", "rgba(20,24,36,0.92)"]
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                />
-                <View style={[styles.mailCardAccent, unread && styles.mailCardAccentUnread]} />
-                <View style={styles.mailCardInner}>
-                  <View style={styles.mailCardTop}>
-                    {unread ? <View style={styles.unreadDot} /> : <View style={styles.readSpacer} />}
-                    <TypeChip type={item.mail_type} />
-                    <Text style={styles.mailDate}>{formatSentAt(item.sent_at)}</Text>
-                  </View>
-                  <Text style={[styles.mailSubject, unread && styles.mailSubjectUnread]} numberOfLines={2}>
-                    {item.subject}
-                  </Text>
-                  <Text style={styles.mailPreview} numberOfLines={2}>
-                    {(item.body_markdown ?? "").replace(/\*\*/g, "").replace(/\n/g, " ").trim().slice(0, 120)}
-                    {(item.body_markdown?.length ?? 0) > 120 ? "…" : ""}
-                  </Text>
-                  <View style={styles.mailCardFooter}>
-                    <Text style={styles.tapToRead}>Read</Text>
-                    <Ionicons name="arrow-forward" size={14} color={COLORS.violet} />
-                  </View>
-                </View>
-              </Pressable>
-            );
-          }}
+          renderItem={renderMailItem}
+          initialNumToRender={10}
+          maxToRenderPerBatch={8}
+          windowSize={8}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={Platform.OS === "android"}
         />
       )}
 
@@ -711,4 +682,61 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     fontSize: FONTS.bodyMd.size,
   },
+});
+
+const MailInboxRow = React.memo(function MailInboxRow({
+  item,
+  index,
+  onOpen,
+}: {
+  item: AppMail;
+  index: number;
+  onOpen: (m: AppMail) => void;
+}) {
+  const unread = !item.read_at;
+  const rawBody = item.body_markdown ?? "";
+  const preview =
+    rawBody.replace(/\*\*/g, "").replace(/\n/g, " ").trim().slice(0, 120) +
+    (rawBody.length > 120 ? "…" : "");
+
+  return (
+    <Pressable
+      onPress={() => onOpen(item)}
+      style={({ pressed }) => [
+        styles.mailCard,
+        unread && styles.mailCardUnread,
+        pressed && styles.mailCardPressed,
+        { marginTop: index === 0 ? 0 : SPACING.cardGap },
+      ]}
+    >
+      <LinearGradient
+        colors={
+          unread
+            ? ["rgba(139,92,246,0.14)", "rgba(20,24,36,0.95)"]
+            : ["rgba(30,35,51,0.5)", "rgba(20,24,36,0.92)"]
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={[styles.mailCardAccent, unread && styles.mailCardAccentUnread]} />
+      <View style={styles.mailCardInner}>
+        <View style={styles.mailCardTop}>
+          {unread ? <View style={styles.unreadDot} /> : <View style={styles.readSpacer} />}
+          <TypeChip type={item.mail_type} />
+          <Text style={styles.mailDate}>{formatSentAt(item.sent_at)}</Text>
+        </View>
+        <Text style={[styles.mailSubject, unread && styles.mailSubjectUnread]} numberOfLines={2}>
+          {item.subject}
+        </Text>
+        <Text style={styles.mailPreview} numberOfLines={2}>
+          {preview}
+        </Text>
+        <View style={styles.mailCardFooter}>
+          <Text style={styles.tapToRead}>Read</Text>
+          <Ionicons name="arrow-forward" size={14} color={COLORS.violet} />
+        </View>
+      </View>
+    </Pressable>
+  );
 });

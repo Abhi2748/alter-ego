@@ -1,14 +1,12 @@
 """
 Gunicorn configuration for ALTER EGO API.
 Render Starter instance: 1 vCPU, 512MB RAM.
-Adjust workers if you upgrade the instance.
+Single worker: scheduler must not run in multiple processes (revisit with job locking post-MVP).
 """
 
-import multiprocessing
 import os
 
-# Worker count: (2 × cores) + 1, capped at 4 for 512MB RAM
-workers = min((2 * multiprocessing.cpu_count()) + 1, 4)
+workers = 1
 
 # Each worker runs uvicorn (async)
 worker_class = "uvicorn.workers.UvicornWorker"
@@ -35,21 +33,5 @@ preload_app = True
 
 
 def post_fork(server, worker):
-    """
-    After forking a worker, shut down the scheduler if it started in the
-    preloaded app. Workers handle requests only — scheduler runs in main process.
-    """
-    import logging
-
-    try:
-        from main import app
-
-        if hasattr(app.state, "scheduler") and app.state.scheduler.running:
-            app.state.scheduler.shutdown(wait=False)
-            logging.getLogger("gunicorn.error").info(
-                "Scheduler shut down in worker process %s", worker.pid
-            )
-    except Exception as e:
-        logging.getLogger("gunicorn.error").warning(
-            "Could not shut down scheduler in worker: %s", e
-        )
+    """Workers do not run the scheduler — it runs in the single worker process."""
+    pass

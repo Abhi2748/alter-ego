@@ -2876,6 +2876,9 @@ async def stream_twin_message(user_id: str, message: str):
     Streaming variant: same preprocessing as _send_twin_message_impl, then SSE chunks.
     Per-user rate limit via _assert_twin_chat_rate_limit. Persists twin row after stream.
     """
+    import json
+    from datetime import datetime, timezone
+
     import asyncio
 
     from app.agents.agent_guardrails import sanitize_for_prompt, sanitize_username
@@ -2967,12 +2970,10 @@ async def stream_twin_message(user_id: str, message: str):
         try:
             raw_until = user.get("twin_tone_override_until")
             if raw_until:
-                from datetime import datetime as dt_module, timezone as tz_module
-
-                until_dt = dt_module.fromisoformat(str(raw_until).replace("Z", "+00:00"))
+                until_dt = datetime.fromisoformat(str(raw_until).replace("Z", "+00:00"))
                 if until_dt.tzinfo is None:
-                    until_dt = until_dt.replace(tzinfo=tz_module.utc)
-                if dt_module.now(tz_module.utc) < until_dt:
+                    until_dt = until_dt.replace(tzinfo=timezone.utc)
+                if datetime.now(timezone.utc) < until_dt:
                     raw_ov = user.get("twin_tone_override")
                     if raw_ov:
                         twin_tone_override_active = str(raw_ov).strip() or None
@@ -3359,7 +3360,6 @@ async def stream_twin_message(user_id: str, message: str):
     Triggers: all missions complete today, inactive 2+ days, or occasional random_thought.
     """
     import random
-    from datetime import date as date_cls, datetime
 
     from zoneinfo import ZoneInfo
 
@@ -3412,7 +3412,7 @@ async def stream_twin_message(user_id: str, message: str):
                 last_active = user.get("last_active_date")
                 if last_active:
                     try:
-                        la = date_cls.fromisoformat(str(last_active)[:10])
+                        la = date_type.fromisoformat(str(last_active)[:10])
                         if (local_now.date() - la).days >= 2:
                             trigger = "user_inactive"
                     except Exception:

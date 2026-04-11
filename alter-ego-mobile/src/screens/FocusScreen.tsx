@@ -510,11 +510,13 @@ export function FocusScreen() {
       <View style={styles.topBar}>
         <View style={styles.tbLeft}>
           <View style={styles.tbAvatar}>
-            {profile?.profile_photo_url ? (
-              <Image source={{ uri: profile.profile_photo_url }} style={styles.tbAvatarImage} resizeMode="cover" />
-            ) : (
-              <Text style={styles.tbAvatarText}>{profile?.username?.[0]?.toUpperCase() ?? "?"}</Text>
-            )}
+            <View style={styles.tbAvatarClip}>
+              {profile?.profile_photo_url ? (
+                <Image source={{ uri: profile.profile_photo_url }} style={styles.tbAvatarImage} resizeMode="cover" />
+              ) : (
+                <Text style={styles.tbAvatarText}>{profile?.username?.[0]?.toUpperCase() ?? "?"}</Text>
+              )}
+            </View>
           </View>
           <View>
             <Text style={styles.tbName}>{profile?.username ?? "—"}</Text>
@@ -1268,6 +1270,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#141824",
     borderWidth: 1.5,
     borderColor: "rgba(139,92,246,0.35)",
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tbAvatarClip: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 10,
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",

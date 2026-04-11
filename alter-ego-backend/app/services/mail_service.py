@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.core.supabase_client import supabase_admin, run_query
 
@@ -328,6 +328,26 @@ async def send_app_mail(
     mail_type: str,
     template_data: dict | None = None,
 ) -> bool:
+    # ── Idempotency guard — never send the same mail_type twice within 60 seconds ──
+    # Protects against concurrent scheduler calls when workers restart or overlap.
+    try:
+        sixty_seconds_ago = (datetime.utcnow() - timedelta(seconds=60)).isoformat()
+        recent = (
+            await run_query(
+                supabase_admin.table("app_mails")
+                .select("id")
+                .eq("user_id", user_id)
+                .eq("mail_type", mail_type)
+                .gte("sent_at", sixty_seconds_ago)
+                .limit(1)
+            )
+        ).data or []
+        if recent:
+            logger.info("send_app_mail: skipping duplicate %s for %s", mail_type, user_id)
+            return False
+    except Exception:
+        pass  # If guard fails, proceed — better to send than to silently drop
+
     content = MAIL_CONTENT.get(mail_type)
     if not content:
         logger.warning("send_app_mail: unknown mail_type '%s'", mail_type)

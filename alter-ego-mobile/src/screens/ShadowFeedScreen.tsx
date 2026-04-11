@@ -27,7 +27,7 @@ const USER_BEAT_REACTIONS = new Set([
   "I'll catch up.",
 ]);
 
-function TwinCompletionEntry({ entry }: { entry: FeedEntry }) {
+const TwinCompletionEntry = React.memo(function TwinCompletionEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={styles.entry}>
       <Text style={styles.entryTime}>{entry.display_time}</Text>
@@ -43,9 +43,9 @@ function TwinCompletionEntry({ entry }: { entry: FeedEntry }) {
       </View>
     </View>
   );
-}
+});
 
-function UserCompletionEntry({ entry }: { entry: FeedEntry }) {
+const UserCompletionEntry = React.memo(function UserCompletionEntry({ entry }: { entry: FeedEntry }) {
   const isBeat = entry.twin_note ? USER_BEAT_REACTIONS.has(entry.twin_note.trim()) : false;
   const noteStyle = isBeat ? styles.entryNoteAhead : styles.entryNoteReaction;
 
@@ -69,18 +69,18 @@ function UserCompletionEntry({ entry }: { entry: FeedEntry }) {
       ) : null}
     </View>
   );
-}
+});
 
-function ObservationEntry({ entry }: { entry: FeedEntry }) {
+const ObservationEntry = React.memo(function ObservationEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={styles.obsCard}>
       <View style={styles.obsAccent} />
       <Text style={styles.obsText}>{entry.observation_text}</Text>
     </View>
   );
-}
+});
 
-function DaySummaryEntry({ entry }: { entry: FeedEntry }) {
+const DaySummaryEntry = React.memo(function DaySummaryEntry({ entry }: { entry: FeedEntry }) {
   return (
     <View style={styles.summaryCard}>
       <LinearGradient
@@ -109,9 +109,9 @@ function DaySummaryEntry({ entry }: { entry: FeedEntry }) {
       ) : null}
     </View>
   );
-}
+});
 
-function PendingEntry({ count }: { count: number }) {
+const PendingEntry = React.memo(function PendingEntry({ count }: { count: number }) {
   return (
     <View style={styles.pendingZone}>
       <View style={styles.pendingDot} />
@@ -122,9 +122,9 @@ function PendingEntry({ count }: { count: number }) {
       </Text>
     </View>
   );
-}
+});
 
-function DayDivider({ label }: { label: string }) {
+const DayDivider = React.memo(function DayDivider({ label }: { label: string }) {
   return (
     <View style={styles.dayDivider}>
       <View style={styles.divLine} />
@@ -132,7 +132,7 @@ function DayDivider({ label }: { label: string }) {
       <View style={styles.divLine} />
     </View>
   );
-}
+});
 
 type ListItem =
   | { type: "entry"; data: FeedEntry }
@@ -291,6 +291,11 @@ export function ShadowFeedScreen() {
           keyExtractor={keyExtractor}
           contentContainerStyle={{ paddingBottom: insets.bottom + 88 }}
           showsVerticalScrollIndicator={false}
+          initialNumToRender={8}
+          maxToRenderPerBatch={6}
+          windowSize={8}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={Platform.OS === "android"}
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}

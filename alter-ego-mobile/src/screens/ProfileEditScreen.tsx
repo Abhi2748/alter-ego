@@ -268,25 +268,27 @@ export function ProfileEditScreen() {
         <View style={styles.avatarZone}>
           <View style={styles.avatarAndBadgeWrap}>
             <Pressable onPress={handleAvatarPress} style={styles.avatarOuter}>
-              {photoUri ? (
-                <Image
-                  source={{ uri: photoUri }}
-                  style={styles.avatarImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <LinearGradient
-                  colors={["rgba(80,30,160,0.70)", "rgba(30,20,60,0.90)"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                />
-              )}
-              {!photoUri && (
-                <Text style={styles.avatarInitial}>
-                  {(username || "U").charAt(0).toUpperCase()}
-                </Text>
-              )}
+              <View style={styles.avatarClip}>
+                {photoUri ? (
+                  <Image
+                    source={{ uri: photoUri }}
+                    style={styles.avatarImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <LinearGradient
+                    colors={["rgba(80,30,160,0.70)", "rgba(30,20,60,0.90)"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                )}
+                {!photoUri && (
+                  <Text style={styles.avatarInitial}>
+                    {(username || "U").charAt(0).toUpperCase()}
+                  </Text>
+                )}
+              </View>
             </Pressable>
             <Pressable onPress={handleAvatarPress} style={styles.cameraBadge}>
               <LinearGradient
@@ -400,6 +402,12 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
+  },
+  avatarClip: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 16,
+    overflow: "hidden",
   },
   avatarImage: { width: "100%", height: "100%" },
   avatarInitial: {

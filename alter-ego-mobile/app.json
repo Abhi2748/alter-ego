@@ -13,10 +13,19 @@
       "backgroundColor": "#07080F"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "ALTER EGO uses notifications to alert you when your focus session ends while the app is in the background.",
+        "NSMicrophoneUsageDescription": "ALTER EGO uses audio to play session completion sounds."
+      }
     },
     "android": {
       "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -30,7 +39,16 @@
     "plugins": [
       "expo-font",
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-av",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#8B5CF6",
+          "sounds": []
+        }
+      ]
     ]
   }
 }

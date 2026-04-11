@@ -371,10 +371,11 @@ export const twinService = {
     const decoder = new TextDecoder();
     let buffer = '';
 
+    let doneReceived = false;
     try {
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done || doneReceived) break;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
@@ -401,6 +402,7 @@ export const twinService = {
               if (event.text) callbacks.onReplace(event.text);
               break;
             case 'done':
+              doneReceived = true;
               callbacks.onDone();
               break;
             case 'meta':
@@ -412,13 +414,17 @@ export const twinService = {
               });
               break;
             case 'error':
+              doneReceived = true;
               callbacks.onError(event.message ?? 'Unknown error');
               break;
           }
         }
       }
     } catch {
-      callbacks.onError('Stream interrupted.');
+      // Only fire onError if we haven't already cleanly finished
+      if (!doneReceived) {
+        callbacks.onError('Stream interrupted.');
+      }
     } finally {
       reader.releaseLock();
     }

@@ -511,7 +511,7 @@ export function TwinChatScreen() {
       style={[styles.container, { backgroundColor: "#08091A" }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       //keyboardVerticalOffset={HEADER_HEIGHT}
-      keyboardVerticalOffset={0}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
     >
       {/* Background + atmosphere (absolute, do not affect layout) */}
       <LinearGradient colors={BG_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
@@ -608,10 +608,11 @@ export function TwinChatScreen() {
             onBlur={() => setInputFocused(false)}
             placeholder="Say something..."
             placeholderTextColor="#4B5563"
-            multiline={false}
+            multiline={true}
+            numberOfLines={5}
             maxLength={500}
-            returnKeyType="send"
-            onSubmitEditing={() => sendMessage()}
+            scrollEnabled={true}
+            textAlignVertical="top"
             blurOnSubmit={false}
           />
           {inputText.length >= 400 ? (
@@ -908,10 +909,12 @@ const styles = StyleSheet.create({
     backgroundColor: INPUT_BG,
     borderWidth: 1,
     borderRadius: 22,
-    paddingVertical: 11,
+    paddingVertical: 10,
     paddingHorizontal: 16,
     fontSize: 14,
     color: USER_TEXT,
+    minHeight: 42,
+    maxHeight: 120,
   },
   charCount: {
     position: "absolute",

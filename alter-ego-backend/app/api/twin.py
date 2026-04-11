@@ -1035,6 +1035,14 @@ async def get_shadow_feed(
     """
     user_id = get_user_id_from_token(authorization)
 
+    # Ensure twin has been simulated for today — same as /twin/state.
+    # Without this, twin_mission_log is empty for users who open the feed
+    # before the 1am scheduler job runs.
+    try:
+        await ensure_twin_simulated_for_today(user_id)
+    except Exception:
+        pass  # Non-critical — feed still loads without twin data
+
     try:
         from app.core.constants import (
             TWIN_FEED_OBSERVATIONS,
@@ -1042,8 +1050,6 @@ async def get_shadow_feed(
             TWIN_FEED_REACTION_USER_MATCHES,
             get_twin_feed_note,
         )
-
-        await ensure_twin_simulated_for_today(user_id)
 
         user_row = (
             ((await run_query(supabase_admin.table("users")

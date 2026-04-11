@@ -3092,9 +3092,22 @@ async def stream_twin_message(user_id: str, message: str):
             else 0.5
         )
 
-        safety = await classify_message_safety(
-            user_message=message,
-            username=str(user.get("username") or "you"),
+        # Run safety check and tone detection concurrently
+        user_msg_safe = sanitize_for_prompt(message, max_len=500, field_name="user_message")
+        username_safe = sanitize_username(str(user.get("username") or "you"))
+        chat_history = [
+            {"sender": "user" if m.get("role") == "user" else "twin", "message": m.get("content") or ""}
+            for m in history
+        ]
+        recent_msgs = chat_history[-3:] if chat_history else []
+
+        safety, tone = await asyncio.gather(
+            classify_message_safety(
+                user_message=message,
+                username=str(user.get("username") or "you"),
+            ),
+            detect_tone(user_msg_safe, recent_msgs),
+            return_exceptions=False,
         )
         logger.info(
             json.dumps(
@@ -3120,11 +3133,6 @@ async def stream_twin_message(user_id: str, message: str):
             block_response = SAFETY_RESPONSES["sexual"]
         elif safety.category == "dependency" and safety.confidence > 0.8:
             block_response = SAFETY_RESPONSES["dependency"]
-
-        chat_history = [
-            {"sender": "user" if m.get("role") == "user" else "twin", "message": m.get("content") or ""}
-            for m in history
-        ]
 
         if block_response is not None:
             dna_line = str(dna.get("twin_tone_type") or "rival")
@@ -3161,9 +3169,6 @@ async def stream_twin_message(user_id: str, message: str):
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
             return
 
-        user_msg_safe = sanitize_for_prompt(message, max_len=500, field_name="user_message")
-        username_safe = sanitize_username(str(user.get("username") or "you"))
-
         user_ins = await run_query(
             supabase_admin.table("twin_messages").insert(
                 {
@@ -3176,9 +3181,6 @@ async def stream_twin_message(user_id: str, message: str):
         )
         user_row = (user_ins.data or [None])[0] or {}
         user_message_id = user_row.get("id")
-
-        recent_msgs = chat_history[-3:] if chat_history else []
-        tone = await detect_tone(user_msg_safe, recent_msgs)
 
         archetype = str(user.get("archetype") or "structured_climber")
         narrative_seed = (dna.get("narrative_seed") or "").strip() or f"User archetype: {archetype}."

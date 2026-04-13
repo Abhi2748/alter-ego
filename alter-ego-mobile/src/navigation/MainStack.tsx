@@ -26,6 +26,9 @@ import { MissionDetailScreen } from "../screens/MissionDetailScreen";
 import { SigilScreen } from "../screens/SigilScreen";
 import { LeaderboardScreen } from "../screens/LeaderboardScreen";
 import { StreakDetailScreen } from "../screens/StreakDetailScreen";
+import { SeasonDetailScreen } from "../screens/SeasonDetailScreen";
+import { SeasonCompletionScreen } from "../screens/SeasonCompletionScreen";
+import { AchievementsScreen } from "../screens/AchievementsScreen";
 import { COLORS } from "../constants/theme";
 
 const Stack = createStackNavigator<MainStackParamList>();
@@ -75,6 +78,21 @@ export function MainStack() {
         <Stack.Screen
           name="StreakDetail"
           component={StreakDetailScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="SeasonDetail"
+          component={SeasonDetailScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="SeasonCompletion"
+          component={SeasonCompletionScreen}
+          options={{ headerShown: false, gestureEnabled: false }}
+        />
+        <Stack.Screen
+          name="Achievements"
+          component={AchievementsScreen}
           options={{ headerShown: false }}
         />
       </Stack.Navigator>

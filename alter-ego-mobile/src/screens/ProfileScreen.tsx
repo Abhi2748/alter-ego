@@ -20,6 +20,7 @@ import { useSigilData } from "@/hooks/useSigil";
 import { useQuery } from "@tanstack/react-query";
 import { leaderboardService } from "@/services/leaderboard";
 import { CHARACTER_IDENTITY_PAGE_IMAGE } from "@/constants/characterPetAssets";
+import { useCurrentSeason } from '@/hooks/useSeason';
 
 /** Matches stage badge / "Stage 1 · The Awakened" accent on this screen */
 const PROFILE_HERO_ACCENT = "rgba(167,139,250,0.95)";
@@ -94,6 +95,23 @@ const PROFILE_NAV_ROWS: {
     iconWrap: "ember",
   },
   {
+    kind: "stack" as const,
+    key: "ProfileSeason" as ProfileNavRowKey,
+    label: "Seasons",
+    Icon: () => (
+      <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+        <Path
+          d="M9 1.5L10.9 7H16.5L12 10.3L13.9 15.8L9 12.5L4.1 15.8L6 10.3L1.5 7H7.1L9 1.5Z"
+          stroke="#F97316"
+          strokeWidth={1.3}
+          strokeLinejoin="round"
+          fill="none"
+        />
+      </Svg>
+    ),
+    iconWrap: "ember" as const,
+  },
+  {
     kind: "stack",
     key: "ProfileAbilities",
     label: "Abilities",
@@ -150,6 +168,13 @@ export function ProfileScreen() {
     queryFn: () => leaderboardService.getLeaderboard(),
     staleTime: 60_000,
   });
+  const { data: currentSeason } = useCurrentSeason();
+  const seasonBadgeLabel =
+    currentSeason?.status === 'active'
+      ? `S${currentSeason.season_number} · Day ${currentSeason.current_day}`
+      : currentSeason?.status === 'completed' || currentSeason?.status === 'failed'
+      ? `S${currentSeason.season_number} · Done`
+      : null;
   const rankLabel =
     lbData?.current_user?.rank != null && lbData.current_user.rank > 0
       ? String(lbData.current_user.rank)
@@ -198,26 +223,31 @@ export function ProfileScreen() {
       >
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
-            {profile?.profile_photo_url ? (
-              <View style={styles.profilePicRing}>
-                <View style={styles.profilePicClip}>
-                  <Image
-                    source={{ uri: profile.profile_photo_url }}
-                    style={styles.profilePicImage}
-                    resizeMode="cover"
-                  />
+            <Pressable
+              onPress={() => (navigation.getParent() as any)?.navigate('Achievements')}
+              hitSlop={6}
+            >
+              {profile?.profile_photo_url ? (
+                <View style={styles.profilePicRing}>
+                  <View style={styles.profilePicClip}>
+                    <Image
+                      source={{ uri: profile.profile_photo_url }}
+                      style={styles.profilePicImage}
+                      resizeMode="cover"
+                    />
+                  </View>
                 </View>
-              </View>
-            ) : (
-              <LinearGradient
-                colors={["rgba(80,30,160,0.7)", "rgba(30,20,60,0.9)"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.profilePic}
-              >
-                <Text style={styles.profileInitial}>{initial}</Text>
-              </LinearGradient>
-            )}
+              ) : (
+                <LinearGradient
+                  colors={["rgba(80,30,160,0.7)", "rgba(30,20,60,0.9)"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.profilePic}
+                >
+                  <Text style={styles.profileInitial}>{initial}</Text>
+                </LinearGradient>
+              )}
+            </Pressable>
             <Text style={styles.headerUsername} numberOfLines={1}>
               {profile?.username ?? "…"}
             </Text>
@@ -387,7 +417,14 @@ export function ProfileScreen() {
                       <Text style={[styles.navRowTitle, journeyOpen && { color: "#C4B5FD" }]}>Journey</Text>
                     </View>
                   ) : (
-                    <Text style={[styles.navRowTitle, styles.navRowTitleGrow]}>{label}</Text>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.navRowTitle}>{label}</Text>
+                      {row.label === 'Seasons' && seasonBadgeLabel ? (
+                        <View style={seasonBadgeStyle.pill}>
+                          <Text style={seasonBadgeStyle.text}>{seasonBadgeLabel}</Text>
+                        </View>
+                      ) : null}
+                    </View>
                   )}
                   <Ionicons
                     name={isJourney ? (journeyOpen ? "chevron-down" : "chevron-forward") : "chevron-forward"}
@@ -908,5 +945,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
+  },
+});
+
+const seasonBadgeStyle = StyleSheet.create({
+  pill: {
+    backgroundColor: 'rgba(249,115,22,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(249,115,22,0.22)',
+    borderRadius: 100,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+  },
+  text: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#F97316',
+    letterSpacing: 0.5,
   },
 });

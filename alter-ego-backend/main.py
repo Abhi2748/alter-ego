@@ -4,6 +4,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api.auth import router as auth_router
+from app.api.achievements import router as achievements_router
 from app.api.feedback import router as feedback_router
 from app.api.focus import router as focus_router
 from app.api.leaderboard import router as leaderboard_router
@@ -14,6 +15,7 @@ from app.api.onboarding import router as onboarding_router
 from app.api.profile import router as profile_router
 from app.api.return_reason import router as return_reason_router
 from app.api.reports import router as reports_router
+from app.api.seasons import router as seasons_router
 from app.api.settings import router as settings_router
 from app.api.stats import router as stats_router
 from app.api.quits import router as quits_router
@@ -28,6 +30,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Only routers built in the current build
 app.include_router(auth_router)
+app.include_router(achievements_router)
 app.include_router(feedback_router)
 app.include_router(focus_router)
 app.include_router(onboarding_router)
@@ -42,6 +45,7 @@ app.include_router(mirror_router)
 app.include_router(settings_router)
 app.include_router(stats_router)
 app.include_router(quits_router)
+app.include_router(seasons_router)
 app.include_router(sigil_router)
 
 

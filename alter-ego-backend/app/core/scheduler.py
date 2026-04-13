@@ -99,6 +99,12 @@ def setup_scheduler():
         id="twin_challenge_weekly",
         replace_existing=True,
     )
+    scheduler.add_job(
+        season_maintenance_job,
+        trigger=IntervalTrigger(minutes=60),
+        id="season_maintenance",
+        replace_existing=True,
+    )
 
     return scheduler
 
@@ -893,3 +899,127 @@ async def twin_challenge_weekly_job():
         "count": count,
     }))
 
+
+async def season_maintenance_job():
+    """
+    Runs every hour. Only processes users whose local hour is 1 (1:00–1:59).
+
+    For each user who has an active season:
+      1. Records yesterday's core mission outcome into season_day_log (idempotent upsert).
+      2. Closes the season if ends_at is before today (expired).
+
+    Kept as a standalone job (not merged into user_local_maintenance_job) so that
+    any season error cannot affect streak, power score, or mail processing.
+    """
+    from datetime import date as date_cls, datetime
+    from zoneinfo import ZoneInfo
+
+    from app.core.supabase_client import supabase_admin
+    from app.services.mission_service import get_user_date
+    from app.services.season_service import (
+        close_expired_season,
+        get_active_season,
+        record_season_day,
+    )
+
+    logger.info(json.dumps({"event": "season_maintenance_job_start"}))
+
+    users_result = (
+        supabase_admin.table("users")
+        .select("id, timezone")
+        .eq("onboarding_complete", True)
+        .execute()
+    )
+
+    processed = 0
+    for user in users_result.data or []:
+        user_id = user.get("id")
+        try:
+            tz_str = user.get("timezone") or "UTC"
+            try:
+                tz = ZoneInfo(tz_str)
+            except Exception:
+                tz = ZoneInfo("UTC")
+            local_now = datetime.now(tz)
+
+            if local_now.hour != 0:
+                continue
+
+            today     = get_user_date(tz_str)
+            yesterday = (local_now.date() - timedelta(days=1)).isoformat()
+
+            season = await get_active_season(user_id)
+            if not season:
+                continue
+
+            season_id     = str(season["id"])
+            started_at    = str(season["started_at"])
+            ends_at       = str(season["ends_at"])
+            total_days    = int(season["total_days"])
+            season_number = int(season["season_number"])
+
+            # Compute yesterday's 1-indexed day number within the season
+            try:
+                day_number = (
+                    date_cls.fromisoformat(yesterday)
+                    - date_cls.fromisoformat(started_at)
+                ).days + 1
+            except Exception:
+                continue
+
+            # Only record if yesterday was a valid day inside this season
+            if 1 <= day_number <= total_days:
+                missions_result = (
+                    supabase_admin.table("missions")
+                    .select("id, completed")
+                    .eq("user_id", user_id)
+                    .eq("mission_date", yesterday)
+                    .eq("type", "core")
+                    .eq("is_journal_mission", False)
+                    .execute()
+                )
+                mission_rows   = missions_result.data or []
+                missions_total = len(mission_rows)
+                missions_done  = sum(1 for m in mission_rows if m.get("completed"))
+
+                # Only write the day log row if missions existed that day
+                if missions_total > 0:
+                    await record_season_day(
+                        user_id=user_id,
+                        season_id=season_id,
+                        log_date=yesterday,
+                        day_number=day_number,
+                        missions_done=missions_done,
+                        missions_total=missions_total,
+                    )
+
+            # Close if the season's end date has passed
+            if ends_at < today:
+                await close_expired_season(user_id, season, today)
+                logger.info(
+                    json.dumps({
+                        "event":         "season_expired_closed",
+                        "user_id":       str(user_id),
+                        "season_number": season_number,
+                        "ends_at":       ends_at,
+                    })
+                )
+
+            processed += 1
+
+        except Exception as e:
+            logger.error(
+                json.dumps({
+                    "event":   "season_maintenance_error",
+                    "user_id": str(user_id),
+                    "error":   str(e)[:200],
+                })
+            )
+            continue
+
+    logger.info(
+        json.dumps({
+            "event":     "season_maintenance_job_done",
+            "processed": processed,
+        })
+    )

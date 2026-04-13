@@ -1617,3 +1617,346 @@ MILESTONE_MESSAGES_GUILT_SAFE = {
     },
 }
 
+
+# ── SEASON / ARC SYSTEM ──────────────────────────────────────────────────────
+#
+# Season 1 = 30 days (3 phases). Gentler ramp, first win for new users.
+# Season 2+ = 66 days (5 phases). Full habit-formation cycle.
+# Season 3+ = Mastery seasons — same 66-day / 5-phase structure, rotating themes.
+#
+# Single source of truth for all season game values. Service reads these;
+# never hardcode season logic elsewhere.
+
+# ── Season metadata (S1 and S2 defined explicitly; S3+ use SEASON_MASTERY_TEMPLATES)
+
+SEASON_DEFINITIONS = [
+    {
+        "season_number": 1,
+        "season_name":   "The Spark",
+        "season_theme":  "Prove you can show up.",
+        "season_color":  "#F97316",   # ember orange
+        "total_days":    30,
+        "num_phases":    3,
+        # Archetype-specific name variants shown in the season banner / header
+        "archetype_names": {
+            "lone_wolf":          "Season 1: The Silence Test",
+            "structured_climber": "Season 1: The Foundation Protocol",
+            "restless_creator":   "Season 1: The Constraint Arc",
+            "reluctant_achiever": "Season 1: The First Step",
+            "social_performer":   "Season 1: The Proving Ground",
+        },
+    },
+    {
+        "season_number": 2,
+        "season_name":   "The Forge",
+        "season_theme":  "Build what doesn't break.",
+        "season_color":  "#D97706",   # amber
+        "total_days":    66,
+        "num_phases":    5,
+        "archetype_names": {
+            "lone_wolf":          "Season 2: The Long Silence",
+            "structured_climber": "Season 2: The 66-Day Protocol",
+            "restless_creator":   "Season 2: The Deep Constraint",
+            "reluctant_achiever": "Season 2: The Real Test",
+            "social_performer":   "Season 2: The Proving Ground II",
+        },
+    },
+]
+
+# ── Mastery season templates (Season 3+). Cycle in order via (season_number - 3) % len.
+
+SEASON_MASTERY_TEMPLATES = [
+    {
+        "season_name":  "The Steady",
+        "season_theme": "Consistency, not growth.",
+        "season_color": "#06B6D4",
+    },
+    {
+        "season_name":  "The Silence",
+        "season_theme": "Quality over quantity.",
+        "season_color": "#7C3AED",
+    },
+    {
+        "season_name":  "The Velocity",
+        "season_theme": "Speed and decisiveness.",
+        "season_color": "#10B981",
+    },
+    {
+        "season_name":  "The Weight",
+        "season_theme": "Showing up when it's hard.",
+        "season_color": "#3B82F6",
+    },
+]
+
+# ── Phase definitions per season.
+# Keys: season_number (int) → list of phase dicts, ordered by phase number.
+# Season 3+ reuses season 2's phase structure via min(season_number, 2) lookup.
+
+SEASON_PHASE_DEFINITIONS: dict[int, list[dict]] = {
+    1: [
+        {"phase": 1, "name": "Ignition",   "day_start": 1,  "day_end": 10},
+        {"phase": 2, "name": "Rising",     "day_start": 11, "day_end": 20},
+        {"phase": 3, "name": "Locking In", "day_start": 21, "day_end": 30},
+    ],
+    2: [
+        {"phase": 1, "name": "Foundation",  "day_start": 1,  "day_end": 10},
+        {"phase": 2, "name": "Pressure",    "day_start": 11, "day_end": 22},
+        {"phase": 3, "name": "The Wall",    "day_start": 23, "day_end": 40},
+        {"phase": 4, "name": "Second Wind", "day_start": 41, "day_end": 55},
+        {"phase": 5, "name": "Sealed",      "day_start": 56, "day_end": 66},
+    ],
+}
+
+# ── Mission targets per season per phase.
+# Keys: season_number → phase_number → core_pillar → {target, next}
+# "target" = what this phase asks for (shown as current requirement)
+# "next"   = what the next phase will ask for (shown as preview); None on last phase
+# core_pillar values match missions.core_pillar column:
+#   sleep | movement | hydration | mindfulness | no_phone | journal
+# Season 3+ reuses season 2's target definitions via min(season_number, 2) lookup.
+
+SEASON_PHASE_MISSION_TARGETS: dict[int, dict[int, dict[str, dict]]] = {
+    1: {
+        1: {  # Phase 1: Ignition — Days 1–10
+            "sleep":       {"target": "7h target",             "next": "7.5h target"},
+            "movement":    {"target": "10 min any activity",    "next": "20 min"},
+            "hydration":   {"target": "6 glasses",              "next": "7 glasses"},
+            "mindfulness": {"target": "5 min",                  "next": "10 min"},
+            "no_phone":    {"target": "30 min before bed",      "next": "1h before bed"},
+            "journal":     {"target": "50 words",               "next": "100 words"},
+        },
+        2: {  # Phase 2: Rising — Days 11–20
+            "sleep":       {"target": "7.5h target",                       "next": "7.5h + consistent schedule"},
+            "movement":    {"target": "20 min",                             "next": "30 min"},
+            "hydration":   {"target": "7 glasses",                          "next": "8 glasses"},
+            "mindfulness": {"target": "10 min",                             "next": "15 min"},
+            "no_phone":    {"target": "1h before bed",                      "next": "1h before bed + first 30 min morning"},
+            "journal":     {"target": "100 words",                          "next": "150 words"},
+        },
+        3: {  # Phase 3: Locking In — Days 21–30
+            "sleep":       {"target": "7.5h + consistent schedule",           "next": None},
+            "movement":    {"target": "30 min",                               "next": None},
+            "hydration":   {"target": "8 glasses",                            "next": None},
+            "mindfulness": {"target": "15 min",                               "next": None},
+            "no_phone":    {"target": "1h before bed + first 30 min morning", "next": None},
+            "journal":     {"target": "150 words",                            "next": None},
+        },
+    },
+    2: {
+        1: {  # Phase 1: Foundation — Days 1–10
+            "sleep":       {"target": "7.5h + consistent schedule",           "next": "8h target"},
+            "movement":    {"target": "30 min",                               "next": "40 min"},
+            "hydration":   {"target": "8 glasses",                            "next": "8 glasses"},
+            "mindfulness": {"target": "15 min",                               "next": "20 min"},
+            "no_phone":    {"target": "1h before bed + first 30 min morning", "next": "1.5h before bed + 1h morning"},
+            "journal":     {"target": "150 words",                            "next": "200 words"},
+        },
+        2: {  # Phase 2: Pressure — Days 11–22
+            "sleep":       {"target": "8h target",                             "next": "8h target"},
+            "movement":    {"target": "40 min",                                "next": "45 min + varied types"},
+            "hydration":   {"target": "8 glasses",                             "next": "10 glasses"},
+            "mindfulness": {"target": "20 min",                                "next": "25 min"},
+            "no_phone":    {"target": "1.5h before bed + 1h morning",          "next": "No phone first 2h of day"},
+            "journal":     {"target": "200 words",                             "next": "200 words + weekly reflection"},
+        },
+        3: {  # Phase 3: The Wall — Days 23–40 (hardest stretch, intentional)
+            "sleep":       {"target": "8h target",                             "next": "8h target"},
+            "movement":    {"target": "45 min + varied types",                 "next": "45 min"},
+            "hydration":   {"target": "10 glasses",                            "next": "10 glasses"},
+            "mindfulness": {"target": "25 min",                                "next": "20 min"},
+            "no_phone":    {"target": "No phone first 2h of day",              "next": "1.5h before bed + 1h morning"},
+            "journal":     {"target": "200 words + weekly reflection",          "next": "200 words"},
+        },
+        4: {  # Phase 4: Second Wind — Days 41–55
+            "sleep":       {"target": "8h target",                             "next": "8h locked schedule"},
+            "movement":    {"target": "45 min",                                "next": "45 min"},
+            "hydration":   {"target": "10 glasses",                            "next": "10 glasses"},
+            "mindfulness": {"target": "20 min",                                "next": "20 min"},
+            "no_phone":    {"target": "1.5h before bed + 1h morning",          "next": "Full morning block"},
+            "journal":     {"target": "200 words",                             "next": "200 words"},
+        },
+        5: {  # Phase 5: Sealed — Days 56–66
+            "sleep":       {"target": "8h locked schedule", "next": None},
+            "movement":    {"target": "45 min",             "next": None},
+            "hydration":   {"target": "10 glasses",         "next": None},
+            "mindfulness": {"target": "20 min",             "next": None},
+            "no_phone":    {"target": "Full morning block",  "next": None},
+            "journal":     {"target": "200 words",           "next": None},
+        },
+    },
+}
+
+# ── Completion tier thresholds.
+# Applied at season end to compute the final tier, and during the season
+# to project the likely tier based on current completion rate.
+# Threshold = days_completed / total_days.
+
+SEASON_TIER_THRESHOLDS = {
+    "perfect": 0.95,   # ≥ 95% of days completed → Gold
+    "clear":   0.80,   # ≥ 80% and < 95%         → Silver
+    "partial": 0.60,   # ≥ 60% and < 80%          → Bronze
+    # < 60% → failed (no reward)
+}
+
+# ── XP awarded on season completion, by tier and season type.
+# s2_plus applies to Season 2 and all mastery seasons (3+).
+
+SEASON_XP_AWARDS: dict[str, dict[str, int]] = {
+    "perfect": {"s1": 2_400, "s2_plus": 4_800},
+    "clear":   {"s1": 1_800, "s2_plus": 3_200},
+    "partial": {"s1":   900, "s2_plus": 1_600},
+    "failed":  {"s1":     0, "s2_plus":     0},
+}
+
+# ── Equippable titles unlocked on season completion.
+# Only awarded for 'perfect' or 'clear' tier — not 'partial', not 'failed'.
+# Key = season_number. Seasons beyond max defined key use the last entry.
+
+SEASON_TITLES: dict[int, str] = {
+    1: "The Sparked",
+    2: "The Forged",
+    3: "The Steady",
+    4: "The Silent",
+    5: "The Velocity",
+    6: "The Weight",
+}
+
+# ── Pre-written Twin closing entry fallbacks.
+# Used when LLM generation fails. Placeholders filled by get_season_twin_closing().
+# {missed_plural} resolves to "s" when days_missed != 1, else "".
+
+SEASON_TWIN_CLOSING_FALLBACKS: dict[str, str] = {
+    "perfect": (
+        "{total_days} days. I watched every one. You stumbled {days_missed} "
+        "time{missed_plural} and came back. That's not luck — that's the beginning "
+        "of something that doesn't break easily. The next season will ask more of "
+        "you. You'll be ready."
+    ),
+    "clear": (
+        "You got through it. Not perfectly — but through it. {days_missed} missed "
+        "day{missed_plural} means crack{missed_plural} in the pattern. The next "
+        "season is where you decide if those cracks widen or close."
+    ),
+    "partial": (
+        "{days_completed} days out of {total_days}. You showed up more than you "
+        "disappeared — I'll give you that. But {days_missed} missed "
+        "day{missed_plural} is a pattern. The next season is longer. "
+        "The Wall comes. You'll need to answer that."
+    ),
+    "failed": (
+        "{days_completed} days out of {total_days}. I kept going. Every day you "
+        "didn't show, I noticed. This isn't a lecture — it's a record. The season "
+        "is over. The question is what you do with the next one."
+    ),
+}
+
+
+# ── Season helper functions (pure — no imports, no DB calls) ──────────────────
+
+def get_season_metadata(season_number: int) -> dict:
+    """
+    Returns the metadata dict for any season number.
+    Seasons 1 and 2 use SEASON_DEFINITIONS.
+    Season 3+ cycles through SEASON_MASTERY_TEMPLATES.
+    """
+    if season_number <= 2:
+        return SEASON_DEFINITIONS[season_number - 1]
+    idx = (season_number - 3) % len(SEASON_MASTERY_TEMPLATES)
+    tmpl = SEASON_MASTERY_TEMPLATES[idx]
+    return {
+        "season_number": season_number,
+        "total_days":    66,
+        "num_phases":    5,
+        "archetype_names": {},
+        **tmpl,
+    }
+
+
+def get_season_phase(season_number: int, current_day: int) -> int:
+    """
+    Returns the current phase number (1-indexed) for the given season and day.
+    Falls back to the last phase if current_day exceeds all defined phase ranges.
+    Season 3+ uses season 2's phase definitions.
+    """
+    key = min(season_number, 2)
+    phases = SEASON_PHASE_DEFINITIONS[key]
+    for p in phases:
+        if p["day_start"] <= current_day <= p["day_end"]:
+            return p["phase"]
+    return phases[-1]["phase"]
+
+
+def get_season_phase_info(season_number: int, current_day: int) -> dict:
+    """
+    Returns the full phase dict for the given season and day.
+    e.g. {"phase": 2, "name": "Rising", "day_start": 11, "day_end": 20}
+    Season 3+ uses season 2's phase definitions.
+    """
+    key = min(season_number, 2)
+    phases = SEASON_PHASE_DEFINITIONS[key]
+    for p in phases:
+        if p["day_start"] <= current_day <= p["day_end"]:
+            return p
+    return phases[-1]
+
+
+def get_season_completion_tier(days_completed: int, total_days: int) -> str:
+    """
+    Returns the completion tier string: 'perfect' | 'clear' | 'partial' | 'failed'.
+    """
+    if total_days <= 0:
+        return "failed"
+    pct = days_completed / total_days
+    if pct >= SEASON_TIER_THRESHOLDS["perfect"]:
+        return "perfect"
+    if pct >= SEASON_TIER_THRESHOLDS["clear"]:
+        return "clear"
+    if pct >= SEASON_TIER_THRESHOLDS["partial"]:
+        return "partial"
+    return "failed"
+
+
+def get_season_xp(tier: str, season_number: int) -> int:
+    """Returns XP to award on season completion for the given tier and season."""
+    awards = SEASON_XP_AWARDS.get(tier, {"s1": 0, "s2_plus": 0})
+    return awards["s1"] if season_number == 1 else awards["s2_plus"]
+
+
+def get_season_title(season_number: int, tier: str) -> str | None:
+    """
+    Returns the equippable title for the given season + tier.
+    Returns None for 'partial' and 'failed' tiers.
+    Seasons beyond the last defined key in SEASON_TITLES use that last entry.
+    """
+    if tier not in ("perfect", "clear"):
+        return None
+    max_defined = max(SEASON_TITLES.keys())
+    key = min(season_number, max_defined)
+    return SEASON_TITLES.get(key)
+
+
+def get_season_twin_closing(
+    tier: str,
+    season_name: str,
+    days_completed: int,
+    total_days: int,
+    days_missed: int,
+    days_perfect: int,
+) -> str:
+    """
+    Returns a pre-written Twin closing entry for the given tier.
+    Used as fallback when LLM generation fails or is not called.
+    """
+    template = SEASON_TWIN_CLOSING_FALLBACKS.get(
+        tier, SEASON_TWIN_CLOSING_FALLBACKS["failed"]
+    )
+    missed_plural = "s" if days_missed != 1 else ""
+    return template.format(
+        season_name=season_name,
+        days_completed=days_completed,
+        total_days=total_days,
+        days_missed=days_missed,
+        days_perfect=days_perfect,
+        missed_plural=missed_plural,
+    )
+

@@ -85,6 +85,9 @@ export type MainStackParamList = {
   Leaderboard: undefined;
   /** Full-screen streak detail (mock-aligned) */
   StreakDetail: undefined;
+  SeasonDetail: undefined;
+  SeasonCompletion: undefined;
+  Achievements: undefined;
 };
 
 export type ProfileStackParamList = {
@@ -108,4 +111,5 @@ export type ProfileStackParamList = {
   /** Quit path detail (card tap) */
   QuitDetail: { pathId: string };
   AbilityDetail: { statKey: string };
+  ProfileSeason: undefined;
 };

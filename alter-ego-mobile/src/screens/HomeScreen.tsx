@@ -92,6 +92,8 @@ import {
   QUIT_ORANGE,
   getInterestColorByHex,
 } from "@/constants/missionColors";
+import { SeasonBanner } from '@/components/SeasonBanner';
+import { useCurrentSeason } from '@/hooks/useSeason';
 /** AsyncStorage keys for streak-break ceremony (B1 Fracture). */
 const AE_LAST_STREAK_KEY_PREFIX = "ae_last_streak_";
 const AE_FRACTURE_SHOWN_KEY_PREFIX = "ae_fracture_shown_";
@@ -391,6 +393,10 @@ export function HomeScreen() {
   const { data: twinStrip } = useTwinStrip();
   const { data: streakProfile } = useProfileStreak();
   const { data: sigilSnapshot } = useSigilData({ enabled: deferSecondaryHomeData });
+  const { data: currentSeason } = useCurrentSeason();
+  const seasonEnded =
+    currentSeason?.status === "completed" || currentSeason?.status === "failed";
+  const seasonEndedUnseen = seasonEnded && currentSeason?.completion_seen !== true;
   const sigilData = sigilSnapshot ?? SIGIL_PLACEHOLDER_DATA;
   const surgeActive = sigilData.surge_active === true;
 
@@ -989,7 +995,18 @@ export function HomeScreen() {
           <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
         ) : null}
         <View style={styles.topBarRow}>
-          <View style={styles.avatarWrap}>
+          <Pressable
+            style={styles.avatarWrap}
+            onPress={() => {
+              let nav: any = navigation;
+              for (let i = 0; i < 6; i++) {
+                const names = nav?.getState?.()?.routeNames;
+                if (names?.includes('Achievements')) { nav.navigate('Achievements'); return; }
+                nav = nav?.getParent?.();
+              }
+            }}
+            hitSlop={6}
+          >
             <View style={styles.avatarClip}>
               {profile?.profile_photo_url ? (
                 <Image source={{ uri: profile.profile_photo_url }} style={styles.avatarImg} resizeMode="cover" />
@@ -1001,7 +1018,7 @@ export function HomeScreen() {
                 </View>
               )}
             </View>
-          </View>
+          </Pressable>
           <Text style={styles.greeting} numberOfLines={1}>{greeting}</Text>
           {surgeActive && <SurgeIndicator visible />}
         </View>
@@ -1181,6 +1198,36 @@ export function HomeScreen() {
           )}
           </View>
         </View>
+
+        {/* Season Banner — active season */}
+        {currentSeason && currentSeason.status === "active" ? (
+          <SeasonBanner
+            season={currentSeason}
+            onPress={() => {
+              const parentNav = (navigation as any).getParent?.();
+              const target = parentNav ?? navigation;
+              target.navigate("SeasonDetail");
+            }}
+          />
+        ) : null}
+
+        {/* Season ended prompt */}
+        {seasonEndedUnseen && currentSeason ? (
+          <Pressable
+            style={seasonEndedStyles.banner}
+            onPress={() => {
+              const parentNav = (navigation as any).getParent?.();
+              const target = parentNav ?? navigation;
+              target.navigate("SeasonCompletion");
+            }}
+          >
+            <Text style={seasonEndedStyles.label}>
+              {currentSeason.status === "failed" ? "⚠️" : "🏆"}
+              {`  Season ${currentSeason.season_number} has ended`}
+            </Text>
+            <Text style={seasonEndedStyles.sub}>Tap to see your results →</Text>
+          </Pressable>
+        ) : null}
 
         {/* Empty state: missions being prepared */}
         {!isPending && !error && todayData && (todayData.summary?.total ?? 0) === 0 ? (
@@ -1870,5 +1917,28 @@ const styles = StyleSheet.create({
     height: "100%",
     alignItems: "center",
     justifyContent: "center",
+  },
+});
+
+const seasonEndedStyles = StyleSheet.create({
+  banner: {
+    marginHorizontal: 16,
+    marginTop: 14,
+    backgroundColor: "rgba(124,58,237,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(124,58,237,0.22)",
+    borderRadius: 13,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#E8EAF0",
+    marginBottom: 3,
+  },
+  sub: {
+    fontSize: 11,
+    color: "#8B8FA8",
   },
 });

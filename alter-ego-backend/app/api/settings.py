@@ -27,7 +27,11 @@ FAQ_ITEMS = [
     },
     {
         "q": "What are the 6 core missions?",
-        "a": "Sleep (7+ hours), Movement (30 minutes of activity), Hydration (2 litres of water), Mindfulness (10 minutes of stillness or meditation), No-Phone (a screen-free window — length increases with your level), and Journal (write anything — reflection, observation, plan). These are non-negotiable daily requirements.",
+        "a": "Five pillar missions — Sleep, Movement, Hydration, Mindfulness, and No-Phone — plus a daily Journal. Targets and wording for the five pillars scale with your Season and phase (fixed templates from the app, not AI-generated). Journal is always your daily writing mission. All six are part of every day.",
+    },
+    {
+        "q": "What are Seasons and how do they work?",
+        "a": "A Season is a timed arc shown on your Home banner (day counter, theme, and color). Each season is divided into phases. Your five pillar core missions get specific targets and copy for the active season and phase; your Journal mission stays a daily writing habit. The app logs each day toward your season outcome. When the season window ends, you see a completion summary (tier, bonus XP, and sometimes a title), then you can begin the next season. Your first season is created automatically — later seasons start after you acknowledge the previous season’s completion screen.",
     },
     {
         "q": "How is my streak calculated?",
@@ -55,7 +59,7 @@ FAQ_ITEMS = [
     },
     {
         "q": "What is XP and how do I earn it?",
-        "a": "XP is earned by completing missions. Harder missions give more XP. Your daily XP cap starts at 200 and increases at each character stage — Stage 2 gives 300/day, Stage 3 gives 450/day, up to 1,000/day at Stage 6. Completing missions beyond the cap still counts toward your streak and abilities; only the XP accumulation stops.",
+        "a": "XP is earned by completing missions. Harder missions give more XP. Your daily XP cap depends on character stage: Stage 1 is 100/day, then 150, 200, 280, 380, and 500/day at Stage 6. Pet Food caps rise the same way (160 through 800/day). Completing missions beyond the cap still counts toward your streak and abilities; only XP and Pet Food accumulation stops for that day.",
     },
     {
         "q": "What is the Power Score?",

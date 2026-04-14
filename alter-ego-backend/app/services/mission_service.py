@@ -13,31 +13,6 @@ from app.core.supabase_client import supabase_admin, run_query
 
 logger = logging.getLogger(__name__)
 
-_MISSION_TITLE_INJECTION_PHRASES = (
-    "ignore previous",
-    "system:",
-    "assistant:",
-    "you are now",
-)
-_FALLBACK_CORE_MISSION_TITLE = "Complete a mindfulness task today"
-
-
-def _sanitize_core_mission_title(title: str, *, user_id: str) -> str:
-    raw = str(title or "")[:200].strip()
-    low = raw.lower()
-    if any(p in low for p in _MISSION_TITLE_INJECTION_PHRASES):
-        logger.error(
-            json.dumps(
-                {
-                    "event": "mission_injection_attempt",
-                    "user_id": user_id,
-                    "title_preview": raw[:50],
-                }
-            )
-        )
-        return _FALLBACK_CORE_MISSION_TITLE
-    return raw if raw else _FALLBACK_CORE_MISSION_TITLE
-
 
 from app.core.constants import (
     CORE_MISSIONS,
@@ -46,7 +21,6 @@ from app.core.constants import (
     MISSION_PF,
     MISSION_XP_BY_TYPE,
     PET_UNLOCK_DAY,
-    RECOVERY_MISSION_OVERRIDES,
     get_completion_copy,
     resolve_stat_tag,
 )
@@ -219,286 +193,167 @@ async def ensure_pet_unlocked_if_eligible(user_id: str) -> bool:
 
 async def generate_core_missions_for_user(user_id: str, mission_date: str) -> list[dict]:
     """
-    Generates core pillar missions (3–5 by day since signup + archetype) plus journal.
+    Generates six daily core missions: five pillars from SEASON_CORE_MISSION_SPECS
+    (scoped by active season + phase) plus the journal row from CORE_MISSIONS.
     Idempotent: if any core row exists for this user+date, returns existing rows.
     """
-    from app.agents.core_mission_agent import (
-        CORE_TIER_SPECS,
-        estimated_minutes_for,
-        generate_core_missions,
-        pillars_for_day,
+    from app.core.constants import (
+        CORE_MISSIONS,
+        MISSION_PF,
+        MISSION_XP_BY_TYPE,
+        get_season_core_spec,
+        resolve_stat_tag,
     )
+    from app.services.season_service import get_active_season
 
-    existing = await run_query(supabase_admin.table("missions")
+    # ── Idempotency guard ─────────────────────────────────────────────────
+    existing = await run_query(
+        supabase_admin.table("missions")
         .select("*")
         .eq("user_id", user_id)
         .eq("mission_date", mission_date)
-        .eq("type", "core"))
+        .eq("type", "core")
+    )
     if existing.data:
         return existing.data
 
-    user_res = await run_query(supabase_admin.table("users")
-        .select(
-            "archetype, registration_date, timezone, "
-            "recovery_mode_reason, recovery_mode_until"
-        )
+    # ── User row ──────────────────────────────────────────────────────────
+    user_res = await run_query(
+        supabase_admin.table("users")
+        .select("recovery_mode_reason, recovery_mode_until")
         .eq("id", user_id)
-        .limit(1))
-    user = (user_res.data or [None])[0]
-    if not user:
-        return []
-
-    tz_str = user.get("timezone") or "UTC"
-    try:
-        tz = ZoneInfo(tz_str)
-    except Exception:
-        tz = timezone.utc
-
-    reg_raw = user.get("registration_date") or ""
-    try:
-        reg_dt = datetime.fromisoformat(str(reg_raw).replace("Z", "+00:00"))
-        reg_day = reg_dt.astimezone(tz).date()
-    except Exception:
-        reg_day = date.today()
-
-    try:
-        mday = date.fromisoformat(mission_date)
-    except Exception:
-        mday = date.today()
-
-    days_active = max(0, (mday - reg_day).days)
-    archetype = str(user.get("archetype") or "structured_climber")
-
-    dna_res = await run_query(supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id).limit(1))
-    dna_row = (dna_res.data or [None])[0] or {}
-
-    pillar_keys = ["sleep", "movement", "hydration", "mindfulness", "no_phone"]
-    pillar_difficulties: dict[str, str] = {}
-    for pk in pillar_keys:
-        col = f"core_{pk}_difficulty"
-        raw = dna_row.get(col, "easy")
-        pillar_difficulties[pk] = str(raw or "easy").lower()
-
-    seven_start = (mday - timedelta(days=7)).isoformat()
-    recent = (
-        ((await run_query(supabase_admin.table("missions")
-        .select("core_pillar, completed, is_journal_mission, mission_date")
-        .eq("user_id", user_id)
-        .eq("type", "core")
-        .gte("mission_date", seven_start))).data)
-        or []
+        .limit(1)
     )
+    user = (user_res.data or [None])[0] or {}
 
-    pillar_rates: dict[str, float] = {}
-    for pillar in pillar_keys:
-        pm = [
-            m
-            for m in recent
-            if (m.get("core_pillar") or "") == pillar and not m.get("is_journal_mission")
-        ]
-        if pm:
-            pillar_rates[pillar] = sum(1 for m in pm if m.get("completed")) / len(pm)
-        else:
-            pillar_rates[pillar] = 0.7
+    # ── Season + phase ────────────────────────────────────────────────────
+    season = await get_active_season(user_id)
+    if season:
+        season_number = int(season.get("season_number") or 1)
+        current_phase = int(season.get("current_phase") or 1)
+    else:
+        season_number = 1
+        current_phase = 1
 
-    last_titles_res = (
-        ((await run_query(supabase_admin.table("missions")
-        .select("title, created_at")
-        .eq("user_id", user_id)
-        .eq("type", "core")
-        .eq("is_journal_mission", False)
-        .order("created_at", desc=True)
-        .limit(24))).data)
-        or []
-    )
-    last_mission_texts = [str(m["title"]) for m in last_titles_res if m.get("title")][:6]
+    pillar_specs, phase_difficulty = get_season_core_spec(season_number, current_phase)
 
-    recovery_overrides: dict = {}
-    recovery_pillars_today: list[str] | None = None
+    # ── Recovery mode: cap difficulty at easy ────────────────────────────
     rm_reason = user.get("recovery_mode_reason")
-    rm_until = user.get("recovery_mode_until")
+    rm_until  = user.get("recovery_mode_until")
     if rm_reason and rm_until:
         try:
-            until_d = date.fromisoformat(str(rm_until)[:10])
+            from datetime import date as _date
+            until_d = _date.fromisoformat(str(rm_until)[:10])
+            mday    = _date.fromisoformat(mission_date)
             if mday <= until_d:
-                rkey = str(rm_reason).strip().lower()
-                recovery_overrides = dict(RECOVERY_MISSION_OVERRIDES.get(rkey, {}))
-                mp = recovery_overrides.get("max_pillars")
-                if isinstance(mp, int) and mp > 0:
-                    full = pillars_for_day(archetype, days_active)
-                    recovery_pillars_today = full[:mp]
+                phase_difficulty = "easy"
         except Exception:
-            recovery_overrides = {}
-            recovery_pillars_today = None
+            pass
 
-    diff_cap = recovery_overrides.get("difficulty_cap")
-    if isinstance(diff_cap, str) and diff_cap:
-        cap = diff_cap.lower()
-        if cap in ("easy", "medium", "hard", "elite"):
-            cap_rank = {"easy": 0, "medium": 1, "hard": 2, "elite": 3}
-            c = cap_rank[cap]
-            for pk in pillar_keys:
-                cur = str(pillar_difficulties.get(pk, "easy")).lower()
-                if cap_rank.get(cur, 0) > c:
-                    pillar_difficulties[pk] = cap
-
-    pillar_streaks = await compute_core_pillar_streak_bases(user_id, mission_date)
-    pillar_completion_hour: dict[str, str] = {}
-    try:
-        hour_rows = (
-            ((await run_query(supabase_admin.table("missions")
-            .select("core_pillar, completed_at")
-            .eq("user_id", user_id)
-            .eq("type", "core")
-            .eq("completed", True)
-            .eq("is_journal_mission", False)
-            .not_.is_("completed_at", "null")
-            .order("completed_at", desc=True)
-            .limit(70))).data)
-            or []
-        )
-        pillar_hours: dict[str, list[int]] = defaultdict(list)
-        for row in hour_rows:
-            p = str(row.get("core_pillar") or "")
-            cat = str(row.get("completed_at") or "")
-            if p and cat and p != "journal":
-                try:
-                    dt = datetime.fromisoformat(cat.replace("Z", "+00:00"))
-                    pillar_hours[p].append(dt.hour)
-                except Exception:
-                    pass
-        for pillar, hours_list in pillar_hours.items():
-            if hours_list:
-                buckets: list[str] = []
-                for h in hours_list:
-                    if 5 <= h <= 11:
-                        buckets.append("morning")
-                    elif 12 <= h <= 16:
-                        buckets.append("afternoon")
-                    elif 17 <= h <= 22:
-                        buckets.append("evening")
-                if buckets:
-                    pillar_completion_hour[pillar] = Counter(buckets).most_common(1)[0][0]
-    except Exception:
-        pass
-
-    batch = await generate_core_missions(
-        archetype=archetype,
-        days_active=days_active,
-        pillar_difficulties=pillar_difficulties,
-        recent_pillar_completions=pillar_rates,
-        last_core_missions=last_mission_texts,
-        recovery_pillars_today=recovery_pillars_today,
-        pillar_streaks=pillar_streaks,
-        pillar_completion_hour=pillar_completion_hour,
+    # ── XP / PF from phase difficulty ─────────────────────────────────────
+    xp_per_pillar = MISSION_XP_BY_TYPE["core"].get(
+        phase_difficulty, MISSION_XP_BY_TYPE["core"]["easy"]
+    )
+    pf_per_pillar = MISSION_PF["core"].get(
+        phase_difficulty, MISSION_PF["core"]["easy"]
     )
 
-    journal_cfg = next(m for m in CORE_MISSIONS if m.get("is_journal_mission"))
-
+    # ── Build pillar rows (5 core pillars) ────────────────────────────────
+    pillar_order = ["sleep", "movement", "hydration", "mindfulness", "no_phone"]
     rows: list[dict] = []
-    for m in batch.missions:
-        diff = str(m.difficulty).lower()
-        if diff not in ("easy", "medium", "hard", "elite"):
-            diff = "easy"
-        xp = MISSION_XP_BY_TYPE["core"].get(diff, MISSION_XP_BY_TYPE["core"]["easy"])
-        pf = MISSION_PF["core"].get(diff, MISSION_PF["core"]["easy"])
-        spec_text = CORE_TIER_SPECS[m.pillar][diff]
-        rows.append(
-            {
-                "user_id": user_id,
-                "type": "core",
-                "title": _sanitize_core_mission_title(m.title, user_id=user_id),
-                "difficulty": diff,
-                "xp_value": xp,
-                "pf_value": pf,
-                "mission_date": mission_date,
-                "completed": False,
-                "is_journal_mission": False,
-                "core_pillar": m.pillar,
-                "stat_tag": resolve_stat_tag(m.pillar, "core"),
-                "estimated_minutes": estimated_minutes_for(m.pillar, diff),
-                "rationale": spec_text,
-            }
-        )
 
-    xp_boost_pct = int(recovery_overrides.get("xp_boost_pct", 0) or 0)
-    if xp_boost_pct > 0:
-        boost = 1.0 + (xp_boost_pct / 100.0)
-        for row in rows:
-            if not row.get("is_journal_mission"):
-                row["xp_value"] = int(round(int(row.get("xp_value") or 0) * boost))
+    for pillar in pillar_order:
+        spec = pillar_specs.get(pillar)
+        if not spec:
+            continue
+        rows.append({
+            "user_id":           user_id,
+            "type":              "core",
+            "title":             spec["title"],
+            "difficulty":        phase_difficulty,
+            "xp_value":          xp_per_pillar,
+            "pf_value":          pf_per_pillar,
+            "mission_date":      mission_date,
+            "completed":         False,
+            "is_journal_mission": False,
+            "core_pillar":       pillar,
+            "stat_tag":          resolve_stat_tag(pillar, "core"),
+            "estimated_minutes": spec["minutes"],
+            "rationale":         spec["rationale"],
+        })
 
-    rows.append(
-        {
-            "user_id": user_id,
-            "type": "core",
-            "title": journal_cfg["title"],
-            "difficulty": journal_cfg["difficulty"],
-            "xp_value": journal_cfg["xp"],
-            "pf_value": journal_cfg["pf"],
-            "mission_date": mission_date,
-            "completed": False,
-            "is_journal_mission": True,
-            "core_pillar": journal_cfg["pillar"],
-            "stat_tag": resolve_stat_tag(journal_cfg["pillar"], "core"),
-            "estimated_minutes": journal_cfg["estimated_minutes"],
-            "rationale": journal_cfg["rationale"],
-        }
+    # ── Journal row ───────────────────────────────────────────────────────
+    journal_cfg = next(
+        (m for m in CORE_MISSIONS if m.get("is_journal_mission")), None
     )
+    if journal_cfg:
+        rows.append({
+            "user_id":           user_id,
+            "type":              "core",
+            "title":             journal_cfg["title"],
+            "difficulty":        journal_cfg["difficulty"],
+            "xp_value":          journal_cfg["xp"],
+            "pf_value":          journal_cfg["pf"],
+            "mission_date":      mission_date,
+            "completed":         False,
+            "is_journal_mission": True,
+            "core_pillar":       journal_cfg["pillar"],
+            "stat_tag":          resolve_stat_tag(journal_cfg["pillar"], "core"),
+            "estimated_minutes": journal_cfg["estimated_minutes"],
+            "rationale":         journal_cfg["rationale"],
+        })
 
+    # ── Insert (unique index on (user_id, mission_date, core_pillar) guards races) ──
     try:
         inserted = await run_query(supabase_admin.table("missions").insert(rows))
         out: list[dict] = list(inserted.data) if inserted.data else []
         if not out:
-            # Insert may have succeeded but returned nothing — re-fetch
-            fetched = await run_query(supabase_admin.table("missions")
+            fetched = await run_query(
+                supabase_admin.table("missions")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("mission_date", mission_date)
-                .eq("type", "core"))
+                .eq("type", "core")
+            )
             out = fetched.data or []
     except Exception as e:
         err_str = str(e).lower()
         if "duplicate" in err_str or "unique" in err_str or "conflict" in err_str:
-            # Concurrent insert beat us — return what's already there
             logger.info(
-                json.dumps(
-                    {
-                        "event": "missions_concurrent_insert_skipped",
-                        "user_id": user_id,
-                        "date": mission_date,
-                    }
-                )
+                json.dumps({
+                    "event":   "missions_concurrent_insert_skipped",
+                    "user_id": user_id,
+                    "date":    mission_date,
+                })
             )
-            fetched = await run_query(supabase_admin.table("missions")
+            fetched = await run_query(
+                supabase_admin.table("missions")
                 .select("*")
                 .eq("user_id", user_id)
                 .eq("mission_date", mission_date)
-                .eq("type", "core"))
-            return fetched.data or []
-        # Real error — re-raise
-        logger.error(
-            json.dumps(
-                {
-                    "event": "mission_generation_error",
-                    "user_id": user_id,
-                    "date": mission_date,
-                    "error": str(e)[:200],
-                }
+                .eq("type", "core")
             )
+            return fetched.data or []
+        logger.error(
+            json.dumps({
+                "event":   "mission_generation_error",
+                "user_id": user_id,
+                "date":    mission_date,
+                "error":   str(e)[:200],
+            })
         )
         raise
 
     logger.info(
-        json.dumps(
-            {
-                "event": "missions_generated",
-                "user_id": user_id,
-                "date": mission_date,
-                "count": len(out),
-                "recovery_active": bool(recovery_overrides),
-            }
-        )
+        json.dumps({
+            "event":          "missions_generated",
+            "user_id":        user_id,
+            "date":           mission_date,
+            "season_number":  season_number,
+            "phase":          current_phase,
+            "difficulty":     phase_difficulty,
+            "count":          len(out),
+        })
     )
     return out
 

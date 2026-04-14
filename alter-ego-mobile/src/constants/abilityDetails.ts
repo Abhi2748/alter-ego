@@ -73,7 +73,7 @@ export const ABILITY_DETAILS: Record<AbilityKey, AbilityStaticConfig> = {
     description:
       "The backbone of everything. Discipline grows from completing core daily missions, resisting bad habits, and recovering deliberately.",
     missions: [
-      { emoji: "⚡", name: "Core missions", sub: "Daily required missions" },
+      { emoji: "⚡", name: "Core missions", sub: "Five pillars + journal (scales with Season)" },
       { emoji: "🛡️", name: "Resistance missions", sub: "Quit-path completions" },
       { emoji: "🔄", name: "Recovery missions", sub: "Recovery-type completions" },
     ],

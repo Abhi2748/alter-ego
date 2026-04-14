@@ -4,6 +4,16 @@ This file is a running log of what we change in the codebase as we build ALTER E
 
 ---
 
+## 2026-04-13 — Static season-driven core missions
+
+### What changed
+- **Core missions:** Five pillar rows per day come from **`SEASON_CORE_MISSION_SPECS`** + active **season/phase** (`get_season_core_spec` in `constants.py`, `generate_core_missions_for_user` in `mission_service`). Journal row still from **`CORE_MISSIONS`**.
+- **Removed** `app/agents/core_mission_agent.py` (no LLM for daily core copy).
+- **DB:** Migration **`053_missions_core_unique.sql`** — dedupe + partial **unique** on `(user_id, mission_date, core_pillar)` for `type='core'`.
+- **Copy:** FAQ (`settings.py`), welcome mail (`mail_service.py`), and docs (`CLAUDE.md`, handoff) updated to match.
+
+---
+
 ## 2026-03-17 — B1: Initial database schema migration
 
 ### Goal

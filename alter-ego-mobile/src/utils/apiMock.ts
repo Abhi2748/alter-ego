@@ -58,7 +58,7 @@ const mockMission = (overrides: Partial<MissionOut> = {}): MissionOut => ({
   type: "core",
   pillar: "sleep",
   interest: null,
-  title: "Get 7+ hours of sleep",
+  title: "Sleep 7 hours tonight",
   difficulty: "Medium",
   xp_value: MOCK_CORE_XP_PF.Medium.xp,
   pet_food_value: MOCK_CORE_XP_PF.Medium.pf,
@@ -114,7 +114,7 @@ export async function getHome(_accessToken: string): Promise<HomeOut> {
     missions: [
       mockMission({
         id: "m1",
-        title: "Get 7+ hours of sleep",
+        title: "Sleep 7 hours tonight",
         pillar: "sleep",
         difficulty: "Easy",
         xp_value: MOCK_CORE_XP_PF.Easy.xp,
@@ -123,7 +123,7 @@ export async function getHome(_accessToken: string): Promise<HomeOut> {
       }),
       mockMission({
         id: "m2",
-        title: "Move for 30 minutes",
+        title: "Get 10 minutes of movement today",
         pillar: "movement",
         difficulty: "Medium",
         xp_value: MOCK_CORE_XP_PF.Medium.xp,
@@ -397,8 +397,8 @@ export async function getTwinComparison(_accessToken: string): Promise<TwinCompa
     gap_days: 7,
     username: "shadow_wolf",
     twin_today_activities: [
-      { mission_title: "Get 7+ hours of sleep", mission_type: "core", difficulty: "Easy", xp_earned: MOCK_CORE_XP_PF.Easy.xp, completed_at: `${today}T06:30:00Z` },
-      { mission_title: "Move for 30 minutes", mission_type: "core", difficulty: "Medium", xp_earned: MOCK_CORE_XP_PF.Medium.xp, completed_at: `${today}T07:15:00Z` },
+      { mission_title: "Sleep 7 hours tonight", mission_type: "core", difficulty: "Easy", xp_earned: MOCK_CORE_XP_PF.Easy.xp, completed_at: `${today}T06:30:00Z` },
+      { mission_title: "Get 10 minutes of movement today", mission_type: "core", difficulty: "Medium", xp_earned: MOCK_CORE_XP_PF.Medium.xp, completed_at: `${today}T07:15:00Z` },
       { mission_title: "Drink 8 glasses of water", mission_type: "core", difficulty: "Easy", xp_earned: MOCK_CORE_XP_PF.Easy.xp, completed_at: `${today}T08:00:00Z` },
       { mission_title: "Run 2 miles", mission_type: "focus", difficulty: "Medium", xp_earned: MOCK_INTEREST_XP_PF.Medium.xp, completed_at: `${today}T09:10:00Z` },
       { mission_title: "Read for 20 minutes", mission_type: "personal", difficulty: "Easy", xp_earned: MOCK_PERSONAL_XP_PF.Easy.xp, completed_at: null },

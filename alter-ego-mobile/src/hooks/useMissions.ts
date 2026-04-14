@@ -20,6 +20,7 @@ import { useUserStore } from "@/store/userStore";
 import { PROFILE_KEYS } from "@/hooks/useProfile";
 import { STATS_KEYS } from "@/hooks/useStats";
 import { SIGIL_KEYS } from "@/hooks/useSigil";
+import { SEASON_KEYS } from "@/hooks/useSeason";
 import { triggerMissionCompletionHaptic } from "@/utils/haptics";
 
 // Query keys — centralised so invalidation works correctly
@@ -129,6 +130,7 @@ export async function applyMissionCompletionSideEffects(
   queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });
   queryClient.invalidateQueries({ queryKey: STATS_KEYS.all });
   queryClient.invalidateQueries({ queryKey: SIGIL_KEYS.all });
+  queryClient.invalidateQueries({ queryKey: SEASON_KEYS.current });
 }
 
 // ── Complete a mission ─────────────────────────────────────────────────────

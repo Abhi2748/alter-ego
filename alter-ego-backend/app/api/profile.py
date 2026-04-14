@@ -275,23 +275,24 @@ async def get_profile_overview(authorization: str = Header(None)):
         else 100.0
     )
 
-    pf_total = user.get("total_pf", 0) or 0
-    pf_start = PF_THRESHOLDS[pet_stage - 1] if pet_stage > 0 else 0
-    pf_end = (
-        PF_THRESHOLDS[pet_stage]
-        if pet_stage < len(PF_THRESHOLDS) - 1
-        else PF_THRESHOLDS[pet_stage - 1] if pet_stage > 0 else PF_THRESHOLDS[0]
-    )
-    if pet_stage >= TOTAL_PET_STAGES:
-        pf_end = PF_THRESHOLDS[pet_stage - 1]
-    pf_progress_pct = (
-        round(
-            ((pf_total - pf_start) / max(pf_end - pf_start, 1)) * 100,
-            1,
-        )
-        if pet_stage < TOTAL_PET_STAGES
-        else 100.0
-    )
+    pf_total = int(user.get("total_pf", 0) or 0)
+    pet_unlocked = bool(user.get("pet_unlocked", False))
+    # Segment [PF_THRESHOLDS[s-1], PF_THRESHOLDS[s]] for pet_stage s in 1..7; max stage = 100%.
+    if not pet_unlocked or pet_stage <= 0:
+        pf_start = 0
+        pf_next = PF_THRESHOLDS[1] if len(PF_THRESHOLDS) > 1 else 400
+        denom = max(pf_next - pf_start, 1)
+        pf_progress_pct = round(min(100.0, max(0.0, (pf_total - pf_start) / denom * 100)), 1)
+        pf_end = pf_next
+    elif pet_stage >= TOTAL_PET_STAGES:
+        pf_progress_pct = 100.0
+        pf_start = PF_THRESHOLDS[TOTAL_PET_STAGES - 1]
+        pf_end = pf_start
+    else:
+        pf_start = PF_THRESHOLDS[pet_stage - 1]
+        pf_end = PF_THRESHOLDS[pet_stage]
+        denom = max(pf_end - pf_start, 1)
+        pf_progress_pct = round(min(100.0, max(0.0, (pf_total - pf_start) / denom * 100)), 1)
 
     return {
         "username": user.get("username"),
@@ -308,7 +309,9 @@ async def get_profile_overview(authorization: str = Header(None)):
         "pet_unlocked": user.get("pet_unlocked", False),
         "total_pf": pf_total,
         "pf_to_next_pet": (
-            max(0, pf_end - pf_total) if pet_stage < TOTAL_PET_STAGES else 0
+            0
+            if pet_stage >= TOTAL_PET_STAGES
+            else max(0, pf_end - pf_total)
         ),
         "pf_progress_pct": pf_progress_pct,
         "current_streak": user.get("current_streak", 0),

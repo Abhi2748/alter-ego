@@ -28,7 +28,10 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
 import { XPProgressBar, XPProgressBarRef } from "../components/XPProgressBar";
-import { getNextStageNameForBar } from "@/constants/characterProgression";
+import {
+  computeCharacterXpDerived,
+  getNextStageNameForBar,
+} from "@/constants/characterProgression";
 import { PetEvolutionModal } from "../components/PetEvolutionModal";
 import { HomeMissionCard } from "../components/HomeMissionCard";
 import type { MissionType, MissionStatus } from "../components/MissionCard";
@@ -83,7 +86,7 @@ import {
   type AbilityStatKey,
 } from "@/constants/stats";
 import { getCharacterImageSource, getPetImageSource } from "@/constants/characterPetAssets";
-import { PET_STAGE_NAMES } from "@/constants/petProgression";
+import { computePetPfProgressPct, PET_STAGE_NAMES } from "@/constants/petProgression";
 import { pickPetDialogue, type PetDialogueContext } from "@/constants/petDialogue";
 import { useCharacterStats } from "@/hooks/useStats";
 import { useInterests } from "@/hooks/useInterests";
@@ -603,12 +606,24 @@ export function HomeScreen() {
   const characterStage = profile?.character_stage ?? 1;
   const stageTitle = profile?.character_stage_name ?? "The Awakened";
   const displayXP = profile?.total_xp ?? 0;
-  /** 0–100 within current stage — same as profile/overview (fill bar to next threshold). */
-  const stageProgressPct = profile?.stage_progress_pct ?? 0;
+  /** 0–100 within current stage — from CHARACTER_XP_THRESHOLDS (same math as backend overview). */
+  const stageProgressPct = useMemo(() => {
+    if (!profile) return 0;
+    return computeCharacterXpDerived(
+      profile.total_xp ?? 0,
+      profile.character_stage ?? 1
+    ).stage_progress_pct;
+  }, [profile?.total_xp, profile?.character_stage]);
   /** Stage name you’re progressing toward (e.g. The Focused while still Awakened). */
   const nextStageLabel = getNextStageNameForBar(characterStage);
   const petStage = profile?.pet_stage ?? 0;
   const totalPetFood = profile?.total_pf ?? 0;
+  const petUnlocked = profile?.pet_unlocked ?? false;
+  /** PF bar fill from PET_PF_THRESHOLDS (Cat→Fox completes at 400 PF total, etc.). */
+  const petPfProgressPct = useMemo(
+    () => computePetPfProgressPct(totalPetFood, petStage, petUnlocked),
+    [totalPetFood, petStage, petUnlocked]
+  );
   const streak = profile?.current_streak ?? 0;
 
   const streakHeatmap = streakProfile?.heatmap ?? [];
@@ -732,8 +747,7 @@ export function HomeScreen() {
 
   const nextPetName =
     petStage >= 1 && petStage < 8 ? PET_STAGE_NAMES[petStage] : null;
-  const pfProgress = profile?.pf_progress_pct ?? 0;
-  const petLevelPct = pfProgress / 100;
+  const petLevelPct = petPfProgressPct / 100;
 
   useEffect(() => {
     const handler = (result: CompleteMissionResponse, source: { missionId?: string }) => {
@@ -1192,6 +1206,7 @@ export function HomeScreen() {
                     end={{ x: 1, y: 0 }}
                     style={styles.petFoodFill}
                   />
+                  {petLevelPct > 0.02 ? <View style={styles.petFoodGlowDot} /> : null}
                 </View>
               </View>
             </View>
@@ -1836,7 +1851,7 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 5,
     backgroundColor: "rgba(20,24,36,1)",
-    overflow: "hidden",
+    overflow: "visible",
     position: "relative",
   },
   petFoodFillWrap: {
@@ -1845,13 +1860,32 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     borderRadius: 5,
-    overflow: "hidden",
+    overflow: "visible",
   },
   petFoodFill: {
     flex: 1,
     height: 5,
     borderRadius: 5,
     minWidth: 0,
+  },
+  /** Match XP bar leading-edge dot (XPProgressBar glowDot). */
+  petFoodGlowDot: {
+    position: "absolute",
+    right: -4.5,
+    top: -2,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: "#A7F3D0",
+    borderWidth: 1.5,
+    borderColor: "#09091A",
+    ...(Platform.OS === "ios"
+      ? {
+          shadowColor: "rgba(52,211,153,0.45)",
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 0 },
+        }
+      : { elevation: 6 }),
   },
 
   section: { marginBottom: 0 },

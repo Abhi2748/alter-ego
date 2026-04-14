@@ -3,7 +3,7 @@ APScheduler setup for ALTER EGO background jobs.
 All jobs that run on a schedule are registered here.
 
 Per-user local time (users.timezone / IANA name):
-- twin_journal_midnight: local hour 0 (Twin journal for the calendar day that just ended)
+- twin_journal_midnight, season_maintenance: local hour 0 (midnight; twin journal + season day log / expiry)
 - daily_mission_reset, pet_unlock_check, twin_simulation, twin_recalibration: local hour 1
 - day_summary + power_score + scheduled mail: local hour 1 (batched in user_local_maintenance_job)
 - onboarding echo + contradiction (C1/C2): local Sunday hour 2 (same job loop)
@@ -902,7 +902,7 @@ async def twin_challenge_weekly_job():
 
 async def season_maintenance_job():
     """
-    Runs every hour. Only processes users whose local hour is 1 (1:00–1:59).
+    Runs every hour. Only processes users whose local hour is 0 (midnight, 12:00–12:59 AM).
 
     For each user who has an active season:
       1. Records yesterday's core mission outcome into season_day_log (idempotent upsert).

@@ -5,7 +5,7 @@
  * Content (headlines, twin message, CTAs) adapts to tier + season number/name.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   ScrollView,
   Pressable,
   Animated,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
@@ -27,7 +28,8 @@ import Svg, {
 } from 'react-native-svg';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCurrentSeason, SEASON_KEYS } from '@/hooks/useSeason';
-import type { CurrentSeason, SeasonTier } from '@/services/season';
+import { seasonService, type CurrentSeason, type SeasonTier } from '@/services/season';
+import { getErrorMessage } from '@/services/api';
 
 // ── Design tokens ──────────────────────────────────────────────────────────
 const BG: readonly [string, string] = ['#050509', '#000000'];
@@ -334,6 +336,7 @@ export function SeasonCompletionScreen() {
   const insets      = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { data: season } = useCurrentSeason();
+  const [ctaPending, setCtaPending] = useState(false);
 
   const tier: SeasonTier = season?.completion_tier ?? season?.projected_tier ?? 'failed';
   const cfg    = TIER_CONFIG[tier];
@@ -341,14 +344,21 @@ export function SeasonCompletionScreen() {
 
   const particleSpecs = useParticles(cfg.particleColors, isFail ? 0 : 8);
 
-  // Mark season as seen so HomeScreen stops showing the prompt
-  useEffect(() => {
-    if (!season) return;
-    // Invalidate so the banner disappears after user views this screen
-    return () => {
-      queryClient.invalidateQueries({ queryKey: SEASON_KEYS.current });
-    };
-  }, [season, queryClient]);
+  const beginNextAndGoHome = async () => {
+    if (ctaPending) return;
+    setCtaPending(true);
+    try {
+      const next = await seasonService.beginNextSeason();
+      queryClient.setQueryData(SEASON_KEYS.current, next);
+      await queryClient.invalidateQueries({ queryKey: SEASON_KEYS.current });
+      await queryClient.invalidateQueries({ queryKey: SEASON_KEYS.history });
+      navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    } catch (e) {
+      Alert.alert('Could not start next season', getErrorMessage(e));
+    } finally {
+      setCtaPending(false);
+    }
+  };
 
   if (!season) {
     return (
@@ -372,13 +382,12 @@ export function SeasonCompletionScreen() {
   const titleUnlocked = season.title_unlocked;
 
   const handleNext = () => {
-    // Navigate back to home; backend will generate Season 2 on next mission sync
-    navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    void beginNextAndGoHome();
   };
 
+  /** Same as “continue”: backend has no same-number restart; next arc starts via begin-next. */
   const handleRestart = () => {
-    // Navigate back to home; backend will restart the season
-    navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    void beginNextAndGoHome();
   };
 
   const handleViewRecord = () => {
@@ -502,17 +511,34 @@ export function SeasonCompletionScreen() {
             </View>
             <Pressable
               onPress={handleRestart}
-              style={({ pressed }) => [s.ctaPrimary, pressed && s.ctaPressed]}
+              disabled={ctaPending}
+              style={({ pressed }) => [
+                s.ctaPrimary,
+                pressed && s.ctaPressed,
+                ctaPending && { opacity: 0.6 },
+              ]}
             >
               <LinearGradient
                 colors={['#DC2626', '#7F1D1D']}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                 style={s.ctaGradient}
               >
-                <Text style={s.ctaPrimaryText}>{`Restart Season ${season.season_number} · Fresh Start`}</Text>
+                <Text style={s.ctaPrimaryText}>
+                  {ctaPending
+                    ? 'Starting…'
+                    : `Restart Season ${season.season_number} · Fresh Start`}
+                </Text>
               </LinearGradient>
             </Pressable>
-            <Pressable onPress={handleNext} style={({ pressed }) => [s.ctaSecondary, pressed && s.ctaPressed]}>
+            <Pressable
+              onPress={handleNext}
+              disabled={ctaPending}
+              style={({ pressed }) => [
+                s.ctaSecondary,
+                pressed && s.ctaPressed,
+                ctaPending && { opacity: 0.6 },
+              ]}
+            >
               <Text style={s.ctaSecondaryText}>{`Continue to Season ${nextSeasonNum} Anyway`}</Text>
             </Pressable>
             <Text style={s.failNote}>Restarting gives you a clean slate.{'\n'}No penalties beyond the XP you didn't earn.</Text>
@@ -521,14 +547,23 @@ export function SeasonCompletionScreen() {
           <>
             <Pressable
               onPress={handleNext}
-              style={({ pressed }) => [s.ctaPrimary, pressed && s.ctaPressed]}
+              disabled={ctaPending}
+              style={({ pressed }) => [
+                s.ctaPrimary,
+                pressed && s.ctaPressed,
+                ctaPending && { opacity: 0.6 },
+              ]}
             >
               <LinearGradient
                 colors={cfg.ctaColors as [string, string]}
                 start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                 style={s.ctaGradient}
               >
-                <Text style={s.ctaPrimaryText}>{`Begin Season ${nextSeasonNum} · ${nextSeasonName}`}</Text>
+                <Text style={s.ctaPrimaryText}>
+                  {ctaPending
+                    ? 'Starting…'
+                    : `Begin Season ${nextSeasonNum} · ${nextSeasonName}`}
+                </Text>
               </LinearGradient>
             </Pressable>
             <Pressable onPress={handleViewRecord} style={({ pressed }) => [s.ctaSecondary, pressed && s.ctaPressed]}>

@@ -175,7 +175,7 @@ Implemented modules include (names indicate responsibility):
 
 - **interest_planner_agent** — interest missions for a date  
 - **interest_normaliser** — interest naming/normalisation  
-- **core_mission_agent** — core pillar mission generation / recalibration linkage  
+- **Core missions (no agent)** — static season/phase specs in `constants.py`, assembled in `mission_service.generate_core_missions_for_user`  
 - **quit_mission_agent**, **quit_insight_agent**, **quit_profile_agent** — quit path missions and copy  
 - **twin_chat_agent** — twin chat responses  
 - **report_agent** — weekly report generation  

@@ -18,7 +18,7 @@ import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
-import { useCurrentSeason } from '@/hooks/useSeason';
+import { useCurrentSeason, useSeasonHistory } from '@/hooks/useSeason';
 import type { ProfileStackParamList } from '@/navigation/types';
 import type { MainStackParamList } from '@/navigation/types';
 
@@ -52,10 +52,13 @@ function tierLabel(tier: string | null | undefined): string {
   return '—';
 }
 
-// ── Season history row ──────────────────────────────────────────────────────
-// NOTE: Backend will eventually return a list of past seasons.
-// For now we derive what we can from the current season hook.
-// When the history API is built, replace this with the real data.
+function tierRank(tier: string | null | undefined): number {
+  if (tier === 'perfect') return 4;
+  if (tier === 'clear') return 3;
+  if (tier === 'partial') return 2;
+  if (tier === 'failed') return 1;
+  return 0;
+}
 
 // ── Main component ──────────────────────────────────────────────────────────
 
@@ -63,6 +66,7 @@ export function ProfileSeasonScreen() {
   const navigation = useNavigation<Nav>();
   const insets     = useSafeAreaInsets();
   const { data: season } = useCurrentSeason();
+  const { data: seasonHistory } = useSeasonHistory();
 
   const isActive    = season?.status === 'active';
   const isCompleted = season?.status === 'completed';
@@ -72,6 +76,20 @@ export function ProfileSeasonScreen() {
   const displayTier  = season?.completion_tier ?? season?.projected_tier ?? null;
   const tierC = tierColor(displayTier);
   const tierL = tierLabel(displayTier);
+
+  const historyRows = seasonHistory?.history ?? [];
+  const completedSeasonsCount = historyRows.length;
+  const totalSeasonXp = historyRows.reduce(
+    (sum, row) => sum + (row.xp_awarded ?? 0),
+    0
+  );
+  let bestTierFromHistory: string | null = null;
+  for (const row of historyRows) {
+    const t = (row.completion_tier as string) || 'failed';
+    if (tierRank(t) > tierRank(bestTierFromHistory)) bestTierFromHistory = t;
+  }
+  const bestTierLabel = tierLabel(bestTierFromHistory);
+  const bestTierColor = tierColor(bestTierFromHistory);
 
   // Navigate to full season detail (MainStack)
   const openDetail = () => {
@@ -113,10 +131,18 @@ export function ProfileSeasonScreen() {
         <Text style={s.blockLabel}>Lifetime</Text>
         <View style={s.lifetimeRow}>
           {[
-            { num: isCompleted || isFailed ? '1' : '0', label: 'Completed', color: '#FFB800' },
-            { num: isActive ? '1' : '0',                label: 'Active',    color: TEXT },
-            { num: season ? String((season.xp_awarded ?? 0) + (isActive ? 0 : 0)) : '0', label: 'Season XP', color: VG },
-            { num: tierL !== '—' ? tierL : '—',         label: 'Best Tier', color: tierC },
+            { num: String(completedSeasonsCount), label: 'Completed', color: '#FFB800' },
+            { num: isActive ? '1' : '0', label: 'Active', color: TEXT },
+            {
+              num: totalSeasonXp > 0 ? totalSeasonXp.toLocaleString() : '0',
+              label: 'Season XP',
+              color: VG,
+            },
+            {
+              num: bestTierLabel !== '—' ? bestTierLabel : '—',
+              label: 'Best Tier',
+              color: bestTierColor,
+            },
           ].map(({ num, label, color }) => (
             <View key={label} style={s.lifeCard}>
               <Text style={[s.lifeNum, { color }]}>{num}</Text>
@@ -202,44 +228,81 @@ export function ProfileSeasonScreen() {
         {/* ── History ── */}
         <Text style={s.blockLabel}>History</Text>
 
-        {/* Completed seasons list — populated from API when available */}
-        {isCompleted && season ? (
-          <View style={s.historyCard}>
-            {/* Badge icon */}
-            <View style={[s.histBadge, { backgroundColor: `${tierC}11`, borderColor: `${tierC}33` }]}>
-              <Svg width={28} height={32} viewBox="0 0 28 32" fill="none">
-                <Path
-                  d="M14 1L26 5V14C26 22 21 28 14 31C7 28 2 22 2 14V5L14 1Z"
-                  fill="none" stroke={tierC} strokeWidth={1.5}
-                />
-                <Path
-                  d="M14 9L15.5 14H20L16.5 16.5L17.8 22L14 19.5L10.2 22L11.5 16.5L8 14H12.5L14 9Z"
-                  fill={tierC} opacity={0.85}
-                />
-              </Svg>
-            </View>
-            {/* Info */}
-            <View style={s.histInfo}>
-              <View style={s.histTop}>
-                <Text style={s.histName}>{season.season_name}</Text>
-                <View style={[s.tierPill, { borderColor: `${tierC}44`, backgroundColor: `${tierC}11` }]}>
-                  <Text style={[s.tierPillText, { color: tierC }]}>{tierL}</Text>
+        {historyRows.map((row) => {
+          const rowTier = (row.completion_tier as string) || 'failed';
+          const rowTierC = tierColor(rowTier);
+          const rowTierL = tierLabel(rowTier);
+          const accent = row.season_color || EMBER;
+          return (
+            <View key={row.season_number} style={s.historyCard}>
+              <View
+                style={[
+                  s.histBadge,
+                  { backgroundColor: `${rowTierC}11`, borderColor: `${rowTierC}33` },
+                ]}
+              >
+                <Svg width={28} height={32} viewBox="0 0 28 32" fill="none">
+                  <Path
+                    d="M14 1L26 5V14C26 22 21 28 14 31C7 28 2 22 2 14V5L14 1Z"
+                    fill="none"
+                    stroke={rowTierC}
+                    strokeWidth={1.5}
+                  />
+                  <Path
+                    d="M14 9L15.5 14H20L16.5 16.5L17.8 22L14 19.5L10.2 22L11.5 16.5L8 14H12.5L14 9Z"
+                    fill={rowTierC}
+                    opacity={0.85}
+                  />
+                </Svg>
+              </View>
+              <View style={s.histInfo}>
+                <View style={s.histTop}>
+                  <Text style={s.histName}>{row.season_name}</Text>
+                  <View
+                    style={[
+                      s.tierPill,
+                      {
+                        borderColor: `${rowTierC}44`,
+                        backgroundColor: `${rowTierC}11`,
+                      },
+                    ]}
+                  >
+                    <Text style={[s.tierPillText, { color: rowTierC }]}>
+                      {rowTierL}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[s.histMeta, { color: accent }]}>
+                  {`Season ${row.season_number} · ${row.total_days} days`}
+                </Text>
+                <View style={s.histStats}>
+                  <Text style={s.histStat}>
+                    Done{' '}
+                    <Text style={{ color: TEXT2, fontWeight: '600' }}>
+                      {row.days_completed}/{row.total_days}
+                    </Text>
+                  </Text>
+                  <Text style={s.histStat}>
+                    Perfect{' '}
+                    <Text style={{ color: TEXT2, fontWeight: '600' }}>
+                      {row.days_perfect}
+                    </Text>
+                  </Text>
+                  {row.xp_awarded ? (
+                    <Text style={s.histStat}>
+                      XP{' '}
+                      <Text style={{ color: VG, fontWeight: '600' }}>
+                        +{row.xp_awarded.toLocaleString()}
+                      </Text>
+                    </Text>
+                  ) : null}
                 </View>
               </View>
-              <Text style={s.histMeta}>{`Season ${season.season_number} · ${season.total_days} days`}</Text>
-              <View style={s.histStats}>
-                <Text style={s.histStat}>Done <Text style={{ color: TEXT2, fontWeight: '600' }}>{season.days_completed}/{season.total_days}</Text></Text>
-                <Text style={s.histStat}>Perfect <Text style={{ color: TEXT2, fontWeight: '600' }}>{season.days_perfect}</Text></Text>
-                {season.xp_awarded ? (
-                  <Text style={s.histStat}>XP <Text style={{ color: VG, fontWeight: '600' }}>+{season.xp_awarded.toLocaleString()}</Text></Text>
-                ) : null}
-              </View>
             </View>
-          </View>
-        ) : null}
+          );
+        })}
 
-        {/* Empty history state */}
-        {!isCompleted && !isFailed ? (
+        {historyRows.length === 0 ? (
           <View style={s.emptyHistory}>
             <Text style={s.emptyHistoryText}>
               {isActive

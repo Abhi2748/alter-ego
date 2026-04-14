@@ -108,7 +108,7 @@ alter-ego/
 │       ├── api/              # auth, missions, twin, leaderboard, reports, mail, profile, settings, stats, quits, sigil, onboarding
 │       ├── core/             # constants, supabase_client, scheduler, journal_rules, subscription, archetype, …
 │       ├── services/         # mission, streak, twin, quit, sigil, stat, interest_path, power_score, mail, onboarding, report, …
-│       └── agents/           # core_mission_agent, interest_planner_agent, personal_mission_agent, quit_* agents, nudge, twin_chat, report, interest_normaliser, …
+│       └── agents/           # interest_planner_agent, personal_mission_agent, quit_* agents, nudge, twin_chat, report, interest_normaliser, …
 └── CLAUDE.md                 ← this file
 ```
 
@@ -576,7 +576,7 @@ All components live in `src/components/`. Props interfaces must stay stable.
 
 ### Mission System — code alignment
 - **Mission `type` values in API/lists:** `core`, `interest`, `resistance`, `personal` (grouped on GET today). `recovery` may still exist for legacy/special flows — see `MISSION_PF` / ordering in `mission_service`.
-- **Core:** five pillars (sleep, movement, hydration, mindfulness, no_phone) **plus a separate Daily Journal core mission** (`is_journal_mission`). Journal completion requires a saved `journal_entries` row for that `mission_date` (`journal_rules.py`). Core set size can vary (e.g. 3–5 pillars + journal) from `generate_core_missions_for_user` / `core_mission_agent`.
+- **Core:** five pillars (sleep, movement, hydration, mindfulness, no_phone) **plus a separate Daily Journal core mission** (`is_journal_mission`). Journal completion requires a saved `journal_entries` row for that `mission_date` (`journal_rules.py`). **Six core rows every day:** pillar copy and difficulty come from **`SEASON_CORE_MISSION_SPECS` + active season phase** in `constants.py`, via `generate_core_missions_for_user` (`mission_service`); journal row template from **`CORE_MISSIONS`**. Partial unique index on `(user_id, mission_date, core_pillar)` for `type='core'` (migration `053`).
 - **Interest:** rows in `interests` table; missions keyed by `interest_id`. Generated/synced by `interest_planner_agent`; `GET /missions/today` calls `sync_today_planner_missions` so mid-day profile changes apply.
 - **Resistance:** quit / escaper missions tied to **`quit_paths`** (`quit_path_id` on mission). Synced in `sync_today_planner_missions` via `quit_service`. Same XP/PF curve as interest in `MISSION_XP_BY_TYPE` / `MISSION_PF`.
 - **Personal:** user-created; tier estimated by `personal_mission_agent` (`PERSONAL_MISSION_XP_BY_TIER` + `MISSION_PF["personal"]`).
@@ -726,7 +726,7 @@ Manual audit: cd alter-ego-backend && python -m app.services.audit_service
 
 | Module | Role | When it runs |
 |---|---|---|
-| `core_mission_agent` | Core pillar + journal mission copy / generation | Mission generation / reset path |
+| *(static specs)* | Core pillar + journal rows: `SEASON_CORE_MISSION_SPECS` + `CORE_MISSIONS` (journal only) | `generate_core_missions_for_user` / daily reset |
 | `interest_planner_agent` | Interest mission for a day | `sync_today_planner_missions`, planner hooks |
 | `personal_mission_agent` | Tier estimation for personal missions | POST personal mission |
 | `quit_mission_agent` / `quit_profile_agent` / `quit_insight_agent` | Quit path missions + profile/insight copy | Quit path sync / quits API |
@@ -735,7 +735,7 @@ Manual audit: cd alter-ego-backend && python -m app.services.audit_service
 | `twin_chat_agent` | Shadow Twin chat replies | `POST /twin/chat` |
 | `report_agent` | Weekly report sections | `weekly_report_local_job` |
 
-**Profiler / discipline DNA:** Onboarding and `twin_recalibration` + mission recalibration update the **`discipline_dna`** table (and related user fields). There is no single file named `planner_agent.py` in the current tree — planning is split across `mission_service`, `core_mission_agent`, `interest_planner_agent`, and `quit_service`.
+**Profiler / discipline DNA:** Onboarding and `twin_recalibration` + mission recalibration update the **`discipline_dna`** table (and related user fields). There is no single file named `planner_agent.py` in the current tree — planning is split across `mission_service` (core + sync), `interest_planner_agent`, and `quit_service`.
 
 **Shadow Twin system prompt structure (v2.0):**
 ```

@@ -364,9 +364,10 @@ ARCHETYPE_TWIN_INTRO_LINE = {
 
 # ── CORE MISSIONS ────────────────────────────────────────────────────────
 
-# All 6 core missions — shown every day to every user
-# 5 pillars + journal. All 6 required (per product decision).
-# Journal mission auto-completes when a saved entry meets journal_rules (≈2 lines + 5 words; wrap counts).
+# Journal mission template used by generate_core_missions_for_user (single row).
+# The five non-journal pillars are built from SEASON_CORE_MISSION_SPECS + active season phase.
+# Entries below for sleep/movement/… are legacy reference copy; not inserted as daily rows.
+# Journal auto-completes when a saved entry meets journal_rules (≈2 lines + 5 words; wrap counts).
 
 CORE_MISSIONS = [
     {
@@ -965,8 +966,10 @@ ABSENCE_SILENT_RETURN_NOTIFICATION: dict[str, str] = {
 ABSENCE_PUSH_THRESHOLD_DAYS: frozenset[int] = frozenset({1, 2, 3, 5, 7})
 
 # ── RETURN RECOVERY MODE (B3b) ────────────────────────────────────────────────
-# Applied to mission generation for 3 days after returning from 7+ day absence.
-# Intercepted in mission_service before generate_core_missions; agent unchanged.
+# Reserved for long-absence return flows (pillar caps, XP boost, etc.).
+# Core missions are now fixed at six per day; mission_service only applies
+# recovery_mode_* to cap phase difficulty at easy — these overrides are not
+# wired into core generation until a future step reintroduces them.
 
 RECOVERY_MISSION_OVERRIDES: dict[str, dict] = {
     "life": {
@@ -1959,4 +1962,116 @@ def get_season_twin_closing(
         days_perfect=days_perfect,
         missed_plural=missed_plural,
     )
+
+
+# ── STATIC SEASON CORE MISSIONS ───────────────────────────────────────────────
+#
+# Core missions are now fully static — title, rationale, and estimated_minutes
+# are fixed per (season, phase, pillar). No LLM generation needed.
+#
+# Difficulty per phase determines XP and PF values via MISSION_XP_BY_TYPE and
+# MISSION_PF in this file.
+#
+# Season 3+ reuses Season 2's specs via min(season_number, 2) lookup.
+# The 6th core mission (Journal) is always added separately in mission_service.
+
+# Difficulty tier per season per phase.
+SEASON_PHASE_DIFFICULTY: dict[int, dict[int, str]] = {
+    1: {1: "easy", 2: "medium", 3: "medium"},
+    2: {1: "medium", 2: "medium", 3: "hard", 4: "hard", 5: "hard"},
+}
+
+# Static mission specs: title (shown to user), rationale (stored in DB),
+# estimated_minutes (for focus timer / planning UX).
+SEASON_CORE_MISSION_SPECS: dict[int, dict[int, dict[str, dict]]] = {
+    1: {
+        1: {  # Season 1 · Phase 1: Ignition (easy)
+            "sleep":       {"title": "Sleep 7 hours tonight",                              "rationale": "7h sleep target",                           "minutes": 1},
+            "movement":    {"title": "Get 10 minutes of movement today",                   "rationale": "10 min any activity",                        "minutes": 10},
+            "hydration":   {"title": "Drink 6 glasses of water today",                     "rationale": "6 glasses",                                  "minutes": 1},
+            "mindfulness": {"title": "Take 5 minutes for quiet reflection",                "rationale": "5 min mindfulness",                          "minutes": 5},
+            "no_phone":    {"title": "Put your phone away 30 minutes before bed",          "rationale": "30 min phone-free before bed",               "minutes": 30},
+        },
+        2: {  # Season 1 · Phase 2: Rising (medium)
+            "sleep":       {"title": "Aim for 7.5 hours of sleep tonight",                 "rationale": "7.5h sleep target",                          "minutes": 1},
+            "movement":    {"title": "Get 20 minutes of movement today",                   "rationale": "20 min activity",                            "minutes": 20},
+            "hydration":   {"title": "Drink 7 glasses of water today",                     "rationale": "7 glasses",                                  "minutes": 1},
+            "mindfulness": {"title": "Take 10 minutes for mindfulness today",              "rationale": "10 min mindfulness",                         "minutes": 10},
+            "no_phone":    {"title": "Keep your phone off for 1 hour before bed",          "rationale": "1h phone-free before bed",                   "minutes": 60},
+        },
+        3: {  # Season 1 · Phase 3: Locking In (medium)
+            "sleep":       {"title": "Sleep 7.5 hours on a consistent schedule",           "rationale": "7.5h + consistent schedule",                 "minutes": 1},
+            "movement":    {"title": "Get 30 minutes of movement today",                   "rationale": "30 min activity",                            "minutes": 30},
+            "hydration":   {"title": "Drink 8 glasses of water today",                     "rationale": "8 glasses",                                  "minutes": 1},
+            "mindfulness": {"title": "Take 15 minutes for mindfulness today",              "rationale": "15 min mindfulness",                         "minutes": 15},
+            "no_phone":    {"title": "No phone 1 hour before bed and 30 min after waking", "rationale": "1h before bed + first 30 min morning",       "minutes": 90},
+        },
+    },
+    2: {
+        1: {  # Season 2 · Phase 1: Foundation (medium)
+            "sleep":       {"title": "Sleep 7.5 hours on a consistent schedule",           "rationale": "7.5h + consistent schedule",                 "minutes": 1},
+            "movement":    {"title": "Get 30 minutes of movement today",                   "rationale": "30 min activity",                            "minutes": 30},
+            "hydration":   {"title": "Drink 8 glasses of water today",                     "rationale": "8 glasses",                                  "minutes": 1},
+            "mindfulness": {"title": "Take 15 minutes for mindfulness today",              "rationale": "15 min mindfulness",                         "minutes": 15},
+            "no_phone":    {"title": "No phone 1 hour before bed and 30 min after waking", "rationale": "1h before bed + first 30 min morning",       "minutes": 90},
+        },
+        2: {  # Season 2 · Phase 2: Pressure (medium)
+            "sleep":       {"title": "Aim for 8 hours of sleep tonight",                   "rationale": "8h sleep target",                            "minutes": 1},
+            "movement":    {"title": "Get 40 minutes of movement today",                   "rationale": "40 min activity",                            "minutes": 40},
+            "hydration":   {"title": "Drink 8 glasses of water today",                     "rationale": "8 glasses",                                  "minutes": 1},
+            "mindfulness": {"title": "Take 20 minutes for mindfulness today",              "rationale": "20 min mindfulness",                         "minutes": 20},
+            "no_phone":    {"title": "Keep phone off 1.5 hours before bed and 1 hour after waking", "rationale": "1.5h before bed + 1h morning",      "minutes": 150},
+        },
+        3: {  # Season 2 · Phase 3: The Wall (hard)
+            "sleep":       {"title": "Aim for 8 hours of sleep tonight",                   "rationale": "8h sleep target",                            "minutes": 1},
+            "movement":    {"title": "Get 45 minutes of varied movement today",            "rationale": "45 min + varied types",                      "minutes": 45},
+            "hydration":   {"title": "Drink 10 glasses of water today",                    "rationale": "10 glasses",                                 "minutes": 1},
+            "mindfulness": {"title": "Take 25 minutes for mindfulness today",              "rationale": "25 min mindfulness",                         "minutes": 25},
+            "no_phone":    {"title": "Keep your phone off for the first 2 hours of your day", "rationale": "No phone first 2h of day",               "minutes": 120},
+        },
+        4: {  # Season 2 · Phase 4: Second Wind (hard)
+            "sleep":       {"title": "Aim for 8 hours of sleep tonight",                   "rationale": "8h sleep target",                            "minutes": 1},
+            "movement":    {"title": "Get 45 minutes of movement today",                   "rationale": "45 min activity",                            "minutes": 45},
+            "hydration":   {"title": "Drink 10 glasses of water today",                    "rationale": "10 glasses",                                 "minutes": 1},
+            "mindfulness": {"title": "Take 20 minutes for mindfulness today",              "rationale": "20 min mindfulness",                         "minutes": 20},
+            "no_phone":    {"title": "Keep phone off 1.5 hours before bed and 1 hour after waking", "rationale": "1.5h before bed + 1h morning",      "minutes": 150},
+        },
+        5: {  # Season 2 · Phase 5: Sealed (hard)
+            "sleep":       {"title": "Maintain your 8-hour sleep schedule tonight",       "rationale": "8h locked schedule",                         "minutes": 1},
+            "movement":    {"title": "Get 45 minutes of movement today",                   "rationale": "45 min activity",                            "minutes": 45},
+            "hydration":   {"title": "Drink 10 glasses of water today",                    "rationale": "10 glasses",                                 "minutes": 1},
+            "mindfulness": {"title": "Take 20 minutes for mindfulness today",              "rationale": "20 min mindfulness",                         "minutes": 20},
+            "no_phone":    {"title": "Keep your morning phone-free for the first hour",   "rationale": "Full morning phone-free block",              "minutes": 60},
+        },
+    },
+}
+
+
+def get_season_core_spec(season_number: int, phase_number: int) -> tuple[dict[str, dict], str]:
+    """
+    Returns (pillar_specs, difficulty) for the given season and phase.
+    season_number: the user's current season number (1, 2, 3…)
+    phase_number: current phase within the season (1-indexed)
+    pillar_specs: dict mapping core_pillar → {title, rationale, minutes}
+    difficulty: "easy" | "medium" | "hard" used for XP/PF calculation
+    Falls back to Season 1 Phase 1 easy if data is missing.
+    """
+    key = min(season_number, 2)
+
+    specs_for_season = SEASON_CORE_MISSION_SPECS.get(key, {})
+    specs = specs_for_season.get(phase_number)
+    if not specs:
+        # Phase number out of range — use last defined phase for this season
+        if specs_for_season:
+            phase_number = max(specs_for_season.keys())
+            specs = specs_for_season[phase_number]
+        else:
+            specs = SEASON_CORE_MISSION_SPECS[1][1]
+            phase_number = 1
+            key = 1
+
+    diff_for_season = SEASON_PHASE_DIFFICULTY.get(key, {})
+    difficulty = diff_for_season.get(phase_number, "easy")
+
+    return specs, difficulty
 

@@ -2,7 +2,7 @@
  * Journal Editor — loads/saves via API. Mission completes when entry meets length rules (server + client aligned).
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -21,6 +21,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import type { MainStackParamList } from "../navigation/types";
+import type { StackNavigationProp } from "@react-navigation/stack";
+import type { ParamListBase } from "@react-navigation/native";
 import { useTodayMissions } from "@/hooks/useMissions";
 import { useJournalEntry, useSaveJournal } from "@/hooks/useJournal";
 import {
@@ -53,6 +55,7 @@ function countWords(text: string): number {
 export function JournalEditorScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const leaveOnceRef = useRef(false);
   const route = useRoute<RouteProp<MainStackParamList, "JournalEditor">>();
   const { entry_id, read_only, mission_date: routeMissionDate } = route.params ?? {
     entry_id: null as string | null,
@@ -82,6 +85,19 @@ export function JournalEditorScreen() {
   const canSave =
     !read_only && journalMeetsSaveMinimum(title, content) && !saving;
 
+  /** Avoid double GO_BACK when save completes and user also pressed back (race). */
+  const safeLeave = useCallback(() => {
+    if (leaveOnceRef.current) return;
+    leaveOnceRef.current = true;
+    const nav = navigation as StackNavigationProp<MainStackParamList> &
+      StackNavigationProp<ParamListBase>;
+    if (nav.canGoBack()) {
+      nav.goBack();
+    } else {
+      nav.navigate("MainTabs", { screen: "Home" });
+    }
+  }, [navigation]);
+
   useEffect(() => {
     if (!entry_id) {
       setTitle("");
@@ -108,11 +124,11 @@ export function JournalEditorScreen() {
         bookmarked,
       });
       // useSaveJournal invalidates today's missions — Home updates when you return.
-      navigation.goBack();
+      safeLeave();
     } catch (e) {
       Alert.alert("Couldn't save", getErrorMessage(e));
     }
-  }, [canSave, saving, saveJournal, content, dateStr, title, bookmarked, navigation]);
+  }, [canSave, saving, saveJournal, content, dateStr, title, bookmarked, safeLeave]);
 
   const toggleBookmark = useCallback(() => {
     if (read_only) return;
@@ -144,7 +160,7 @@ export function JournalEditorScreen() {
           <Pressable onPress={() => refetchEntry()} style={styles.retryBtn}>
             <Text style={styles.retryBtnText}>Retry</Text>
           </Pressable>
-          <Pressable onPress={() => navigation.goBack()} style={styles.retryBtn}>
+          <Pressable onPress={safeLeave} style={styles.retryBtn}>
             <Text style={[styles.retryBtnText, { color: MUTED }]}>Go back</Text>
           </Pressable>
         </View>
@@ -158,7 +174,7 @@ export function JournalEditorScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         {Platform.OS === "ios" ? <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} /> : null}
         <View style={styles.headerRow}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.headerBtn} hitSlop={12}>
+          <Pressable onPress={safeLeave} style={styles.headerBtn} hitSlop={12}>
             <Ionicons name="chevron-back" size={22} color={MUTED} />
           </Pressable>
           <View style={styles.headerCenter} pointerEvents="none">

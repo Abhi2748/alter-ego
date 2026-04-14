@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -24,6 +25,10 @@ import {
   isCalendarDayTappable,
   registrationFirstLocalCalendarDay,
 } from "@/utils/calendarDate";
+import {
+  CHARACTER_IDENTITY_PAGE_IMAGE,
+  getPetImageSource,
+} from "@/constants/characterPetAssets";
 
 type DayDetailRouteProp = RouteProp<MainStackParamList, "DayDetail">;
 
@@ -443,37 +448,35 @@ export function DayDetailScreen() {
             />
             <Text style={styles.snapshotLabel}>YOUR SNAPSHOT ON THIS DAY</Text>
             <View style={styles.snapshotRow}>
-              <View style={styles.snapshotCharThumb}>
-                <View style={styles.snapshotCharInner}>
-                  <Text style={styles.snapshotCharStage}>
-                    STAGE {history.character_stage}
-                  </Text>
+              <View style={styles.snapshotFigures}>
+                <View style={styles.snapshotCharWrap}>
+                  <Image
+                    source={CHARACTER_IDENTITY_PAGE_IMAGE}
+                    style={styles.snapshotCharImage}
+                    resizeMode="cover"
+                    accessibilityIgnoresInvertColors
+                  />
+                  <View style={styles.snapshotCharStageBadge} pointerEvents="none">
+                    <Text style={styles.snapshotCharStageText}>
+                      STAGE {history.character_stage}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-              <View style={styles.snapshotPetColumn}>
-                <View
-                  style={[
-                    styles.snapshotPetThumb,
-                    history.pet_state === "sad" && styles.snapshotPetThumbSad,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.snapshotPetText,
-                      history.pet_state === "sad" && styles.snapshotPetTextSad,
-                    ]}
-                  >
-                    {history.pet_name}
-                  </Text>
+                <View style={styles.snapshotPetWrap}>
+                  {history.pet_stage >= 1 ? (
+                    <Image
+                      source={getPetImageSource(history.pet_stage)}
+                      style={[
+                        styles.snapshotPetImage,
+                        history.pet_state === "sad" && styles.snapshotPetImageSad,
+                      ]}
+                      resizeMode="contain"
+                      accessibilityIgnoresInvertColors
+                    />
+                  ) : (
+                    <View style={styles.snapshotPetPlaceholder} />
+                  )}
                 </View>
-                <Text
-                  style={[
-                    styles.snapshotPetName,
-                    history.pet_state === "sad" && styles.snapshotPetNameSad,
-                  ]}
-                >
-                  {history.pet_name}
-                </Text>
               </View>
               <View style={styles.snapshotMetaColumn}>
                 <View style={styles.snapshotMetaItem}>
@@ -915,46 +918,56 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
   },
-  snapshotCharThumb: {
-    width: 72,
-    height: 96,
+  /** Character + companion bottom-aligned (same baseline as Identity / Companion heroes). */
+  snapshotFigures: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 12,
+  },
+  snapshotCharWrap: {
+    width: 96,
+    height: 128,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.22)",
-    backgroundColor: "rgba(50,20,90,0.55)",
     overflow: "hidden",
+    position: "relative",
   },
-  snapshotCharInner: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+  snapshotCharImage: {
+    width: "100%",
+    height: "100%",
   },
-  snapshotCharStage: {
+  snapshotCharStageBadge: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    backgroundColor: "rgba(7,8,15,0.72)",
+  },
+  snapshotCharStageText: {
     fontSize: 8,
-    color: "rgba(139,92,246,0.40)",
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    color: "rgba(167,139,250,0.85)",
+    textAlign: "center",
   },
-  snapshotPetColumn: {
+  snapshotPetWrap: {
+    width: 72,
+    height: 72,
+    justifyContent: "flex-end",
     alignItems: "center",
-    gap: 6,
   },
-  snapshotPetThumb: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.22)",
-    backgroundColor: "rgba(109,40,217,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
+  snapshotPetImage: {
+    width: "100%",
+    height: "100%",
   },
-  snapshotPetThumbSad: {
-    borderColor: "rgba(42,48,80,0.25)",
-    backgroundColor: "rgba(42,48,80,0.15)",
+  snapshotPetImageSad: {
+    opacity: 0.42,
   },
-  snapshotPetText: { fontSize: 10, color: "#A78BFA" },
-  snapshotPetTextSad: { color: "#2D3146" },
-  snapshotPetName: { fontSize: 9, color: "#A78BFA" },
-  snapshotPetNameSad: { color: "#374151" },
+  snapshotPetPlaceholder: {
+    width: "100%",
+    height: "100%",
+  },
   snapshotMetaColumn: {
     flex: 1,
     gap: 6,

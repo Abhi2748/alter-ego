@@ -35,9 +35,11 @@ MAIL_CONTENT = {
 
 You've just built the foundations of your discipline engine. Here's what happens from here.
 
-**Every day you get 6 core missions.** Sleep, Movement, Hydration, Mindfulness, No-Phone window, and Journal. These are non-negotiable — they are the biological substrate that makes every other habit possible.
+**Every day you get 6 core missions** — five pillars (Sleep, Movement, Hydration, Mindfulness, No-Phone) plus Journal. What each pillar asks scales with your **Season** and **phase** (fixed templates from the app, not one-off AI missions). Journal stays your daily writing habit. Non-negotiable — the substrate that makes every other habit possible.
 
-**Your daily XP and Pet Food caps.** Right now your cap is 200 XP and 160 Pet Food per day. As your character evolves, these caps rise — Stage 2 gives you 300 XP/day, Stage 3 gives 450, all the way to 1,000 XP/day at Stage 6. Completing missions beyond the cap still counts toward your streak and habit — the reward just doesn't accumulate further that day.
+**Seasons** — the arc on your Home banner — run for a set number of days and split into phases. They tune how demanding those five pillars are as you progress; when a season ends you see how you did (tier, bonus XP, optional title) and can begin the next arc. Season 1 starts automatically.
+
+**Your daily XP and Pet Food caps** match your character stage. Stage 1: **100 XP** and **160 Pet Food** per day. Then Stage 2: 150 / 240, Stage 3: 200 / 360, Stage 4: 280 / 480, Stage 5: 380 / 640, Stage 6: 500 / 800. Completing missions beyond the cap still counts toward your streak and abilities — only XP and Pet Food stop accumulating for that day.
 
 **Your interest missions are generated fresh each day.** Calibrated to your level, your available time, and how you've been performing. Tap any mission to see the research behind why it was assigned to you.
 
@@ -102,7 +104,7 @@ The leaderboard updates every night. Your rank reflects your consistency — not
 
 It starts as a Cat. It grows through Pet Food — earned every time you complete a mission.
 
-Your companion has 8 stages: Cat → Fox → Wolf → Panther → Snow Leopard → Tiger → Phoenix → Dragon.
+Your companion has 8 stages (same order as Profile → Companion): Cat → Fox → Wolf → Panther → Snow Leopard → Tiger → Phoenix → Dragon.
 
 At a consistent pace, reaching Dragon takes about a year. Your Shadow Twin's companion grows too — their stage reflects the gap between you.
 
@@ -117,6 +119,8 @@ Take care of it by showing up.
 Your Twin's personality has been set based on how you've shown up. The system learned your archetype from your onboarding answers — now it's being confirmed by your behaviour.
 
 **Your Twin recalibrates every 7 days.** Completion rate, how you respond to the gap, how often you engage with chat — all of it informs how the Twin is tuned.
+
+**Seasons** on the Home banner set how tough your five pillar core missions are in each phase (Journal stays the same kind of daily entry). As you move through a season, targets can shift — check the banner for your current day and phase.
 
 **One thing to watch:** your most-skipped mission this week appears in your weekly report every Sunday. It's the one place where the data doesn't lie.
 

@@ -72,9 +72,49 @@ export interface CurrentSeason {
   completion_seen?: boolean;
 }
 
+/** Slim row from GET /api/v1/seasons/history */
+export interface SeasonHistoryEntry {
+  season_number: number;
+  season_name: string;
+  season_color: string | null;
+  season_theme: string | null;
+  status: string;
+  completion_tier: SeasonTier | string | null;
+  total_days: number;
+  days_completed: number;
+  days_perfect: number;
+  days_missed: number;
+  started_at: string;
+  ends_at: string;
+  xp_awarded: number | null;
+  title_unlocked: string | null;
+}
+
+export interface SeasonHistoryResponse {
+  history: SeasonHistoryEntry[];
+  total: number;
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const seasonService = {
-  getCurrentSeason: () =>
-    apiClient.get<CurrentSeason>('/api/v1/seasons/current'),
+  /** Resolves to null on HTTP 204 (no season). */
+  getCurrentSeason: async (): Promise<CurrentSeason | null> => {
+    const data = await apiClient.get<CurrentSeason | undefined>(
+      '/api/v1/seasons/current'
+    );
+    return data ?? null;
+  },
+
+  markSeasonSeen: () =>
+    apiClient.post<{ success: boolean; reason?: string }>(
+      '/api/v1/seasons/seen'
+    ),
+
+  /** Starts the next season after the previous one completed or failed. */
+  beginNextSeason: () =>
+    apiClient.post<CurrentSeason>('/api/v1/seasons/begin-next'),
+
+  getSeasonHistory: () =>
+    apiClient.get<SeasonHistoryResponse>('/api/v1/seasons/history'),
 };

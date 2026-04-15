@@ -105,6 +105,7 @@ class UpdateSettingsRequest(BaseModel):
     auto_start_breaks: bool | None = None
     auto_start_work: bool | None = None
     sound_enabled: bool | None = None
+    vibration_enabled: bool | None = None
 
 
 @router.patch("/settings")

@@ -654,16 +654,16 @@ export function HomeScreen() {
     }
     return d;
   }, [calendarAnchorStr]);
-  // Mon–Sun week containing calendarAnchorStr (Mon=0 … Sun=6).
+  // Sun–Sat week containing calendarAnchorStr (Sun=0 … Sat=6 in getUTCDay).
   const weekDates = useMemo(() => {
-    const anchorMonBased = (anchorUTCDate.getUTCDay() + 6) % 7;
+    const anchorSunOffset = anchorUTCDate.getUTCDay();
     return Array.from({ length: 7 }).map((_, i) => {
       const d = new Date(anchorUTCDate);
-      d.setUTCDate(d.getUTCDate() - anchorMonBased + i);
+      d.setUTCDate(d.getUTCDate() - anchorSunOffset + i);
       return d.toISOString().slice(0, 10);
     });
   }, [anchorUTCDate]);
-  /** Mon–Sun dots vs calendar anchor (user TZ): today = ring until streak earned, then solid orange; past miss = empty; future = dim. */
+  /** Sun–Sat dots vs calendar anchor (user TZ): today = ring until streak earned, then solid orange; past miss = empty; future = dim. */
   const weekDotType = useMemo(() => {
     return weekDates.map((dateStr) => {
       const row = heatmapByDate.get(dateStr);
@@ -696,7 +696,7 @@ export function HomeScreen() {
 
     let cancelled = false;
     const lastKey = `${AE_LAST_STREAK_KEY_PREFIX}${uname}`;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localCalendarYmd();
     const shownKey = `${AE_FRACTURE_SHOWN_KEY_PREFIX}${uname}_${today}`;
 
     const run = async () => {

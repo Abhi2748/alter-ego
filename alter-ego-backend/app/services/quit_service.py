@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.agents.interest_normaliser import normalise_quit_target
 from app.agents.quit_insight_agent import generate_quit_insight
@@ -235,6 +236,27 @@ def _user_timezone(user_id: str) -> str:
         or {}
     )
     return str(row.get("timezone") or "UTC")
+
+
+def _created_at_to_user_calendar_day(created_at: Any, timezone_str: str) -> str:
+    """
+    Convert a UTC-ish created_at value into the user's local YYYY-MM-DD.
+    Falls back to naive date slicing if parsing fails.
+    """
+    raw = str(created_at or "")
+    if not raw:
+        return ""
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        try:
+            tz = ZoneInfo(timezone_str or "UTC")
+        except Exception:
+            tz = ZoneInfo("UTC")
+        return dt.astimezone(tz).date().isoformat()
+    except Exception:
+        return raw[:10]
 
 
 def _recent_quit_missions_with_ratings(user_id: str, path_id: str) -> list[dict]:
@@ -733,9 +755,12 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
             original_contexts=path.get("trigger_contexts") or [],
         )
 
-        created_day = str(path["created_at"])[:10]
+        created_day = _created_at_to_user_calendar_day(path.get("created_at"), tz)
         try:
-            days_active = (date.fromisoformat(today) - date.fromisoformat(created_day)).days
+            days_active = max(
+                0,
+                (date.fromisoformat(today) - date.fromisoformat(created_day)).days,
+            )
         except Exception:
             days_active = 0
 
@@ -821,9 +846,12 @@ async def mark_quit_conquered(user_id: str, path_id: str) -> dict[str, Any]:
 
     tz = _user_timezone(user_id)
     today = get_user_date(tz)
-    created_day = str(path["created_at"])[:10]
+    created_day = _created_at_to_user_calendar_day(path.get("created_at"), tz)
     try:
-        days_active = (date.fromisoformat(today) - date.fromisoformat(created_day)).days
+        days_active = max(
+            0,
+            (date.fromisoformat(today) - date.fromisoformat(created_day)).days,
+        )
     except Exception:
         days_active = 0
 

@@ -18,7 +18,7 @@ export function useTwinState() {
   return useQuery({
     queryKey: TWIN_KEYS.state,
     queryFn: async () => twinService.getState(),
-    staleTime: 30 * 1000,
+    staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
     /** Twin's "today" XP prorates as simulated missions unlock by time — refresh periodically. */

@@ -22,11 +22,15 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path, Circle, Line, Defs, LinearGradient as SvgGrad, Stop, RadialGradient, Text as SvgText } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 import ViewShot from 'react-native-view-shot';
 import { useAchievements } from '@/hooks/useAchievements';
 import { useUserStore } from '@/store/userStore';
 import type { Achievement, AchievementCategory } from '@/services/achievements';
+import {
+  AchievementBadgeV5Icon,
+  CATEGORY_ACCENT_RGB,
+} from '@/components/achievements/AchievementBadgeV5';
 
 // ── Try to import expo-sharing; fall back gracefully if missing ──────────────
 let Sharing: { shareAsync: (uri: string, options?: { mimeType?: string; dialogTitle?: string }) => Promise<void> } | null = null;
@@ -37,7 +41,6 @@ try {
 
 // ── Tokens ────────────────────────────────────────────────────────────────
 const BG: readonly [string, string] = ['#09091A', '#07080F'];
-const SURF   = '#101220';
 const BORDER = '#1C2035';
 const TEXT   = '#E5E7EB';
 const TEXT2  = '#9CA3AF';
@@ -57,173 +60,47 @@ const CAT_LABELS: Record<AchievementCategory, string> = {
   power:      'Power Score',
 };
 
-const CAT_GLYPHS: Record<AchievementCategory, string> = {
-  season: 'C',
-  streak: 'F',
-  discipline: 'D',
-  character: 'H',
-  companion: 'B',
-  quit: 'Q',
-  interest: 'I',
-  power: 'P',
-};
+const TICK_PURPLE = '#7C3AED';
+const BG_DEEP = '#08080E';
 
-const CAT_FALLBACK_SECONDARY: Record<AchievementCategory, string> = {
-  season: '#5A2A00',
-  streak: '#7A3308',
-  discipline: '#3D1A6D',
-  character: '#312E81',
-  companion: '#312E81',
-  quit: '#164E63',
-  interest: '#5B1AA8',
-  power: '#5A3700',
-};
-
-function withAlpha(hex: string, alphaHex: string): string {
-  const clean = String(hex || '').trim();
-  if (!clean.startsWith('#')) return hex;
-  if (clean.length === 7) return `${clean}${alphaHex}`;
-  return clean;
+function badgeTileFrame(cat: AchievementCategory, earned: boolean) {
+  const rgb = CATEGORY_ACCENT_RGB[cat];
+  if (!earned) {
+    return {
+      width: 54,
+      height: 54,
+      borderRadius: 17,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      backgroundColor: 'rgba(255,255,255,0.015)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.04)',
+    };
+  }
+  return {
+    width: 54,
+    height: 54,
+    borderRadius: 17,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: `rgba(${rgb},0.08)`,
+    borderWidth: 1.5,
+    borderColor: `rgba(${rgb},0.45)`,
+    shadowColor: `rgb(${rgb})`,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 10,
+    shadowOpacity: 0.22,
+    elevation: 5,
+  };
 }
 
-// ── Badge renderer ─────────────────────────────────────────────────────────
-// Renders the SVG badge based on shape + colors.
-// Each shape has a distinct silhouette so categories are immediately recognisable.
-
-function BadgeSvg({
-  achievement,
-  size = 60,
-}: {
-  achievement: Achievement;
-  size?: number;
-}) {
-  const { badge_shape, badge_color, category, earned } = achievement;
-  const sec = (achievement as Achievement & { badge_secondary?: string }).badge_secondary;
-  const c1 = badge_color || '#8B5CF6';
-  const c2 = achievement.badge_secondary_color || sec || CAT_FALLBACK_SECONDARY[category] || '#312E81';
-  const metal = earned ? '#F8FAFC' : '#7D8291';
-  const frame = earned ? c1 : '#535A6B';
-  const glyph = CAT_GLYPHS[category] || '?';
-  const id = achievement.key.replace(/[^a-z0-9]/gi, '');
-
-  return (
-    <Svg width={size} height={size} viewBox="0 0 60 60" opacity={earned ? 1 : 0.78}>
-      <Defs>
-        <SvgGrad id={`g${id}`} x1="0%" y1="100%" x2="100%" y2="0%">
-          <Stop offset="0%" stopColor={c2} />
-          <Stop offset="100%" stopColor={c1} />
-        </SvgGrad>
-        <RadialGradient id={`r${id}`} cx="45%" cy="28%" r="62%">
-          <Stop offset="0%" stopColor={withAlpha(c1, earned ? '70' : '35')} />
-          <Stop offset="55%" stopColor={withAlpha(c2, earned ? '66' : '30')} />
-          <Stop offset="100%" stopColor="transparent" />
-        </RadialGradient>
-        <RadialGradient id={`core${id}`} cx="36%" cy="26%" r="60%">
-          <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.98" />
-          <Stop offset="35%" stopColor={metal} stopOpacity="0.95" />
-          <Stop offset="100%" stopColor="#0A0D18" stopOpacity="1" />
-        </RadialGradient>
-      </Defs>
-
-      {badge_shape === 'shield' && (
-        <>
-          <Path d="M30 2L56 10V30C56 48 44 60 30 66C16 60 4 48 4 30V10L30 2Z"
-            fill={withAlpha(c1, '12')} stroke={withAlpha(frame, 'F2')} strokeWidth={2.2} />
-          <Path d="M30 2L56 10V30C56 48 44 60 30 66C16 60 4 48 4 30V10L30 2Z"
-            fill={`url(#r${id})`} />
-          <Path d="M30 8L52 14V30C52 45 41 56 30 62C19 56 8 45 8 30V14L30 8Z"
-            fill="none" stroke={withAlpha(c1, '44')} strokeWidth={1} />
-          <Path d="M30 16L32.5 24H40L34 28.5L36.2 36L30 31.8L23.8 36L26 28.5L20 24H27.5L30 16Z"
-            fill={`url(#core${id})`} />
-          <Path d="M30 16L32.5 24H40L34 28.5L36.2 36L30 31.8L23.8 36L26 28.5L20 24H27.5L30 16Z"
-            fill="none" stroke={withAlpha(c1, '99')} strokeWidth={0.8} />
-          <SvgText x="30" y="54" textAnchor="middle"
-            fontFamily="Inter_700Bold" fontSize={7} fontWeight="700"
-            fill={withAlpha(c1, 'DD')} letterSpacing={1.2}>
-            {glyph}
-          </SvgText>
-        </>
-      )}
-
-      {badge_shape === 'hexagon' && (
-        <>
-          <Path d="M30 3L53 16.5V43.5L30 57L7 43.5V16.5L30 3Z"
-            fill={withAlpha(c1, '14')} stroke={withAlpha(frame, 'F2')} strokeWidth={2.2} />
-          <Path d="M30 3L53 16.5V43.5L30 57L7 43.5V16.5L30 3Z"
-            fill={`url(#r${id})`} />
-          <Path d="M30 9L48 19.5V40.5L30 51L12 40.5V19.5L30 9Z"
-            fill="none" stroke={withAlpha(c1, '44')} strokeWidth={1} />
-          <Path d="M30 14C27.5 10.5 24.5 8 24.5 5.5C24.5 2.8 26.8 1 30 3C33.2 1 35.5 2.8 35.5 5.5C35.5 8 32.5 10.5 30 14Z"
-            fill={`url(#g${id})`} opacity={0.95} />
-          <Path d="M30 14C27.5 10.5 24.5 8 24.5 5.5C24.5 2.8 26.8 1 30 3C33.2 1 35.5 2.8 35.5 5.5C35.5 8 32.5 10.5 30 14Z"
-            fill="none" stroke={withAlpha(c1, 'AA')} strokeWidth={0.8} />
-          <SvgText x="30" y="40" textAnchor="middle"
-            fontFamily="Inter_700Bold" fontSize={8} fontWeight="700"
-            fill={withAlpha(c1, 'E5')} letterSpacing={1.1}>
-            {achievement.key.match(/\d+/)?.[0] ?? glyph}
-          </SvgText>
-        </>
-      )}
-
-      {badge_shape === 'octagon' && (
-        <>
-          <Path d="M19 4H41L56 19V41L41 56H19L4 41V19L19 4Z"
-            fill={withAlpha(c1, '10')} stroke={withAlpha(frame, 'F2')} strokeWidth={2.2} />
-          <Path d="M19 4H41L56 19V41L41 56H19L4 41V19L19 4Z"
-            fill={`url(#r${id})`} />
-          <Path d="M21 9H39L51 21V39L39 51H21L9 39V21L21 9Z"
-            fill="none" stroke={withAlpha(c1, '33')} strokeWidth={1} />
-          <Circle cx={30} cy={30} r={10.5} fill={`url(#core${id})`} />
-          <Circle cx={30} cy={30} r={10.5} fill="none" stroke={withAlpha(c1, '99')} strokeWidth={0.9} />
-          <SvgText x="30" y="34" textAnchor="middle"
-            fontFamily="Inter_700Bold" fontSize={8} fontWeight="700"
-            fill={withAlpha(c1, 'E6')} letterSpacing={1.3}>
-            {glyph}
-          </SvgText>
-        </>
-      )}
-
-      {badge_shape === 'circle' && (
-        <>
-          <Circle cx={30} cy={30} r={27} fill={withAlpha(c1, '12')} stroke={withAlpha(frame, 'F2')} strokeWidth={2.2} />
-          <Circle cx={30} cy={30} r={27} fill={`url(#r${id})`} />
-          <Circle cx={30} cy={30} r={20} fill="none" stroke={withAlpha(c1, '40')} strokeWidth={1} strokeDasharray="2 4" />
-          <Circle cx={30} cy={30} r={11} fill={`url(#core${id})`} />
-          <Circle cx={30} cy={30} r={11} fill="none" stroke={withAlpha(c1, '95')} strokeWidth={0.9} />
-          <SvgText x="30" y="34" textAnchor="middle"
-            fontFamily="Inter_700Bold" fontSize={8} fontWeight="700"
-            fill={withAlpha(c1, 'E5')} letterSpacing={1.2}>
-            {glyph}
-          </SvgText>
-        </>
-      )}
-
-      {badge_shape === 'diamond' && (
-        <>
-          <Path d="M30 4L56 30L30 56L4 30L30 4Z"
-            fill={withAlpha(c1, '12')} stroke={withAlpha(frame, 'F2')} strokeWidth={2.2} strokeLinejoin="round" />
-          <Path d="M30 4L56 30L30 56L4 30L30 4Z"
-            fill={`url(#r${id})`} />
-          <Path d="M30 12L48 30L30 48L12 30L30 12Z"
-            fill={`url(#core${id})`} stroke={withAlpha(c1, 'A0')} strokeWidth={0.9} />
-          <Line x1={30} y1={4} x2={12} y2={30} stroke={withAlpha(c1, '2B')} strokeWidth={1} />
-          <Line x1={30} y1={4} x2={48} y2={30} stroke={withAlpha(c1, '2B')} strokeWidth={1} />
-          <SvgText x="30" y="34" textAnchor="middle"
-            fontFamily="Inter_700Bold" fontSize={8} fontWeight="700"
-            fill={withAlpha(c1, 'DD')} letterSpacing={1.2}>
-            {glyph}
-          </SvgText>
-        </>
-      )}
-
-      {earned ? (
-        <>
-          <Circle cx={16} cy={15} r={1.2} fill={withAlpha(c1, 'C8')} />
-          <Circle cx={44} cy={12} r={0.9} fill={withAlpha(c1, 'AA')} />
-        </>
-      ) : null}
-    </Svg>
-  );
+function featuredFrame(cat: AchievementCategory) {
+  const rgb = CATEGORY_ACCENT_RGB[cat];
+  return {
+    borderWidth: 1,
+    borderColor: `rgba(${rgb},0.16)`,
+    backgroundColor: `rgba(${rgb},0.05)`,
+  };
 }
 
 function BadgeLabel({ name, earned }: { name: string; earned: boolean }) {
@@ -237,8 +114,48 @@ function BadgeLabel({ name, earned }: { name: string; earned: boolean }) {
   );
 }
 const badgeLblStyle = StyleSheet.create({
-  text: { fontSize: 10, fontWeight: '700', color: '#E5E7EB', textAlign: 'center', lineHeight: 13 },
-  dim:  { color: '#8B92A6' },
+  text: {
+    fontSize: 8.5,
+    fontWeight: '600',
+    color: '#D1D5DB',
+    textAlign: 'center',
+    lineHeight: 12,
+    maxWidth: 74,
+  },
+  dim: { color: '#1F2937' },
+});
+
+function EarnedCheckTick() {
+  return (
+    <View style={tickStyles.wrap}>
+      <Svg width={7} height={5} viewBox="0 0 7 5">
+        <Path
+          d="M.5 2.5L2 4L6 .5"
+          stroke="#fff"
+          strokeWidth={1.2}
+          strokeLinecap="round"
+          fill="none"
+        />
+      </Svg>
+    </View>
+  );
+}
+
+const tickStyles = StyleSheet.create({
+  wrap: {
+    position: 'absolute',
+    top: -2,
+    right: 4,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: TICK_PURPLE,
+    borderWidth: 2,
+    borderColor: BG_DEEP,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
 });
 
 function ShareSheet({
@@ -287,13 +204,36 @@ function ShareSheet({
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             style={ss.card}
           >
-            <View style={[ss.cardGlow, { backgroundColor: `${achievement.badge_color}20` }]} />
+            <View
+              style={[
+                ss.cardGlow,
+                {
+                  backgroundColor: `rgba(${CATEGORY_ACCENT_RGB[achievement.category]},0.12)`,
+                },
+              ]}
+            />
             <View style={ss.cardBrand}>
               <Text style={ss.cardBrandText}>ALTER EGO</Text>
               <Text style={ss.cardBrandTag}>Achievement</Text>
             </View>
-            <View style={[ss.cardBadge, { shadowColor: achievement.badge_color }]}>
-              <BadgeSvg achievement={achievement} size={100} />
+            <View
+              style={[
+                ss.cardBadge,
+                badgeTileFrame(achievement.category, true),
+                {
+                  width: 88,
+                  height: 88,
+                  borderRadius: 22,
+                  marginTop: 28,
+                  marginBottom: 14,
+                },
+              ]}
+            >
+              <AchievementBadgeV5Icon
+                achievement={achievement}
+                size={58}
+                earned
+              />
             </View>
             <Text style={ss.cardTitle}>{achievement.name}</Text>
             <Text style={ss.cardDesc}>{achievement.description}</Text>
@@ -338,7 +278,7 @@ const ss = StyleSheet.create({
   cardBrand: { position: 'absolute', top: 16, left: 16, right: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardBrandText: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.45)', letterSpacing: 2 },
   cardBrandTag:  { fontSize: 8, color: 'rgba(255,255,255,0.25)', letterSpacing: 1.5, textTransform: 'uppercase' },
-  cardBadge: { marginTop: 28, marginBottom: 14, shadowOffset: { width: 0, height: 0 }, shadowRadius: 20, shadowOpacity: 0.6, elevation: 12 },
+  cardBadge: { alignItems: 'center', justifyContent: 'center' },
   cardTitle: { fontSize: 20, fontWeight: '700', color: '#fff', textAlign: 'center', marginBottom: 5 },
   cardDesc:  { fontSize: 11, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginBottom: 10, lineHeight: 16, paddingHorizontal: 8 },
   cardUser:  { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5 },
@@ -467,20 +407,51 @@ export function AchievementsScreen() {
         bounces
       >
         {featured && (activeFilter === 'all') ? (
-          <Pressable style={a.featured} onPress={() => handleBadgePress(featured)}>
-            <View style={[a.featGlow, { backgroundColor: `${featured.badge_color}18` }]} />
-            <View style={[a.featBadge, { shadowColor: featured.badge_color }]}>
-              <BadgeSvg achievement={featured} size={72} />
+          <Pressable
+            style={[a.featured, featuredFrame(featured.category)]}
+            onPress={() => handleBadgePress(featured)}
+          >
+            <View
+              style={[
+                a.featHairline,
+                {
+                  backgroundColor: `rgba(${CATEGORY_ACCENT_RGB[featured.category]},0.28)`,
+                },
+              ]}
+            />
+            <View style={[a.featGlow, { backgroundColor: `rgba(${CATEGORY_ACCENT_RGB[featured.category]},0.14)` }]} />
+            <View style={[a.featBadge, badgeTileFrame(featured.category, true)]}>
+              <AchievementBadgeV5Icon achievement={featured} size={30} earned />
             </View>
             <View style={a.featInfo}>
-              <Text style={a.featTag}>{`Latest · ${CAT_LABELS[featured.category]}`}</Text>
+              <Text
+                style={[
+                  a.featTag,
+                  { color: `rgba(${CATEGORY_ACCENT_RGB[featured.category]},0.68)` },
+                ]}
+              >{`Latest · ${CAT_LABELS[featured.category]}`}</Text>
               <Text style={a.featName}>{featured.name}</Text>
               <Text style={a.featDesc}>{featured.description}</Text>
               {featured.earned_at ? (
                 <Text style={a.featDate}>{`Earned ${new Date(featured.earned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}</Text>
               ) : null}
-              <View style={[a.featShare, { borderColor: `${featured.badge_color}33`, backgroundColor: `${featured.badge_color}10` }]}>
-                <Text style={[a.featShareText, { color: featured.badge_color }]}>Share</Text>
+              <View
+                style={[
+                  a.featShare,
+                  {
+                    borderColor: `rgba(${CATEGORY_ACCENT_RGB[featured.category]},0.18)`,
+                    backgroundColor: `rgba(${CATEGORY_ACCENT_RGB[featured.category]},0.09)`,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    a.featShareText,
+                    { color: `rgba(${CATEGORY_ACCENT_RGB[featured.category]},0.8)` },
+                  ]}
+                >
+                  Share
+                </Text>
               </View>
             </View>
           </Pressable>
@@ -502,20 +473,17 @@ export function AchievementsScreen() {
                   {items.map(item => (
                     <Pressable
                       key={item.key}
-                      style={[a.bcell, !item.earned && a.bcellLocked]}
+                      style={a.bcell}
                       onPress={() => handleBadgePress(item)}
                     >
-                      <View style={a.bcellInner} />
-                      {item.earned ? (
-                        <View style={a.earnedTick}>
-                          <Text style={{ color: '#fff', fontSize: 8, fontWeight: '800' }}>✓</Text>
-                        </View>
-                      ) : (
-                        <View style={a.lockedTick}>
-                          <Text style={{ color: MUTED, fontSize: 8 }}>🔒</Text>
-                        </View>
-                      )}
-                      <BadgeSvg achievement={item} size={56} />
+                      {item.earned ? <EarnedCheckTick /> : null}
+                      <View style={badgeTileFrame(item.category, item.earned)}>
+                        <AchievementBadgeV5Icon
+                          achievement={item}
+                          size={28}
+                          earned={item.earned}
+                        />
+                      </View>
                       <BadgeLabel name={item.name} earned={item.earned} />
                     </Pressable>
                   ))}
@@ -585,29 +553,64 @@ const a = StyleSheet.create({
   scroll: { paddingHorizontal: 0 },
 
   featured: {
-    marginHorizontal: 20, marginBottom: 8,
-    backgroundColor: 'rgba(255,184,0,0.05)', borderWidth: 1, borderColor: 'rgba(255,184,0,0.18)',
-    borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 16, overflow: 'hidden',
+    marginHorizontal: 20,
+    marginBottom: 8,
+    borderRadius: 15,
+    padding: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    overflow: 'hidden',
+    position: 'relative',
   },
-  featGlow:  { position: 'absolute', right: -20, top: '50%', width: 120, height: 120, borderRadius: 60, marginTop: -60 },
-  featBadge: { flexShrink: 0, shadowOffset: { width: 0, height: 0 }, shadowRadius: 14, shadowOpacity: 0.5, elevation: 10 },
-  featInfo:  { flex: 1 },
-  featTag:   { fontSize: 8.5, fontWeight: '700', letterSpacing: 1.5, color: 'rgba(255,184,0,0.7)', textTransform: 'uppercase', marginBottom: 3 },
-  featName:  { fontSize: 15, fontWeight: '700', color: TEXT, marginBottom: 2 },
-  featDesc:  { fontSize: 11, color: TEXT2, lineHeight: 15, marginBottom: 6 },
-  featDate:  { fontSize: 10, color: MUTED, marginBottom: 8 },
-  featShare: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 },
-  featShareText: { fontSize: 10, fontWeight: '700' },
+  featHairline: {
+    position: 'absolute',
+    top: 0,
+    left: '10%',
+    right: '10%',
+    height: 1,
+  },
+  featGlow: {
+    position: 'absolute',
+    right: -20,
+    top: '50%',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    marginTop: -60,
+  },
+  featBadge: { flexShrink: 0 },
+  featInfo: { flex: 1 },
+  featTag: {
+    fontSize: 7.5,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  featName: { fontSize: 13, fontWeight: '700', color: '#F3F4F6', marginBottom: 2 },
+  featDesc: { fontSize: 9.5, color: '#6B7280', lineHeight: 14, marginBottom: 5 },
+  featDate: { fontSize: 9, color: '#374151', marginBottom: 7 },
+  featShare: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+  },
+  featShareText: { fontSize: 9, fontWeight: '700' },
 
   catBlock: { marginBottom: 4 },
   catHdr:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10 },
   catLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 2, color: MUTED, textTransform: 'uppercase' },
   catCount: { fontSize: 9, color: '#374151' },
 
-  strip:    { gap: 10, paddingHorizontal: 20, paddingBottom: 4 },
-  bcell:    { width: 96, backgroundColor: SURF, borderWidth: 1, borderColor: BORDER, borderRadius: 16, padding: 12, paddingBottom: 10, alignItems: 'center', gap: 7, position: 'relative', overflow: 'hidden' },
-  bcellLocked: { opacity: 0.62 },
-  bcellInner:  { position: 'absolute', inset: 0, backgroundColor: 'rgba(255,255,255,0.03)' },
-  earnedTick:  { position: 'absolute', top: 7, right: 7, width: 14, height: 14, borderRadius: 7, backgroundColor: VIOLET, alignItems: 'center', justifyContent: 'center' },
-  lockedTick:  { position: 'absolute', top: 6, right: 6, width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
+  strip: { gap: 8, paddingHorizontal: 20, paddingBottom: 4 },
+  bcell: {
+    width: 72,
+    alignItems: 'center',
+    gap: 5,
+    position: 'relative',
+    paddingTop: 2,
+  },
 });

@@ -3,8 +3,9 @@ APScheduler setup for ALTER EGO background jobs.
 All jobs that run on a schedule are registered here.
 
 Per-user local time (users.timezone / IANA name):
-- twin_journal_midnight, season_maintenance: local hour 0 (midnight; twin journal + season day log / expiry)
-- daily_mission_reset, pet_unlock_check, twin_simulation, twin_recalibration: local hour 1
+- twin_xp_finalization: local hour 0 (finalize yesterday's twin XP before twin journal reads xp_earned)
+- twin_journal_midnight, season_maintenance: local hour 0 (twin journal + season day log / expiry)
+- daily_mission_reset, pet_unlock_check, twin_simulation, twin_recalibration: local hour 1 (simulation also catch-up finalizes yesterday)
 - day_summary + power_score + scheduled mail: local hour 1 (batched in user_local_maintenance_job)
 - onboarding echo + contradiction (C1/C2): local Sunday hour 2 (same job loop)
 - weekly_report: local Sunday 03:00
@@ -310,12 +311,13 @@ async def twin_simulation_job():
     """
     Runs every hour. Only processes users whose local hour is 1 (1:00–1:59).
     Runs twin mission selection for the day (twin_daily_record with XP placeholders).
-    Twin XP is finalized at local 11pm by twin_xp_finalization_job; strip updates then.
+    Twin XP for the prior calendar day is finalized at local midnight (twin_xp_finalization_job)
+    and again as catch-up here if needed; strip updates when finalization runs.
     """
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
 
-    from app.services.twin_service import simulate_twin_day
+    from app.services.twin_service import finalize_twin_xp_for_calendar_day, simulate_twin_day
     from app.core.supabase_client import supabase_admin
     from app.services.mission_service import get_user_date
 
@@ -340,10 +342,20 @@ async def twin_simulation_job():
                 continue
 
             today_str = get_user_date(timezone)
+            yesterday_str = (local_now.date() - timedelta(days=1)).isoformat()
+
+            fx = await finalize_twin_xp_for_calendar_day(str(user["id"]), yesterday_str)
+            if fx.get("finalized"):
+                try:
+                    from app.services.strip_message_service import update_strip_message
+
+                    await update_strip_message(str(user["id"]))
+                except Exception:
+                    pass
 
             await simulate_twin_day(user["id"])
 
-            # Twin journal: twin_journal_midnight_job (local hour 0). Strip: twin_xp_finalization_job (hour 23).
+            # Twin journal: twin_journal_midnight_job (hour 0). Twin XP: finalized at hour 0 + catch-up here.
             success_count += 1
             logger.info(
                 json.dumps(
@@ -378,15 +390,16 @@ async def twin_simulation_job():
 
 async def twin_xp_finalization_job():
     """
-    Runs every hour. Only processes users whose local hour is 23 (11pm).
-    Finalizes the twin's XP for the day using the Mirror Formula.
+    Runs every hour. Only processes users whose local hour is 0 (midnight).
+    Finalizes the twin's XP for the calendar day that just ended (yesterday in date terms
+    relative to the new local date) so xp_log and missions for that day are complete.
     """
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
 
     from app.core.supabase_client import supabase_admin
     from app.services.strip_message_service import update_strip_message
-    from app.services.twin_service import finalize_twin_xp_for_day
+    from app.services.twin_service import finalize_twin_xp_for_calendar_day
 
     logger.info(json.dumps({"event": "twin_xp_finalization_job_start"}))
 
@@ -407,10 +420,11 @@ async def twin_xp_finalization_job():
                 tz = ZoneInfo("UTC")
             local_now = datetime.now(tz)
 
-            if local_now.hour != 23:
+            if local_now.hour != 0:
                 continue
 
-            result = await finalize_twin_xp_for_day(str(user["id"]))
+            yesterday = (local_now.date() - timedelta(days=1)).isoformat()
+            result = await finalize_twin_xp_for_calendar_day(str(user["id"]), yesterday)
             if result.get("finalized"):
                 count += 1
                 try:

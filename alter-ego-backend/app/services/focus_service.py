@@ -19,6 +19,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "auto_start_breaks": True,
     "auto_start_work": False,
     "sound_enabled": True,
+    "vibration_enabled": True,
 }
 
 

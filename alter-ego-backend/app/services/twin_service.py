@@ -628,23 +628,14 @@ ARCHETYPE_DAY_MODIFIERS: dict[str, dict[int, float]] = {
         6: 0.88,
         7: 0.88,
     },
-    "lone_wolf": {
-        1: 1.06,
-        2: 0.92,
-        3: 1.05,
-        4: 0.90,
-        5: 1.04,
-        6: 0.95,
-        7: 1.02,
-    },
     "restless_creator": {
         1: 1.05,
-        2: 1.04,
+        2: 1.05,
         3: 0.92,
-        4: 0.91,
+        4: 0.92,
         5: 1.08,
-        6: 0.88,
-        7: 0.84,
+        6: 0.85,
+        7: 0.85,
     },
     "reluctant_achiever": {
         1: 0.88,
@@ -652,17 +643,17 @@ ARCHETYPE_DAY_MODIFIERS: dict[str, dict[int, float]] = {
         3: 0.98,
         4: 1.02,
         5: 1.06,
-        6: 0.90,
+        6: 0.82,
         7: 0.82,
     },
     "social_performer": {
         1: 1.05,
         2: 1.05,
-        3: 1.04,
-        4: 1.03,
+        3: 1.05,
+        4: 1.05,
         5: 1.08,
         6: 0.90,
-        7: 0.88,
+        7: 0.90,
     },
 }
 _DEFAULT_DAY_MODIFIER: dict[int, float] = {
@@ -691,9 +682,9 @@ TWIN_ABSENCE_DAY2_FACTOR = 0.80
 
 MIRROR_FACTOR_HIGH_PERFORMANCE = 1.05
 MIRROR_FACTOR_GOOD_PERFORMANCE = 1.02
-MIRROR_FACTOR_BASE = 0.95
-MIRROR_FACTOR_STRUGGLING = 0.92
-MIRROR_FACTOR_POOR = 0.88
+MIRROR_FACTOR_BASE = 0.98
+MIRROR_FACTOR_STRUGGLING = 0.95
+MIRROR_FACTOR_POOR = 0.93
 
 
 def compute_mirror_factor(
@@ -732,10 +723,28 @@ def compute_mirror_factor(
     return MIRROR_FACTOR_POOR
 
 
-def get_archetype_day_modifier(archetype: str, day_of_week: int) -> float:
+def _lone_wolf_day_modifier(user_id: str, calendar_date: str) -> float:
+    """Stable 0.90–1.06 per calendar day — erratic twin, no weekday pattern."""
+    key = f"lone_wolf_xp_mod:{user_id}:{calendar_date}".encode()
+    h = int(hashlib.sha256(key).hexdigest()[:8], 16)
+    span = 1.06 - 0.90
+    return round(0.90 + (h % 10_000) / 9_999 * span, 4)
+
+
+def get_archetype_day_modifier(
+    archetype: str,
+    day_of_week: int,
+    *,
+    user_id: str | None = None,
+    calendar_date: str | None = None,
+) -> float:
     """day_of_week: isoweekday() 1=Monday … 7=Sunday."""
     arch = str(archetype or "").lower().replace(" ", "_")
-    modifiers = ARCHETYPE_DAY_MODIFIERS.get(arch, _DEFAULT_DAY_MODIFIER)
+    if arch == "lone_wolf":
+        if user_id and calendar_date:
+            return _lone_wolf_day_modifier(user_id, calendar_date)
+        return 0.98
+    modifiers = ARCHETYPE_DAY_MODIFIERS.get(arch) or _DEFAULT_DAY_MODIFIER
     return float(modifiers.get(day_of_week, 1.0))
 
 
@@ -999,6 +1008,7 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
         "missed_mission_titles": [m["title"] for m in all_missed],
         "xp_earned": 0,
         "pf_earned": 0,
+        "twin_xp_finalized": False,
         "consistency_ceiling_used": today_rate,
         "twin_streak_after": 0,
     }
@@ -1037,20 +1047,21 @@ async def _simulate_twin_day_impl(user_id: str) -> dict:
     }
 
 
-async def finalize_twin_xp_for_day(user_id: str) -> dict:
+async def finalize_twin_xp_for_calendar_day(user_id: str, record_date: str) -> dict:
     """
-    Called at 11pm local time for each user.
-    Reads the user's actual XP earned today, applies the Mirror Formula,
-    and writes the twin's final XP for the day into twin_state and twin_daily_record.
+    Apply the mirror formula for twin XP/PF for a specific calendar day (YYYY-MM-DD
+    in the user's timezone). Scheduler runs at local midnight for *yesterday* so the
+    full day's xp_log is available; hour-1 twin simulation also calls this as catch-up.
     """
     try:
-        return await _finalize_twin_xp_impl(user_id)
+        return await _finalize_twin_xp_impl(user_id, record_date)
     except Exception as e:
         logger.error(
             json.dumps(
                 {
                     "event": "twin_finalize_xp_error",
                     "user_id": user_id,
+                    "record_date": record_date,
                     "error": str(e)[:200],
                 }
             )
@@ -1058,7 +1069,24 @@ async def finalize_twin_xp_for_day(user_id: str) -> dict:
         return {"finalized": False, "reason": "error"}
 
 
-async def _finalize_twin_xp_impl(user_id: str) -> dict:
+async def finalize_twin_xp_for_day(user_id: str) -> dict:
+    """Backward-compatible alias: finalizes the user's local *yesterday* (ended day)."""
+    from app.services.mission_service import get_user_date
+
+    u = await run_query(
+        supabase_admin.table("users").select("timezone").eq("id", user_id).single()
+    )
+    tzs = str((u.data or {}).get("timezone") or "UTC")
+    try:
+        z = ZoneInfo(tzs)
+    except Exception:
+        z = ZoneInfo("UTC")
+    today = get_user_date(tzs)
+    y = str(date_type.fromisoformat(today) - timedelta(days=1))
+    return await finalize_twin_xp_for_calendar_day(user_id, y)
+
+
+async def _finalize_twin_xp_impl(user_id: str, record_date: str) -> dict:
     from app.core.constants import (
         DAILY_PF_CAPS,
         PF_THRESHOLDS,
@@ -1067,7 +1095,7 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
         XP_THRESHOLDS,
         PET_UNLOCK_DAY,
     )
-    from app.services.mission_service import get_days_since_registration, get_user_date
+    from app.services.mission_service import get_days_since_registration
     from app.services.streak_service import evaluate_streak_requirement
 
     user_res = await run_query(
@@ -1084,7 +1112,6 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
         return {"finalized": False, "reason": "user_not_found"}
 
     timezone_str = str(user.get("timezone") or "UTC")
-    today = get_user_date(timezone_str)
     try:
         tz = ZoneInfo(timezone_str)
     except Exception:
@@ -1093,19 +1120,20 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
     existing_rec = await run_query(
         supabase_admin.table("twin_daily_record")
         .select(
-            "xp_earned, missions_completed, missions_assigned, completed_mission_ids, missed_mission_titles"
+            "xp_earned, pf_earned, twin_xp_finalized, missions_completed, missions_assigned, "
+            "completed_mission_ids, missed_mission_titles"
         )
         .eq("user_id", user_id)
-        .eq("record_date", today)
+        .eq("record_date", record_date)
         .limit(1)
     )
     rec_rows = existing_rec.data or []
 
-    if rec_rows and int(rec_rows[0].get("xp_earned") or 0) > 0:
-        return {"finalized": False, "reason": "already_finalized"}
-
     if not rec_rows:
         return {"finalized": False, "reason": "no_twin_daily_record"}
+
+    if rec_rows[0].get("twin_xp_finalized"):
+        return {"finalized": False, "reason": "already_finalized"}
 
     twin_res = await run_query(
         supabase_admin.table("twin_state")
@@ -1134,18 +1162,21 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
     calibration_count = int(dna.get("calibration_count") or 0)
 
     xp_log_res = await run_query(
-        supabase_admin.table("xp_log").select("amount").eq("user_id", user_id).eq("log_date", today)
+        supabase_admin.table("xp_log")
+        .select("amount")
+        .eq("user_id", user_id)
+        .eq("log_date", record_date)
     )
     user_xp_today = sum(int(r.get("amount") or 0) for r in (xp_log_res.data or []))
 
-    today_date = date_type.fromisoformat(today)
-    week_ago = str(today_date - timedelta(days=7))
+    rec_day = date_type.fromisoformat(record_date)
+    week_ago = str(rec_day - timedelta(days=7))
     xp_week_res = await run_query(
         supabase_admin.table("xp_log")
         .select("amount, log_date")
         .eq("user_id", user_id)
         .gte("log_date", week_ago)
-        .lt("log_date", today)
+        .lt("log_date", record_date)
     )
     xp_week_rows = xp_week_res.data or []
     rolling_avg = (
@@ -1164,7 +1195,7 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
     )
 
     archetype = str(user.get("archetype") or "structured_climber")
-    day_of_week = datetime.now(tz).isoweekday()
+    day_of_week = rec_day.isoweekday()
 
     user_is_active = user_xp_today > 0
     new_consecutive_absent = twin_consecutive_absent
@@ -1176,7 +1207,9 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
         mirror = compute_mirror_factor(
             days_active, archetype, completion_rate_7d, calibration_count
         )
-        day_mod = get_archetype_day_modifier(archetype, day_of_week)
+        day_mod = get_archetype_day_modifier(
+            archetype, day_of_week, user_id=user_id, calendar_date=record_date
+        )
         over_mod = OVEREXTENSION_MODIFIERS.get(twin_overextension_day, 1.0)
 
         arch_key = archetype.lower().replace(" ", "_")
@@ -1214,13 +1247,13 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
     rec = rec_rows[0]
     missions_completed = int(rec.get("missions_completed") or 0)
     missions_assigned = int(rec.get("missions_assigned") or 1)
-    today_missions_res = await run_query(
+    day_missions_pf_res = await run_query(
         supabase_admin.table("missions")
         .select("pf_value")
         .eq("user_id", user_id)
-        .eq("mission_date", today)
+        .eq("mission_date", record_date)
     )
-    raw_pf_total = sum(int(r.get("pf_value") or 0) for r in (today_missions_res.data or []))
+    raw_pf_total = sum(int(r.get("pf_value") or 0) for r in (day_missions_pf_res.data or []))
     completion_ratio = missions_completed / max(missions_assigned, 1)
     twin_pf_today = min(pf_cap, int(round(raw_pf_total * completion_ratio)))
 
@@ -1246,30 +1279,30 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
 
     streak_tier = str(user.get("streak_requirement_tier") or "tier_1")
     completed_ids = rec.get("completed_mission_ids") or []
-    today_m_res = await run_query(
+    day_missions_res = await run_query(
         supabase_admin.table("missions")
         .select("id, type, is_journal_mission, completed")
         .eq("user_id", user_id)
-        .eq("mission_date", today)
+        .eq("mission_date", record_date)
     )
-    today_m = today_m_res.data or []
+    day_missions = day_missions_res.data or []
     done_set = {str(x) for x in completed_ids}
-    twin_view = [{**m, "completed": str(m.get("id")) in done_set} for m in today_m]
+    twin_view = [{**m, "completed": str(m.get("id")) in done_set} for m in day_missions]
     today_met = evaluate_streak_requirement(twin_view, streak_tier)
 
-    yesterday = str(today_date - timedelta(days=1))
+    prior_day_str = str(rec_day - timedelta(days=1))
     y_missions_res = await run_query(
         supabase_admin.table("missions")
         .select("id, type, is_journal_mission, completed")
         .eq("user_id", user_id)
-        .eq("mission_date", yesterday)
+        .eq("mission_date", prior_day_str)
     )
     y_missions = y_missions_res.data or []
     y_rec_res = await run_query(
         supabase_admin.table("twin_daily_record")
         .select("completed_mission_ids")
         .eq("user_id", user_id)
-        .eq("record_date", yesterday)
+        .eq("record_date", prior_day_str)
         .limit(1)
     )
     y_rows = y_rec_res.data or []
@@ -1352,10 +1385,11 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
                 "xp_earned": twin_xp_today,
                 "pf_earned": twin_pf_today,
                 "twin_streak_after": new_twin_streak,
+                "twin_xp_finalized": True,
             }
         )
         .eq("user_id", user_id)
-        .eq("record_date", today)
+        .eq("record_date", record_date)
     )
 
     await run_query(
@@ -1369,7 +1403,7 @@ async def _finalize_twin_xp_impl(user_id: str) -> dict:
             {
                 "event": "twin_xp_finalized",
                 "user_id": user_id,
-                "date": today,
+                "date": record_date,
                 "user_xp_today": user_xp_today,
                 "twin_xp_today": twin_xp_today,
                 "new_twin_xp": new_twin_xp,
@@ -1394,7 +1428,7 @@ async def ensure_twin_simulated_for_today(user_id: str) -> None:
     """
     If there is no twin_daily_record for the user's local today,
     run simulate_twin_day (mission selection only) once.
-    XP is finalized at 11pm by finalize_twin_xp_for_day.
+    XP is finalized after each local calendar day ends (midnight job + catch-up at 1am).
     """
     from app.services.mission_service import get_user_date
 
@@ -1815,6 +1849,8 @@ async def generate_journal_for_yesterday(user_id: str) -> None:
         tz = str((user_row.data or {}).get("timezone") or "UTC").strip() or "UTC"
         today = get_user_date(tz)
         yesterday = str(date_type.fromisoformat(today) - timedelta(days=1))
+        # Ensure mirror XP is on twin_daily_record before journal reads xp_earned (idempotent).
+        await finalize_twin_xp_for_calendar_day(user_id, yesterday)
         await generate_and_store_twin_journal(user_id, yesterday)
     except Exception as e:
         logger.error(
@@ -1983,6 +2019,23 @@ def build_twin_day_timeline(
     return timeline
 
 
+def twin_daily_xp_merged_into_lifetime(twin_daily_record: dict | None) -> bool:
+    """
+    True if twin_state.twin_xp already includes today's finalized mirror XP.
+    False while today's row exists but nightly finalize has not run (intraday).
+    """
+    if not twin_daily_record:
+        return True
+    if twin_daily_record.get("twin_xp_finalized") is True:
+        return True
+    if twin_daily_record.get("twin_xp_finalized") is False:
+        return False
+    # Pre-migration: finalized days wrote non-zero ledgers; placeholders stay 0/0 until finalize
+    return int(twin_daily_record.get("xp_earned") or 0) > 0 or int(
+        twin_daily_record.get("pf_earned") or 0
+    ) > 0
+
+
 def get_twin_xp_comparison(user_id: str, today: str, timezone_str: str) -> dict:
     """
     Returns user's XP earned today vs Twin's XP earned *so far* today (same rules as /twin/state).
@@ -2038,7 +2091,8 @@ def get_twin_xp_comparison(user_id: str, today: str, timezone_str: str) -> dict:
         twin_rows = twin_result.data or []
         twin_xp_full = int(twin_rows[0].get("xp_earned") or 0) if twin_rows else 0
 
-        # Intraday projection: before 11pm finalization xp_earned is 0; mirror user XP for display only.
+        # Intraday: before nightly finalization xp_earned is 0 — estimate full-day twin XP from user,
+        # then prorate by simulated twin clock (revealed / total mission log rows) for the strip.
         if twin_xp_full == 0 and user_xp > 0:
             try:
                 from app.services.mission_service import get_days_since_registration as _gdsr
@@ -2059,6 +2113,14 @@ def get_twin_xp_comparison(user_id: str, today: str, timezone_str: str) -> dict:
                     .execute()
                     .data
                 ) or {}
+                _twin_st = (
+                    supabase_admin.table("twin_state")
+                    .select("twin_overextension_day")
+                    .eq("user_id", user_id)
+                    .single()
+                    .execute()
+                    .data
+                ) or {}
 
                 _archetype = str(_user_row.get("archetype") or "structured_climber")
                 _cr7d = float(_dna_row.get("completion_rate_7d") or 50)
@@ -2071,24 +2133,31 @@ def get_twin_xp_comparison(user_id: str, today: str, timezone_str: str) -> dict:
                 _days_active = max(0, _gdsr(_reg, _tz_str) - 1)
 
                 try:
-                    _tz_proj = ZoneInfo(_tz_str)
+                    anchor_day = date_type.fromisoformat(today)
                 except Exception:
-                    _tz_proj = ZoneInfo("UTC")
-                _dow = datetime.now(_tz_proj).isoweekday()
+                    anchor_day = now_local.date()
+                _dow = anchor_day.isoweekday()
+                _over = int(_twin_st.get("twin_overextension_day") or 0)
 
                 _mirror = compute_mirror_factor(
                     _days_active, _archetype, _cr7d, _cal_count
                 )
-                _day_mod = get_archetype_day_modifier(_archetype, _dow)
-                twin_xp_full = int(round(user_xp * _mirror * _day_mod))
+                _day_mod = get_archetype_day_modifier(
+                    _archetype, _dow, user_id=user_id, calendar_date=today
+                )
+                _over_mod = OVEREXTENSION_MODIFIERS.get(_over, 1.0)
+                twin_xp_full = int(
+                    round(user_xp * _mirror * _day_mod * _over_mod)
+                )
             except Exception:
                 pass
 
         n_all = len(twin_log_rows)
         n_rev = len(revealed)
-        twin_xp = (
-            int(round(twin_xp_full * (n_rev / n_all))) if n_all > 0 else 0
-        )
+        if n_all > 0:
+            twin_xp = int(round(twin_xp_full * (n_rev / n_all)))
+        else:
+            twin_xp = twin_xp_full
 
         return {"user_xp_today": user_xp, "twin_xp_today": twin_xp}
 

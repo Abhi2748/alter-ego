@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from app.core.supabase_client import supabase_admin, run_query
 from app.services.mission_service import get_user_date
@@ -414,6 +415,62 @@ async def generate_weekly_challenge(user_id: str) -> dict | None:
     except Exception as e:
         logger.error(json.dumps({
             "event": "generate_weekly_challenge_error",
+            "user_id": user_id,
+            "error": str(e)[:200],
+        }))
+        return None
+
+
+async def ensure_weekly_challenge_on_open(user_id: str) -> dict | None:
+    """
+    App-open fallback for Sunday: if the scheduler window was missed, generate
+    this week's challenge once when the user opens the app.
+
+    Guardrails:
+    - Only runs on the user's local Sunday.
+    - Never creates a second challenge in the same local Sunday-started week.
+    """
+    try:
+        user_row = (
+            ((await run_query(supabase_admin.table("users")
+            .select("timezone")
+            .eq("id", user_id)
+            .single())).data)
+            or {}
+        )
+        tz_str = str(user_row.get("timezone") or "UTC").strip() or "UTC"
+        try:
+            tz = ZoneInfo(tz_str)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        now_local = datetime.now(tz)
+
+        # Python weekday(): Monday=0 ... Sunday=6
+        if now_local.weekday() != 6:
+            return None
+
+        week_start_local = now_local.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        week_end_local = week_start_local + timedelta(days=7)
+        week_start_utc = week_start_local.astimezone(timezone.utc).isoformat()
+        week_end_utc = week_end_local.astimezone(timezone.utc).isoformat()
+
+        existing_this_week = (
+            await run_query(supabase_admin.table("twin_challenges")
+            .select("id")
+            .eq("user_id", user_id)
+            .gte("issued_at", week_start_utc)
+            .lt("issued_at", week_end_utc)
+            .limit(1))
+        )
+        if existing_this_week.data:
+            return None
+
+        return await generate_weekly_challenge(user_id)
+    except Exception as e:
+        logger.error(json.dumps({
+            "event": "ensure_weekly_challenge_on_open_error",
             "user_id": user_id,
             "error": str(e)[:200],
         }))

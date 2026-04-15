@@ -142,6 +142,8 @@ export function FocusScreen() {
   const totalRounds = settings?.pomodoro_rounds ?? 4;
   const autoBreaks = settings?.auto_start_breaks ?? true;
   const autoWork = settings?.auto_start_work ?? false;
+  const soundEnabled = settings?.sound_enabled ?? true;
+  const vibrationEnabled = settings?.vibration_enabled ?? true;
 
   const [segment, setSegment] = useState<Segment>("idle");
   const [run, setRun] = useState(false);
@@ -166,6 +168,9 @@ export function FocusScreen() {
   const createTagSheetActiveRef = useRef(false);
 
   const soundRef = useRef<Audio.Sound | null>(null);
+  /** Read at notification delivery time so foreground alerts respect Session sound toggle */
+  const soundEnabledForNotificationsRef = useRef(true);
+  soundEnabledForNotificationsRef.current = soundEnabled;
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const backgroundStartTimeRef = useRef<number | null>(null);
   const backgroundSecondsLeftRef = useRef<number>(0);
@@ -180,19 +185,34 @@ export function FocusScreen() {
   }, []);
 
   const triggerSessionCompleteAlert = useCallback(async () => {
-    const soundEnabled = settings?.sound_enabled ?? true;
-    if (!soundEnabled) return;
+    const vibeOn = settings?.vibration_enabled ?? true;
+    const soundOn = settings?.sound_enabled ?? true;
+
+    if (vibeOn) {
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch {
+        /* noop */
+      }
+    }
+
+    if (!soundOn) return;
 
     try {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
     } catch {
-      /* noop */
+      /* still try playback */
     }
 
     try {
       const { sound } = await Audio.Sound.createAsync(
-        { uri: "https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" },
-        { shouldPlay: true, volume: 1.0 }
+        require("../../assets/sounds/focus_session_complete.wav"),
+        { shouldPlay: true, volume: 1.0, isLooping: false }
       );
       soundRef.current = sound;
       sound.setOnPlaybackStatusUpdate((status) => {
@@ -204,7 +224,7 @@ export function FocusScreen() {
     } catch {
       /* noop */
     }
-  }, [settings?.sound_enabled]);
+  }, [settings?.sound_enabled, settings?.vibration_enabled]);
 
   const createTagSnapPoints = useMemo<(string | number)[]>(() => ["58%", "92%"], []);
 
@@ -324,7 +344,6 @@ export function FocusScreen() {
           backgroundStartTimeRef.current = Date.now();
           backgroundSecondsLeftRef.current = secondsLeft;
 
-          const soundEnabled = settings?.sound_enabled ?? true;
           const triggerSeconds = secondsLeft;
           const id = await Notifications.scheduleNotificationAsync({
             content: {
@@ -368,7 +387,7 @@ export function FocusScreen() {
     });
 
     return () => subscription.remove();
-  }, [run, segment, secondsLeft, settings?.sound_enabled, dismissBackgroundNotification]);
+  }, [run, segment, secondsLeft, soundEnabled, dismissBackgroundNotification]);
 
   useEffect(() => {
     Notifications.requestPermissionsAsync().catch(() => {});
@@ -377,7 +396,7 @@ export function FocusScreen() {
         shouldShowAlert: true,
         shouldShowBanner: true,
         shouldShowList: true,
-        shouldPlaySound: true,
+        shouldPlaySound: soundEnabledForNotificationsRef.current,
         shouldSetBadge: false,
       }),
     });
@@ -1306,7 +1325,6 @@ export function FocusScreen() {
                 [
                   { label: "Auto-start Breaks", sub: "Start break timer automatically", key: "auto_start_breaks" as const },
                   { label: "Auto-start Work", sub: "Start work after break ends", key: "auto_start_work" as const },
-                  { label: "Sound & Vibration", sub: "Alert when session ends", key: "sound_enabled" as const },
                 ] as const
               ).map((item) => (
                 <View key={item.key} style={styles.settingRow}>
@@ -1322,6 +1340,31 @@ export function FocusScreen() {
                   />
                 </View>
               ))}
+
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>Session sound</Text>
+                  <Text style={styles.settingSub}>Chime when a focus session completes</Text>
+                </View>
+                <Switch
+                  value={settings.sound_enabled !== false}
+                  onValueChange={(v) => patchSettings.mutate({ sound_enabled: v })}
+                  trackColor={{ false: "#374151", true: "rgba(139,92,246,0.42)" }}
+                  thumbColor={settings.sound_enabled !== false ? "#A78BFA" : "#9CA3AF"}
+                />
+              </View>
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingLabel}>Vibration</Text>
+                  <Text style={styles.settingSub}>Haptic when a session completes</Text>
+                </View>
+                <Switch
+                  value={settings.vibration_enabled !== false}
+                  onValueChange={(v) => patchSettings.mutate({ vibration_enabled: v })}
+                  trackColor={{ false: "#374151", true: "rgba(139,92,246,0.42)" }}
+                  thumbColor={settings.vibration_enabled !== false ? "#A78BFA" : "#9CA3AF"}
+                />
+              </View>
             </ScrollView>
           ) : null}
         </BottomSheetView>

@@ -41,6 +41,7 @@ from app.services.twin_comparison_copy import (
 )
 from app.services.absence_service import compute_absence_days, get_twin_accomplishments
 from app.services.twin_service import (
+    OVEREXTENSION_MODIFIERS,
     TwinChatRateLimited,
     build_twin_day_timeline,
     compute_mirror_factor,
@@ -53,6 +54,7 @@ from app.services.twin_service import (
     partition_twin_mission_log_by_reveal,
     refresh_twin_gap_state,
     send_twin_message,
+    twin_daily_xp_merged_into_lifetime,
 )
 
 logger = logging.getLogger(__name__)
@@ -900,7 +902,14 @@ async def get_twin_challenge(authorization: str = Header(None)):
     or null if none exists. Progress is computed on-demand.
     """
     user_id = get_user_id_from_token(authorization)
-    from app.services.challenge_service import get_active_challenge
+    from app.services.challenge_service import (
+        ensure_weekly_challenge_on_open,
+        get_active_challenge,
+    )
+
+    # Fallback for missed scheduler window: if local Sunday challenge wasn't
+    # generated at 00:00, create it now on app open (once per local week).
+    await ensure_weekly_challenge_on_open(user_id)
 
     challenge = await get_active_challenge(user_id)
     if not challenge:
@@ -1517,24 +1526,30 @@ async def _build_twin_state_response(user_id: str) -> dict:
                 if _cr7d <= 1.0:
                     _cr7d *= 100.0
                 _cal_count = int(_dna_d.get("calibration_count") or 0)
-                _dow = now_local_state.isoweekday()
+                _dow = anchor.isoweekday()
 
                 _mirror = compute_mirror_factor(
                     _days_active, _archetype, _cr7d, _cal_count
                 )
-                _day_mod = get_archetype_day_modifier(_archetype, _dow)
+                _day_mod = get_archetype_day_modifier(
+                    _archetype, _dow, user_id=user_id, calendar_date=today
+                )
+                _over_mod = OVEREXTENSION_MODIFIERS.get(
+                    int(twin.get("twin_overextension_day") or 0), 1.0
+                )
 
                 twin_xp_today_full = int(
-                    round(_user_xp_today_check * _mirror * _day_mod)
+                    round(_user_xp_today_check * _mirror * _day_mod * _over_mod)
                 )
             except Exception:
                 pass
 
-    twin_xp_today_revealed = (
-        int(round(twin_xp_today_full * (n_twin_revealed / n_twin_log_all)))
-        if n_twin_log_all > 0
-        else 0
-    )
+    if n_twin_log_all > 0:
+        twin_xp_today_revealed = int(
+            round(twin_xp_today_full * (n_twin_revealed / n_twin_log_all))
+        )
+    else:
+        twin_xp_today_revealed = twin_xp_today_full
     revealed_mission_ids = mission_ids_for_revealed_twin_logs(user_id, today, revealed_twin_logs)
 
     week_heatmap: list[dict] = []
@@ -1731,7 +1746,6 @@ async def _build_twin_state_response(user_id: str) -> dict:
 
     # Days since last crossing (user passed Twin); narrative copy uses for temporal context
     last_passed = twin.get("last_passed_at")
-    user_is_ahead = user.get("total_xp", 0) > twin.get("twin_xp", 0)
     days_user_ahead = 0
     if last_passed:
         try:
@@ -1739,7 +1753,14 @@ async def _build_twin_state_response(user_id: str) -> dict:
         except Exception:
             days_user_ahead = 0
 
-    twin_xp = int(twin.get("twin_xp", 0) or 0)
+    twin_xp_raw = int(twin.get("twin_xp", 0) or 0)
+    # Lifetime in DB updates at nightly finalize; add today's simulated-clock twin XP for UI bar / gap.
+    if twin_daily_xp_merged_into_lifetime(twin_record):
+        twin_xp = twin_xp_raw
+    else:
+        twin_xp = twin_xp_raw + int(twin_xp_today_revealed or 0)
+
+    user_is_ahead = int(user.get("total_xp", 0) or 0) > twin_xp
 
     try:
         anchor_30 = date_cls.fromisoformat(today)
@@ -1825,7 +1846,7 @@ async def _build_twin_state_response(user_id: str) -> dict:
             "xp_earned_today": twin_xp_today_revealed,
         },
         "gap": {
-            "xp_difference": abs(user.get("total_xp", 0) - twin.get("twin_xp", 0)),
+            "xp_difference": abs(int(user.get("total_xp", 0) or 0) - twin_xp),
             "user_is_ahead": user_is_ahead,
             "gap_state": twin.get("current_gap_state", "neck_and_neck"),
             "days_user_ahead": days_user_ahead,

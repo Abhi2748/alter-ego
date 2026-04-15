@@ -65,6 +65,7 @@ export interface FocusSettings {
   auto_start_breaks: boolean;
   auto_start_work: boolean;
   sound_enabled: boolean;
+  vibration_enabled: boolean;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -106,8 +107,22 @@ export const logFocusSession = (body: LogSessionBody) =>
 export const fetchFocusStats = (): Promise<FocusStats> =>
   apiClient.get<FocusStats>("/api/v1/focus/stats");
 
+const FOCUS_SETTINGS_DEFAULTS: Pick<
+  FocusSettings,
+  "sound_enabled" | "vibration_enabled"
+> = {
+  sound_enabled: true,
+  vibration_enabled: true,
+};
+
 export const fetchFocusSettings = (): Promise<FocusSettings> =>
-  apiClient.get<FocusSettings>("/api/v1/focus/settings");
+  apiClient.get<FocusSettings>("/api/v1/focus/settings").then((r) => ({
+    ...FOCUS_SETTINGS_DEFAULTS,
+    ...r,
+    sound_enabled: r.sound_enabled ?? FOCUS_SETTINGS_DEFAULTS.sound_enabled,
+    vibration_enabled:
+      r.vibration_enabled ?? FOCUS_SETTINGS_DEFAULTS.vibration_enabled,
+  }));
 
 export const patchFocusSettings = (updates: Partial<FocusSettings>) =>
   apiClient.patch<FocusSettings>("/api/v1/focus/settings", updates);

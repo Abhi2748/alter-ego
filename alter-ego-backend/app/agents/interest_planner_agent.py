@@ -721,20 +721,25 @@ async def generate_interest_mission(
         "interest_id": interest["id"],
         "mission_date": mission_date,
         "completed": False,
-        "rationale": str(mission_data.get("rationale", ""))[:600],
+        "rationale": str(mission_data.get("rationale", "")),
         "phase_principle": (
             str(mission_data.get("skill_covered") or "")[:200]
             or str(mission_data.get("arc_principle") or "")[:200]
         ),
-        "domain_knowledge": str(mission_data.get("domain_knowledge_applied", ""))[:800],
+        "domain_knowledge": str(mission_data.get("domain_knowledge_applied", "")),
+        "resource_reference": (
+            None
+            if mission_data.get("resource_reference") is None
+            else str(mission_data.get("resource_reference", "")).strip()
+        ),
         "description": (
-            str(mission_data.get("description", ""))[:400].rstrip()
+            str(mission_data.get("description", "")).rstrip()
             + (
-                f"\n\nTechnique: {str(mission_data.get('technique_note', ''))[:200]}"
+                f"\n\nTechnique: {str(mission_data.get('technique_note', ''))}"
                 if mission_data.get("technique_note")
                 else ""
             )
-        )[:600],
+        ),
         "estimated_minutes": mins,
     }
     result = supabase_admin.table("missions").insert(mission_row).execute()

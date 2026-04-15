@@ -419,7 +419,7 @@ async def rate_mission(mission_id: str, body: RateMissionRequest, authorization:
         raise HTTPException(status_code=400, detail="Invalid rating")
 
     mission_result = await run_query(supabase_admin.table("missions")
-        .select("id, user_id, interest_id, quit_path_id")
+        .select("id, user_id, type, interest_id, quit_path_id")
         .eq("id", mission_id)
         .eq("user_id", user_id)
         .single())
@@ -427,6 +427,12 @@ async def rate_mission(mission_id: str, body: RateMissionRequest, authorization:
         raise HTTPException(status_code=404, detail="Mission not found")
 
     mission = mission_result.data
+    if str(mission.get("type") or "").lower() == "core":
+        raise HTTPException(
+            status_code=400,
+            detail="Core missions do not support difficulty rating.",
+        )
+
     existing = await run_query(supabase_admin.table("mission_ratings")
         .select("id")
         .eq("user_id", user_id)

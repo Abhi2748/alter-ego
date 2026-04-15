@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -9,10 +9,11 @@ import {
   Alert,
   ActivityIndicator,
   TextInput,
+  KeyboardAvoidingView,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import Svg, { Path } from "react-native-svg";
 import { useQueryClient } from "@tanstack/react-query";
@@ -110,11 +111,27 @@ function RatingIcon({ value, color }: { value: 1 | 3 | 5; color: string }) {
   );
 }
 
+function extractInterestSections(raw: string): { howTo: string; technique: string } {
+  const content = raw.trim();
+  if (!content) return { howTo: "", technique: "" };
+
+  const marker = /(?:\n{2,}|\n)\s*(?:#{1,6}\s*)?(?:\*\*)?technique(?:\*\*)?\s*:\s*/i;
+  const match = marker.exec(content);
+  if (!match || match.index < 0) {
+    return { howTo: content, technique: "" };
+  }
+
+  const howTo = content.slice(0, match.index).trim();
+  const technique = content.slice(match.index + match[0].length).trim();
+  return { howTo, technique };
+}
+
 export function MissionDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute<MissionDetailRoute>();
   const missionId = route.params.missionId;
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
 
   const { data: mission, isLoading, isError, refetch, isFetching } = useMissionDetail(missionId);
   const { mutate: completeMission, isPending: completing } = useCompleteMission();
@@ -123,6 +140,7 @@ export function MissionDetailScreen() {
   const [localRating, setLocalRating] = useState<1 | 3 | 5 | null>(null);
   const [feedbackText, setFeedbackText] = useState<string>("");
   const [feedbackFocused, setFeedbackFocused] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
 
   const serverRating = mission?.difficulty_rating;
   const effectiveRating =
@@ -137,20 +155,24 @@ export function MissionDetailScreen() {
 
   const isCompleted = mission?.completed === true;
   const ratedLocked = serverRating === 1 || serverRating === 3 || serverRating === 5;
+  const isInterest = mission?.type === "interest";
+  const isResistance = mission?.type === "resistance";
+  const showResistance = Boolean(mission?.quit_path_id) || isResistance;
+  const ratingEnabledForMission = isInterest || showResistance;
 
   const diffKey = useMemo(() => normDifficulty(mission?.difficulty), [mission?.difficulty]);
   const pill = useMemo(() => difficultyPill(diffKey), [diffKey]);
 
   const selectRatingTile = useCallback(
     (rating: 1 | 3 | 5) => {
-      if (ratedLocked || !isCompleted) return;
+      if (ratedLocked || !ratingEnabledForMission) return;
       setLocalRating(rating);
     },
-    [ratedLocked, isCompleted]
+    [ratedLocked, ratingEnabledForMission]
   );
 
   const submitRating = useCallback(() => {
-    if (!missionId || ratedLocked || !isCompleted || localRating === null) return;
+    if (!missionId || ratedLocked || !ratingEnabledForMission || localRating === null) return;
     rateMission(
       { missionId, rating: localRating, feedback: feedbackText.trim() || undefined },
       {
@@ -162,7 +184,15 @@ export function MissionDetailScreen() {
         },
       }
     );
-  }, [missionId, ratedLocked, isCompleted, localRating, feedbackText, rateMission, queryClient]);
+  }, [
+    missionId,
+    ratedLocked,
+    ratingEnabledForMission,
+    localRating,
+    feedbackText,
+    rateMission,
+    queryClient,
+  ]);
 
   const handleComplete = () => {
     if (!missionId) return;
@@ -223,24 +253,203 @@ export function MissionDetailScreen() {
 
   const typeHdr = headerTypeLabel(mission);
   const minutes = mission.estimated_minutes ?? null;
-  const isInterest = mission.type === "interest";
   const rawDesc = (mission.description ?? "").trim();
-  const techSplit = rawDesc.split("\n\nTechnique: ");
-  const desc = techSplit[0].trim();
-  const techniqueNote = isInterest && techSplit.length > 1 ? techSplit[1].trim() : "";
+  const sections = extractInterestSections(rawDesc);
+  const desc = isInterest ? sections.howTo : rawDesc;
+  const techniqueNote = isInterest ? sections.technique : "";
   const rationale = (mission.rationale ?? "").trim();
   const domainKnowledge = (mission.domain_knowledge ?? "").trim();
-  const showResistance = Boolean(mission.quit_path_id) || mission.type === "resistance";
-  const canSubmitRating = isCompleted && !ratedLocked && localRating !== null;
+  const canSubmitRating = ratingEnabledForMission && !ratedLocked && localRating !== null;
+
+  const ratingSectionEl =
+    ratingEnabledForMission ? (
+      <View style={styles.ratingSection}>
+        {ratedLocked ? (
+          <>
+            <Text style={styles.rateLbl}>How hard was this?</Text>
+            <View style={styles.ratingRow}>
+              {(
+                [
+                  {
+                    value: 1 as const,
+                    label: "Too Hard",
+                    color: "#EF4444",
+                    selectedStyle: styles.rateCellHardOn,
+                  },
+                  {
+                    value: 3 as const,
+                    label: "Just Right",
+                    color: "#8B5CF6",
+                    selectedStyle: styles.rateCellMidOn,
+                  },
+                  {
+                    value: 5 as const,
+                    label: "Too Easy",
+                    color: "#A78BFA",
+                    selectedStyle: styles.rateCellEasyOn,
+                  },
+                ] as const
+              ).map((opt) => (
+                <View
+                  key={opt.value}
+                  style={[
+                    styles.rateCell,
+                    effectiveRating === opt.value ? opt.selectedStyle : styles.rateCellOff,
+                    styles.rateCellLocked,
+                  ]}
+                >
+                  <RatingIcon value={opt.value} color={opt.color} />
+                  <Text style={[styles.rateCellLbl, { color: opt.color }]}>{opt.label}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.ratingSaved}>
+              <Ionicons name="checkmark-circle" size={15} color="#8B5CF6" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.ratingSavedTxt}>Rating saved. Your missions will adapt.</Text>
+                {feedbackText.length > 0 ? (
+                  <Text style={styles.ratingSavedFeedback}>&ldquo;{feedbackText}&rdquo;</Text>
+                ) : null}
+              </View>
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={styles.rateLbl}>How hard was this?</Text>
+            <View style={styles.ratingRow}>
+              {(
+                [
+                  {
+                    value: 1 as const,
+                    label: "Too Hard",
+                    color: "#EF4444",
+                    selectedStyle: styles.rateCellHardOn,
+                  },
+                  {
+                    value: 3 as const,
+                    label: "Just Right",
+                    color: "#8B5CF6",
+                    selectedStyle: styles.rateCellMidOn,
+                  },
+                  {
+                    value: 5 as const,
+                    label: "Too Easy",
+                    color: "#A78BFA",
+                    selectedStyle: styles.rateCellEasyOn,
+                  },
+                ] as const
+              ).map((opt) => (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => selectRatingTile(opt.value)}
+                  style={[
+                    styles.rateCell,
+                    localRating === opt.value ? opt.selectedStyle : styles.rateCellOff,
+                  ]}
+                >
+                  {localRating === opt.value ? (
+                    <View style={[styles.rateCheck, { backgroundColor: opt.color }]}>
+                      <Ionicons name="checkmark" size={9} color="white" />
+                    </View>
+                  ) : null}
+                  <RatingIcon value={opt.value} color={opt.color} />
+                  <Text style={[styles.rateCellLbl, { color: opt.color }]}>{opt.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={[styles.feedbackWrap, feedbackFocused && styles.feedbackWrapFocused]}>
+              <TextInput
+                style={styles.feedbackInput}
+                placeholder="Tell us exactly what you felt, especially if anything was unclear. This helps shape your next missions."
+                placeholderTextColor={TEXT_DIM}
+                value={feedbackText}
+                onChangeText={setFeedbackText}
+                onFocus={() => setFeedbackFocused(true)}
+                onBlur={() => setFeedbackFocused(false)}
+                multiline
+                maxLength={200}
+                returnKeyType="done"
+                blurOnSubmit
+              />
+              {feedbackText.length > 0 ? (
+                <Text style={styles.feedbackCount}>{feedbackText.length}/200</Text>
+              ) : null}
+            </View>
+
+            <Pressable
+              onPress={submitRating}
+              disabled={!canSubmitRating || ratingPending}
+              style={[
+                styles.submitRatingBtn,
+                (!canSubmitRating || ratingPending) && styles.submitRatingBtnDisabled,
+              ]}
+            >
+              {ratingPending ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <Text
+                  style={[styles.submitRatingTxt, !canSubmitRating && styles.submitRatingTxtDisabled]}
+                >
+                  {localRating === null ? "Select a rating above" : "Submit Rating"}
+                </Text>
+              )}
+            </Pressable>
+          </>
+        )}
+      </View>
+    ) : null;
+
+  const footerEl = (
+    <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+      {!isCompleted ? (
+        <Pressable
+          onPress={handleComplete}
+          disabled={completing}
+          style={({ pressed }) => [pressed && !completing ? { transform: [{ scale: 0.98 }] } : null]}
+        >
+          <LinearGradient
+            colors={["#6D28D9", "#8B5CF6"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={[styles.completeBtn, completing && { opacity: 0.7 }]}
+          >
+            {completing ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Text style={styles.completeBtnTxt}>Complete Mission</Text>
+                <Text style={styles.completeBtnXp}>★ {mission.xp_value ?? 0} XP</Text>
+              </>
+            )}
+          </LinearGradient>
+        </Pressable>
+      ) : (
+        <View style={styles.doneBtn}>
+          <Text style={styles.doneBtnTxt}>Completed ✓</Text>
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <LinearGradient colors={BG_GRADIENT} style={styles.container}>
-      <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
+      <KeyboardAvoidingView
+        style={styles.kav}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
+      >
+        <SafeAreaView edges={["top"]} style={styles.safe}>
+          <View style={styles.bodyColumn}>
+            <ScrollView
+              ref={scrollRef}
+              style={styles.scrollFlex}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+            >
           {/* ── HEADER ── */}
           <View style={styles.headerBar}>
             <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={10}>
@@ -383,190 +592,24 @@ export function MissionDetailScreen() {
                 <View style={styles.blockDivider} />
               </>
             ) : null}
-
-            {/* ── RATING SECTION (post-completion) ── */}
-            {isCompleted ? (
-              <View style={styles.ratingSection}>
-                {ratedLocked ? (
-                  <>
-                    <Text style={styles.rateLbl}>How hard was this?</Text>
-                    <View style={styles.ratingRow}>
-                      {(
-                        [
-                          {
-                            value: 1 as const,
-                            label: "Too Hard",
-                            color: "#EF4444",
-                            selectedStyle: styles.rateCellHardOn,
-                          },
-                          {
-                            value: 3 as const,
-                            label: "Just Right",
-                            color: "#8B5CF6",
-                            selectedStyle: styles.rateCellMidOn,
-                          },
-                          {
-                            value: 5 as const,
-                            label: "Too Easy",
-                            color: "#A78BFA",
-                            selectedStyle: styles.rateCellEasyOn,
-                          },
-                        ] as const
-                      ).map((opt) => (
-                        <View
-                          key={opt.value}
-                          style={[
-                            styles.rateCell,
-                            effectiveRating === opt.value ? opt.selectedStyle : styles.rateCellOff,
-                            styles.rateCellLocked,
-                          ]}
-                        >
-                          <RatingIcon value={opt.value} color={opt.color} />
-                          <Text style={[styles.rateCellLbl, { color: opt.color }]}>{opt.label}</Text>
-                        </View>
-                      ))}
-                    </View>
-                    <View style={styles.ratingSaved}>
-                      <Ionicons name="checkmark-circle" size={15} color="#8B5CF6" />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.ratingSavedTxt}>Rating saved. Your missions will adapt.</Text>
-                        {feedbackText.length > 0 ? (
-                          <Text style={styles.ratingSavedFeedback}>&ldquo;{feedbackText}&rdquo;</Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.rateLbl}>How hard was this?</Text>
-                    <View style={styles.ratingRow}>
-                      {(
-                        [
-                          {
-                            value: 1 as const,
-                            label: "Too Hard",
-                            color: "#EF4444",
-                            selectedStyle: styles.rateCellHardOn,
-                          },
-                          {
-                            value: 3 as const,
-                            label: "Just Right",
-                            color: "#8B5CF6",
-                            selectedStyle: styles.rateCellMidOn,
-                          },
-                          {
-                            value: 5 as const,
-                            label: "Too Easy",
-                            color: "#A78BFA",
-                            selectedStyle: styles.rateCellEasyOn,
-                          },
-                        ] as const
-                      ).map((opt) => (
-                        <Pressable
-                          key={opt.value}
-                          onPress={() => selectRatingTile(opt.value)}
-                          style={[
-                            styles.rateCell,
-                            localRating === opt.value ? opt.selectedStyle : styles.rateCellOff,
-                          ]}
-                        >
-                          {localRating === opt.value ? (
-                            <View style={[styles.rateCheck, { backgroundColor: opt.color }]}>
-                              <Ionicons name="checkmark" size={9} color="white" />
-                            </View>
-                          ) : null}
-                          <RatingIcon value={opt.value} color={opt.color} />
-                          <Text style={[styles.rateCellLbl, { color: opt.color }]}>{opt.label}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-
-                    <View style={[styles.feedbackWrap, feedbackFocused && styles.feedbackWrapFocused]}>
-                      <TextInput
-                        style={styles.feedbackInput}
-                        placeholder="Tell us more (optional)..."
-                        placeholderTextColor={TEXT_DIM}
-                        value={feedbackText}
-                        onChangeText={setFeedbackText}
-                        onFocus={() => setFeedbackFocused(true)}
-                        onBlur={() => setFeedbackFocused(false)}
-                        multiline
-                        maxLength={200}
-                        returnKeyType="done"
-                        blurOnSubmit
-                      />
-                      {feedbackText.length > 0 ? (
-                        <Text style={styles.feedbackCount}>{feedbackText.length}/200</Text>
-                      ) : null}
-                    </View>
-
-                    <Pressable
-                      onPress={submitRating}
-                      disabled={!canSubmitRating || ratingPending}
-                      style={[
-                        styles.submitRatingBtn,
-                        (!canSubmitRating || ratingPending) && styles.submitRatingBtnDisabled,
-                      ]}
-                    >
-                      {ratingPending ? (
-                        <ActivityIndicator color="white" size="small" />
-                      ) : (
-                        <Text
-                          style={[
-                            styles.submitRatingTxt,
-                            !canSubmitRating && styles.submitRatingTxtDisabled,
-                          ]}
-                        >
-                          {localRating === null ? "Select a rating above" : "Submit Rating"}
-                        </Text>
-                      )}
-                    </Pressable>
-                  </>
-                )}
-              </View>
-            ) : null}
           </View>
-
-          {/* ── FOOTER BUTTON ── */}
-          <View style={styles.footer}>
-            {!isCompleted ? (
-              <Pressable
-                onPress={handleComplete}
-                disabled={completing}
-                style={({ pressed }) => [pressed && !completing ? { transform: [{ scale: 0.98 }] } : null]}
-              >
-                <LinearGradient
-                  colors={["#6D28D9", "#8B5CF6"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[styles.completeBtn, completing && { opacity: 0.7 }]}
-                >
-                  {completing ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Text style={styles.completeBtnTxt}>Complete Mission</Text>
-                      <Text style={styles.completeBtnXp}>★ {mission.xp_value ?? 0} XP</Text>
-                    </>
-                  )}
-                </LinearGradient>
-              </Pressable>
-            ) : (
-              <View style={styles.doneBtn}>
-                <Text style={styles.doneBtnTxt}>Completed ✓</Text>
-              </View>
-            )}
+          </ScrollView>
+            {ratingSectionEl ? <View style={styles.padH}>{ratingSectionEl}</View> : null}
+            {footerEl}
           </View>
-        </ScrollView>
-      </SafeAreaView>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
     </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  kav: { flex: 1 },
   safe: { flex: 1 },
-  scrollContent: { paddingBottom: 48 },
+  bodyColumn: { flex: 1 },
+  scrollFlex: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingBottom: 16 },
   padH: { paddingHorizontal: 20 },
 
   headerBar: {
@@ -857,7 +900,7 @@ const styles = StyleSheet.create({
   ratingSavedTxt: { fontSize: 12, fontWeight: "600", color: "#6EE7B7" },
   ratingSavedFeedback: { fontSize: 11, color: TEXT_MUTED, marginTop: 3, fontStyle: "italic" },
 
-  footer: { paddingHorizontal: 16, marginTop: 20 },
+  footer: { paddingHorizontal: 16, marginTop: 12, paddingTop: 4 },
   completeBtn: {
     height: 56,
     borderRadius: 16,

@@ -19,6 +19,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { useFocusEffect } from "@react-navigation/native";
 import { fetchShadowFeed, type FeedEntry } from "@/services/twin";
+import {
+  MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+  MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+  MAIN_TAB_TOP_BAR_PADDING_H,
+} from "@/constants/mainTabHeader";
 
 const PILLAR_LABELS: Record<string, string> = {
   sleep: "Sleep",
@@ -375,7 +380,17 @@ export function TodaysStoryScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: insets.top,
+            minHeight: MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+            paddingBottom: MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+            paddingHorizontal: MAIN_TAB_TOP_BAR_PADDING_H,
+          },
+        ]}
+      >
         <Text style={styles.headerTitle}>Today's story</Text>
         <View style={styles.headerSub}>
           <Text style={styles.headerDate}>
@@ -456,8 +471,7 @@ const styles = StyleSheet.create({
 
   // Header
   header: {
-    paddingBottom: 14,
-    paddingHorizontal: 20,
+    justifyContent: "center",
     backgroundColor: "rgba(20,24,36,0.8)",
     borderBottomWidth: 1,
     borderBottomColor: "#2A3050",

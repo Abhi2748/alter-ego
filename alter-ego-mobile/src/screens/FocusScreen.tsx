@@ -48,6 +48,11 @@ import {
 } from "@/hooks/useFocus";
 import { fmtDuration, type FocusMode, type FocusTag } from "@/services/focus";
 import { useUserStore } from "@/store/userStore";
+import {
+  MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+  MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+  MAIN_TAB_TOP_BAR_PADDING_H,
+} from "@/constants/mainTabHeader";
 
 const VIOLET = "#8B5CF6";
 const VIOLET_DEEP = "#6D28D9";
@@ -226,7 +231,7 @@ export function FocusScreen() {
     }
   }, [settings?.sound_enabled, settings?.vibration_enabled]);
 
-  const createTagSnapPoints = useMemo<(string | number)[]>(() => ["58%", "92%"], []);
+  const createTagSnapPoints = useMemo<(string | number)[]>(() => ["64%", "88%"], []);
 
   type DurationSettingKey =
     | "pomodoro_work_minutes"
@@ -303,36 +308,6 @@ export function FocusScreen() {
   useEffect(() => {
     if (subTab === "stats") void refetchStats();
   }, [subTab, refetchStats]);
-
-  /** Expand Create Tag sheet when keyboard opens so color row + button stay visible */
-  useEffect(() => {
-    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const onShow = () => {
-      if (!createTagSheetActiveRef.current) return;
-      requestAnimationFrame(() => {
-        try {
-          createTagSheetRef.current?.snapToIndex(1);
-        } catch {
-          /* sheet may be unmounted */
-        }
-      });
-    };
-    const onHide = () => {
-      if (!createTagSheetActiveRef.current) return;
-      try {
-        createTagSheetRef.current?.snapToIndex(0);
-      } catch {
-        /* noop */
-      }
-    };
-    const s = Keyboard.addListener(showEvt, onShow);
-    const h = Keyboard.addListener(hideEvt, onHide);
-    return () => {
-      s.remove();
-      h.remove();
-    };
-  }, []);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", async (nextState: AppStateStatus) => {
@@ -664,10 +639,10 @@ export function FocusScreen() {
   const modeLocked = isRunning || isPaused;
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
+    <View style={styles.root}>
       <LinearGradient colors={["#09091A", "#07080F"]} style={StyleSheet.absoluteFill} />
 
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top }]}>
         <View style={styles.tbLeft}>
           <View style={styles.tbAvatar}>
             <View style={styles.tbAvatarClip}>
@@ -930,8 +905,8 @@ export function FocusScreen() {
                       <Ionicons name="play" size={16} color={VIOLET} />
                       <Text style={styles.pauseBtnText}>Resume</Text>
                     </Pressable>
-                    <Pressable style={styles.iconBtn} onPress={handleReset}>
-                      <Ionicons name="refresh" size={18} color={MUTED} />
+                    <Pressable style={styles.endBtn} onPress={handleReset}>
+                      <Text style={styles.endBtnText}>END</Text>
                     </Pressable>
                   </>
                 ) : isBreak ? (
@@ -941,12 +916,13 @@ export function FocusScreen() {
                   </Pressable>
                 ) : mode === "stopwatch" ? (
                   <>
+                    <Pressable style={styles.pauseBtn} onPress={handlePause}>
+                      <Ionicons name="pause" size={16} color={VIOLET} />
+                      <Text style={styles.pauseBtnText}>Pause</Text>
+                    </Pressable>
                     <Pressable style={styles.startBtn} onPress={handleDoneStopwatch}>
                       <Ionicons name="checkmark" size={18} color="white" />
                       <Text style={styles.startBtnText}>Done</Text>
-                    </Pressable>
-                    <Pressable style={styles.iconBtn} onPress={handlePause}>
-                      <Ionicons name="pause" size={18} color={MUTED} />
                     </Pressable>
                   </>
                 ) : (
@@ -955,8 +931,8 @@ export function FocusScreen() {
                       <Ionicons name="pause" size={16} color={VIOLET} />
                       <Text style={styles.pauseBtnText}>Pause</Text>
                     </Pressable>
-                    <Pressable style={styles.iconBtn} onPress={handleReset}>
-                      <Ionicons name="refresh" size={18} color={MUTED} />
+                    <Pressable style={styles.endBtn} onPress={handleReset}>
+                      <Text style={styles.endBtnText}>END</Text>
                     </Pressable>
                   </>
                 )}
@@ -1440,8 +1416,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingHorizontal: MAIN_TAB_TOP_BAR_PADDING_H,
+    paddingBottom: MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+    minHeight: MAIN_TAB_TOP_BAR_MIN_HEIGHT,
     backgroundColor: "rgba(9,9,26,0.85)",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(42,48,80,0.35)",
@@ -1641,6 +1618,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
+  endBtn: {
+    flex: 1,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#7F1D1D",
+    borderWidth: 1.5,
+    borderColor: "rgba(127,29,29,0.95)",
+    borderRadius: 16,
+  },
+  endBtnText: { color: "#E5E7EB", fontSize: 15, fontWeight: "800", letterSpacing: 1 },
 
   configRow: { flexDirection: "row", justifyContent: "center", gap: 12 },
   configItem: { alignItems: "center" },

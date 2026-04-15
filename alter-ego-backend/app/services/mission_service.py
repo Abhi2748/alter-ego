@@ -543,7 +543,7 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     xp_earned = int(mission.get("xp_value") or 0)
     pf_earned = int(mission.get("pf_value") or 0) if pet_unlocked else 0
 
-    # Enforce daily cap
+    # Daily cap values are surge thresholds (response + sigil); rewards are not clamped to them.
     character_stage = int(user.get("character_stage") or 1)
     daily_xp_cap = int(DAILY_XP_CAPS.get(character_stage, 100))
     daily_pf_cap = int(DAILY_PF_CAPS.get(character_stage, 160))
@@ -554,8 +554,9 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
     pf_today_result = await run_query(supabase_admin.table("pf_log").select("amount").eq("user_id", user_id).eq("log_date", today))
     pf_today = sum(int(row.get("amount") or 0) for row in (pf_today_result.data or []))
 
-    xp_earned = max(0, min(xp_earned, daily_xp_cap - xp_today))
-    pf_earned = max(0, min(pf_earned, daily_pf_cap - pf_today))
+    # Daily XP/PF "caps" are surge thresholds only — full mission rewards always apply (sigil_service).
+    xp_earned = max(0, xp_earned)
+    pf_earned = max(0, pf_earned)
 
     current_total_xp = int(user.get("total_xp") or 0)
     current_total_pf = int(user.get("total_pf") or 0)

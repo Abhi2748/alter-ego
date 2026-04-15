@@ -18,6 +18,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { useFocusEffect } from "@react-navigation/native";
 import { fetchShadowFeed, type FeedEntry } from "@/services/twin";
+import {
+  MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+  MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+  MAIN_TAB_TOP_BAR_PADDING_H,
+} from "@/constants/mainTabHeader";
 
 /** Matches backend TWIN_FEED_REACTION_USER_BEATS — user finished before Twin on this title. */
 const USER_BEAT_REACTIONS = new Set([
@@ -241,7 +246,17 @@ export function ShadowFeedScreen() {
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: insets.top,
+            minHeight: MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+            paddingBottom: MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+            paddingHorizontal: MAIN_TAB_TOP_BAR_PADDING_H,
+          },
+        ]}
+      >
         <View>
           <Text style={styles.headerTitle}>Shadow Feed</Text>
           <Text style={styles.headerSubtitle}>YOUR TWIN · TODAY</Text>
@@ -314,10 +329,8 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
 
   header: {
-    paddingBottom: 14,
-    paddingHorizontal: 20,
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     justifyContent: "space-between",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(42,48,80,0.3)",

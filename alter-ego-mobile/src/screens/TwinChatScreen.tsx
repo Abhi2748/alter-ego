@@ -343,19 +343,39 @@ export function TwinChatScreen() {
             setStreamingContent(fullText);
             listRef.current?.scrollToOffset({ offset: 0, animated: false });
           },
-          onMeta: () => {},
+          onMeta: (meta) => {
+            const uid = meta?.user_message_id;
+            if (!uid) return;
+            queryClient.setQueryData(
+              [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+              (old: { messages: TwinMessage[] } | undefined) => {
+                if (!old?.messages?.length) return old;
+                const next = old.messages.map((m) =>
+                  typeof m.id === "string" && m.id.startsWith("temp-user-") && m.role === "user"
+                    ? { ...m, id: String(uid) }
+                    : m
+                );
+                return { ...old, messages: next };
+              }
+            );
+          },
           onDone: () => {
             if (streamingFlushRafRef.current != null) {
               cancelAnimationFrame(streamingFlushRafRef.current);
               streamingFlushRafRef.current = null;
             }
-            queryClient.invalidateQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] });
-            setTimeout(() => {
-              setIsStreaming(false);
-              setStreamingContent("");
-              streamingContentRef.current = "";
-              listRef.current?.scrollToOffset({ offset: 0, animated: true });
-            }, 300);
+            void (async () => {
+              try {
+                await queryClient.refetchQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] });
+              } catch {
+                await queryClient.invalidateQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] });
+              } finally {
+                setIsStreaming(false);
+                setStreamingContent("");
+                streamingContentRef.current = "";
+                listRef.current?.scrollToOffset({ offset: 0, animated: true });
+              }
+            })();
           },
           onError: () => {
             if (streamingFlushRafRef.current != null) {

@@ -21,6 +21,11 @@ import { useQuery } from "@tanstack/react-query";
 import { leaderboardService } from "@/services/leaderboard";
 import { CHARACTER_IDENTITY_PAGE_IMAGE } from "@/constants/characterPetAssets";
 import { useCurrentSeason } from '@/hooks/useSeason';
+import {
+  MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+  MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+  MAIN_TAB_TOP_BAR_PADDING_H,
+} from "@/constants/mainTabHeader";
 
 /** Matches stage badge / "Stage 1 · The Awakened" accent on this screen */
 const PROFILE_HERO_ACCENT = "rgba(167,139,250,0.95)";
@@ -215,9 +220,10 @@ export function ProfileScreen() {
         style={[
           styles.fixedHeader,
           {
-            paddingTop: insets.top + 10,
-            paddingBottom: 12,
-            paddingHorizontal: 16,
+            paddingTop: insets.top,
+            minHeight: MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+            paddingBottom: MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+            paddingHorizontal: MAIN_TAB_TOP_BAR_PADDING_H,
           },
         ]}
       >

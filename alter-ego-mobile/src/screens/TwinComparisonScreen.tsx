@@ -30,6 +30,11 @@ import {
   DAILY_XP_CAPS,
 } from "@/constants/characterProgression";
 import { getCharacterImageSource, getTwinCharacterImageSource } from "@/constants/characterPetAssets";
+import {
+  MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+  MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+  MAIN_TAB_TOP_BAR_PADDING_H,
+} from "@/constants/mainTabHeader";
 
 const CHAT_FAB_BOTTOM = 8;
 const CHAT_FAB_RIGHT = 16;
@@ -846,13 +851,15 @@ export function TwinComparisonScreen() {
         <View
           style={[
             styles.header,
-            { paddingTop: insets.top + 10, paddingBottom: 14, paddingHorizontal: 16 },
+            {
+              paddingTop: insets.top,
+              minHeight: MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+              paddingBottom: MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+              paddingHorizontal: MAIN_TAB_TOP_BAR_PADDING_H,
+            },
           ]}
         >
-          <View
-            style={[styles.headerTitleWrap, { top: insets.top + 10, bottom: 14 }]}
-            pointerEvents="none"
-          >
+          <View style={styles.headerTitleWrap} pointerEvents="none">
             <Text style={styles.headerTitle}>Shadow Twin</Text>
           </View>
           <View style={styles.shareBtn} />
@@ -921,16 +928,14 @@ export function TwinComparisonScreen() {
         style={[
           styles.header,
           {
-            paddingTop: insets.top + 10,
-            paddingBottom: 14,
-            paddingHorizontal: 16,
+            paddingTop: insets.top,
+            minHeight: MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+            paddingBottom: MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+            paddingHorizontal: MAIN_TAB_TOP_BAR_PADDING_H,
           },
         ]}
       >
-        <View
-          style={[styles.headerTitleWrap, { top: insets.top + 10, bottom: 14 }]}
-          pointerEvents="none"
-        >
+        <View style={styles.headerTitleWrap} pointerEvents="none">
           <Text style={styles.headerTitle}>Shadow Twin</Text>
         </View>
         <Pressable
@@ -1049,6 +1054,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
+    top: 0,
+    bottom: 0,
     justifyContent: "center",
     alignItems: "center",
   },

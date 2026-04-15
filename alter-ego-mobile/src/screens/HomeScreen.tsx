@@ -97,6 +97,11 @@ import {
 } from "@/constants/missionColors";
 import { SeasonBanner } from '@/components/SeasonBanner';
 import { useCurrentSeason } from '@/hooks/useSeason';
+import {
+  MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+  MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+  MAIN_TAB_TOP_BAR_PADDING_H,
+} from "@/constants/mainTabHeader";
 /** AsyncStorage keys for streak-break ceremony (B1 Fracture). */
 const AE_LAST_STREAK_KEY_PREFIX = "ae_last_streak_";
 const AE_FRACTURE_SHOWN_KEY_PREFIX = "ae_fracture_shown_";
@@ -155,7 +160,6 @@ const PET_DIALOGUE_WRAP_BOTTOM = HERO_PET_SIZE + HERO_PET_COLUMN_MARGIN_BOTTOM +
 const PET_DIALOGUE_MIN_SCREEN_W = 168;
 /** Pet art uses `contain` and often sits left; tail aim slightly past geometric center toward the head. */
 const PET_DIALOGUE_TAIL_CENTER_NUDGE = 10;
-const TOP_BAR_HEIGHT = 56;
 const TAB_BAR_HEIGHT = 56;
 const CONTENT_PADDING_BOTTOM = 96;
 const JOURNAL_FAB_BOTTOM_GAP = 8;
@@ -1617,9 +1621,9 @@ const styles = StyleSheet.create({
   },
 
   topBar: {
-    minHeight: TOP_BAR_HEIGHT,
-    paddingBottom: 10,
-    paddingHorizontal: SCROLL_PADDING_H,
+    minHeight: MAIN_TAB_TOP_BAR_MIN_HEIGHT,
+    paddingBottom: MAIN_TAB_TOP_BAR_PADDING_BOTTOM,
+    paddingHorizontal: MAIN_TAB_TOP_BAR_PADDING_H,
     justifyContent: "flex-end",
     backgroundColor: "rgba(9,9,26,0.85)",
     borderBottomWidth: 1,

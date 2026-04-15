@@ -47,6 +47,7 @@ export type MissionDetailApi = Mission & {
   quit_habit_name?: string | null;
   quit_phase?: string | null;
   quit_need_description?: string | null;
+  resource_reference?: string | null;
   /** 1 = too hard, 3 = just right, 5 = too easy — from mission_ratings */
   difficulty_rating?: number | null;
   /** Optional text the user submitted with their difficulty rating */

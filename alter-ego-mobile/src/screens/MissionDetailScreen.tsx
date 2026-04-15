@@ -223,11 +223,14 @@ export function MissionDetailScreen() {
 
   const typeHdr = headerTypeLabel(mission);
   const minutes = mission.estimated_minutes ?? null;
-  const desc = (mission.description ?? "").trim();
+  const isInterest = mission.type === "interest";
+  const rawDesc = (mission.description ?? "").trim();
+  const techSplit = rawDesc.split("\n\nTechnique: ");
+  const desc = techSplit[0].trim();
+  const techniqueNote = isInterest && techSplit.length > 1 ? techSplit[1].trim() : "";
   const rationale = (mission.rationale ?? "").trim();
   const domainKnowledge = (mission.domain_knowledge ?? "").trim();
   const showResistance = Boolean(mission.quit_path_id) || mission.type === "resistance";
-  const isInterest = mission.type === "interest";
   const canSubmitRating = isCompleted && !ratedLocked && localRating !== null;
 
   return (
@@ -284,6 +287,20 @@ export function MissionDetailScreen() {
               </>
             ) : null}
 
+            {isInterest && techniqueNote.length > 0 ? (
+              <>
+                <View style={styles.sectionHdr}>
+                  <View style={[styles.sectionBar, { backgroundColor: "#0D9488" }]} />
+                  <Text style={[styles.sectionLabel, { color: "#14B8A6" }]}>Technique</Text>
+                </View>
+                <View style={styles.techniqueCard}>
+                  <Text style={styles.techniqueLbl}>How to do this correctly</Text>
+                  <Text style={styles.techniqueText}>{techniqueNote}</Text>
+                </View>
+                <View style={styles.blockDivider} />
+              </>
+            ) : null}
+
             {/* ── MISSION DESCRIPTION (resistance / personal / core) ── */}
             {!isInterest && desc.length > 0 ? (
               <>
@@ -317,6 +334,19 @@ export function MissionDetailScreen() {
                 </View>
                 <View style={styles.researchCard}>
                   <Text style={styles.researchText}>{domainKnowledge}</Text>
+                </View>
+                <View style={styles.blockDivider} />
+              </>
+            ) : null}
+
+            {isInterest && (mission.resource_reference ?? "").trim().length > 0 ? (
+              <>
+                <View style={styles.resRefCard}>
+                  <Text style={{ fontSize: 13 }}>📖</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.resRefLabel}>Reference</Text>
+                    <Text style={styles.resRefText}>{(mission.resource_reference ?? "").trim()}</Text>
+                  </View>
                 </View>
                 <View style={styles.blockDivider} />
               </>
@@ -620,6 +650,27 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   guideText: { fontSize: 13, color: "#C4B5FD", lineHeight: 22 },
+  techniqueCard: {
+    backgroundColor: "rgba(20,184,166,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(20,184,166,0.2)",
+    borderRadius: 12,
+    padding: 13,
+    marginBottom: 0,
+  },
+  techniqueLbl: {
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "rgba(20,184,166,0.6)",
+    marginBottom: 7,
+  },
+  techniqueText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    lineHeight: 21,
+  },
 
   bodyText: { fontSize: 13, color: TEXT_SECONDARY, lineHeight: 23 },
 
@@ -633,6 +684,30 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   researchText: { fontSize: 12, color: TEXT_DIM, lineHeight: 20 },
+  resRefCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "rgba(99,102,241,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(99,102,241,0.18)",
+    borderRadius: 11,
+    padding: 11,
+    marginBottom: 0,
+  },
+  resRefLabel: {
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "rgba(99,102,241,0.65)",
+    marginBottom: 2,
+  },
+  resRefText: {
+    fontSize: 11.5,
+    color: "#C7D2FE",
+    lineHeight: 17,
+  },
 
   resistCard: {
     backgroundColor: "#140C0C",

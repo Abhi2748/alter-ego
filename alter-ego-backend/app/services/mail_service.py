@@ -41,7 +41,7 @@ You've just built the foundations of your discipline engine. Here's what happens
 
 **Your daily XP and Pet Food caps** match your character stage. Stage 1: **100 XP** and **160 Pet Food** per day. Then Stage 2: 150 / 240, Stage 3: 200 / 360, Stage 4: 280 / 480, Stage 5: 380 / 640, Stage 6: 500 / 800. Completing missions beyond the cap still counts toward your streak and abilities — only XP and Pet Food stop accumulating for that day.
 
-**Your interest missions are generated fresh each day.** Calibrated to your level, your available time, and how you've been performing. Tap any mission to see the research behind why it was assigned to you.
+**Your interest path now includes a real plan.** For each interest, you get an achievable outcome, a skill roadmap (ordered milestones), and recommended resources. Daily interest missions are generated to match your current milestone and available practice days.
 
 **Your streak is your most important number.** Right now, any 2 core missions or 1 interest mission counts. As you progress, the requirement grows with you.
 
@@ -144,11 +144,11 @@ This is permanent. The early requirements built the habit. These build the disci
         "subject": "Your missions got harder.",
         "body": """Your completion rate earned this.
 
-The Planner Agent upgraded your interest mission difficulty. This happens automatically when you've been consistently completing at the current level.
+The Planner Agent upgraded your interest mission difficulty. This happens automatically when you've been consistently completing at the current level and your covered-skill history shows readiness for the next challenge.
 
 Harder missions mean more XP, more Pet Food, and more growth. They also mean more discomfort. That's the point.
 
-If the new difficulty feels wrong, tap any mission and rate it. The Planner reads your feedback.
+If the new difficulty feels wrong, tap any mission and rate it. Add feedback text too — the planner uses that note to adjust your next session directly.
 
 — ALTER EGO""",
     },
@@ -180,13 +180,17 @@ Keep going.
     },
     "interest_week_one": {
         "subject": "One week of {interest_name}",
-        "body": """Most people quit at session 3. You've completed 7. The arc continues.
+        "body": """Most people quit at session 3. You've completed 7.
+
+Your roadmap is now your edge: covered skills are tracked after each completed session, and upcoming missions stay anchored to the next milestone instead of random variety.
 
 — ALTER EGO""",
     },
     "interest_halfway": {
         "subject": "Halfway there",
-        "body": """50% of your {interest_name} journey done. Your Twin noticed.
+        "body": """50% of your {interest_name} journey done.
+
+At this point, your mission plan should feel more specific: it uses your milestone progression, what you've already covered, and your last ratings to decide the next session.
 
 — ALTER EGO""",
     },

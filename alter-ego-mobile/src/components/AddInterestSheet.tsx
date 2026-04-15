@@ -18,6 +18,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import type { PostInterestPayload } from "@/utils/api";
+import { InterestPlanScreen } from "@/components/InterestPlanScreen";
+import { useInterests } from "@/hooks/useInterests";
 
 const SHEET_BG = "#111623";
 const BORDER = "rgba(42,48,80,0.50)";
@@ -50,8 +52,11 @@ const TIMELINE_OPTIONS: {
 interface AddInterestSheetProps {
   visible: boolean;
   onClose: () => void;
-  /** Parent closes the sheet and runs the mutation (fire-and-forget). */
-  onSave: (payload: PostInterestPayload) => void;
+  /** Parent runs mutation and calls callbacks when fully settled. */
+  onSave: (
+    payload: PostInterestPayload,
+    handlers: { onSuccess: (createdInterestId?: string | null) => void; onError: (e: unknown) => void }
+  ) => void;
   /** Called when onSave rejects so the parent can show a toast */
   onSaveError?: (e: unknown) => void;
 }
@@ -71,6 +76,14 @@ export function AddInterestSheet({
   const [targetTimeline, setTargetTimeline] = useState<NonNullable<PostInterestPayload["target_timeline"]>>(
     "no_deadline"
   );
+  const [planData, setPlanData] = useState<{
+    achievable_outcome?: string;
+    progression_milestones?: string[];
+    recommended_resources?: Array<{ type: string; title?: string; name?: string; author?: string; why?: string }>;
+  } | null>(null);
+  const [savePending, setSavePending] = useState(false);
+  const [createdInterestId, setCreatedInterestId] = useState<string | null>(null);
+  const { data: interestsData } = useInterests();
 
   const canNext1 = interestDescription.trim().length > 0;
   const canNext2 = level != null;
@@ -84,8 +97,26 @@ export function AddInterestSheet({
       setLevel(null);
       setGoalDescription("");
       setScheduleDays([]);
+      setPlanData(null);
+      setSavePending(false);
+      setCreatedInterestId(null);
     }
   }, [visible]);
+
+  const latestInterest = interestsData?.paths?.[0];
+  const createdInterest = createdInterestId
+    ? interestsData?.paths?.find((p) => p.path_id === createdInterestId)
+    : undefined;
+  const planSource = createdInterest ?? latestInterest;
+
+  useEffect(() => {
+    if (!visible || step !== 5 || !planSource) return;
+    setPlanData({
+      achievable_outcome: planSource.achievable_outcome,
+      progression_milestones: planSource.progression_milestones,
+      recommended_resources: planSource.recommended_resources,
+    });
+  }, [planSource, step, visible]);
 
   const toggleDay = useCallback((idx: number) => {
     setScheduleDays((prev) =>
@@ -99,17 +130,27 @@ export function AddInterestSheet({
 
   const handleSave = useCallback(() => {
     if (!canSave) return;
-    try {
-      onSave({
+    setSavePending(true);
+    onSave(
+      {
         interest_description: interestDescription.trim(),
         interest_level: level ?? "Still figuring it out",
         goal_description: goalDescription.trim(),
         schedule_days: scheduleDays,
         target_timeline: targetTimeline,
-      });
-    } catch (e) {
-      onSaveError?.(e);
-    }
+      },
+      {
+        onSuccess: (newInterestId?: string | null) => {
+          setSavePending(false);
+          setCreatedInterestId(newInterestId ?? null);
+          setStep(5);
+        },
+        onError: (e) => {
+          setSavePending(false);
+          onSaveError?.(e);
+        },
+      }
+    );
   }, [
     canSave,
     interestDescription,
@@ -125,6 +166,17 @@ export function AddInterestSheet({
     scheduleDays.length > 0
       ? `${scheduleDays.length} days selected · ${scheduleDays.map((i) => DAY_LABELS[i]).join(", ")}`
       : "";
+  const stepCount = step === 5 ? 5 : 4;
+  const showSaveEnabled = canSave && !savePending;
+  const planTimelineLabel = targetTimeline === "no_deadline" ? "No deadline" : targetTimeline.replace("_", " ");
+  const planInterest = {
+    name: interestDescription.trim(),
+    level_label: level ?? "Beginner",
+    timeline_label: planTimelineLabel,
+    achievable_outcome: planData?.achievable_outcome ?? planSource?.achievable_outcome,
+    progression_milestones: planData?.progression_milestones ?? planSource?.progression_milestones,
+    recommended_resources: planData?.recommended_resources ?? planSource?.recommended_resources,
+  };
 
   if (!visible) return null;
 
@@ -147,14 +199,14 @@ export function AddInterestSheet({
               ))}
             </View>
             <View style={styles.topRow}>
-              {step > 1 ? (
+              {step > 1 && step < 5 ? (
                 <Pressable onPress={() => setStep((s) => s - 1)} style={styles.backBtn}>
                   <Text style={styles.backText}>← Back</Text>
                 </Pressable>
               ) : (
                 <View style={styles.backBtn} />
               )}
-              <Text style={styles.stepLabel}>Step {step} of 4</Text>
+              <Text style={styles.stepLabel}>Step {step} of {stepCount}</Text>
               <Pressable onPress={onClose} style={styles.closeBtn}>
                 <Ionicons name="close" size={12} color={MUTED} />
               </Pressable>
@@ -173,8 +225,6 @@ export function AddInterestSheet({
                   placeholder="e.g. I love running outdoors, mainly trail running..."
                   placeholderTextColor={VERY_DIM}
                   multiline
-                  minHeight={80}
-                  maxHeight={160}
                   textAlignVertical="top"
                 />
                 <Pressable
@@ -257,8 +307,6 @@ export function AddInterestSheet({
                   placeholder="e.g. I want to run a 5K by June. I'm at 2K right now and get tired quickly."
                   placeholderTextColor={VERY_DIM}
                   multiline
-                  minHeight={100}
-                  maxHeight={180}
                   textAlignVertical="top"
                 />
                 <Pressable
@@ -331,10 +379,10 @@ export function AddInterestSheet({
                 <Text style={styles.scheduleSummary}>{scheduleSummary}</Text>
                 <Pressable
                   onPress={handleSave}
-                  disabled={!canSave}
-                  style={[styles.nextBtn, !canSave && styles.nextBtnDisabled]}
+                  disabled={!showSaveEnabled}
+                  style={[styles.nextBtn, !showSaveEnabled && styles.nextBtnDisabled]}
                 >
-                  {canSave ? (
+                  {showSaveEnabled ? (
                     <LinearGradient
                       colors={[VIOLET_DEEP, VIOLET]}
                       start={{ x: 0, y: 0 }}
@@ -345,7 +393,7 @@ export function AddInterestSheet({
                     </LinearGradient>
                   ) : (
                     <View style={styles.nextBtnDisabledInner}>
-                      <Text style={styles.nextBtnTextDisabled}>Save Interest</Text>
+                      <Text style={styles.nextBtnTextDisabled}>{savePending ? "Saving..." : "Save Interest"}</Text>
                     </View>
                   )}
                 </Pressable>
@@ -353,6 +401,11 @@ export function AddInterestSheet({
             )}
           </View>
         </View>
+        {step === 5 ? (
+          <View style={StyleSheet.absoluteFill}>
+            <InterestPlanScreen interest={planInterest} onConfirm={onClose} />
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
     </Modal>
   );

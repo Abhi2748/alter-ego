@@ -126,6 +126,7 @@ def compute_completion_rate_14d(user_id: str, interest_id: str) -> float:
 async def increment_sessions_and_check_phase(
     user_id: str,
     interest_id: str,
+    mission_id: str,
 ) -> dict:
     """
     Called after an interest mission is completed.
@@ -178,6 +179,46 @@ async def increment_sessions_and_check_phase(
         await run_query(supabase_admin.table("interests").update(update_payload).eq("id", interest_id).eq(
             "user_id", user_id
         ))
+
+        # ── Append skill_covered to covered_skills ledger ──────────────────────
+        try:
+            # The skill_covered keyword was stored in phase_principle at mission generation
+            mission_res = await run_query(
+                supabase_admin.table("missions")
+                .select("phase_principle")
+                .eq("id", mission_id)
+                .single()
+            )
+            skill_keyword = str((mission_res.data or {}).get("phase_principle") or "").strip()
+            if skill_keyword and len(skill_keyword) < 80:
+                interest_res = await run_query(
+                    supabase_admin.table("interests")
+                    .select("covered_skills")
+                    .eq("id", interest_id)
+                    .single()
+                )
+                current_skills = (interest_res.data or {}).get("covered_skills") or []
+                if isinstance(current_skills, str):
+                    try:
+                        import json as _json
+
+                        current_skills = _json.loads(current_skills)
+                    except Exception:
+                        current_skills = []
+                # Avoid duplicates; keep last 30
+                if skill_keyword not in current_skills:
+                    current_skills.append(skill_keyword)
+                covered = current_skills[-30:]
+                await run_query(
+                    supabase_admin.table("interests")
+                    .update({"covered_skills": covered})
+                    .eq("id", interest_id)
+                )
+        except Exception as e:
+            logger.warning(
+                "covered_skills update failed interest=%s: %s", interest_id, str(e)[:120]
+            )
+            # Non-fatal — do not raise
 
         # ── Milestone detection ─────────────────────────────────────────────
         milestone_hit: str | None = None

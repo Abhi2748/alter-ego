@@ -19,6 +19,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import type { OnboardingInterest } from "../context/OnboardingAnswersContext";
+import { InterestPlanScreen } from "@/components/InterestPlanScreen";
 
 const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
@@ -52,6 +53,8 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
   const [goal, setGoal] = useState("");
   const [schedule, setSchedule] = useState<number[]>([]);
   const [timeline, setTimeline] = useState<string>("no_deadline");
+  const [showPlan, setShowPlan] = useState(false);
+  const [pendingInterest, setPendingInterest] = useState<Parameters<typeof onAdd>[0] | null>(null);
 
   useEffect(() => {
     if (visible) {
@@ -60,6 +63,8 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
       setGoal("");
       setSchedule([]);
       setTimeline("no_deadline");
+      setShowPlan(false);
+      setPendingInterest(null);
     }
   }, [visible, interestName]);
 
@@ -83,15 +88,23 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
 
   const handleAdd = useCallback(() => {
     if (level === null || schedule.length === 0) return;
-    onAdd({
+    const data = {
       name: interestName.trim(),
       level,
       goal: goal.trim(),
       schedule: schedule.length > 0 ? schedule : [0, 2, 4],
       target_timeline: timeline,
-    });
+    };
+    setPendingInterest(data);
+    setShowPlan(true);
+  }, [interestName, level, goal, schedule, timeline]);
+
+  const handlePlanConfirm = useCallback(() => {
+    if (pendingInterest) {
+      onAdd(pendingInterest);
+    }
     onClose();
-  }, [interestName, level, goal, schedule, timeline, onAdd, onClose]);
+  }, [pendingInterest, onAdd, onClose]);
 
   if (!visible) return null;
 
@@ -298,6 +311,26 @@ export function InterestWizardSheet({ visible, onClose, onAdd, interestName }: P
             )}
           </ScrollView>
         </View>
+        {showPlan ? (
+          <View style={StyleSheet.absoluteFill}>
+            <InterestPlanScreen
+              interest={{
+                name: interestName.trim(),
+                level_label: level === "beginner"
+                  ? "Still figuring it out"
+                  : level === "intermediate"
+                  ? "Getting the hang of it"
+                  : "Pretty solid",
+                timeline_label: timeline === "no_deadline" ? "No deadline" : timeline.replace("_", " "),
+                achievable_outcome: undefined,
+                progression_milestones: undefined,
+                recommended_resources: undefined,
+              }}
+              onConfirm={handlePlanConfirm}
+              ctaLabel="Got it — start my journey"
+            />
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
     </Modal>
   );

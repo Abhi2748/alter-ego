@@ -145,6 +145,10 @@ function InterestDetailLayout({
   const sessions = path.sessions_completed ?? 0;
   const streak = path.interest_streak ?? 0;
   const activity = path.last_7_days_activity ?? Array(7).fill(false);
+  const outcome = path.achievable_outcome?.trim() || "";
+  const milestones = path.progression_milestones ?? [];
+  const resources = path.recommended_resources ?? [];
+  const coveredSkills = path.covered_skills ?? [];
   const phase = path.current_arc_phase ?? "no_deadline";
   const phaseInfo = PHASE_DESCRIPTIONS[phase] ?? PHASE_DESCRIPTIONS.no_deadline;
   const daysIn = path.days_since_created ?? 1;
@@ -164,7 +168,6 @@ function InterestDetailLayout({
     : null;
 
   const nextMs = MILESTONE_LIST.find((m) => sessions < m.sessions) ?? null;
-  const doneMilestones = MILESTONE_LIST.filter((m) => sessions >= m.sessions);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -248,6 +251,14 @@ function InterestDetailLayout({
           )}
         </View>
 
+        {outcome.length > 0 ? (
+          <View style={styles.outcomeCard}>
+            <View style={styles.outcomeGlowLine} />
+            <Text style={styles.outcomeLbl}>What you&apos;ll actually reach</Text>
+            <Text style={styles.outcomeText}>{outcome}</Text>
+          </View>
+        ) : null}
+
         {/* ── STATS ROW ── */}
         <View style={styles.statsRow}>
           <View style={[styles.statBox, styles.statBoxBorder]}>
@@ -323,61 +334,116 @@ function InterestDetailLayout({
           </View>
         </View>
 
-        {/* ── NEXT MILESTONE ── */}
-        <View style={styles.milestoneCard}>
-          <Text style={styles.sectionTitle}>Your next milestone</Text>
-          {nextMs ? (
-            <View
-              style={[
-                styles.nextMsRow,
-                { backgroundColor: hexWithAlpha(C, "08"), borderColor: hexWithAlpha(C, "20") },
-              ]}
-            >
-              <View style={[styles.nextMsIcon, { backgroundColor: hexWithAlpha(C, "18") }]}>
-                <Text style={{ fontSize: 18 }}>{nextMs.emoji}</Text>
-              </View>
-              <View style={styles.nextMsInfo}>
-                <Text style={styles.nextMsName}>{nextMs.label}</Text>
-                <Text style={styles.nextMsSub}>
-                  {nextMs.sessions - sessions} more session{nextMs.sessions - sessions !== 1 ? "s" : ""}{" "}
-                  to go
-                </Text>
-              </View>
-              <Text style={[styles.nextMsPct, { color: C }]}>
-                {sessions}/{nextMs.sessions}
+        {resources.length > 0 ? (
+          <View style={styles.resourcesCard}>
+            <Text style={styles.sectionTitle}>Your learning kit</Text>
+            {resources.map((r, i) => {
+              const displayName = r.title || r.name || "Resource";
+              const typeLabel = (r.type || "resource").toLowerCase();
+              const icon = typeLabel === "book" ? "📖" : typeLabel === "youtube_channel" ? "▶" : "🔗";
+              return (
+                <View key={i} style={styles.resRow}>
+                  <View
+                    style={[
+                      styles.resIcon,
+                      typeLabel === "book"
+                        ? { backgroundColor: "rgba(99,102,241,0.10)", borderColor: "rgba(99,102,241,0.20)" }
+                        : { backgroundColor: "rgba(239,68,68,0.08)", borderColor: "rgba(239,68,68,0.18)" },
+                    ]}
+                  >
+                    <Text style={{ fontSize: 13 }}>{icon}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.resType}>{r.type?.replace("_", " ") ?? "resource"}</Text>
+                    <Text style={styles.resName}>
+                      {displayName}
+                      {r.author ? ` · ${r.author}` : ""}
+                    </Text>
+                    {r.why ? <Text style={styles.resWhy}>{r.why}</Text> : null}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+
+        {milestones.length > 0 ? (
+          <View style={styles.roadmapCard}>
+            <View style={styles.roadmapHdr}>
+              <Text style={styles.sectionTitle}>Your skill roadmap</Text>
+              <Text style={[styles.roadmapPhase, { color: hexWithAlpha(C, "99") }]}>
+                {phaseInfo.title} phase
               </Text>
             </View>
-          ) : (
-            <View
-              style={[
-                styles.nextMsRow,
-                {
-                  backgroundColor: "rgba(16,185,129,0.08)",
-                  borderColor: "rgba(16,185,129,0.2)",
-                },
-              ]}
-            >
-              <View style={[styles.nextMsIcon, { backgroundColor: "rgba(16,185,129,0.15)" }]}>
-                <Text style={{ fontSize: 18 }}>🏆</Text>
-              </View>
-              <Text style={[styles.nextMsName, { color: "#6EE7B7" }]}>All milestones reached</Text>
-            </View>
-          )}
-
-          {doneMilestones.length > 0 ? (
-            <>
-              <Text style={styles.doneMsLabel}>Completed</Text>
-              <View style={styles.doneMsRow}>
-                {doneMilestones.map((m) => (
-                  <View key={m.sessions} style={styles.doneMsPill}>
-                    <Ionicons name="checkmark" size={9} color="#10B981" />
-                    <Text style={styles.doneMsText}>{m.label}</Text>
+            {milestones.map((skill, i) => {
+              const isDone = coveredSkills.includes(skill);
+              const isActive = !isDone && coveredSkills.length === i;
+              const isNext = !isDone && !isActive && i === coveredSkills.length + 1;
+              const status: "done" | "active" | "next" | "locked" =
+                isDone ? "done" : isActive ? "active" : isNext ? "next" : "locked";
+              return (
+                <View key={i} style={styles.roadmapRow}>
+                  <View style={styles.roadmapDotCol}>
+                    <View
+                      style={[
+                        styles.roadmapDot,
+                        status === "done" && { backgroundColor: hexWithAlpha(C, "70") },
+                        status === "active" && {
+                          backgroundColor: C,
+                          shadowColor: C,
+                          shadowRadius: 6,
+                          shadowOpacity: 0.4,
+                          elevation: 4,
+                        },
+                        status === "next" && { borderWidth: 1.5, borderColor: "#374151" },
+                        status === "locked" && { borderWidth: 1.5, borderColor: "rgba(42,48,80,0.3)" },
+                      ]}
+                    />
+                    {i < milestones.length - 1 ? (
+                      <View style={[styles.roadmapLine, isDone && { backgroundColor: hexWithAlpha(C, "30") }]} />
+                    ) : null}
                   </View>
-                ))}
+                  <View style={styles.roadmapInfo}>
+                    <Text
+                      style={[
+                        styles.roadmapSkill,
+                        status === "done" && { color: hexWithAlpha(C, "60") },
+                        status === "active" && { color: C, fontFamily: undefined },
+                        status === "next" && { color: "#9CA3AF" },
+                        status === "locked" && { color: "#374151" },
+                      ]}
+                    >
+                      {status === "done" ? `✓ ${skill}` : skill}
+                    </Text>
+                    {status === "active" ? (
+                      <Text style={[styles.roadmapHere, { color: hexWithAlpha(C, "55") }]}>
+                        ← you are here · session {sessions + 1}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={styles.milestoneCard}>
+            <Text style={styles.sectionTitle}>Your next milestone</Text>
+            {nextMs ? (
+              <View style={[styles.nextMsRow, { backgroundColor: hexWithAlpha(C, "08"), borderColor: hexWithAlpha(C, "20") }]}>
+                <View style={[styles.nextMsIcon, { backgroundColor: hexWithAlpha(C, "18") }]}>
+                  <Text style={{ fontSize: 18 }}>{nextMs.emoji}</Text>
+                </View>
+                <View style={styles.nextMsInfo}>
+                  <Text style={styles.nextMsName}>{nextMs.label}</Text>
+                  <Text style={styles.nextMsSub}>
+                    {nextMs.sessions - sessions} more session{nextMs.sessions - sessions !== 1 ? "s" : ""} to go
+                  </Text>
+                </View>
+                <Text style={[styles.nextMsPct, { color: C }]}>{sessions}/{nextMs.sessions}</Text>
               </View>
-            </>
-          ) : null}
-        </View>
+            ) : null}
+          </View>
+        )}
 
         {/* ── PHASE GUIDE ── */}
         <View style={styles.phaseGuideCard}>
@@ -514,6 +580,37 @@ const styles = StyleSheet.create({
   phaseBarSegLocked: { backgroundColor: "rgba(42,48,80,0.25)" },
   phaseBarLabel: { fontSize: 7, fontWeight: "600", color: "#374151", letterSpacing: 0.3 },
   noGoalNote: { fontSize: 9, color: "#374151", textAlign: "right", marginTop: 4 },
+  outcomeCard: {
+    backgroundColor: "rgba(20,184,166,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(20,184,166,0.2)",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    overflow: "hidden",
+    position: "relative",
+  },
+  outcomeGlowLine: {
+    position: "absolute",
+    top: 0,
+    left: "10%",
+    right: "10%",
+    height: 1,
+    backgroundColor: "rgba(20,184,166,0.28)",
+  },
+  outcomeLbl: {
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    color: "rgba(20,184,166,0.6)",
+    marginBottom: 6,
+  },
+  outcomeText: {
+    fontSize: 12.5,
+    color: "#9CA3AF",
+    lineHeight: 19,
+  },
 
   statsRow: {
     flexDirection: "row",
@@ -556,6 +653,35 @@ const styles = StyleSheet.create({
   heatmapDay: { flex: 1, alignItems: "center", gap: 4 },
   heatmapDayLabel: { fontSize: 8, fontWeight: "600", color: "#374151" },
   heatmapPip: { width: "100%", aspectRatio: 1, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  resourcesCard: {
+    backgroundColor: "#111623",
+    borderWidth: 1,
+    borderColor: "#1E2333",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    gap: 10,
+  },
+  resRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  resIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  resType: {
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "#6B7280",
+    marginBottom: 1,
+  },
+  resName: { fontSize: 12, fontWeight: "700", color: "#E5E7EB" },
+  resWhy: { fontSize: 10.5, color: "#6B7280", marginTop: 2, lineHeight: 15 },
 
   milestoneCard: {
     backgroundColor: "#111623",
@@ -600,6 +726,28 @@ const styles = StyleSheet.create({
     borderColor: "rgba(16,185,129,0.18)",
   },
   doneMsText: { fontSize: 10, fontWeight: "600", color: "#6EE7B7" },
+  roadmapCard: {
+    backgroundColor: "#111623",
+    borderWidth: 1,
+    borderColor: "#1E2333",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+  },
+  roadmapHdr: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  roadmapPhase: { fontSize: 9, fontWeight: "600" },
+  roadmapRow: { flexDirection: "row", gap: 10, minHeight: 28 },
+  roadmapDotCol: { width: 16, alignItems: "center", paddingTop: 2 },
+  roadmapDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "transparent" },
+  roadmapLine: { flex: 1, width: 1, backgroundColor: "#1E2333", marginTop: 3, marginBottom: 3 },
+  roadmapInfo: { flex: 1, paddingBottom: 10 },
+  roadmapSkill: { fontSize: 12, fontWeight: "600", lineHeight: 16 },
+  roadmapHere: { fontSize: 8.5, fontWeight: "600", marginTop: 2 },
 
   phaseGuideCard: {
     backgroundColor: "#111623",

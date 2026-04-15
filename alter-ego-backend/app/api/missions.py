@@ -390,7 +390,9 @@ async def complete_mission_endpoint(mission_id: str, authorization: str = Header
                 .single())
             m = mres.data or {}
             if str(m.get("type") or "") == "interest" and m.get("interest_id"):
-                await increment_sessions_and_check_phase(user_id, str(m["interest_id"]))
+                await increment_sessions_and_check_phase(
+                    user_id, str(m["interest_id"]), mission_id
+                )
         except Exception:
             pass
 
@@ -443,6 +445,36 @@ async def rate_mission(mission_id: str, body: RateMissionRequest, authorization:
         await run_query(supabase_admin.table("mission_ratings").update(payload).eq("id", rating_id))
     else:
         await run_query(supabase_admin.table("mission_ratings").insert(payload))
+
+    # ── Write next_session_note if feedback text mentions a specific issue ──
+    try:
+        feedback_txt = str(body.feedback_text or "").strip()
+        rating_val = int(body.rating or 0)
+        # Only write for "Too Hard" (1) with substantive feedback
+        # or "Too Easy" (5) with substantive feedback
+        if feedback_txt and len(feedback_txt) >= 10 and rating_val in (1, 5):
+            # Fetch the interest_id for this mission
+            m_res = await run_query(
+                supabase_admin.table("missions")
+                .select("interest_id")
+                .eq("id", mission_id)
+                .single()
+            )
+            interest_id = (m_res.data or {}).get("interest_id")
+            if interest_id:
+                difficulty_label = "too difficult" if rating_val == 1 else "too easy"
+                note = (
+                    f"User rated last mission as {difficulty_label}. "
+                    f"Their feedback: \"{feedback_txt[:200]}\""
+                )
+                await run_query(
+                    supabase_admin.table("interests")
+                    .update({"next_session_note": note})
+                    .eq("id", interest_id)
+                )
+    except Exception as e:
+        logger.warning("next_session_note write failed: %s", str(e)[:120])
+        # Non-fatal
 
     return {"saved": True}
 

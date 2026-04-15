@@ -55,6 +55,16 @@ export type InterestPathDisplay = InterestPath & {
   last_7_days_activity: boolean[];
   interest_streak: number;
   days_since_created: number;
+  achievable_outcome?: string;
+  progression_milestones?: string[];
+  recommended_resources?: Array<{
+    type: string;
+    title?: string;
+    name?: string;
+    author?: string;
+    why?: string;
+  }>;
+  covered_skills?: string[];
 };
 
 export type ProfileInterestApiRow = {
@@ -78,6 +88,16 @@ export type ProfileInterestApiRow = {
   last_7_days_activity?: boolean[] | null;
   interest_streak?: number | null;
   days_since_created?: number | null;
+  achievable_outcome?: string | null;
+  progression_milestones?: string[] | null;
+  recommended_resources?: Array<{
+    type: string;
+    title?: string;
+    name?: string;
+    author?: string;
+    why?: string;
+  }> | null;
+  covered_skills?: string[] | null;
 };
 
 export function fallbackInterestPathDisplay(row: ProfileInterestApiRow): InterestPathDisplay {
@@ -113,6 +133,10 @@ export function fallbackInterestPathDisplay(row: ProfileInterestApiRow): Interes
       : Array(7).fill(false),
     interest_streak: typeof row.interest_streak === "number" ? row.interest_streak : 0,
     days_since_created: typeof row.days_since_created === "number" ? row.days_since_created : 1,
+    achievable_outcome: undefined,
+    progression_milestones: undefined,
+    recommended_resources: undefined,
+    covered_skills: undefined,
   };
 }
 
@@ -138,6 +162,16 @@ export function toInterestPathDisplay(row: ProfileInterestApiRow): InterestPathD
         : Array(7).fill(false),
       interest_streak: typeof row.interest_streak === "number" ? row.interest_streak : 0,
       days_since_created: typeof row.days_since_created === "number" ? row.days_since_created : 1,
+      achievable_outcome: row.achievable_outcome ?? undefined,
+      progression_milestones: Array.isArray(row.progression_milestones)
+        ? (row.progression_milestones as string[])
+        : undefined,
+      recommended_resources: Array.isArray(row.recommended_resources)
+        ? (row.recommended_resources as InterestPathDisplay["recommended_resources"])
+        : undefined,
+      covered_skills: Array.isArray(row.covered_skills)
+        ? (row.covered_skills as string[])
+        : undefined,
     };
   }
   return {
@@ -157,5 +191,15 @@ export function toInterestPathDisplay(row: ProfileInterestApiRow): InterestPathD
       : Array(7).fill(false),
     interest_streak: typeof row.interest_streak === "number" ? row.interest_streak : 0,
     days_since_created: typeof row.days_since_created === "number" ? row.days_since_created : 1,
+    achievable_outcome: row.achievable_outcome ?? undefined,
+    progression_milestones: Array.isArray(row.progression_milestones)
+      ? (row.progression_milestones as string[])
+      : undefined,
+    recommended_resources: Array.isArray(row.recommended_resources)
+      ? (row.recommended_resources as InterestPathDisplay["recommended_resources"])
+      : undefined,
+    covered_skills: Array.isArray(row.covered_skills)
+      ? (row.covered_skills as string[])
+      : undefined,
   };
 }

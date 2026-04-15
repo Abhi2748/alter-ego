@@ -816,6 +816,10 @@ async def get_profile_interests(authorization: str = Header(None)):
             "last_7_days_activity": last_7_days_activity,
             "interest_streak": interest_streak,
             "days_since_created": days_since_created,
+            "achievable_outcome": interest.get("achievable_outcome") or "",
+            "progression_milestones": interest.get("progression_milestones") or [],
+            "recommended_resources": interest.get("recommended_resources") or [],
+            "covered_skills": interest.get("covered_skills") or [],
         })
 
     return {"interests": results}
@@ -922,6 +926,10 @@ async def post_profile_interest(body: InterestCreateBody, authorization: str = H
         ),
         "evidence_base": normalised.get("evidence_base"),
         "common_obstacles": normalised.get("common_obstacles") or [],
+        "achievable_outcome": normalised.get("achievable_outcome") or "",
+        "progression_milestones": normalised.get("progression_milestones") or [],
+        "recommended_resources": normalised.get("recommended_resources") or [],
+        "covered_skills": [],
         "level_text": level_key,
         "user_goal": user_goal,
         "active_days": active_days,

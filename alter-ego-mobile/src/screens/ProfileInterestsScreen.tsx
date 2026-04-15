@@ -2,7 +2,7 @@
  * Profile → Interests (paths, quests, manage sheets).
  */
 
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,6 +11,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { InterestsTab } from "@/components/profile/InterestsTab";
 import type { ProfileStackParamList } from "@/navigation/types";
+import { InterestPlanScreen } from "@/components/InterestPlanScreen";
+import { useInterests } from "@/hooks/useInterests";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { InterestPathDisplay } from "@/types/interestPath";
 
 export function ProfileInterestsScreen() {
   const insets = useSafeAreaInsets();
@@ -20,10 +24,46 @@ export function ProfileInterestsScreen() {
   const pathIdParam = route.params?.pathId;
   const pendingSheetIntent =
     pendingSheet && pathIdParam ? { sheet: pendingSheet, pathId: pathIdParam } : null;
+  const { data: interestsData } = useInterests();
+  const [planQueue, setPlanQueue] = useState<InterestPathDisplay[]>([]);
+  const [planQueueIdx, setPlanQueueIdx] = useState(0);
+  const [planChecked, setPlanChecked] = useState(false);
 
   const consumePendingSheet = useCallback(() => {
     navigation.setParams({ pendingSheet: undefined, pathId: undefined } as never);
   }, [navigation]);
+
+  useEffect(() => {
+    if (!interestsData?.paths || planChecked) return;
+    setPlanChecked(true);
+    const checkPlans = async () => {
+      const unseen: InterestPathDisplay[] = [];
+      for (const p of interestsData.paths) {
+        const key = `plan_seen_${p.path_id}`;
+        const seen = await AsyncStorage.getItem(key).catch(() => null);
+        if (!seen && p.achievable_outcome) {
+          unseen.push(p);
+        }
+      }
+      if (unseen.length > 0) {
+        setPlanQueue(unseen);
+        setPlanQueueIdx(0);
+      }
+    };
+    void checkPlans();
+  }, [interestsData?.paths, planChecked]);
+
+  const handlePlanConfirm = useCallback(async () => {
+    const current = planQueue[planQueueIdx];
+    if (current) {
+      await AsyncStorage.setItem(`plan_seen_${current.path_id}`, "1").catch(() => {});
+    }
+    if (planQueueIdx + 1 < planQueue.length) {
+      setPlanQueueIdx((i) => i + 1);
+    } else {
+      setPlanQueue([]);
+    }
+  }, [planQueue, planQueueIdx]);
 
   return (
     <LinearGradient
@@ -42,6 +82,28 @@ export function ProfileInterestsScreen() {
           <View style={styles.backBtn} />
         </View>
       </View>
+      {planQueue.length > 0 && planQueueIdx < planQueue.length ? (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 50 }]}>
+          <InterestPlanScreen
+            interest={{
+              name: planQueue[planQueueIdx].interest_name,
+              level_label: planQueue[planQueueIdx].experience_label ?? "Beginner",
+              timeline_label: planQueue[planQueueIdx].target_date
+                ? `Goal: ${new Date(planQueue[planQueueIdx].target_date!).toLocaleDateString("en-US", { month: "short", year: "numeric" })}`
+                : "Open practice",
+              achievable_outcome: planQueue[planQueueIdx].achievable_outcome,
+              progression_milestones: planQueue[planQueueIdx].progression_milestones,
+              recommended_resources: planQueue[planQueueIdx].recommended_resources,
+            }}
+            onConfirm={handlePlanConfirm}
+            ctaLabel={
+              planQueueIdx + 1 < planQueue.length
+                ? `Got it — next interest (${planQueueIdx + 2}/${planQueue.length})`
+                : "Start my journey"
+            }
+          />
+        </View>
+      ) : null}
       <View style={styles.body}>
         <InterestsTab
           pendingSheetIntent={pendingSheetIntent}

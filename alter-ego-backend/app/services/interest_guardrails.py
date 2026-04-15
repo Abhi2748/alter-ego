@@ -101,6 +101,9 @@ REQUIRED_INTEREST_FIELDS = [
     "mission_domain",
     "level_context",
     "evidence_base",
+    "achievable_outcome",
+    "progression_milestones",
+    "recommended_resources",
     "confidence",
 ]
 REQUIRED_QUIT_FIELDS = [

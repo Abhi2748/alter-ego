@@ -49,21 +49,36 @@ Return this exact structure:
     "intermediate": "What someone getting the hang of it should work on: chord transitions, basic songs, rhythm patterns, 20-30 minute focused sessions",
     "advanced": "What an established practitioner should push toward: complex techniques, music theory, improvisation, composition, performance"
   },
-  "evidence_base": "What research and established practice actually says about learning this skill effectively. Include: the most effective practice methods (e.g. deliberate practice vs mindless repetition), optimal session length and frequency, common mistakes beginners make, the psychological challenges at each stage, and what experts in this domain consistently recommend. 3-5 sentences minimum.",
-  "progression_milestones": ["First full chord transition", "First complete song", "First performance for someone", "Improvising freely"],
-  "common_obstacles": ["Finger pain in early weeks", "Plateau after basic chords", "Inconsistent practice schedule"],
-  "mission_varieties": ["Technical exercises", "Song learning", "Music theory", "Ear training", "Composition", "Performance"],
+  "evidence_base": "What research and established practice actually says about learning this skill effectively. Include: the most effective practice methods, optimal session length and frequency, common mistakes beginners make, the psychological challenges at each stage, and what experts consistently recommend. 3-5 sentences minimum.",
+  "achievable_outcome": "A single honest paragraph (3-4 sentences) describing what a beginner user can realistically achieve in a typical 3-month commitment (3-4 sessions per week). Be specific and honest — name the actual skills and capability level they will reach, not what they aspire to. Do NOT oversell. End with one sentence on what they will NOT yet be able to do. Example for boxing: 'In three months of consistent practice (3-4 sessions/week), you will develop a technically sound orthodox stance, a reliable jab and straight right, basic slip and parry defence, and the conditioning to complete 3 rounds of light pad work. You will not be ready to spar competitively, but a boxing coach would recognise your foundation as correct.' Adjust the timeline if the user set a specific one.",
+  "progression_milestones": ["First specific skill checkpoint", "Second skill checkpoint", "Third", "Fourth", "Fifth"],
+  "recommended_resources": [
+    {
+      "type": "book",
+      "title": "Exact Book Title",
+      "author": "Author Name",
+      "why": "One sentence on why this resource fits this user's goal and level"
+    },
+    {
+      "type": "youtube_channel",
+      "name": "Channel Name",
+      "why": "One sentence on why"
+    }
+  ],
+  "common_obstacles": ["Obstacle 1", "Obstacle 2", "Obstacle 3"],
+  "mission_varieties": ["Variety 1", "Variety 2", "Variety 3"],
   "confidence": 0.95
 }
 
 Rules:
-- normalised_name: Canonical name, properly capitalised. "Guitar" not "playing guitar"
-- category: Broad category. Music / Fitness / Writing / Coding / Language / Art / Sport / Business / Mindfulness / Finance / Cooking / Other
-- mission_domain: The specific practice context used in mission generation prompts
-- evidence_base: MUST reference actual research or established expert consensus — not generic advice. This is what makes missions research-backed rather than random.
-- confidence: 0.0-1.0 — how confident you are in the normalisation. Under 0.70 means the input was ambiguous.
-- If the input is completely unclear (e.g. "stuff", "things", "idk"), return confidence 0.3 and normalised_name = the raw input
-- Never refuse — always return valid JSON even for unusual interests
+- normalised_name: Canonical name, properly capitalised
+- category: One of: Music / Fitness / Writing / Coding / Language / Art / Sport / Business / Mindfulness / Finance / Cooking / Craft / Other
+- achievable_outcome: REQUIRED. Honest, specific, 3-4 sentences. Never generic ("you will improve"). Always name actual skills.
+- progression_milestones: REQUIRED. 4-7 items. Ordered from earliest to latest. Specific to this domain and this user's level. NOT generic session counts. Example for pencil sketching beginner: ["Confident straight and curved line control", "Basic geometric forms (cube, sphere, cylinder)", "Tonal shading and value scale", "Perspective and composition basics", "Portrait proportions and facial features"].
+- recommended_resources: REQUIRED. 1-3 items. Only real, widely available resources. Book titles must be real published books. YouTube channels must be real active channels. One per type maximum. For physical skills (Sport, Fitness) always include at least one note about in-person instruction if applicable.
+- evidence_base: MUST reference actual research or established expert consensus.
+- confidence: 0.0-1.0. Under 0.70 means the input was ambiguous.
+- Never refuse — always return valid JSON even for unusual interests.
 """
 
 
@@ -127,7 +142,19 @@ def _fallback_interest(raw_text: str) -> dict:
             "Consistent deliberate practice with progressive difficulty is the most evidence-backed "
             "approach for skill development across domains."
         ),
-        "progression_milestones": [],
+        "achievable_outcome": (
+            f"With consistent practice, you will build a solid foundation in "
+            f"{raw_text.strip()}. Specific outcomes depend on your timeline and "
+            f"session frequency."
+        ),
+        "progression_milestones": [
+            "Initial orientation and basic technique",
+            "Consistent daily practice established",
+            "First skill checkpoint reached",
+            "Intermediate proficiency",
+            "Goal milestone",
+        ],
+        "recommended_resources": [],
         "common_obstacles": ["Inconsistency", "Lack of clear goals"],
         "mission_varieties": ["Practice session", "Study", "Application"],
         "confidence": 0.5,
@@ -267,6 +294,25 @@ async def normalise_interest(
 
         if confidence < 0.70:
             parsed["needs_review"] = True
+            parsed.setdefault(
+                "achievable_outcome",
+                (
+                    f"With consistent practice, you will build a solid foundation in "
+                    f"{raw_text.strip()}. Specific outcomes depend on your timeline and "
+                    f"session frequency."
+                ),
+            )
+            parsed.setdefault(
+                "progression_milestones",
+                [
+                    "Initial orientation and basic technique",
+                    "Consistent daily practice established",
+                    "First skill checkpoint reached",
+                    "Intermediate proficiency",
+                    "Goal milestone",
+                ],
+            )
+            parsed.setdefault("recommended_resources", [])
 
         return parsed
     except Exception as e:

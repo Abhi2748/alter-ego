@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { BottomSheetModal } from "@gorhom/bottom-sheet";
 import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import type { ProfileStackParamList } from "@/navigation/types";
@@ -34,6 +35,7 @@ import { DeleteModal } from "@/components/profile/interest/DeleteModal";
 import { InsightModal } from "@/components/profile/interest/InsightModal";
 import { getErrorMessage, isApiError } from "@/services/api";
 import { AddInterestSheet } from "@/components/AddInterestSheet";
+import { PROFILE_KEYS } from "@/hooks/useProfile";
 
 function SkeletonCard() {
   const o = useSharedValue(0.4);
@@ -65,6 +67,7 @@ export function InterestsTab({
   pendingSheetIntent = null,
   onPendingSheetConsumed,
 }: InterestsTabProps) {
+  const queryClient = useQueryClient();
   const navigation = useNavigation<StackNavigationProp<ProfileStackParamList>>();
   const { data, isLoading, isError, refetch, isFetching } = useInterests();
   const updateDifficulty = useUpdateDifficulty();
@@ -262,13 +265,16 @@ export function InterestsTab({
         <AddInterestSheet
           visible={addInterestOpen}
           onClose={() => setAddInterestOpen(false)}
-          onSave={(payload) => {
-            setAddInterestOpen(false);
+          onSave={(payload, handlers) => {
             createInterest.mutate(payload, {
-              onError: (e) => showError(e),
-              onSuccess: () => {
+              onError: (e) => {
+                handlers.onError(e);
+              },
+              onSuccess: async (data) => {
+                await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.interests });
                 setToast({ msg: "Interest added. Your path is ready.", kind: "ok" });
                 setTimeout(() => setToast(null), 2800);
+                handlers.onSuccess(data?.interest_id ?? null);
               },
             });
           }}
@@ -342,13 +348,16 @@ export function InterestsTab({
       <AddInterestSheet
         visible={addInterestOpen}
         onClose={() => setAddInterestOpen(false)}
-        onSave={(payload) => {
-          setAddInterestOpen(false);
+        onSave={(payload, handlers) => {
           createInterest.mutate(payload, {
-            onError: (e) => showError(e),
-            onSuccess: () => {
+            onError: (e) => {
+              handlers.onError(e);
+            },
+            onSuccess: async (data) => {
+              await queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.interests });
               setToast({ msg: "Interest added. Your path is ready.", kind: "ok" });
               setTimeout(() => setToast(null), 2800);
+              handlers.onSuccess(data?.interest_id ?? null);
             },
           });
         }}

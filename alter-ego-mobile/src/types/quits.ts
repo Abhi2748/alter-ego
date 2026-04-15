@@ -79,7 +79,19 @@ export interface QuitTarget {
   insights: QuitInsight[];
   status: "active" | "completed" | "paused" | "referral_only";
   underlying_need?: string;
+  competing_response?: string;
   need_description?: string;
+  phase_readiness?: {
+    phase: QuitPhase;
+    ready: boolean;
+    criteria: Array<{
+      label: string;
+      met: boolean;
+      required?: number | string;
+      actual?: number | string;
+      unit?: string;
+    }>;
+  };
   requires_professional_referral?: boolean;
   referral_message?: string;
   /** Check-in derived fields (living trigger profile) */

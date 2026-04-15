@@ -29,7 +29,6 @@ import {
   useQuits,
   useLogFrequency,
   useLogCheckin,
-  useAdvancePhase,
   useDeleteQuit,
   useUpdateTriggerProfile,
   useCreateQuitPath,
@@ -100,7 +99,6 @@ export function QuitsTab() {
   const targets = targetsRaw as QuitTarget[];
   const logMutation = useLogFrequency();
   const logCheckin = useLogCheckin();
-  const advanceMutation = useAdvancePhase();
   const deleteMutation = useDeleteQuit();
   const updateProfileMutation = useUpdateTriggerProfile();
   const createMutation = useCreateQuitPath();
@@ -121,7 +119,6 @@ export function QuitsTab() {
   const [addNameModal, setAddNameModal] = useState(false);
   const [addNameDraft, setAddNameDraft] = useState("");
   const [deleting, setDeleting] = useState(false);
-  const [advancingPathId, setAdvancingPathId] = useState<string | null>(null);
   const [slipPickerVisible, setSlipPickerVisible] = useState(false);
   const [slipPickerPath, setSlipPickerPath] = useState<QuitTarget | null>(null);
   const editingPathIdRef = useRef<string | null>(null);
@@ -235,7 +232,7 @@ export function QuitsTab() {
   }, [manageTarget, conquerMutation]);
 
   const handleUrgeCheckSave = useCallback(
-    (pathId: string, level: string) => {
+    (pathId: string, level: string, strategyHelped: boolean | null) => {
       logCheckin.mutate({
         pathId,
         body: {
@@ -248,6 +245,15 @@ export function QuitsTab() {
             | "slipped",
         },
       });
+      if (strategyHelped !== null) {
+        logCheckin.mutate({
+          pathId,
+          body: {
+            checkin_type: "response_used",
+            free_text: strategyHelped ? "helped" : "not_helped",
+          },
+        });
+      }
     },
     [logCheckin]
   );
@@ -255,6 +261,22 @@ export function QuitsTab() {
   const handleUrgeCheckDismiss = useCallback((_pathId: string) => {
     // Reappears until weekly check-in is logged
   }, []);
+
+  const handleResponseUsedCheckin = useCallback(
+    (
+      pathId: string,
+      body: {
+        checkin_type: "response_used";
+        free_text?: string;
+      }
+    ) => {
+      logCheckin.mutate({
+        pathId,
+        body,
+      });
+    },
+    [logCheckin]
+  );
 
   const handleProfileComplete = useCallback(
     (profile: QuitTargetInput) => {
@@ -425,6 +447,7 @@ export function QuitsTab() {
                   key={`urge-${t.path_id}`}
                   habitName={t.habit_name}
                   pathId={t.path_id}
+                  competingResponse={t.competing_response}
                   onSave={handleUrgeCheckSave}
                   onDismiss={handleUrgeCheckDismiss}
                 />
@@ -434,22 +457,9 @@ export function QuitsTab() {
                 key={t.path_id}
                 target={t}
                 onFrequencyLog={onFrequencyLog}
+                onCheckinLog={handleResponseUsedCheckin}
                 onMenuPress={() => openManage(t)}
                 onInsightPress={(title, body) => setInsight({ title, body })}
-                onAdvancePhase={() => {
-                  setAdvancingPathId(t.path_id);
-                  advanceMutation.mutate(t.path_id, {
-                    onSettled: () => setAdvancingPathId(null),
-                    onSuccess: (data) => {
-                      const ins =
-                        data && typeof data === "object" && "insight" in data
-                          ? (data as { insight?: { title: string; body: string } }).insight
-                          : undefined;
-                      if (ins?.title && ins?.body) setInsight({ title: ins.title, body: ins.body });
-                    },
-                  });
-                }}
-                advancing={advancingPathId === t.path_id}
                 onCardPress={() => navigation.navigate("QuitDetail", { pathId: t.path_id })}
               />
             ))}

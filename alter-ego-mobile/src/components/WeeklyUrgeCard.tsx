@@ -18,16 +18,18 @@ const URGE_OPTIONS: Array<{ value: UrgeLevel; emoji: string; label: string }> = 
 interface Props {
   habitName: string;
   pathId: string;
-  onSave: (pathId: string, level: UrgeLevel) => void;
+  competingResponse?: string;
+  onSave: (pathId: string, level: UrgeLevel, strategyHelped: boolean | null) => void;
   onDismiss: (pathId: string) => void;
 }
 
-export function WeeklyUrgeCard({ habitName, pathId, onSave, onDismiss }: Props) {
-  const [selected, setSelected] = useState<UrgeLevel | null>(null);
+export function WeeklyUrgeCard({ habitName, pathId, competingResponse, onSave, onDismiss }: Props) {
+  const [urgeSelected, setUrgeSelected] = useState<UrgeLevel | null>(null);
+  const [strategyHelped, setStrategyHelped] = useState<boolean | null>(null);
 
-  const handleSelect = (level: UrgeLevel) => {
-    setSelected(level);
-    setTimeout(() => onSave(pathId, level), 400);
+  const handleSave = () => {
+    if (!urgeSelected) return;
+    onSave(pathId, urgeSelected, strategyHelped);
   };
 
   return (
@@ -51,11 +53,11 @@ export function WeeklyUrgeCard({ habitName, pathId, onSave, onDismiss }: Props) 
         </Text>
         <View style={styles.scale}>
           {URGE_OPTIONS.map((opt) => {
-            const isOn = selected === opt.value;
+            const isOn = urgeSelected === opt.value;
             return (
               <Pressable
                 key={opt.value}
-                onPress={() => handleSelect(opt.value)}
+                onPress={() => setUrgeSelected(opt.value)}
                 style={[styles.opt, isOn && styles.optOn]}
               >
                 <Text style={styles.emoji}>{opt.emoji}</Text>
@@ -64,6 +66,43 @@ export function WeeklyUrgeCard({ habitName, pathId, onSave, onDismiss }: Props) 
             );
           })}
         </View>
+        <View style={styles.strategyBlock}>
+          <Text style={styles.strategyTitle}>Strategy used?</Text>
+          {competingResponse ? (
+            <Text style={styles.strategySub} numberOfLines={2}>
+              {competingResponse}
+            </Text>
+          ) : null}
+          <View style={styles.strategyRow}>
+            <Pressable
+              style={[styles.strategyBtn, strategyHelped === true && styles.strategyBtnOn]}
+              onPress={() => setStrategyHelped(true)}
+            >
+              <Text style={[styles.strategyBtnText, strategyHelped === true && styles.strategyBtnTextOn]}>
+                Helped
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.strategyBtn, strategyHelped === false && styles.strategyBtnOn]}
+              onPress={() => setStrategyHelped(false)}
+            >
+              <Text style={[styles.strategyBtnText, strategyHelped === false && styles.strategyBtnTextOn]}>
+                Not helped
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.strategyBtn, strategyHelped === null && styles.strategyBtnOn]}
+              onPress={() => setStrategyHelped(null)}
+            >
+              <Text style={[styles.strategyBtnText, strategyHelped === null && styles.strategyBtnTextOn]}>
+                Skip
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+        <Pressable style={[styles.saveBtn, !urgeSelected && styles.saveBtnDisabled]} onPress={handleSave}>
+          <Text style={styles.saveBtnText}>Save check-in</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -141,4 +180,61 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
   },
   labelOn: { color: "rgba(251,146,60,0.8)" },
+  strategyBlock: {
+    marginTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(42,48,80,0.35)",
+    paddingTop: 12,
+  },
+  strategyTitle: {
+    fontSize: 11,
+    color: "#D1D5DB",
+    fontFamily: "Inter_600SemiBold",
+    marginBottom: 4,
+  },
+  strategySub: {
+    fontSize: 10,
+    color: "#9CA3AF",
+    fontFamily: "Inter_400Regular",
+    marginBottom: 8,
+  },
+  strategyRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 12,
+  },
+  strategyBtn: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(42,48,80,0.45)",
+    backgroundColor: "rgba(17,24,39,0.55)",
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  strategyBtnOn: {
+    borderColor: "rgba(249,115,22,0.5)",
+    backgroundColor: "rgba(249,115,22,0.14)",
+  },
+  strategyBtnText: {
+    fontSize: 10,
+    color: "#9CA3AF",
+    fontFamily: "Inter_600SemiBold",
+  },
+  strategyBtnTextOn: { color: "#FDBA74" },
+  saveBtn: {
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "#EA580C",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveBtnDisabled: {
+    opacity: 0.45,
+  },
+  saveBtnText: {
+    fontSize: 12,
+    color: "#FFFFFF",
+    fontFamily: "Inter_700Bold",
+  },
 });

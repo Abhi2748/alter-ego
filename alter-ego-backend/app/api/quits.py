@@ -100,7 +100,19 @@ async def log_freq(
 ):
     user_id = get_user_id_from_token(authorization)
     try:
-        return await log_frequency(user_id, path_id, body.count)
+        result = await log_frequency(user_id, path_id, body.count)
+        # Auto-advance check after frequency log
+        try:
+            from app.services.quit_service import check_and_maybe_advance_phase
+
+            advance_result = await check_and_maybe_advance_phase(user_id, path_id)
+            if advance_result.get("advanced"):
+                result["phase_advanced"] = True
+                result["new_phase"] = advance_result.get("new_phase")
+                result["insight"] = advance_result.get("insight")
+        except Exception:
+            pass
+        return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -174,6 +186,21 @@ async def log_checkin(
             urge_level=body.urge_level,
             free_text=body.free_text,
         )
+        # Auto-advance check for readiness-impacting checkins
+        try:
+            from app.services.quit_service import check_and_maybe_advance_phase
+
+            if body.checkin_type in ("slip_context", "weekly_urge"):
+                advance_result = await check_and_maybe_advance_phase(user_id, path_id)
+                if advance_result.get("advanced"):
+                    return {
+                        "ok": True,
+                        "phase_advanced": True,
+                        "new_phase": advance_result.get("new_phase"),
+                        "insight": advance_result.get("insight"),
+                    }
+        except Exception:
+            pass
     except Exception:
         pass  # Never block on check-in failure
     return {"ok": True}

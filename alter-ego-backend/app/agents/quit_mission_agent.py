@@ -113,6 +113,13 @@ BOTH their quit progress AND their interest progress. This is the highest-value 
 Example: social media quit + guitar interest → "When the scroll urge hits tonight, open your
 guitar and play one chord progression for 5 minutes. The urge peaks at 3 minutes — outlast it."
 
+═══ PERSONAL CONTEXT NOTES RULE ═══
+If user_context_notes are provided, use them as real-world trigger texture:
+  - Echo one concrete detail naturally (time/place/emotion) without copying verbatim.
+  - Keep framing practical and action-first.
+  - If response_used_pattern shows low help-rate, simplify and tighten the competing response.
+  - If response_used_pattern shows high help-rate, reinforce consistency in the same context.
+
 ═══ FEW-SHOT EXAMPLES ═══
 
 --- EXAMPLE 1: Social media quit, Phase 2 (Disruption), top trigger "stressed", guitar interest ---
@@ -189,6 +196,8 @@ async def generate_quit_missions(
     user_interests: list[dict] | None = None,
     guilt_orientation: float = 0.0,
     user_feedback: str = "No feedback yet",
+    user_context_notes: list[str] | None = None,
+    response_used_pattern: dict | None = None,
 ) -> QuitMissionBatch:
 
     # ── Sanitize existing inputs ───────────────────────────────────────────
@@ -275,6 +284,31 @@ async def generate_quit_missions(
                 "the quit goal AND an interest from this list.\n"
             )
 
+    context_notes_section = ""
+    if user_context_notes:
+        safe_notes = sanitize_list_for_prompt(
+            user_context_notes,
+            max_items=5,
+            max_item_len=180,
+            field_name="user_context_note",
+        )
+        if safe_notes:
+            context_notes_section = "PERSONAL CONTEXT NOTES (recent slip check-ins):\n"
+            for note in safe_notes:
+                context_notes_section += f"  - {note}\n"
+
+    strategy_pattern = response_used_pattern or {}
+    strategy_section = ""
+    if strategy_pattern:
+        strategy_section = (
+            "STRATEGY ADHERENCE PATTERN (response_used check-ins):\n"
+            f"  - total logs: {strategy_pattern.get('total_logs', 0)}\n"
+            f"  - helped: {strategy_pattern.get('helped_count', 0)}\n"
+            f"  - not helped: {strategy_pattern.get('not_helped_count', 0)}\n"
+            f"  - unclear: {strategy_pattern.get('unclear_count', 0)}\n"
+            f"  - help rate: {strategy_pattern.get('help_rate')}\n"
+        )
+
     # ── Frequency section ──────────────────────────────────────────────────
     # High-guilt users: omit frequency comparison entirely
     if guilt_orientation > 0.7:
@@ -319,6 +353,8 @@ PHASE 1 FOCUS: {phase_1_focus}
 {freq_section}
 
 {interests_section}
+{context_notes_section}
+{strategy_section}
 ANTI-REPETITION:
 {history_str}
 

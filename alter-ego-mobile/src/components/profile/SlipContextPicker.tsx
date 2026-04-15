@@ -81,12 +81,13 @@ export function SlipContextPicker({ visible, habitName, onSave, onSkip }: Props)
         <TextInput
           ref={inputRef}
           style={styles.freeInput}
-          placeholder="Anything else worth noting…"
+          placeholder="What happened right before the urge? Mention place, people, emotion, or time."
           placeholderTextColor="rgba(249,115,22,0.2)"
           value={freeText}
           onChangeText={setFreeText}
-          maxLength={200}
-          multiline={false}
+          maxLength={400}
+          multiline
+          numberOfLines={3}
           returnKeyType="done"
         />
 

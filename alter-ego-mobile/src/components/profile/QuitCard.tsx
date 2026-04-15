@@ -1,6 +1,6 @@
 /**
  * QuitCard v3 — Ember aesthetic. Day count is the hero.
- * Props unchanged — all existing handlers preserved.
+ * Prompt F1 redesign — auto-advance only, richer readiness context.
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
@@ -12,8 +12,7 @@ import { QUIT_ORANGE } from "@/constants/missionColors";
 const PHASE_KEYS = ["mapping", "disruption", "consolidation"] as const;
 
 const POSITIVE = "#A78BFA";
-/** Advance phase link — green (distinct from violet trend / insights). */
-const ADVANCE_PHASE_GREEN = "#4ADE80";
+type StrategyChoice = "none" | "helped" | "not_helped";
 
 function urgeBarOpacity(level: number, maxLevel: number): number {
   if (maxLevel === 0) return 0.3;
@@ -28,20 +27,18 @@ function displayTag(raw: string): string {
 type Props = {
   target: QuitTarget;
   onFrequencyLog: (pathId: string, count: number) => void | Promise<void>;
+  onCheckinLog?: (pathId: string, body: { checkin_type: "response_used"; free_text?: string }) => void | Promise<void>;
   onMenuPress: () => void;
   onInsightPress?: (title: string, body: string) => void;
-  onAdvancePhase?: () => void;
-  advancing?: boolean;
   onCardPress?: () => void;
 };
 
 export function QuitCard({
   target,
   onFrequencyLog,
+  onCheckinLog,
   onMenuPress,
   onInsightPress,
-  onAdvancePhase,
-  advancing,
   onCardPress,
 }: Props) {
   const phase = target.current_phase;
@@ -50,6 +47,7 @@ export function QuitCard({
 
   const [localCount, setLocalCount] = useState(target.frequency_today);
   const [saving, setSaving] = useState(false);
+  const [strategyUsed, setStrategyUsed] = useState<StrategyChoice>("none");
 
   useEffect(() => {
     setLocalCount(target.frequency_today);
@@ -63,6 +61,14 @@ export function QuitCard({
     setSaving(true);
     try {
       await Promise.resolve(onFrequencyLog(target.path_id, localCount));
+      if (strategyUsed !== "none" && onCheckinLog) {
+        await Promise.resolve(
+          onCheckinLog(target.path_id, {
+            checkin_type: "response_used",
+            free_text: strategyUsed === "helped" ? "helped" : "not_helped",
+          })
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -217,9 +223,28 @@ export function QuitCard({
         </View>
       ) : null}
 
+      <View style={styles.phaseContextCard}>
+        <Text style={styles.phaseContextTitle}>PHASE CONTEXT</Text>
+        <Text style={styles.phaseContextBody}>
+          {target.need_description?.trim() || cfg.description}
+        </Text>
+        {target.competing_response ? (
+          <Text style={styles.phaseContextFoot}>Competing response: {target.competing_response}</Text>
+        ) : null}
+        {!!target.phase_readiness?.criteria?.length ? (
+          <View style={styles.readinessList}>
+            {target.phase_readiness.criteria.slice(0, 3).map((c, idx) => (
+              <Text key={`${c.label}-${idx}`} style={[styles.readinessItem, c.met && styles.readinessMet]}>
+                {c.met ? "✓" : "○"} {c.label}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+      </View>
+
       <View style={styles.freqStrip}>
         <View style={styles.freqTopRow}>
-          <Text style={styles.freqLabel}>TODAY — URGES I COULDN&apos;T CONTROL</Text>
+          <Text style={styles.freqLabel}>TODAY - URGES FELT</Text>
           <View style={styles.microBars}>
             {microCounts.map((c, i) => {
               const isToday = i === microCounts.length - 1;
@@ -266,7 +291,7 @@ export function QuitCard({
           </View>
 
           <View style={styles.freqLogWrap}>
-            <Text style={styles.freqHint}>Adjust then Log</Text>
+            <Text style={styles.freqHint}>Select strategy result, then log</Text>
             <Pressable
               onPress={(e) => {
                 e?.stopPropagation?.();
@@ -281,6 +306,29 @@ export function QuitCard({
                 <Text style={styles.logBtnText}>Log</Text>
               )}
             </Pressable>
+          </View>
+        </View>
+        <View style={styles.strategyRow}>
+          <Text style={styles.strategyLabel}>Strategy used?</Text>
+          <View style={styles.strategyToggles}>
+            {[
+              { key: "none", label: "Skip" },
+              { key: "helped", label: "Helped" },
+              { key: "not_helped", label: "Not helped" },
+            ].map((item) => {
+              const active = strategyUsed === item.key;
+              return (
+                <Pressable
+                  key={item.key}
+                  onPress={() => setStrategyUsed(item.key as StrategyChoice)}
+                  style={[styles.strategyChip, active && styles.strategyChipActive]}
+                >
+                  <Text style={[styles.strategyChipText, active && styles.strategyChipTextActive]}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
       </View>
@@ -325,30 +373,12 @@ export function QuitCard({
         })}
       </View>
 
-      {(onInsightPress && target.insights.length > 0) ||
-      (onAdvancePhase && target.status === "active" && phase !== "consolidation") ? (
+      {onInsightPress && target.insights.length > 0 ? (
         <View style={styles.preserveRow}>
-          {onInsightPress && target.insights.length > 0 ? (
-            <Pressable onPress={(e) => { e?.stopPropagation?.(); openFirstInsight(); }} style={styles.preserveLink}>
-              <Text style={styles.preserveLinkTxt}>Insights ({target.insights.length})</Text>
-            </Pressable>
-          ) : null}
-          {onAdvancePhase && target.status === "active" && phase !== "consolidation" ? (
-            <Pressable
-              onPress={(e) => {
-                e?.stopPropagation?.();
-                onAdvancePhase();
-              }}
-              disabled={advancing}
-              style={[styles.preserveLink, advancing && { opacity: 0.6 }]}
-            >
-              {advancing ? (
-                <ActivityIndicator color={ADVANCE_PHASE_GREEN} size="small" />
-              ) : (
-                <Text style={styles.preserveAdvanceTxt}>Advance phase →</Text>
-              )}
-            </Pressable>
-          ) : null}
+          <Pressable onPress={(e) => { e?.stopPropagation?.(); openFirstInsight(); }} style={styles.preserveLink}>
+            <Text style={styles.preserveLinkTxt}>Insights ({target.insights.length})</Text>
+          </Pressable>
+          <Text style={styles.autoAdvanceTxt}>Phase moves automatically when readiness is met</Text>
         </View>
       ) : null}
       </View>
@@ -535,6 +565,41 @@ const styles = StyleSheet.create({
     gap: 10,
     zIndex: 1,
   },
+  phaseContextCard: {
+    marginHorizontal: 18,
+    marginBottom: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(139,92,246,0.2)",
+    backgroundColor: "rgba(139,92,246,0.08)",
+    padding: 10,
+  },
+  phaseContextTitle: {
+    fontSize: 10,
+    color: "#C4B5FD",
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  phaseContextBody: {
+    fontSize: 11,
+    color: "#D1D5DB",
+    lineHeight: 16,
+    fontFamily: "Inter_400Regular",
+  },
+  phaseContextFoot: {
+    marginTop: 6,
+    fontSize: 10,
+    color: "#A78BFA",
+    fontFamily: "Inter_500Medium",
+  },
+  readinessList: { marginTop: 8, gap: 4 },
+  readinessItem: {
+    fontSize: 10,
+    color: "#9CA3AF",
+    fontFamily: "Inter_500Medium",
+  },
+  readinessMet: { color: "#A78BFA" },
   freqTopRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -546,6 +611,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  strategyRow: {
+    marginTop: 4,
+    gap: 6,
+  },
+  strategyLabel: {
+    fontSize: 10,
+    color: "#9CA3AF",
+    fontFamily: "Inter_600SemiBold",
+  },
+  strategyToggles: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  strategyChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(107,114,128,0.3)",
+    backgroundColor: "rgba(17,24,39,0.4)",
+  },
+  strategyChipActive: {
+    borderColor: "rgba(139,92,246,0.6)",
+    backgroundColor: "rgba(139,92,246,0.18)",
+  },
+  strategyChipText: {
+    fontSize: 10,
+    color: "#9CA3AF",
+    fontFamily: "Inter_600SemiBold",
+  },
+  strategyChipTextActive: { color: "#E9D5FF" },
   freqLabel: {
     fontSize: 9,
     fontWeight: "700",
@@ -677,9 +773,9 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     color: "#9CA3AF",
   },
-  preserveAdvanceTxt: {
+  autoAdvanceTxt: {
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
-    color: ADVANCE_PHASE_GREEN,
+    color: "#6B7280",
   },
 });

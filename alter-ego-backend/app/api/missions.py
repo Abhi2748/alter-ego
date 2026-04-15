@@ -362,7 +362,7 @@ def _attach_quit_path_detail(row: dict) -> None:
         return
     qr = (
         supabase_admin.table("quit_paths")
-        .select("habit_name, current_phase, need_description")
+        .select("habit_name, current_phase, need_description, competing_response, underlying_need")
         .eq("id", qpid)
         .single()
         .execute()
@@ -372,6 +372,8 @@ def _attach_quit_path_detail(row: dict) -> None:
         row["quit_habit_name"] = qr.get("habit_name")
         row["quit_phase"] = qr.get("current_phase")
         row["quit_need_description"] = qr.get("need_description")
+        row["quit_competing_response"] = qr.get("competing_response")
+        row["quit_need_category"] = qr.get("underlying_need")
 
 
 @router.post("/{mission_id}/complete", response_model=CompleteMissionResponse)

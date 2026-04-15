@@ -13,7 +13,7 @@ from app.core.supabase_client import supabase_admin, run_query
 
 logger = logging.getLogger(__name__)
 
-VALID_CHECKIN_TYPES = {"slip_context", "weekly_urge", "phase_transition"}
+VALID_CHECKIN_TYPES = {"slip_context", "weekly_urge", "phase_transition", "response_used"}
 VALID_URGE_LEVELS = {"barely_noticed", "manageable", "hard", "nearly_gave_in", "slipped"}
 MAX_FREE_TEXT = 300
 

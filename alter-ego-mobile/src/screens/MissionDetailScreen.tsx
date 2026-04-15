@@ -352,19 +352,33 @@ export function MissionDetailScreen() {
               </>
             ) : null}
 
-            {/* ── RESISTANCE CONTEXT ── */}
+            {/* ── YOUR STRATEGY ── */}
             {showResistance ? (
               <>
                 <View style={styles.sectionHdr}>
                   <View style={[styles.sectionBar, { backgroundColor: "#991B1B" }]} />
-                  <Text style={styles.sectionLabel}>Resistance context</Text>
+                  <Text style={styles.sectionLabel}>Your strategy</Text>
                 </View>
-                <View style={styles.resistCard}>
-                  <Text style={styles.resistPhase}>{phaseLabel(mission.quit_phase)}</Text>
-                  <Text style={styles.resistNeed}>
+                <View style={styles.strategyCard}>
+                  <View style={styles.strategyTopRow}>
+                    <Text style={styles.strategyChip}>Phase: {phaseLabel(mission.quit_phase)}</Text>
+                    {!!(mission.quit_need_category ?? "").trim() && (
+                      <Text style={styles.strategyChip}>
+                        Need: {(mission.quit_need_category ?? "").trim().replace(/_/g, " ")}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={styles.strategyLabel}>Need description</Text>
+                  <Text style={styles.strategyBody}>
                     {(mission.quit_need_description ?? "").trim() ||
                       "Your plan is built around how this habit shows up for you."}
                   </Text>
+                  {!!(mission.quit_competing_response ?? "").trim() && (
+                    <>
+                      <Text style={styles.strategyLabel}>Competing response</Text>
+                      <Text style={styles.strategyBody}>{(mission.quit_competing_response ?? "").trim()}</Text>
+                    </>
+                  )}
                 </View>
                 <View style={styles.blockDivider} />
               </>
@@ -709,15 +723,40 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
-  resistCard: {
+  strategyCard: {
     backgroundColor: "#140C0C",
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
     borderColor: "rgba(239,68,68,0.14)",
   },
-  resistPhase: { fontSize: 13, fontWeight: "700", color: "#EF4444", marginBottom: 6 },
-  resistNeed: { fontSize: 12, color: TEXT_MUTED, lineHeight: 18 },
+  strategyTopRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 8,
+  },
+  strategyChip: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#FCA5A5",
+    backgroundColor: "rgba(127,29,29,0.35)",
+    borderWidth: 1,
+    borderColor: "rgba(127,29,29,0.55)",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  strategyLabel: {
+    fontSize: 10,
+    color: "#FCA5A5",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginTop: 4,
+    marginBottom: 4,
+    fontWeight: "700",
+  },
+  strategyBody: { fontSize: 12, color: TEXT_MUTED, lineHeight: 18 },
 
   ratingSection: { marginBottom: 8 },
   rateLbl: { fontSize: 13, fontWeight: "700", color: TEXT_SECONDARY, marginBottom: 12 },

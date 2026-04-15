@@ -125,7 +125,7 @@ export const updateTriggerProfile = (
   });
 
 export interface CheckinBody {
-  checkin_type: "slip_context" | "weekly_urge" | "phase_transition";
+  checkin_type: "slip_context" | "weekly_urge" | "phase_transition" | "response_used";
   context_tags?: string[];
   urge_level?: "barely_noticed" | "manageable" | "hard" | "nearly_gave_in" | "slipped";
   free_text?: string;

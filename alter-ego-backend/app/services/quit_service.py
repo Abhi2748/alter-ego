@@ -50,7 +50,7 @@ def _build_living_trigger_profile(
         # ── Aggregate context_tags from slip_context checkins ──────────────
         slip_rows = (
             supabase_admin.table("quit_checkins")
-            .select("context_tags, created_at")
+            .select("context_tags, free_text, created_at")
             .eq("quit_path_id", path_id)
             .eq("checkin_type", "slip_context")
             .order("created_at", desc=True)
@@ -62,8 +62,12 @@ def _build_living_trigger_profile(
 
         tag_counts: dict[str, int] = {}
         last_slip_context: list[str] | None = None
+        user_context_notes: list[str] = []
         for row in slip_rows:
             tags = row.get("context_tags") or []
+            note = str(row.get("free_text") or "").strip()
+            if note and len(user_context_notes) < 5:
+                user_context_notes.append(note[:200])
             if isinstance(tags, list):
                 if last_slip_context is None and tags:
                     last_slip_context = tags
@@ -131,12 +135,53 @@ def _build_living_trigger_profile(
         )
         weekly_urge_pending = len(recent_weekly) == 0
 
+        # ── Competing response adherence pattern ────────────────────────────
+        response_rows = (
+            supabase_admin.table("quit_checkins")
+            .select("free_text, urge_level, context_tags, created_at")
+            .eq("quit_path_id", path_id)
+            .eq("checkin_type", "response_used")
+            .order("created_at", desc=True)
+            .limit(10)
+            .execute()
+            .data
+            or []
+        )
+        helped = 0
+        not_helped = 0
+        unclear = 0
+        for row in response_rows:
+            text = str(row.get("free_text") or "").strip().lower()
+            urge = str(row.get("urge_level") or "").strip().lower()
+            tags = [
+                str(t).strip().lower()
+                for t in (row.get("context_tags") or [])
+                if isinstance(t, str)
+            ]
+            blob = " ".join([text, urge, " ".join(tags)])
+            if any(k in blob for k in ("helped", "worked", "effective", "yes")):
+                helped += 1
+            elif any(k in blob for k in ("not_helped", "did_not_help", "didn't help", "no")):
+                not_helped += 1
+            else:
+                unclear += 1
+        total = helped + not_helped + unclear
+        response_used_pattern = {
+            "total_logs": total,
+            "helped_count": helped,
+            "not_helped_count": not_helped,
+            "unclear_count": unclear,
+            "help_rate": round((helped / total), 2) if total else None,
+        }
+
         return {
             "top_triggers": top_triggers,
             "urge_trend": urge_trend,
             "last_slip_context": last_slip_context,
+            "user_context_notes": user_context_notes,
             "has_checkin_data": has_checkin_data,
             "weekly_urge_pending": weekly_urge_pending,
+            "response_used_pattern": response_used_pattern,
         }
     except Exception as e:
         logger.error(
@@ -152,8 +197,16 @@ def _build_living_trigger_profile(
             "top_triggers": [{"tag": c, "count": 0} for c in (original_contexts or [])[:6]],
             "urge_trend": [],
             "last_slip_context": None,
+            "user_context_notes": [],
             "has_checkin_data": False,
             "weekly_urge_pending": False,
+            "response_used_pattern": {
+                "total_logs": 0,
+                "helped_count": 0,
+                "not_helped_count": 0,
+                "unclear_count": 0,
+                "help_rate": None,
+            },
         }
 
 
@@ -467,6 +520,14 @@ async def generate_quit_missions_for_today(
         if living_profile["has_checkin_data"]
         else (path.get("trigger_contexts") or [])
     )
+    user_context_notes = living_profile.get("user_context_notes") or []
+    response_used_pattern = living_profile.get("response_used_pattern") or {
+        "total_logs": 0,
+        "helped_count": 0,
+        "not_helped_count": 0,
+        "unclear_count": 0,
+        "help_rate": None,
+    }
 
     # Fetch user's active interests for cross-reference
     user_interests: list[dict] = []
@@ -519,6 +580,8 @@ async def generate_quit_missions_for_today(
         user_interests=user_interests,
         guilt_orientation=guilt_orientation,
         user_feedback=quit_user_feedback,
+        user_context_notes=user_context_notes,
+        response_used_pattern=response_used_pattern,
     )
 
     missions: list[dict] = []
@@ -696,6 +759,225 @@ async def advance_phase(user_id: str, path_id: str) -> dict[str, Any]:
     }
 
 
+def _compute_phase_readiness_sync(path: dict, path_id: str) -> dict:
+    """
+    Synchronous readiness check for display purposes only.
+    Returns structured criteria info for the frontend.
+    """
+    try:
+        current = path.get("current_phase", "mapping")
+        if current == "consolidation":
+            return {"phase": current, "ready": False, "criteria": []}
+
+        phase_started = path.get("phase_started_at") or path.get("created_at", "")
+        phase_started_dt = datetime.fromisoformat(
+            str(phase_started).replace("Z", "+00:00")
+        )
+        days_in_phase = (datetime.now(timezone.utc) - phase_started_dt).days
+
+        if current == "mapping":
+            checkin_count = (
+                supabase_admin.table("quit_checkins")
+                .select("id", count="exact")
+                .eq("quit_path_id", path_id)
+                .eq("checkin_type", "slip_context")
+                .execute()
+                .count
+                or 0
+            )
+            criteria = [
+                {
+                    "label": f"{days_in_phase} of 7 days in Mapping phase",
+                    "met": days_in_phase >= 7,
+                    "required": 7,
+                    "actual": days_in_phase,
+                    "unit": "days",
+                },
+                {
+                    "label": f"{checkin_count} of 3 trigger logs needed",
+                    "met": checkin_count >= 3,
+                    "required": 3,
+                    "actual": checkin_count,
+                    "unit": "checkins",
+                },
+            ]
+            ready = days_in_phase >= 7 and checkin_count >= 3
+
+        else:  # disruption
+            fourteen_ago = (
+                datetime.now(timezone.utc) - timedelta(days=14)
+            ).isoformat()
+            urge_rows = (
+                supabase_admin.table("quit_checkins")
+                .select("urge_level")
+                .eq("quit_path_id", path_id)
+                .eq("checkin_type", "weekly_urge")
+                .gte("created_at", fourteen_ago)
+                .execute()
+                .data
+                or []
+            )
+            easy = [
+                r for r in urge_rows
+                if r.get("urge_level") in ("barely_noticed", "manageable")
+            ]
+            criteria = [
+                {
+                    "label": f"{days_in_phase} of 14 days in Disruption phase",
+                    "met": days_in_phase >= 14,
+                    "required": 14,
+                    "actual": days_in_phase,
+                    "unit": "days",
+                },
+                {
+                    "label": "At least 1 manageable week in last 14 days",
+                    "met": len(easy) >= 1,
+                    "required": 1,
+                    "actual": len(easy),
+                    "unit": "weeks",
+                },
+            ]
+            ready = days_in_phase >= 14 and len(easy) >= 1
+
+        return {"phase": current, "ready": ready, "criteria": criteria}
+
+    except Exception:
+        return {"phase": path.get("current_phase", "mapping"), "ready": False, "criteria": []}
+
+
+async def check_and_maybe_advance_phase(user_id: str, path_id: str) -> dict:
+    """
+    Checks readiness criteria and automatically advances phase if met.
+    Called after checkin stored or frequency logged. Never raises.
+
+    Gates:
+      mapping → disruption : ≥7 days in phase AND ≥3 slip_context checkins
+      disruption → consolidation: ≥14 days AND ≥1 weekly_urge ≤ "manageable"
+                                   in last 14 days
+    Returns:
+      {"advanced": bool, "new_phase": str | None, "criteria_met": dict}
+    """
+    try:
+        path_res = await run_query(
+            supabase_admin.table("quit_paths")
+            .select("current_phase, phase_started_at, created_at, status, "
+                    "habit_name, underlying_need, awareness_level, "
+                    "trigger_contexts, frequency_baseline")
+            .eq("id", path_id)
+            .eq("user_id", user_id)
+            .single()
+        )
+        path = path_res.data
+        if not path or path.get("status") != "active":
+            return {"advanced": False, "new_phase": None, "criteria_met": {}}
+
+        current = path["current_phase"]
+        if current == "consolidation":
+            return {"advanced": False, "new_phase": None, "criteria_met": {}}
+
+        phase_started = path.get("phase_started_at") or path["created_at"]
+        phase_started_dt = datetime.fromisoformat(
+            str(phase_started).replace("Z", "+00:00")
+        )
+        days_in_phase = (datetime.now(timezone.utc) - phase_started_dt).days
+
+        criteria_met: dict = {}
+
+        if current == "mapping":
+            min_days = 7
+            min_checkins = 3
+
+            criteria_met["days"] = {
+                "required": min_days,
+                "actual": days_in_phase,
+                "met": days_in_phase >= min_days,
+            }
+
+            checkin_count_res = await run_query(
+                supabase_admin.table("quit_checkins")
+                .select("id", count="exact")
+                .eq("quit_path_id", path_id)
+                .eq("checkin_type", "slip_context")
+            )
+            checkin_count = (
+                checkin_count_res.count
+                if checkin_count_res.count is not None
+                else len(checkin_count_res.data or [])
+            )
+            criteria_met["checkins"] = {
+                "required": min_checkins,
+                "actual": checkin_count,
+                "met": checkin_count >= min_checkins,
+            }
+
+            ready = criteria_met["days"]["met"] and criteria_met["checkins"]["met"]
+
+        else:  # disruption → consolidation
+            min_days = 14
+
+            criteria_met["days"] = {
+                "required": min_days,
+                "actual": days_in_phase,
+                "met": days_in_phase >= min_days,
+            }
+
+            fourteen_ago = (
+                datetime.now(timezone.utc) - timedelta(days=14)
+            ).isoformat()
+            urge_rows_res = await run_query(
+                supabase_admin.table("quit_checkins")
+                .select("urge_level")
+                .eq("quit_path_id", path_id)
+                .eq("checkin_type", "weekly_urge")
+                .gte("created_at", fourteen_ago)
+            )
+            urge_rows = urge_rows_res.data or []
+            easy_urges = [
+                r for r in urge_rows
+                if r.get("urge_level") in ("barely_noticed", "manageable")
+            ]
+            criteria_met["urge_trend"] = {
+                "required": "≥1 manageable week in last 14 days",
+                "actual": len(easy_urges),
+                "met": len(easy_urges) >= 1,
+            }
+
+            ready = criteria_met["days"]["met"] and criteria_met["urge_trend"]["met"]
+
+        if not ready:
+            return {
+                "advanced": False,
+                "new_phase": None,
+                "criteria_met": criteria_met,
+            }
+
+        result = await advance_phase(user_id, path_id)
+        if result.get("advanced"):
+            logger.info(
+                json.dumps({
+                    "event": "auto_phase_advanced",
+                    "user_id": user_id,
+                    "path_id": path_id,
+                    "new_phase": result.get("new_phase"),
+                    "days_in_phase": days_in_phase,
+                })
+            )
+        return {
+            "advanced": result.get("advanced", False),
+            "new_phase": result.get("new_phase"),
+            "criteria_met": criteria_met,
+            "insight": result.get("insight"),
+        }
+
+    except Exception as e:
+        logger.warning(
+            "check_and_maybe_advance_phase failed path=%s: %s",
+            path_id,
+            str(e)[:120],
+        )
+        return {"advanced": False, "new_phase": None, "criteria_met": {}}
+
+
 async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
     tz = _user_timezone(user_id)
     today = get_user_date(tz)
@@ -777,7 +1059,8 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
                     "quit_goal": path["quit_goal"],
                 },
                 "underlying_need": path["underlying_need"],
-                "need_description": path.get("need_description"),
+                "need_description": path.get("need_description") or "",
+                "competing_response": path.get("competing_response") or "",
                 "current_phase": path["current_phase"],
                 "frequency_unit": path["frequency_unit"],
                 "frequency_today": freq_today,
@@ -815,6 +1098,7 @@ async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
                 "last_slip_context": living_profile["last_slip_context"],
                 "has_checkin_data": living_profile["has_checkin_data"],
                 "weekly_urge_pending": living_profile["weekly_urge_pending"],
+                "phase_readiness": _compute_phase_readiness_sync(path, pid),
             }
         )
 

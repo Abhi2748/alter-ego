@@ -1,6 +1,6 @@
 /**
  * Quit path detail — full-screen stack route (Profile → Quits → card).
- * Ember aesthetic; actions: slip, advance phase, update triggers, delete.
+ * Ember aesthetic; actions: slip, update triggers, delete.
  */
 
 import React, { useCallback, useRef, useState } from "react";
@@ -29,7 +29,6 @@ import type { QuitTarget, QuitTargetInput } from "@/types/quits";
 import type { QuitMilestoneOut } from "@/types/quitMilestone";
 import {
   useQuits,
-  useAdvancePhase,
   useDeleteQuit,
   useLogCheckin,
   useUpdateTriggerProfile,
@@ -78,7 +77,6 @@ export function QuitDetailScreen() {
   const targets = targetsRaw as QuitTarget[];
   const target = targets.find((t) => t.path_id === pathId) ?? null;
 
-  const advanceMutation = useAdvancePhase();
   const deleteMutation = useDeleteQuit();
   const logCheckin = useLogCheckin();
   const updateProfileMutation = useUpdateTriggerProfile();
@@ -106,8 +104,6 @@ export function QuitDetailScreen() {
       void refetch();
     }, [refetch])
   );
-
-  const advancing = advanceMutation.isPending;
 
   const handleProfileComplete = useCallback(
     (profile: QuitTargetInput) => {
@@ -187,20 +183,6 @@ export function QuitDetailScreen() {
     }
   }, [deleteTarget, deleteMutation, navigation]);
 
-  const onAdvancePhase = useCallback(() => {
-    if (!target) return;
-    advanceMutation.mutate(target.path_id, {
-      onSuccess: (data) => {
-        void refetch();
-        const ins =
-          data && typeof data === "object" && "insight" in data
-            ? (data as { insight?: { title: string; body: string } }).insight
-            : undefined;
-        if (ins?.title && ins?.body) setInsight({ title: ins.title, body: ins.body });
-      },
-    });
-  }, [target, advanceMutation, refetch]);
-
   const onUpdateTriggers = useCallback(() => {
     if (!target) return;
     setManageTarget(target);
@@ -240,7 +222,6 @@ export function QuitDetailScreen() {
 
   const phase = target.current_phase;
   const phaseLabel = PHASE_LABELS[phase] ?? phase;
-  const canAdvance = target.status === "active" && phase !== "consolidation";
   const isConquered = target.status === "completed";
 
   const topTriggers = target.top_triggers?.length
@@ -258,7 +239,7 @@ export function QuitDetailScreen() {
     const last = urgeTrend[urgeTrend.length - 1].level;
     if (last < first - 0.5) {
       const levelLabel = last <= 2 ? "Manageable" : "Easier";
-      return { text: `↓ Declining · ${levelLabel}`, color: TREND_POSITIVE };
+      return { text: `↓ Declining · ${levelLabel}`, color: DECLINE_POSITIVE };
     }
     if (last > first + 0.5) return { text: "↑ Increasing", color: "#F87171" };
     return { text: "→ Stable", color: "#9CA3AF" };
@@ -296,6 +277,57 @@ export function QuitDetailScreen() {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}
         >
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Phase guide</Text>
+            <View style={styles.phaseGuideRow}>
+              {(["mapping", "disruption", "consolidation"] as const).map((p) => {
+                const active = p === target.current_phase;
+                const passed =
+                  (p === "mapping" && (target.current_phase === "disruption" || target.current_phase === "consolidation")) ||
+                  (p === "disruption" && target.current_phase === "consolidation");
+                return (
+                  <View key={p} style={styles.phaseGuideStep}>
+                    <View
+                      style={[
+                        styles.phaseGuideDot,
+                        active && styles.phaseGuideDotActive,
+                        passed && styles.phaseGuideDotPassed,
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.phaseGuideLabel,
+                        active && styles.phaseGuideLabelActive,
+                        passed && styles.phaseGuideLabelPassed,
+                      ]}
+                    >
+                      {PHASE_LABELS[p]}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+            <Text style={styles.phaseGuideSub}>
+              Phase progress auto-advances after readiness criteria are met.
+            </Text>
+          </View>
+
+          {!!target.phase_readiness?.criteria?.length ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Readiness</Text>
+              {target.phase_readiness.criteria.map((criterion, idx) => (
+                <View key={`${criterion.label}-${idx}`} style={styles.readinessRow}>
+                  <Text style={[styles.readinessIcon, criterion.met && styles.readinessIconMet]}>
+                    {criterion.met ? "✓" : "○"}
+                  </Text>
+                  <Text style={[styles.readinessText, criterion.met && styles.readinessTextMet]}>
+                    {criterion.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
           {topTriggers.length > 0 ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>
@@ -396,29 +428,12 @@ export function QuitDetailScreen() {
                   <Text style={styles.actPrimaryEmoji}>🔥</Text>
                   <Text style={styles.actPrimaryText}>Log a slip</Text>
                 </Pressable>
-                {canAdvance ? (
-                  <Pressable
-                    style={[styles.actBtn, styles.actAmber, advancing && { opacity: 0.6 }]}
-                    onPress={onAdvancePhase}
-                    disabled={advancing}
-                  >
-                    {advancing ? (
-                      <ActivityIndicator color="#FCD34D" size="small" />
-                    ) : (
-                      <Text style={styles.actAmberText}>Advance phase →</Text>
-                    )}
-                  </Pressable>
-                ) : (
-                  <View style={[styles.actBtn, styles.actGhost]}>
-                    <Text style={styles.actGhostText}>Max phase reached</Text>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.actionRow}>
                 <Pressable style={[styles.actBtn, styles.actGhost]} onPress={onUpdateTriggers}>
                   <Text style={styles.actGhostText}>Update triggers</Text>
                 </Pressable>
+              </View>
+
+              <View style={styles.actionRow}>
                 <Pressable style={[styles.actBtn, styles.actDanger]} onPress={onDeletePress}>
                   <Text style={styles.actDangerText}>Delete</Text>
                 </Pressable>
@@ -621,6 +636,65 @@ const styles = StyleSheet.create({
     color: EMBER_DIM,
     marginBottom: 14,
   },
+  phaseGuideRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    gap: 8,
+  },
+  phaseGuideStep: { flex: 1, alignItems: "center", gap: 6 },
+  phaseGuideDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(107,114,128,0.45)",
+    backgroundColor: "rgba(17,24,39,0.8)",
+  },
+  phaseGuideDotActive: {
+    borderColor: "rgba(249,115,22,0.9)",
+    backgroundColor: "rgba(249,115,22,0.22)",
+  },
+  phaseGuideDotPassed: {
+    borderColor: "rgba(167,139,250,0.7)",
+    backgroundColor: "rgba(167,139,250,0.22)",
+  },
+  phaseGuideLabel: {
+    fontSize: 10,
+    color: "#6B7280",
+    fontFamily: "Inter_600SemiBold",
+    textAlign: "center",
+  },
+  phaseGuideLabelActive: { color: "#FDBA74" },
+  phaseGuideLabelPassed: { color: "#C4B5FD" },
+  phaseGuideSub: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    fontFamily: "Inter_400Regular",
+    lineHeight: 16,
+  },
+  readinessRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  readinessIcon: {
+    width: 16,
+    fontSize: 12,
+    color: "#6B7280",
+    textAlign: "center",
+    fontFamily: "Inter_700Bold",
+  },
+  readinessIconMet: { color: "#A78BFA" },
+  readinessText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#9CA3AF",
+    fontFamily: "Inter_500Medium",
+    lineHeight: 17,
+  },
+  readinessTextMet: { color: "#DDD6FE" },
 
   trigRow: {
     flexDirection: "row",
@@ -710,12 +784,6 @@ const styles = StyleSheet.create({
   },
   actPrimaryEmoji: { fontSize: 14 },
   actPrimaryText: { fontSize: 11, fontWeight: "700", color: "#fff" },
-  actAmber: {
-    backgroundColor: "rgba(245,158,11,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.22)",
-  },
-  actAmberText: { fontSize: 11, fontWeight: "700", color: "#FCD34D" },
   actGhost: {
     backgroundColor: "rgba(255,255,255,0.03)",
     borderWidth: 1,

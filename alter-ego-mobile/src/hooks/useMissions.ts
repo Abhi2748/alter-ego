@@ -131,6 +131,7 @@ export async function applyMissionCompletionSideEffects(
   queryClient.invalidateQueries({ queryKey: STATS_KEYS.all });
   queryClient.invalidateQueries({ queryKey: SIGIL_KEYS.all });
   queryClient.invalidateQueries({ queryKey: SEASON_KEYS.current });
+  queryClient.invalidateQueries({ queryKey: SEASON_KEYS.history });
 }
 
 // ── Complete a mission ─────────────────────────────────────────────────────

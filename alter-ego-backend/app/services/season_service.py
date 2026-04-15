@@ -464,6 +464,54 @@ async def record_season_day(
     )
 
 
+async def refresh_active_season_progress(user_id: str) -> None:
+    """
+    Recomputes and persists the active season's *current local day* progress.
+
+    This is called from mission completion so season counters update immediately,
+    instead of waiting for the midnight scheduler pass.
+    """
+    season = await get_active_season(user_id)
+    if not season:
+        return
+
+    tz_result = await run_query(
+        supabase_admin.table("users").select("timezone").eq("id", user_id).single()
+    )
+    tz = (tz_result.data or {}).get("timezone", "UTC") or "UTC"
+
+    from app.services.mission_service import get_user_date
+
+    today = get_user_date(tz)
+    started_at = str(season.get("started_at") or today)
+    total_days = int(season.get("total_days") or 30)
+    day_number = _current_day_number(started_at, today)
+    if day_number < 1 or day_number > total_days:
+        return
+
+    missions_result = await run_query(
+        supabase_admin.table("missions")
+        .select("id, completed")
+        .eq("user_id", user_id)
+        .eq("mission_date", today)
+        .eq("type", "core")
+        .eq("is_journal_mission", False)
+    )
+    mission_rows = missions_result.data or []
+    missions_total = len(mission_rows)
+    if missions_total <= 0:
+        return
+
+    missions_done = sum(1 for m in mission_rows if m.get("completed"))
+    await record_season_day(
+        user_id=user_id,
+        season_id=str(season["id"]),
+        log_date=today,
+        day_number=day_number,
+        missions_done=missions_done,
+        missions_total=missions_total,
+    )
+
 async def close_expired_season(user_id: str, season: dict, today: str) -> dict:
     """
     Closes a season whose ends_at is before today.

@@ -28,8 +28,8 @@ const BORDER = '#1A2030';
 const TEXT_PRIMARY = '#E8EAF0';
 const TEXT2 = '#8B8FA8';
 const MUTED = '#4B5066';
-const GREEN = '#22C55E';
-const RED = '#EF4444';
+const VIOLET = '#8B5CF6';
+const DANGER = '#7F1D1D';
 
 const SCREEN_W = Dimensions.get('window').width;
 const RING_SIZE = 96;
@@ -111,17 +111,21 @@ const targetStyles = StyleSheet.create({
 function DayCell({ entry, color }: { entry: SeasonDayLog; color: string }) {
   const bg =
     entry.status === 'perfect' ? color :
-    entry.status === 'complete' ? `${color}55` :
-    entry.status === 'missed' ? 'rgba(239,68,68,0.18)' :
-    entry.status === 'today' ? `${color}33` :
-    'rgba(255,255,255,0.04)';
+    entry.status === 'complete' ? 'rgba(109,40,217,0.38)' :
+    entry.status === 'missed' ? 'rgba(127,29,29,0.62)' :
+    entry.status === 'today' ? '#1E2333' :
+    'rgba(17,24,39,0.65)';
   const textColor =
     entry.status === 'perfect' ? '#fff' :
-    entry.status === 'complete' ? color :
-    entry.status === 'missed' ? 'rgba(239,68,68,0.5)' :
+    entry.status === 'complete' ? '#C4B5FD' :
+    entry.status === 'missed' ? '#FCA5A5' :
     entry.status === 'today' ? color :
     MUTED;
-  const borderColor = entry.status === 'today' ? `${color}77` : 'transparent';
+  const borderColor =
+    entry.status === 'today' ? `${color}AA` :
+    entry.status === 'complete' ? 'rgba(139,92,246,0.45)' :
+    entry.status === 'missed' ? 'rgba(127,29,29,0.95)' :
+    'transparent';
   return (
     <View style={[dayCellStyles.cell, { backgroundColor: bg, borderColor, width: CELL_W }]}>
       <Text style={[dayCellStyles.num, { color: textColor }]}>{entry.day_number}</Text>
@@ -149,7 +153,7 @@ export function SeasonDetailScreen() {
   const projectedTierColor =
     season?.projected_tier === 'perfect' ? '#FFD700' :
     season?.projected_tier === 'clear' ? '#94A3B8' :
-    season?.projected_tier === 'partial' ? '#D97706' : RED;
+    season?.projected_tier === 'partial' ? '#D97706' : DANGER;
 
   const projectedTierLabel =
     season?.projected_tier === 'perfect' ? 'Gold · Perfect' :
@@ -187,8 +191,7 @@ export function SeasonDetailScreen() {
               {`Season ${season.season_number} · Day ${season.current_day} of ${season.total_days}`}
             </Text>
           </View>
-          {/* Balance spacer */}
-          <View style={s.backBtn} />
+          <View style={s.headerSpacer} />
         </View>
         <View style={s.headerBorder} />
       </View>
@@ -212,9 +215,9 @@ export function SeasonDetailScreen() {
             <ProgressRing current={season.current_day} total={season.total_days} color={season.season_color} />
             <View style={s.statsCol}>
               {[
-                { label: 'Days completed', value: `${season.days_completed} / ${season.current_day}`, color: GREEN },
+                { label: 'Days completed', value: `${season.days_completed} / ${season.current_day}`, color: VIOLET },
                 { label: 'Perfect days', value: `${season.days_perfect}`, color: TEXT_PRIMARY },
-                { label: 'Days missed', value: `${season.days_missed}`, color: season.days_missed > 0 ? RED : TEXT2 },
+                { label: 'Days missed', value: `${season.days_missed}`, color: season.days_missed > 0 ? DANGER : TEXT2 },
                 { label: 'Days remaining', value: `${season.total_days - season.current_day}`, color: TEXT2 },
                 { label: 'On track for', value: projectedTierLabel, color: projectedTierColor },
               ].map(({ label, value, color }) => (
@@ -241,7 +244,7 @@ export function SeasonDetailScreen() {
               ]}>
                 <Text style={[
                   s.phaseNum,
-                  phase.status === 'done' && { color: GREEN },
+                  phase.status === 'done' && { color: VIOLET },
                   phase.status === 'active' && { color: season.season_color },
                   phase.status === 'upcoming' && { color: MUTED },
                 ]}>
@@ -249,7 +252,7 @@ export function SeasonDetailScreen() {
                 </Text>
                 <Text style={[
                   s.phaseName,
-                  phase.status === 'done' && { color: 'rgba(34,197,94,0.7)' },
+                  phase.status === 'done' && { color: 'rgba(167,139,250,0.9)' },
                   phase.status === 'active' && { color: `${season.season_color}CC` },
                   phase.status === 'upcoming' && { color: MUTED },
                 ]}>{phase.name}</Text>
@@ -312,10 +315,10 @@ export function SeasonDetailScreen() {
           <View style={s.legend}>
             {[
               { label: 'Perfect', bg: season.season_color },
-              { label: 'Complete', bg: `${season.season_color}55` },
-              { label: 'Missed', bg: 'rgba(239,68,68,0.25)' },
-              { label: 'Today', bg: `${season.season_color}33` },
-              { label: 'Upcoming', bg: 'rgba(255,255,255,0.04)' },
+              { label: 'Complete', bg: 'rgba(109,40,217,0.38)' },
+              { label: 'Missed', bg: 'rgba(127,29,29,0.62)' },
+              { label: 'Today', bg: '#1E2333' },
+              { label: 'Upcoming', bg: 'rgba(17,24,39,0.65)' },
             ].map(({ label, bg }) => (
               <View key={label} style={s.legendItem}>
                 <View style={[s.legendDot, { backgroundColor: bg }]} />
@@ -345,6 +348,11 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  headerSpacer: {
+    width: 36,
+    height: 36,
+    flexShrink: 0,
   },
   backArrow: { fontSize: 22, color: TEXT2, lineHeight: 26 },
   headerCenter: { flex: 1, alignItems: 'center' },

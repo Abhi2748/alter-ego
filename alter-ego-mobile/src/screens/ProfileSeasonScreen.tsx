@@ -118,7 +118,7 @@ export function ProfileSeasonScreen() {
           <Text style={s.headerTitle}>Seasons</Text>
           <Text style={s.headerSub}>Your arc history</Text>
         </View>
-        <View style={s.backBtn} />
+        <View style={s.headerSpacer} />
       </View>
 
       <ScrollView
@@ -334,6 +334,7 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
     alignItems: 'center', justifyContent: 'center',
   },
+  headerSpacer: { width: 36, height: 36 },
   backArrow: { fontSize: 22, color: TEXT2, lineHeight: 26 },
   headerCenter: { flex: 1, alignItems: 'center' },
   headerTitle: { fontSize: 15, fontWeight: '700', color: TEXT },

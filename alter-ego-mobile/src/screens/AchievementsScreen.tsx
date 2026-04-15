@@ -204,12 +204,10 @@ function ShareSheet({
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             style={ss.card}
           >
-            <View
-              style={ss.cardGlowWrap}
-            >
-              <Svg width={220} height={180} viewBox="0 0 220 180" pointerEvents="none">
+            <View style={ss.cardGlowWrap}>
+              <Svg width={220} height={176} viewBox="0 0 220 176" pointerEvents="none">
                 <Defs>
-                  <RadialGradient id="achievementCardGlow" cx="50%" cy="52%" r="58%">
+                  <RadialGradient id="achievementCardGlow" cx="50%" cy="50%" r="58%">
                     <Stop offset="0%" stopColor={`rgb(${CATEGORY_ACCENT_RGB[achievement.category]})`} stopOpacity={0.34} />
                     <Stop offset="28%" stopColor={`rgb(${CATEGORY_ACCENT_RGB[achievement.category]})`} stopOpacity={0.2} />
                     <Stop offset="56%" stopColor={`rgb(${CATEGORY_ACCENT_RGB[achievement.category]})`} stopOpacity={0.08} />
@@ -217,7 +215,7 @@ function ShareSheet({
                     <Stop offset="100%" stopColor={`rgb(${CATEGORY_ACCENT_RGB[achievement.category]})`} stopOpacity={0} />
                   </RadialGradient>
                 </Defs>
-                <Rect x={0} y={0} width={220} height={180} fill="url(#achievementCardGlow)" />
+                <Rect x={0} y={0} width={220} height={176} fill="url(#achievementCardGlow)" />
               </Svg>
             </View>
             <View style={ss.cardBrand}>
@@ -282,7 +280,7 @@ const ss = StyleSheet.create({
   sheet:    { backgroundColor: '#101220', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 16, paddingTop: 8 },
   handle:   { width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.12)', alignSelf: 'center', marginBottom: 16 },
   card:     { borderRadius: 18, padding: 24, alignItems: 'center', marginBottom: 12, position: 'relative', overflow: 'hidden', minHeight: 280 },
-  cardGlowWrap: { position: 'absolute', top: 28, left: '50%', width: 220, height: 180, marginLeft: -110, zIndex: 0 },
+  cardGlowWrap: { position: 'absolute', top: 8, left: 0, right: 0, height: 176, alignItems: 'center', zIndex: 0 },
   cardBrand: { position: 'absolute', top: 16, left: 16, right: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   cardBrandText: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.45)', letterSpacing: 2 },
   cardBrandTag:  { fontSize: 8, color: 'rgba(255,255,255,0.25)', letterSpacing: 1.5, textTransform: 'uppercase' },

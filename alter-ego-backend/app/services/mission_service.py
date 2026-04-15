@@ -654,6 +654,13 @@ async def complete_mission(user_id: str, mission_id: str) -> dict:
             .single())
         new_power_score = int((ps_row.data or {}).get("power_score") or 0)
 
+    try:
+        from app.services.season_service import refresh_active_season_progress
+
+        await refresh_active_season_progress(user_id)
+    except Exception:
+        logger.exception("refresh_active_season_progress failed user=%s", user_id)
+
     # Category C — milestone notifications (immediate, pre-written, no LLM)
     from app.agents.nudge_agent import send_category_c_notification
 

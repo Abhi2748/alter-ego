@@ -34,8 +34,6 @@ import {
   BottomSheetModal,
   BottomSheetView,
   BottomSheetBackdrop,
-  BottomSheetTextInput,
-  BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
 import type { BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
 import Svg, { Circle, Defs, RadialGradient, Stop } from "react-native-svg";
@@ -79,7 +77,7 @@ const TAG_COLORS = [
 
 const DEEP_WORK_DURATIONS = [30, 45, 60, 90, 120];
 
-/** Matches `CustomTabBar` TAB_HEIGHT — bottom sheet sits above the tab bar. */
+/** Matches `CustomTabBar` TAB_HEIGHT. */
 const MAIN_TAB_BAR_HEIGHT = 56;
 
 const RING_SIZE = 256;
@@ -135,21 +133,7 @@ export function FocusScreen() {
 
   /** Tab bar (56) + home indicator / gesture inset — sheet clears both. */
   const tabBarBottomInset = MAIN_TAB_BAR_HEIGHT + insets.bottom;
-  /**
-   * Gorhom modal layout height ≈ window − topInset − bottomInset. `maxDynamicContentSize` must
-   * never exceed that: otherwise dynamic detents go negative and the sheet pins flush to the
-   * bottom (reads as “under” the tab bar). `BottomSheetScrollView` also sets `contentHeight` from
-   * full scroll content, not viewport — so Select Tag uses fixed snap points, not dynamic sizing.
-   */
-  const modalUsableHeight = Math.max(160, windowHeight - insets.top - tabBarBottomInset);
-  const createTagSheetMaxDynamic = Math.max(200, modalUsableHeight - 28);
-  /** Compact first step; second step for long tag lists (snap % is of modal usable height). */
-  const selectTagSnapPoints = useMemo(() => ["50%", "72%"] as const, []);
-  /**
-   * Scroll only the tag rows; header + "Create New Tag" stay visible.
-   * ~38% of window, clamped so small phones still scroll a reasonable list.
-   */
-  const tagListScrollMaxHeight = Math.max(140, Math.round(windowHeight * 0.38));
+  const tagListScrollMaxHeight = Math.max(180, Math.round(windowHeight * 0.32));
 
   const [subTab, setSubTab] = useState<"timer" | "stats">("timer");
   const [mode, setMode] = useState<FocusMode>("pomodoro");
@@ -195,11 +179,9 @@ export function FocusScreen() {
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState(TAG_COLORS[0]);
 
-  const tagSheetRef = useRef<BottomSheetModal>(null);
+  const [tagModalVisible, setTagModalVisible] = useState(false);
+  const [createTagModalVisible, setCreateTagModalVisible] = useState(false);
   const settingsSheetRef = useRef<BottomSheetModal>(null);
-  const createTagSheetRef = useRef<BottomSheetModal>(null);
-  /** Only react to keyboard when Create Tag sheet is presented (avoid snapping other sheets). */
-  const createTagSheetActiveRef = useRef(false);
 
   const soundRef = useRef<Audio.Sound | null>(null);
   /** Read at notification delivery time so foreground alerts respect Session sound toggle */
@@ -655,8 +637,8 @@ export function FocusScreen() {
       const tag = await createTag.mutateAsync({ name: newTagName.trim(), color: newTagColor });
       setSelectedTag(tag);
       setNewTagName("");
-      createTagSheetRef.current?.dismiss();
-      tagSheetRef.current?.dismiss();
+      setCreateTagModalVisible(false);
+      setTagModalVisible(false);
     } catch {
       Alert.alert("Error", "Could not create tag. Name may already exist.");
     }
@@ -687,12 +669,7 @@ export function FocusScreen() {
           </View>
           <View>
             <Text style={styles.tbName}>{profile?.username ?? "—"}</Text>
-            <Text style={styles.tbStage}>{profile?.character_stage_name ?? ""}</Text>
           </View>
-        </View>
-        <View style={styles.tbRight}>
-          <Text style={styles.tbPsLabel}>Power</Text>
-          <Text style={styles.tbPsValue}>{profile?.power_score ?? 0}</Text>
         </View>
       </View>
 
@@ -908,7 +885,7 @@ export function FocusScreen() {
                       backgroundColor: `${selectedTag.color}0D`,
                     },
                   ]}
-                  onPress={() => tagSheetRef.current?.present()}
+                  onPress={() => setTagModalVisible(true)}
                 >
                   <Ionicons name="pricetag-outline" size={16} color={selectedTag ? selectedTag.color : MUTED} />
                   <Text style={[styles.tagRowText, selectedTag && { color: TEXT }]}>{selectedTag ? selectedTag.name : "No tag selected"}</Text>
@@ -1125,120 +1102,120 @@ export function FocusScreen() {
         </ScrollView>
       ) : null}
 
-      <BottomSheetModal
-        ref={tagSheetRef}
-        snapPoints={[...selectTagSnapPoints]}
-        topInset={insets.top}
-        bottomInset={tabBarBottomInset}
-        enablePanDownToClose
-        backdropComponent={renderBackdrop}
-        backgroundStyle={styles.sheetBg}
-        handleIndicatorStyle={styles.sheetHandle}
-        keyboardBehavior="extend"
-        keyboardBlurBehavior="restore"
+      <Modal
+        visible={tagModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTagModalVisible(false)}
       >
-        <BottomSheetView style={styles.tagSheetRoot}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Select Tag</Text>
-            <Pressable
-              onPress={() => {
-                setSelectedTag(null);
-                tagSheetRef.current?.dismiss();
-              }}
-            >
-              <Text style={styles.sheetClear}>None</Text>
-            </Pressable>
-          </View>
-          <View style={styles.sheetDivider} />
-          <BottomSheetScrollView
-            keyboardShouldPersistTaps="handled"
-            style={{ maxHeight: tagListScrollMaxHeight }}
-            contentContainerStyle={styles.tagSheetScrollContent}
-            bounces={false}
-          >
-            {tags.map((tag) => (
+        <View style={styles.tagModalRoot}>
+          <Pressable style={styles.tagModalBackdrop} onPress={() => setTagModalVisible(false)} />
+          <View style={[styles.tagModalSheet, { paddingBottom: tabBarBottomInset + 10 }]}>
+            <View style={styles.tagModalHandleWrap}>
+              <View style={styles.tagModalHandle} />
+            </View>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Select Tag</Text>
               <Pressable
-                key={tag.id}
-                style={[styles.tagOption, selectedTag?.id === tag.id && styles.tagOptionActive]}
                 onPress={() => {
-                  setSelectedTag(tag);
-                  tagSheetRef.current?.dismiss();
+                  setSelectedTag(null);
+                  setTagModalVisible(false);
                 }}
               >
-                <View style={[styles.tagDot, { backgroundColor: tag.color, width: 10, height: 10 }]} />
-                <Text style={styles.tagOptionName}>{tag.name}</Text>
-                <Text style={styles.tagOptionCount}>{tag.session_count} sessions</Text>
+                <Text style={styles.sheetClear}>None</Text>
               </Pressable>
-            ))}
-          </BottomSheetScrollView>
-          <Pressable
-            style={styles.createTagBtn}
-            onPress={() => {
-              tagSheetRef.current?.dismiss();
-              setTimeout(() => {
-                createTagSheetActiveRef.current = true;
-                createTagSheetRef.current?.present();
-              }, 250);
-            }}
-          >
-            <View style={styles.createTagIconWrap}>
-              <Text style={styles.createTagPlus}>+</Text>
             </View>
-            <Text style={styles.createTagText}>Create New Tag</Text>
-          </Pressable>
-        </BottomSheetView>
-      </BottomSheetModal>
-
-      <BottomSheetModal
-        ref={createTagSheetRef}
-        enableDynamicSizing
-        maxDynamicContentSize={createTagSheetMaxDynamic}
-        topInset={insets.top}
-        bottomInset={tabBarBottomInset}
-        enablePanDownToClose
-        backdropComponent={renderBackdrop}
-        backgroundStyle={styles.sheetBg}
-        handleIndicatorStyle={styles.sheetHandle}
-        keyboardBehavior="extend"
-        keyboardBlurBehavior="restore"
-        android_keyboardInputMode="adjustResize"
-        onChange={(index) => {
-          createTagSheetActiveRef.current = index >= 0;
-        }}
-        onDismiss={() => {
-          createTagSheetActiveRef.current = false;
-        }}
-      >
-        <BottomSheetView style={styles.createTagSheetRoot}>
-          <Text style={styles.sheetTitle}>Create Tag</Text>
-          <Text style={styles.sheetFieldLabel}>TAG NAME</Text>
-          <BottomSheetTextInput
-            style={styles.tagNameInput}
-            value={newTagName}
-            onChangeText={setNewTagName}
-            placeholder="e.g. Coding, Study, Art..."
-            placeholderTextColor={MUTED}
-            maxLength={32}
-          />
-          <Text style={styles.sheetFieldLabel}>COLOR</Text>
-          <View style={styles.colorRow}>
-            {TAG_COLORS.map((c) => (
-              <Pressable
-                key={c}
-                style={[styles.colorDot, { backgroundColor: c }, newTagColor === c && styles.colorDotActive]}
-                onPress={() => setNewTagColor(c)}
-              />
-            ))}
+            <View style={styles.sheetDivider} />
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              style={{ maxHeight: tagListScrollMaxHeight }}
+              contentContainerStyle={styles.tagSheetScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {tags.map((tag) => (
+                <Pressable
+                  key={tag.id}
+                  style={[styles.tagOption, selectedTag?.id === tag.id && styles.tagOptionActive]}
+                  onPress={() => {
+                    setSelectedTag(tag);
+                    setTagModalVisible(false);
+                  }}
+                >
+                  <View style={[styles.tagDot, { backgroundColor: tag.color, width: 10, height: 10 }]} />
+                  <Text style={styles.tagOptionName}>{tag.name}</Text>
+                  <Text style={styles.tagOptionCount}>{tag.session_count} sessions</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable
+              style={styles.createTagBtn}
+              onPress={() => {
+                setTagModalVisible(false);
+                setCreateTagModalVisible(true);
+              }}
+            >
+              <View style={styles.createTagIconWrap}>
+                <Text style={styles.createTagPlus}>+</Text>
+              </View>
+              <Text style={styles.createTagText}>Create New Tag</Text>
+            </Pressable>
           </View>
-          <Pressable
-            style={[styles.createTagSubmit, !newTagName.trim() && { opacity: 0.4 }]}
-            disabled={!newTagName.trim()}
-            onPress={handleCreateTag}
+        </View>
+      </Modal>
+
+      <Modal
+        visible={createTagModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCreateTagModalVisible(false)}
+      >
+        <View style={styles.tagModalRoot}>
+          <Pressable style={styles.tagModalBackdrop} onPress={() => setCreateTagModalVisible(false)} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            style={styles.tagModalKeyboard}
           >
-            {createTag.isPending ? <ActivityIndicator color="white" /> : <Text style={styles.createTagSubmitText}>Create Tag</Text>}
-          </Pressable>
-        </BottomSheetView>
-      </BottomSheetModal>
+            <View style={[styles.tagModalSheet, { paddingBottom: tabBarBottomInset + 10 }]}>
+              <View style={styles.tagModalHandleWrap}>
+                <View style={styles.tagModalHandle} />
+              </View>
+              <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                <Text style={styles.sheetTitle}>Create Tag</Text>
+                <Text style={styles.sheetFieldLabel}>TAG NAME</Text>
+                <TextInput
+                  style={styles.tagNameInput}
+                  value={newTagName}
+                  onChangeText={setNewTagName}
+                  placeholder="e.g. Coding, Study, Art..."
+                  placeholderTextColor={MUTED}
+                  maxLength={32}
+                />
+                <Text style={styles.sheetFieldLabel}>COLOR</Text>
+                <View style={styles.colorRow}>
+                  {TAG_COLORS.map((c) => (
+                    <Pressable
+                      key={c}
+                      style={[styles.colorDot, { backgroundColor: c }, newTagColor === c && styles.colorDotActive]}
+                      onPress={() => setNewTagColor(c)}
+                    />
+                  ))}
+                </View>
+                <Pressable
+                  style={[styles.createTagSubmit, !newTagName.trim() && { opacity: 0.4 }]}
+                  disabled={!newTagName.trim()}
+                  onPress={handleCreateTag}
+                >
+                  {createTag.isPending ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text style={styles.createTagSubmitText}>Create Tag</Text>
+                  )}
+                </Pressable>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
 
       <BottomSheetModal
         ref={settingsSheetRef}
@@ -1461,14 +1438,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "rgba(42,48,80,0.35)",
   },
-  tbLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  tbLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   tbAvatar: {
-    width: 34,
-    height: 34,
+    width: 42,
+    height: 42,
     borderRadius: 10,
     backgroundColor: "#141824",
-    borderWidth: 1.5,
-    borderColor: "rgba(139,92,246,0.35)",
+    borderWidth: 2,
+    borderColor: "rgba(139,92,246,0.4)",
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
@@ -1482,18 +1459,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tbAvatarImage: { width: "100%", height: "100%" },
-  tbAvatarText: { fontSize: 13, fontWeight: "700", color: "rgba(167,139,250,0.8)" },
-  tbName: { fontSize: 13, fontWeight: "600", color: TEXT },
-  tbStage: { fontSize: 10, color: MUTED, marginTop: 1 },
-  tbRight: { alignItems: "flex-end" },
-  tbPsLabel: {
-    fontSize: 9,
-    fontWeight: "500",
-    color: MUTED,
-    letterSpacing: 0.5,
-    textTransform: "uppercase",
-  },
-  tbPsValue: { fontSize: 18, fontWeight: "700", color: VIOLET },
+  tbAvatarText: { fontSize: 14, fontWeight: "700", color: "rgba(167,139,250,0.8)" },
+  tbName: { fontSize: 17, fontWeight: "700", color: TEXT },
 
   subTabs: {
     flexDirection: "row",
@@ -1821,15 +1788,29 @@ const styles = StyleSheet.create({
   sheetBg: { backgroundColor: "#141824" },
   sheetHandle: { backgroundColor: "#2A3050" },
   sheetContent: { paddingHorizontal: 20, paddingBottom: 24, flex: 1 },
-  tagSheetRoot: { paddingHorizontal: 20, paddingTop: 8 },
+  tagModalRoot: { flex: 1, justifyContent: "flex-end" },
+  tagModalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)" },
+  tagModalKeyboard: { width: "100%", justifyContent: "flex-end" },
+  tagModalSheet: {
+    backgroundColor: "#141824",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderColor: "#2A3050",
+    borderBottomWidth: 0,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  tagModalHandleWrap: { alignItems: "center", marginBottom: 12 },
+  tagModalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
   tagSheetScrollContent: {
     paddingBottom: 8,
     flexGrow: 0,
-  },
-  createTagSheetRoot: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 14,
   },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
   sheetTitle: { fontSize: 16, fontWeight: "700", color: TEXT, marginBottom: 12 },

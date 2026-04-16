@@ -12,7 +12,7 @@ import { QUIT_ORANGE } from "@/constants/missionColors";
 const PHASE_KEYS = ["mapping", "disruption", "consolidation"] as const;
 
 const POSITIVE = "#A78BFA";
-type StrategyChoice = "none" | "helped" | "not_helped";
+type StrategyChoice = "none" | "helped" | "some" | "not_helped";
 
 function urgeBarOpacity(level: number, maxLevel: number): number {
   if (maxLevel === 0) return 0.3;
@@ -65,7 +65,12 @@ export function QuitCard({
         await Promise.resolve(
           onCheckinLog(target.path_id, {
             checkin_type: "response_used",
-            free_text: strategyUsed === "helped" ? "helped" : "not_helped",
+            free_text:
+              strategyUsed === "helped"
+                ? "helped"
+                : strategyUsed === "some"
+                  ? "some"
+                  : "not_helped",
           })
         );
       }
@@ -224,19 +229,24 @@ export function QuitCard({
       ) : null}
 
       <View style={styles.phaseContextCard}>
-        <Text style={styles.phaseContextTitle}>PHASE CONTEXT</Text>
-        <Text style={styles.phaseContextBody}>
-          {target.need_description?.trim() || cfg.description}
-        </Text>
-        {target.competing_response ? (
-          <Text style={styles.phaseContextFoot}>Competing response: {target.competing_response}</Text>
-        ) : null}
+        <View style={styles.phaseContextGlowLine} />
+        <Text style={styles.phaseContextTitle}>What you're doing right now</Text>
+        <Text style={styles.phaseContextBody}>{cfg.description}</Text>
         {!!target.phase_readiness?.criteria?.length ? (
           <View style={styles.readinessList}>
-            {target.phase_readiness.criteria.slice(0, 3).map((c, idx) => (
-              <Text key={`${c.label}-${idx}`} style={[styles.readinessItem, c.met && styles.readinessMet]}>
-                {c.met ? "✓" : "○"} {c.label}
-              </Text>
+            <Text style={styles.readinessLabel}>PHASE READINESS</Text>
+            {target.phase_readiness.criteria.map((c, idx) => (
+              <View key={`${c.label}-${idx}`} style={styles.readinessRow}>
+                <View
+                  style={[
+                    styles.readinessDot,
+                    c.met ? styles.readinessDotMet : styles.readinessDotUnmet,
+                  ]}
+                >
+                  {c.met ? <Text style={styles.readinessDotCheck}>✓</Text> : null}
+                </View>
+                <Text style={styles.readinessItem}>{c.label}</Text>
+              </View>
             ))}
           </View>
         ) : null}
@@ -244,7 +254,7 @@ export function QuitCard({
 
       <View style={styles.freqStrip}>
         <View style={styles.freqTopRow}>
-          <Text style={styles.freqLabel}>TODAY - URGES FELT</Text>
+          <Text style={styles.freqLabel}>TODAY&apos;S URGE LOG</Text>
           <View style={styles.microBars}>
             {microCounts.map((c, i) => {
               const isToday = i === microCounts.length - 1;
@@ -266,71 +276,96 @@ export function QuitCard({
         </View>
 
         <View style={styles.freqBottomRow}>
-          <View style={styles.freqCtrl}>
-            <Pressable
-              onPress={(e) => {
-                e?.stopPropagation?.();
-                setLocalCount((c) => Math.max(0, c - 1));
-              }}
-              style={styles.fBtn}
-              hitSlop={4}
-            >
-              <Text style={styles.fBtnText}>−</Text>
-            </Pressable>
-            <Text style={styles.fVal}>{localCount}</Text>
-            <Pressable
-              onPress={(e) => {
-                e?.stopPropagation?.();
-                setLocalCount((c) => c + 1);
-              }}
-              style={styles.fBtn}
-              hitSlop={4}
-            >
-              <Text style={styles.fBtnText}>+</Text>
-            </Pressable>
+          <View style={styles.freqColLeft}>
+            <Text style={styles.freqSubLabel}>Urges felt</Text>
+            <View style={styles.freqCtrl}>
+              <Pressable
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  setLocalCount((c) => Math.max(0, c - 1));
+                }}
+                style={styles.fBtn}
+                hitSlop={4}
+              >
+                <Text style={styles.fBtnText}>−</Text>
+              </Pressable>
+              <Text style={styles.fVal}>{localCount}</Text>
+              <Pressable
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  setLocalCount((c) => c + 1);
+                }}
+                style={styles.fBtn}
+                hitSlop={4}
+              >
+                <Text style={styles.fBtnText}>+</Text>
+              </Pressable>
+            </View>
           </View>
 
-          <View style={styles.freqLogWrap}>
-            <Text style={styles.freqHint}>Select strategy result, then log</Text>
-            <Pressable
-              onPress={(e) => {
-                e?.stopPropagation?.();
-                void handleLog();
-              }}
-              disabled={saving}
-              style={styles.logBtn}
-            >
-              {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.logBtnText}>Log</Text>
-              )}
-            </Pressable>
+          <View style={styles.freqDivider} />
+
+          <View style={styles.freqColRight}>
+            {(phase === "disruption" || phase === "consolidation") ? (
+              <>
+                <Text style={styles.freqSubLabel}>Strategy used?</Text>
+                <View style={styles.strategyButtonsRow}>
+                  {[
+                    { key: "helped", label: "✓ Yes" },
+                    { key: "some", label: "~ Some" },
+                    { key: "not_helped", label: "✗ No" },
+                  ].map((item) => {
+                    const active = strategyUsed === item.key;
+                    return (
+                      <Pressable
+                        key={item.key}
+                        onPress={() => setStrategyUsed(item.key as StrategyChoice)}
+                        style={[
+                          styles.strategyBtn,
+                          active &&
+                            (item.key === "helped"
+                              ? styles.strategyBtnYes
+                              : item.key === "some"
+                                ? styles.strategyBtnSome
+                                : styles.strategyBtnNo),
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.strategyBtnText,
+                            active &&
+                              (item.key === "helped"
+                                ? styles.strategyBtnTextYes
+                                : item.key === "some"
+                                  ? styles.strategyBtnTextSome
+                                  : styles.strategyBtnTextNo),
+                          ]}
+                        >
+                          {item.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            ) : null}
           </View>
         </View>
-        <View style={styles.strategyRow}>
-          <Text style={styles.strategyLabel}>Strategy used?</Text>
-          <View style={styles.strategyToggles}>
-            {[
-              { key: "none", label: "Skip" },
-              { key: "helped", label: "Helped" },
-              { key: "not_helped", label: "Not helped" },
-            ].map((item) => {
-              const active = strategyUsed === item.key;
-              return (
-                <Pressable
-                  key={item.key}
-                  onPress={() => setStrategyUsed(item.key as StrategyChoice)}
-                  style={[styles.strategyChip, active && styles.strategyChipActive]}
-                >
-                  <Text style={[styles.strategyChipText, active && styles.strategyChipTextActive]}>
-                    {item.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
+
+        <Pressable
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            void handleLog();
+          }}
+          disabled={saving}
+          style={styles.logBtn}
+        >
+          {saving ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.logBtnText}>Log today</Text>
+          )}
+        </Pressable>
       </View>
 
       <View style={styles.phaseDots}>
@@ -378,9 +413,9 @@ export function QuitCard({
           <Pressable onPress={(e) => { e?.stopPropagation?.(); openFirstInsight(); }} style={styles.preserveLink}>
             <Text style={styles.preserveLinkTxt}>Insights ({target.insights.length})</Text>
           </Pressable>
-          <Text style={styles.autoAdvanceTxt}>Phase moves automatically when readiness is met</Text>
         </View>
       ) : null}
+      <Text style={styles.autoAdvanceTxt}>Phase advances automatically when you&apos;re ready</Text>
       </View>
     </Pressable>
   );
@@ -568,38 +603,82 @@ const styles = StyleSheet.create({
   phaseContextCard: {
     marginHorizontal: 18,
     marginBottom: 12,
-    borderRadius: 12,
+    borderRadius: 13,
     borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.2)",
-    backgroundColor: "rgba(139,92,246,0.08)",
-    padding: 10,
+    borderColor: "rgba(249,115,22,0.14)",
+    backgroundColor: "rgba(249,115,22,0.04)",
+    padding: 12,
+    overflow: "hidden",
+    position: "relative",
+  },
+  phaseContextGlowLine: {
+    position: "absolute",
+    top: 0,
+    left: "10%",
+    right: "10%",
+    height: 1,
+    backgroundColor: "rgba(249,115,22,0.20)",
   },
   phaseContextTitle: {
-    fontSize: 10,
-    color: "#C4B5FD",
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 0.8,
-    marginBottom: 6,
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
+    color: "rgba(249,115,22,0.50)",
+    marginBottom: 4,
   },
   phaseContextBody: {
-    fontSize: 11,
-    color: "#D1D5DB",
-    lineHeight: 16,
+    fontSize: 12,
+    color: "#9CA3AF",
+    lineHeight: 18,
     fontFamily: "Inter_400Regular",
   },
-  phaseContextFoot: {
-    marginTop: 6,
-    fontSize: 10,
-    color: "#A78BFA",
-    fontFamily: "Inter_500Medium",
+  readinessList: {
+    borderTopWidth: 1,
+    borderTopColor: "rgba(249,115,22,0.08)",
+    marginTop: 10,
+    paddingTop: 10,
+    gap: 6,
   },
-  readinessList: { marginTop: 8, gap: 4 },
+  readinessLabel: {
+    fontSize: 8.5,
+    color: "rgba(249,115,22,0.40)",
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  readinessRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  readinessDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  readinessDotMet: {
+    backgroundColor: "rgba(249,115,22,0.15)",
+    borderColor: "rgba(249,115,22,0.60)",
+  },
+  readinessDotUnmet: {
+    backgroundColor: "rgba(42,48,80,0.50)",
+    borderColor: "rgba(42,48,80,0.80)",
+  },
+  readinessDotCheck: {
+    fontSize: 8,
+    fontWeight: "800",
+    color: "#F97316",
+  },
   readinessItem: {
-    fontSize: 10,
+    flex: 1,
+    fontSize: 10.5,
     color: "#9CA3AF",
     fontFamily: "Inter_500Medium",
   },
-  readinessMet: { color: "#A78BFA" },
   freqTopRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -608,40 +687,59 @@ const styles = StyleSheet.create({
   },
   freqBottomRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
   },
-  strategyRow: {
-    marginTop: 4,
-    gap: 6,
+  freqColLeft: {
+    flex: 1,
   },
-  strategyLabel: {
-    fontSize: 10,
-    color: "#9CA3AF",
-    fontFamily: "Inter_600SemiBold",
+  freqColRight: {
+    flex: 1.4,
   },
-  strategyToggles: {
+  freqDivider: {
+    width: 1,
+    height: 48,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    marginTop: 16,
+  },
+  freqSubLabel: {
+    fontSize: 9,
+    color: "#374151",
+    marginBottom: 4,
+  },
+  strategyButtonsRow: {
     flexDirection: "row",
-    gap: 6,
+    gap: 4,
   },
-  strategyChip: {
+  strategyBtn: {
+    flex: 1,
     paddingVertical: 6,
-    paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(107,114,128,0.3)",
-    backgroundColor: "rgba(17,24,39,0.4)",
+    alignItems: "center",
+    borderColor: "rgba(42,48,80,0.50)",
+    backgroundColor: "rgba(42,48,80,0.35)",
   },
-  strategyChipActive: {
-    borderColor: "rgba(139,92,246,0.6)",
-    backgroundColor: "rgba(139,92,246,0.18)",
+  strategyBtnYes: {
+    backgroundColor: "rgba(74,222,128,0.15)",
+    borderColor: "rgba(74,222,128,0.35)",
   },
-  strategyChipText: {
-    fontSize: 10,
-    color: "#9CA3AF",
-    fontFamily: "Inter_600SemiBold",
+  strategyBtnSome: {
+    backgroundColor: "rgba(245,158,11,0.10)",
+    borderColor: "rgba(245,158,11,0.25)",
   },
-  strategyChipTextActive: { color: "#E9D5FF" },
+  strategyBtnNo: {
+    backgroundColor: "rgba(239,68,68,0.08)",
+    borderColor: "rgba(239,68,68,0.20)",
+  },
+  strategyBtnText: {
+    fontSize: 8.5,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  strategyBtnTextYes: { color: "#4ADE80" },
+  strategyBtnTextSome: { color: "#F59E0B" },
+  strategyBtnTextNo: { color: "#F87171" },
   freqLabel: {
     fontSize: 9,
     fontWeight: "700",
@@ -654,17 +752,6 @@ const styles = StyleSheet.create({
   microBars: { flexDirection: "row", gap: 2, alignItems: "flex-end", height: 16 },
   mBar: { width: 6, borderRadius: 1 },
   freqCtrl: { flexDirection: "row", alignItems: "center", gap: 8 },
-  freqLogWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  freqHint: {
-    fontSize: 9,
-    color: "rgba(249,115,22,0.3)",
-    fontWeight: "500",
-    fontStyle: "italic",
-  },
   fBtn: {
     width: 30,
     height: 30,
@@ -686,19 +773,14 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   logBtn: {
-    height: 32,
-    paddingHorizontal: 14,
-    borderRadius: 9,
+    height: 34,
+    borderRadius: 10,
     backgroundColor: "#EA580C",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "rgba(249,115,22,0.4)",
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
+    marginTop: 2,
   },
-  logBtnText: { fontSize: 11, fontWeight: "700", color: "#fff", fontFamily: "Inter_700Bold" },
+  logBtnText: { fontSize: 12, fontWeight: "700", color: "#fff", fontFamily: "Inter_700Bold" },
   phaseDots: {
     flexDirection: "row",
     alignItems: "center",
@@ -761,10 +843,10 @@ const styles = StyleSheet.create({
   pdLabelLocked: { color: "#1E2337" },
   preserveRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     alignItems: "center",
     paddingHorizontal: 18,
-    paddingBottom: 14,
+    paddingBottom: 6,
     zIndex: 1,
   },
   preserveLink: { paddingVertical: 6 },
@@ -774,8 +856,9 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
   },
   autoAdvanceTxt: {
-    fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
-    color: "#6B7280",
+    textAlign: "center",
+    fontSize: 9,
+    color: "rgba(249,115,22,0.22)",
+    paddingBottom: 14,
   },
 });

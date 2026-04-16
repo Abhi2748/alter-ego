@@ -592,9 +592,20 @@ export function MissionDetailScreen() {
                 <View style={styles.blockDivider} />
               </>
             ) : null}
+
+            {/* ── RATING (interest + resistance) ── */}
+            {ratingSectionEl ? (
+              <>
+                <View style={styles.sectionHdr}>
+                  <View style={[styles.sectionBar, { backgroundColor: "#8B5CF6" }]} />
+                  <Text style={styles.sectionLabel}>Rate this mission</Text>
+                </View>
+                {ratingSectionEl}
+                <View style={styles.blockDivider} />
+              </>
+            ) : null}
           </View>
           </ScrollView>
-            {ratingSectionEl ? <View style={styles.padH}>{ratingSectionEl}</View> : null}
             {footerEl}
           </View>
         </SafeAreaView>

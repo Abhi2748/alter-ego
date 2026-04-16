@@ -1,5 +1,5 @@
 /**
- * Add Mission Modal — Premium bottom sheet. Title input, suggest tier, difficulty chips,
+ * Add Mission Modal — Premium bottom sheet. Title input, difficulty chips,
  * XP/PF preview, Add Mission button. KeyboardAvoidingView, gradient background, top accent.
  */
 
@@ -72,39 +72,22 @@ const DIFFICULTY_CHIP_STYLES: Record<
   },
 };
 
-const RESULT_DOT_COLOR: Record<"Easy" | "Medium" | "Hard", string> = {
-  Easy: "#10B981",
-  Medium: "#F97316",
-  Hard: "#EF4444",
-};
-
 export type AddMissionDifficulty = "Easy" | "Medium" | "Hard";
-
-export type SuggestedTier = {
-  suggested_difficulty: AddMissionDifficulty;
-  xp_value: number;
-  pet_food_value: number;
-};
 
 export interface AddMissionModalProps {
   visible: boolean;
   onClose: () => void;
   onAdd: (title: string, difficulty: AddMissionDifficulty) => void;
-  onSuggestTier?: (title: string) => Promise<SuggestedTier | null>;
 }
 
 export function AddMissionModal({
   visible,
   onClose,
   onAdd,
-  onSuggestTier,
 }: AddMissionModalProps) {
   const insets = useSafeAreaInsets();
   const [title, setTitle] = useState("");
   const [difficulty, setDifficulty] = useState<AddMissionDifficulty | null>(null);
-  const [suggestedTier, setSuggestedTier] = useState<SuggestedTier | null>(null);
-  const [suggestLoading, setSuggestLoading] = useState(false);
-  const [suggestError, setSuggestError] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
@@ -126,28 +109,8 @@ export function AddMissionModal({
     setInputFocused(false);
     setTitle("");
     setDifficulty(null);
-    setSuggestedTier(null);
-    setSuggestError(null);
     setAddError(null);
     onClose();
-  };
-
-  const handleSuggestTier = async () => {
-    const t = title.trim();
-    if (!t || !onSuggestTier) return;
-    setSuggestLoading(true);
-    setSuggestError(null);
-    try {
-      const result = await onSuggestTier(t);
-      if (result) {
-        setSuggestedTier(result);
-        setDifficulty(result.suggested_difficulty);
-      }
-    } catch (e) {
-      setSuggestError(e instanceof Error ? e.message : "Could not suggest tier");
-    } finally {
-      setSuggestLoading(false);
-    }
   };
 
   useEffect(() => {
@@ -244,7 +207,7 @@ export function AddMissionModal({
     }
   };
 
-  const selectedDifficulty = difficulty ?? (suggestedTier?.suggested_difficulty ?? null);
+  const selectedDifficulty = difficulty;
   const xpPf = selectedDifficulty ? XP_PET_FOOD[selectedDifficulty] : null;
   const canAdd = !!title.trim() && !!difficulty && !addLoading;
 
@@ -333,49 +296,6 @@ export function AddMissionModal({
                 >
                   {title.length} / {TITLE_MAX_LENGTH}
                 </Text>
-
-                <View style={styles.suggestRow}>
-                  <Pressable
-                    onPress={handleSuggestTier}
-                    disabled={!title.trim() || suggestLoading}
-                    style={[
-                      styles.suggestBtn,
-                      (!title.trim() || suggestLoading) && styles.suggestBtnDisabled,
-                    ]}
-                  >
-                    {suggestLoading ? (
-                      <ActivityIndicator size="small" color="#A78BFA" />
-                    ) : (
-                      <>
-                        <Text style={styles.starIcon}>★</Text>
-                        <Text style={styles.suggestBtnText}>Suggest tier</Text>
-                      </>
-                    )}
-                  </Pressable>
-                  <View style={styles.resultDisplay}>
-                    {!suggestedTier ? (
-                      <Text style={styles.resultPlaceholder}>Type a mission first</Text>
-                    ) : (
-                      <>
-                        <View
-                          style={[
-                            styles.resultDot,
-                            {
-                              backgroundColor:
-                                RESULT_DOT_COLOR[suggestedTier.suggested_difficulty],
-                            },
-                          ]}
-                        />
-                        <Text style={styles.resultTierName}>
-                          {suggestedTier.suggested_difficulty}
-                        </Text>
-                        <Text style={styles.resultXpPf}>
-                          {suggestedTier.xp_value} XP · {suggestedTier.pet_food_value} PF
-                        </Text>
-                      </>
-                    )}
-                  </View>
-                </View>
 
                 <Text style={styles.difficultyLabel}>DIFFICULTY</Text>
                 <View style={styles.difficultyRow}>
@@ -572,67 +492,6 @@ const styles = StyleSheet.create({
   },
   charCountTyping: {
     color: "#4B5563",
-  },
-  suggestRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 16,
-  },
-  suggestBtn: {
-    height: 38,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: "rgba(109,40,217,0.10)",
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.45)",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  suggestBtnDisabled: {
-    opacity: 0.4,
-  },
-  starIcon: {
-    fontSize: 13,
-    color: "#A78BFA",
-  },
-  suggestBtnText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#A78BFA",
-  },
-  resultDisplay: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "rgba(255,255,255,0.03)",
-    borderWidth: 1,
-    borderColor: "rgba(42,48,80,0.40)",
-    borderRadius: 12,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-  },
-  resultPlaceholder: {
-    fontSize: 12,
-    color: "#2D3146",
-  },
-  resultDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  resultTierName: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#E5E7EB",
-  },
-  resultXpPf: {
-    fontSize: 11,
-    color: "#374151",
-    marginLeft: "auto",
   },
   difficultyLabel: {
     fontSize: 11,

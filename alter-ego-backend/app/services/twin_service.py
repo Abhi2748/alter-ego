@@ -1506,6 +1506,21 @@ async def ensure_twin_journal_backfilled(user_id: str) -> None:
                 .limit(1))
             if jr.data:
                 continue
+            # Only generate journal if twin XP for that day is finalized.
+            # If unfinalized, skip — the midnight job will generate it correctly
+            # after finalization writes the real xp_earned value.
+            _rec_check = await run_query(
+                supabase_admin.table("twin_daily_record")
+                .select("twin_xp_finalized")
+                .eq("user_id", user_id)
+                .eq("record_date", d_str)
+                .limit(1)
+            )
+            _rec_rows = _rec_check.data or []
+            if not _rec_rows:
+                continue  # No simulation record yet — skip
+            if not _rec_rows[0].get("twin_xp_finalized"):
+                continue  # Not finalized yet — midnight job will handle this
             await generate_and_store_twin_journal(user_id, d_str)
             filled += 1
     except Exception as e:
@@ -1541,7 +1556,29 @@ async def generate_and_store_twin_journal(user_id: str, today: str) -> None:
             .eq("entry_date", today)
             .limit(1))
         if existing.data:
-            return
+            # Journal exists — but check if it was written with unfinalized XP (xp_earned=0).
+            # If the twin_daily_record is now finalized with real XP, regenerate.
+            try:
+                _rec_check = await run_query(
+                    supabase_admin.table("twin_daily_record")
+                    .select("xp_earned, twin_xp_finalized")
+                    .eq("user_id", user_id)
+                    .eq("record_date", today)
+                    .limit(1)
+                )
+                _rec_rows = _rec_check.data or []
+                if (
+                    _rec_rows
+                    and _rec_rows[0].get("twin_xp_finalized")
+                    and int(_rec_rows[0].get("xp_earned") or 0) > 0
+                ):
+                    # Record is finalized with real XP — safe to regenerate journal
+                    # (upsert at the bottom will overwrite the stale entry)
+                    pass  # Fall through to regenerate
+                else:
+                    return  # Not finalized yet or genuinely 0 XP day — keep existing
+            except Exception:
+                return  # On error, keep existing entry
 
         tz_row = await run_query(supabase_admin.table("users")
             .select("timezone")

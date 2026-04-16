@@ -277,8 +277,8 @@ export function QuitDetailScreen() {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Phase guide</Text>
+          <View style={styles.phaseGuideCard}>
+            <Text style={styles.phaseGuideTitle}>Phase guide</Text>
             <View style={styles.phaseGuideRow}>
               {(["mapping", "disruption", "consolidation"] as const).map((p) => {
                 const active = p === target.current_phase;
@@ -286,7 +286,7 @@ export function QuitDetailScreen() {
                   (p === "mapping" && (target.current_phase === "disruption" || target.current_phase === "consolidation")) ||
                   (p === "disruption" && target.current_phase === "consolidation");
                 return (
-                  <View key={p} style={styles.phaseGuideStep}>
+                  <View key={p} style={[styles.phaseGuideStep, active && styles.phaseGuideStepActive]}>
                     <View
                       style={[
                         styles.phaseGuideDot,
@@ -317,9 +317,14 @@ export function QuitDetailScreen() {
               <Text style={styles.sectionTitle}>Readiness</Text>
               {target.phase_readiness.criteria.map((criterion, idx) => (
                 <View key={`${criterion.label}-${idx}`} style={styles.readinessRow}>
-                  <Text style={[styles.readinessIcon, criterion.met && styles.readinessIconMet]}>
-                    {criterion.met ? "✓" : "○"}
-                  </Text>
+                  <View style={[
+                    styles.readinessDot,
+                    criterion.met ? styles.readinessDotMet : styles.readinessDotUnmet,
+                  ]}>
+                    {criterion.met ? (
+                      <Text style={styles.readinessDotCheck}>✓</Text>
+                    ) : null}
+                  </View>
                   <Text style={[styles.readinessText, criterion.met && styles.readinessTextMet]}>
                     {criterion.label}
                   </Text>
@@ -636,6 +641,23 @@ const styles = StyleSheet.create({
     color: EMBER_DIM,
     marginBottom: 14,
   },
+  phaseGuideCard: {
+    backgroundColor: "rgba(14,8,4,0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(249,115,22,0.10)",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  phaseGuideTitle: {
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 2,
+    textTransform: "uppercase",
+    color: "rgba(249,115,22,0.35)",
+    marginBottom: 12,
+  },
   phaseGuideRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -643,6 +665,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   phaseGuideStep: { flex: 1, alignItems: "center", gap: 6 },
+  phaseGuideStepActive: {
+    backgroundColor: "rgba(249,115,22,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(249,115,22,0.15)",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 4,
+  },
   phaseGuideDot: {
     width: 12,
     height: 12,
@@ -679,14 +709,28 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
-  readinessIcon: {
-    width: 16,
-    fontSize: 12,
-    color: "#6B7280",
-    textAlign: "center",
-    fontFamily: "Inter_700Bold",
+  readinessDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
-  readinessIconMet: { color: "#A78BFA" },
+  readinessDotMet: {
+    backgroundColor: "rgba(249,115,22,0.15)",
+    borderColor: "rgba(249,115,22,0.60)",
+  },
+  readinessDotUnmet: {
+    backgroundColor: "rgba(42,48,80,0.50)",
+    borderColor: "rgba(42,48,80,0.80)",
+  },
+  readinessDotCheck: {
+    fontSize: 8,
+    fontWeight: "800",
+    color: "#F97316",
+  },
   readinessText: {
     flex: 1,
     fontSize: 12,

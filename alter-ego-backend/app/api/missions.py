@@ -11,7 +11,6 @@ from app.api.auth import get_user_id_from_token
 from app.core.supabase_client import supabase_admin, run_query
 from app.core.constants import MISSION_PF, PERSONAL_MISSION_XP_BY_TIER, resolve_stat_tag
 from app.core.journal_rules import journal_stored_qualifies_for_mission, word_count as journal_word_count
-from app.agents.personal_mission_agent import estimate_personal_mission_tier
 from app.services.mission_row_utils import mission_row_completed
 from app.services.mission_service import (
     complete_mission,
@@ -247,10 +246,6 @@ class CompleteMissionResponse(BaseModel):
     sigil: SigilCompletionOut | None = None
 
     completion_copy: str | None = None
-
-
-class PersonalMissionEstimateRequest(BaseModel):
-    mission_text: str
 
 
 class PersonalMissionCreateRequest(BaseModel):
@@ -598,54 +593,6 @@ async def save_journal(body: JournalSaveRequest, authorization: str = Header(Non
         }
 
     return {"saved": True, "mission_completed": False, "word_count": wc}
-
-
-@router.post("/personal/estimate", response_model=dict)
-async def personal_estimate(body: PersonalMissionEstimateRequest, authorization: str = Header(None)):
-    user_id = get_user_id_from_token(authorization)
-
-    execution_gap: float = 0.5
-    daily_mission_count: int = 0
-    core_failure_pattern: str = ""
-    try:
-        dna_row = (
-            ((await run_query(supabase_admin.table("discipline_dna")
-            .select("execution_gap, core_failure_pattern")
-            .eq("user_id", user_id)
-            .single())).data)
-            or {}
-        )
-        execution_gap = float(dna_row.get("execution_gap") or 0.5)
-        core_failure_pattern = str(dna_row.get("core_failure_pattern") or "")
-    except Exception:
-        pass
-
-    try:
-        tz_row = (
-            ((await run_query(supabase_admin.table("users")
-            .select("timezone")
-            .eq("id", user_id)
-            .single())).data)
-            or {}
-        )
-        _today = get_user_date(str(tz_row.get("timezone") or "UTC"))
-        count_res = (
-            ((await run_query(supabase_admin.table("missions")
-            .select("id")
-            .eq("user_id", user_id)
-            .eq("mission_date", _today))).data)
-            or []
-        )
-        daily_mission_count = len(count_res)
-    except Exception:
-        pass
-
-    return await estimate_personal_mission_tier(
-        body.mission_text,
-        execution_gap=execution_gap,
-        daily_mission_count=daily_mission_count,
-        core_failure_pattern=core_failure_pattern,
-    )
 
 
 @router.post("/personal/create", response_model=dict)

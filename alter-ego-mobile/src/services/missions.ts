@@ -126,14 +126,6 @@ export interface MissionRatingRequest {
   feedback_text?: string;
 }
 
-export interface PersonalMissionEstimate {
-  tier: "easy" | "medium" | "hard" | "multiday";
-  xp: number;
-  pf: number;
-  reasoning: string;
-  estimated_minutes: number;
-}
-
 export interface CreatePersonalMissionRequest {
   mission_text: string;
   tier: string;
@@ -241,12 +233,6 @@ export const missionsService = {
       title: body.title ?? "",
       bookmarked: body.bookmarked ?? false,
     }),
-
-  estimatePersonalMission: (missionText: string) =>
-    apiClient.post<PersonalMissionEstimate>(
-      "/api/v1/missions/personal/estimate",
-      { mission_text: missionText }
-    ),
 
   createPersonalMission: (data: CreatePersonalMissionRequest) =>
     apiClient.post<Mission>("/api/v1/missions/personal/create", data),

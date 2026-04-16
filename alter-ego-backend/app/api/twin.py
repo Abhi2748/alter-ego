@@ -47,6 +47,7 @@ from app.services.twin_service import (
     compute_mirror_factor,
     ensure_twin_journal_backfilled,
     ensure_twin_simulated_for_today,
+    finalize_twin_xp_for_calendar_day,
     get_archetype_day_modifier,
     get_home_strip_context,
     get_twin_xp_comparison,
@@ -1428,6 +1429,34 @@ async def get_twin_state(authorization: str = Header(None)):
 async def _build_twin_state_response(user_id: str) -> dict:
     await ensure_twin_simulated_for_today(user_id)
     await refresh_twin_gap_state(user_id)
+    # ── Catch-up finalization ─────────────────────────────────────────────
+    # If yesterday's twin XP hasn't been finalized yet (user opened app before
+    # the scheduler job completed), finalize now so twin_state.twin_xp is current.
+    try:
+        from datetime import timedelta as _td
+        from app.services.mission_service import get_user_date as _gud
+        _tz_str_cf = (
+            (supabase_admin.table("users")
+             .select("timezone")
+             .eq("id", user_id)
+             .single()
+             .execute()
+             .data) or {}
+        ).get("timezone") or "UTC"
+        _today_cf = _gud(_tz_str_cf)
+        _yesterday_cf = str(date_cls.fromisoformat(_today_cf) - _td(days=1))
+        _yest_rec = await run_query(
+            supabase_admin.table("twin_daily_record")
+            .select("twin_xp_finalized")
+            .eq("user_id", user_id)
+            .eq("record_date", _yesterday_cf)
+            .limit(1)
+        )
+        _yest_rows = _yest_rec.data or []
+        if _yest_rows and not _yest_rows[0].get("twin_xp_finalized"):
+            await finalize_twin_xp_for_calendar_day(user_id, _yesterday_cf)
+    except Exception:
+        pass  # Non-fatal — scheduler will handle it
 
     user_result = await run_query(supabase_admin.table("users")
         .select(

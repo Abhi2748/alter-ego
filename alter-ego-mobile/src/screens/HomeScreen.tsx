@@ -949,22 +949,6 @@ export function HomeScreen() {
     [queryClient]
   );
 
-  const handleSuggestTier = useCallback(async (title: string) => {
-    const estimate = await missionsService.estimatePersonalMission(title);
-    if (!estimate) return null;
-    const t = estimate.tier.toLowerCase();
-    let suggested_difficulty: "Easy" | "Medium" | "Hard";
-    if (t === "easy") suggested_difficulty = "Easy";
-    else if (t === "hard") suggested_difficulty = "Hard";
-    else if (t === "multiday") suggested_difficulty = "Medium";
-    else suggested_difficulty = "Medium";
-    return {
-      suggested_difficulty,
-      xp_value: estimate.xp,
-      pet_food_value: estimate.pf,
-    };
-  }, []);
-
   const openTwin = () => navigation.navigate("Twin");
 
   const dismissStreakOverlay = useCallback(() => {
@@ -1494,7 +1478,6 @@ export function HomeScreen() {
         visible={addModalVisible}
         onClose={() => setAddModalVisible(false)}
         onAdd={handleAddMission}
-        onSuggestTier={handleSuggestTier}
       />
       <StageTwinMessageOverlay
         visible={stageTwinMsgVisible}

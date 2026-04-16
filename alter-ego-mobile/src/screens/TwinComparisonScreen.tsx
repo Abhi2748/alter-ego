@@ -859,6 +859,7 @@ export function TwinComparisonScreen() {
             },
           ]}
         >
+          <View style={styles.headerSideSpacer} />
           <View style={styles.headerTitleWrap} pointerEvents="none">
             <Text style={styles.headerTitle}>Shadow Twin</Text>
           </View>
@@ -935,6 +936,7 @@ export function TwinComparisonScreen() {
           },
         ]}
       >
+        <View style={styles.headerSideSpacer} />
         <View style={styles.headerTitleWrap} pointerEvents="none">
           <Text style={styles.headerTitle}>Shadow Twin</Text>
         </View>
@@ -1042,21 +1044,19 @@ const styles = StyleSheet.create({
   retryLabel: { fontFamily: "Inter_600SemiBold", fontSize: 14, color: "#8B5CF6" },
 
   header: {
-    position: "relative",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
     backgroundColor: "rgba(9,9,26,0.7)",
     borderBottomWidth: 1,
     borderBottomColor: "rgba(42,48,80,0.4)",
   },
+  headerSideSpacer: {
+    width: 32,
+    height: 32,
+  },
   headerTitleWrap: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    justifyContent: "center",
+    flex: 1,
     alignItems: "center",
   },
   headerTitle: {

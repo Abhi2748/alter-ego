@@ -9,7 +9,7 @@ export function mapRowToWeeklyReportData(
   row: WeeklyReportRow,
   past: PastReportSummary[]
 ): WeeklyReportData {
-  const d = row.this_week_data ?? {};
+  const d = (row.this_week_data ?? {}) as Record<string, unknown>;
   const xpSeven = (d.day_of_week_xp as number[] | undefined);
   const completion = (d.day_of_week_completion as number[] | undefined) ?? [
     0, 0, 0, 0, 0, 0, 0,
@@ -47,8 +47,34 @@ export function mapRowToWeeklyReportData(
     pet_next_name: "—",
     days_to_next_pet: null,
     pet_was_sad: false,
-    gap_days: 0,
-    gap_change: 0,
+    // Gap — real values from this_week_data
+    gap_xp: (d.gap_xp as number) ?? 0,
+    gap_change_xp: (d.gap_change as number) ?? 0,
+    user_is_ahead: Boolean(d.user_is_ahead),
+    // Keep gap_days and gap_change for any existing usage (map from XP)
+    gap_days: (d.gap_xp as number) ?? 0,
+    gap_change: (d.gap_change as number) ?? 0,
+    // Focus
+    focus_total_seconds: (d.focus_total_seconds as number) ?? 0,
+    focus_session_count: (d.focus_session_count as number) ?? 0,
+    focus_avg_seconds: (d.focus_avg_seconds as number) ?? 0,
+    focus_top_tag_name: (d.focus_top_tag_name as string | null) ?? null,
+    focus_top_tag_seconds: (d.focus_top_tag_seconds as number) ?? 0,
+    // Per-interest / per-quit
+    interest_arcs: Array.isArray(d.interest_arcs) ? (d.interest_arcs as WeeklyReportData["interest_arcs"]) : [],
+    quit_progress: Array.isArray(d.quit_progress) ? (d.quit_progress as WeeklyReportData["quit_progress"]) : [],
+    // THIS WEEK structured stats
+    best_day_label: (d.best_day as string) ?? null,
+    best_day_count: (d.best_day_count as number) ?? 0,
+    hardest_day_label: (d.hardest_day as string) ?? null,
+    hardest_day_count: (d.hardest_day_count as number) ?? 0,
+    days_active: (d.days_active as number) ?? 0,
+    completion_rate_pct: Math.round(((d.completion_rate as number) ?? 0) * 100),
+    xp_earned: (d.xp_earned as number) ?? 0,
+    pf_earned: (d.pet_food_earned as number) ?? (d.pf_earned as number) ?? 0,
+    missions_completed: (d.missions_completed as number) ?? 0,
+    missions_total: (d.missions_total as number) ?? 0,
+    core_days_complete: (d.core_days_complete as number) ?? 0,
     narrative: `You completed ${(d.missions_completed as number) ?? 0} of ${(d.missions_total as number) ?? 0} missions. Core: ${(d.core_days_complete as number) ?? 0}/${(d.core_days_total as number) ?? 0} days. ${(d.xp_earned as number) ?? 0} XP, ${(d.pet_food_earned as number) ?? 0} Pet Food.`,
     one_win,
     one_focus,

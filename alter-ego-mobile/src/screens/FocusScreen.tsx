@@ -21,6 +21,7 @@ import {
   Keyboard,
   Image,
   AppState,
+  useWindowDimensions,
   type AppStateStatus,
 } from "react-native";
 import { Audio } from "expo-av";
@@ -78,6 +79,9 @@ const TAG_COLORS = [
 
 const DEEP_WORK_DURATIONS = [30, 45, 60, 90, 120];
 
+/** Matches `CustomTabBar` TAB_HEIGHT — bottom sheet sits above the tab bar. */
+const MAIN_TAB_BAR_HEIGHT = 56;
+
 const RING_SIZE = 256;
 const RING_RADIUS = 120;
 const RING_CIRC = 2 * Math.PI * RING_RADIUS;
@@ -126,7 +130,26 @@ type Segment = "idle" | "work" | "break" | "sw";
 
 export function FocusScreen() {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const profile = useUserStore((s) => s.profile);
+
+  /** Tab bar (56) + home indicator / gesture inset — sheet clears both. */
+  const tabBarBottomInset = MAIN_TAB_BAR_HEIGHT + insets.bottom;
+  /**
+   * Gorhom modal layout height ≈ window − topInset − bottomInset. `maxDynamicContentSize` must
+   * never exceed that: otherwise dynamic detents go negative and the sheet pins flush to the
+   * bottom (reads as “under” the tab bar). `BottomSheetScrollView` also sets `contentHeight` from
+   * full scroll content, not viewport — so Select Tag uses fixed snap points, not dynamic sizing.
+   */
+  const modalUsableHeight = Math.max(160, windowHeight - insets.top - tabBarBottomInset);
+  const createTagSheetMaxDynamic = Math.max(200, modalUsableHeight - 28);
+  /** Compact first step; second step for long tag lists (snap % is of modal usable height). */
+  const selectTagSnapPoints = useMemo(() => ["50%", "72%"] as const, []);
+  /**
+   * Scroll only the tag rows; header + "Create New Tag" stay visible.
+   * ~38% of window, clamped so small phones still scroll a reasonable list.
+   */
+  const tagListScrollMaxHeight = Math.max(140, Math.round(windowHeight * 0.38));
 
   const [subTab, setSubTab] = useState<"timer" | "stats">("timer");
   const [mode, setMode] = useState<FocusMode>("pomodoro");
@@ -147,8 +170,14 @@ export function FocusScreen() {
   const totalRounds = settings?.pomodoro_rounds ?? 4;
   const autoBreaks = settings?.auto_start_breaks ?? true;
   const autoWork = settings?.auto_start_work ?? false;
-  const soundEnabled = settings?.sound_enabled ?? true;
-  const vibrationEnabled = settings?.vibration_enabled ?? true;
+  /** Match settings UI (`!== false`) so missing / undefined rows default to ON. */
+  const soundEnabled = settings?.sound_enabled !== false;
+  const vibrationEnabled = settings?.vibration_enabled !== false;
+
+  const soundEnabledRef = useRef(soundEnabled);
+  const vibrationEnabledRef = useRef(vibrationEnabled);
+  soundEnabledRef.current = soundEnabled;
+  vibrationEnabledRef.current = vibrationEnabled;
 
   const [segment, setSegment] = useState<Segment>("idle");
   const [run, setRun] = useState(false);
@@ -189,9 +218,10 @@ export function FocusScreen() {
     await Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
   }, []);
 
+  /** Sound/vibration use refs so this stays stable and always reads latest toggles. */
   const triggerSessionCompleteAlert = useCallback(async () => {
-    const vibeOn = settings?.vibration_enabled ?? true;
-    const soundOn = settings?.sound_enabled ?? true;
+    const vibeOn = vibrationEnabledRef.current;
+    const soundOn = soundEnabledRef.current;
 
     if (vibeOn) {
       try {
@@ -209,6 +239,7 @@ export function FocusScreen() {
         staysActiveInBackground: true,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
+        allowsRecordingIOS: false,
       });
     } catch {
       /* still try playback */
@@ -217,7 +248,7 @@ export function FocusScreen() {
     try {
       const { sound } = await Audio.Sound.createAsync(
         require("../../assets/sounds/focus_session_complete.wav"),
-        { shouldPlay: true, volume: 1.0, isLooping: false }
+        { shouldPlay: false, volume: 1.0, isLooping: false }
       );
       soundRef.current = sound;
       sound.setOnPlaybackStatusUpdate((status) => {
@@ -226,12 +257,11 @@ export function FocusScreen() {
           soundRef.current = null;
         }
       });
+      await sound.playAsync();
     } catch {
       /* noop */
     }
-  }, [settings?.sound_enabled, settings?.vibration_enabled]);
-
-  const createTagSnapPoints = useMemo<(string | number)[]>(() => ["64%", "88%"], []);
+  }, []);
 
   type DurationSettingKey =
     | "pomodoro_work_minutes"
@@ -465,11 +495,13 @@ export function FocusScreen() {
           return;
         }
         const breakLen = currentRound % totalRounds === 0 ? longBreakSecs : shortBreakSecs;
+        void triggerSessionCompleteAlert();
         setSegment("break");
         setSecondsLeft(breakLen);
         if (!autoBreaks) setRun(false);
       }
     } else if (segment === "break" && mode === "pomodoro") {
+      void triggerSessionCompleteAlert();
       setCurrentRound((r) => r + 1);
       setSegment("work");
       setSecondsLeft(workSecs);
@@ -1095,15 +1127,17 @@ export function FocusScreen() {
 
       <BottomSheetModal
         ref={tagSheetRef}
-        snapPoints={["55%"]}
+        snapPoints={[...selectTagSnapPoints]}
+        topInset={insets.top}
+        bottomInset={tabBarBottomInset}
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         backgroundStyle={styles.sheetBg}
         handleIndicatorStyle={styles.sheetHandle}
-        keyboardBehavior="interactive"
+        keyboardBehavior="extend"
         keyboardBlurBehavior="restore"
       >
-        <BottomSheetView style={styles.sheetContent}>
+        <BottomSheetView style={styles.tagSheetRoot}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>Select Tag</Text>
             <Pressable
@@ -1116,7 +1150,12 @@ export function FocusScreen() {
             </Pressable>
           </View>
           <View style={styles.sheetDivider} />
-          <ScrollView style={styles.sheetScroll}>
+          <BottomSheetScrollView
+            keyboardShouldPersistTaps="handled"
+            style={{ maxHeight: tagListScrollMaxHeight }}
+            contentContainerStyle={styles.tagSheetScrollContent}
+            bounces={false}
+          >
             {tags.map((tag) => (
               <Pressable
                 key={tag.id}
@@ -1131,34 +1170,36 @@ export function FocusScreen() {
                 <Text style={styles.tagOptionCount}>{tag.session_count} sessions</Text>
               </Pressable>
             ))}
-            <Pressable
-              style={styles.createTagBtn}
-              onPress={() => {
-                tagSheetRef.current?.dismiss();
-                setTimeout(() => {
-                  createTagSheetActiveRef.current = true;
-                  createTagSheetRef.current?.present();
-                }, 250);
-              }}
-            >
-              <View style={styles.createTagIconWrap}>
-                <Text style={styles.createTagPlus}>+</Text>
-              </View>
-              <Text style={styles.createTagText}>Create New Tag</Text>
-            </Pressable>
-          </ScrollView>
+          </BottomSheetScrollView>
+          <Pressable
+            style={styles.createTagBtn}
+            onPress={() => {
+              tagSheetRef.current?.dismiss();
+              setTimeout(() => {
+                createTagSheetActiveRef.current = true;
+                createTagSheetRef.current?.present();
+              }, 250);
+            }}
+          >
+            <View style={styles.createTagIconWrap}>
+              <Text style={styles.createTagPlus}>+</Text>
+            </View>
+            <Text style={styles.createTagText}>Create New Tag</Text>
+          </Pressable>
         </BottomSheetView>
       </BottomSheetModal>
 
       <BottomSheetModal
         ref={createTagSheetRef}
-        snapPoints={createTagSnapPoints}
+        enableDynamicSizing
+        maxDynamicContentSize={createTagSheetMaxDynamic}
+        topInset={insets.top}
+        bottomInset={tabBarBottomInset}
         enablePanDownToClose
         backdropComponent={renderBackdrop}
         backgroundStyle={styles.sheetBg}
         handleIndicatorStyle={styles.sheetHandle}
-        topInset={insets.top}
-        keyboardBehavior="interactive"
+        keyboardBehavior="extend"
         keyboardBlurBehavior="restore"
         android_keyboardInputMode="adjustResize"
         onChange={(index) => {
@@ -1168,10 +1209,7 @@ export function FocusScreen() {
           createTagSheetActiveRef.current = false;
         }}
       >
-        <BottomSheetScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.createTagSheetScroll}
-        >
+        <BottomSheetView style={styles.createTagSheetRoot}>
           <Text style={styles.sheetTitle}>Create Tag</Text>
           <Text style={styles.sheetFieldLabel}>TAG NAME</Text>
           <BottomSheetTextInput
@@ -1199,7 +1237,7 @@ export function FocusScreen() {
           >
             {createTag.isPending ? <ActivityIndicator color="white" /> : <Text style={styles.createTagSubmitText}>Create Tag</Text>}
           </Pressable>
-        </BottomSheetScrollView>
+        </BottomSheetView>
       </BottomSheetModal>
 
       <BottomSheetModal
@@ -1783,11 +1821,15 @@ const styles = StyleSheet.create({
   sheetBg: { backgroundColor: "#141824" },
   sheetHandle: { backgroundColor: "#2A3050" },
   sheetContent: { paddingHorizontal: 20, paddingBottom: 24, flex: 1 },
-  createTagSheetScroll: {
+  tagSheetRoot: { paddingHorizontal: 20, paddingTop: 8 },
+  tagSheetScrollContent: {
+    paddingBottom: 8,
+    flexGrow: 0,
+  },
+  createTagSheetRoot: {
     paddingHorizontal: 20,
-    paddingBottom: 28,
     paddingTop: 8,
-    flexGrow: 1,
+    paddingBottom: 14,
   },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
   sheetTitle: { fontSize: 16, fontWeight: "700", color: TEXT, marginBottom: 12 },
@@ -1835,7 +1877,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(139,92,246,0.3)",
     borderStyle: "dashed",
     borderRadius: 14,
-    marginTop: 4,
+    marginTop: 10,
   },
   createTagIconWrap: {
     width: 20,
@@ -1857,7 +1899,7 @@ const styles = StyleSheet.create({
     color: TEXT,
     marginBottom: 8,
   },
-  colorRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
+  colorRow: { flexDirection: "row", gap: 12, marginBottom: 12 },
   colorDot: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: "transparent" },
   colorDotActive: { borderColor: "rgba(255,255,255,0.6)", borderWidth: 2.5 },
   createTagSubmit: {

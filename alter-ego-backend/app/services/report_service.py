@@ -284,6 +284,69 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
         else 0.0
     )
 
+    # ── Focus sessions this week ──────────────────────────────────────────
+    # Uses ended_at (TIMESTAMPTZ) with half-open interval to match focus_service pattern
+    focus_total_seconds = 0
+    focus_session_count = 0
+    focus_avg_seconds = 0
+    focus_top_tag_name: str | None = None
+    focus_top_tag_seconds = 0
+    try:
+        from zoneinfo import ZoneInfo as _ZoneInfo
+
+        try:
+            _tz = _ZoneInfo(str(user.get("timezone") or "UTC"))
+        except Exception:
+            _tz = timezone.utc
+
+        # Convert week_start/week_end (date) to UTC timestamps for ended_at filter
+        from datetime import datetime as _dt
+
+        _ws_utc = _dt.combine(week_start, _dt.min.time()).replace(tzinfo=_tz).astimezone(timezone.utc)
+        _we_utc = _dt.combine(week_end + timedelta(days=1), _dt.min.time()).replace(tzinfo=_tz).astimezone(timezone.utc)
+
+        focus_rows = (
+            ((await run_query(supabase_admin.table("focus_sessions")
+            .select("focus_seconds, mode, tag_id, was_abandoned")
+            .eq("user_id", user_id)
+            .eq("was_abandoned", False)
+            .gte("ended_at", _ws_utc.isoformat())
+            .lt("ended_at", _we_utc.isoformat()))).data)
+            or []
+        )
+
+        focus_total_seconds = sum(int(r.get("focus_seconds") or 0) for r in focus_rows)
+        focus_session_count = len(focus_rows)
+        focus_avg_seconds = (focus_total_seconds // focus_session_count) if focus_session_count > 0 else 0
+
+        # Top tag by total focus_seconds
+        focus_tag_totals: dict[str, int] = {}
+        for r in focus_rows:
+            tid = str(r.get("tag_id") or "__none__")
+            focus_tag_totals[tid] = focus_tag_totals.get(tid, 0) + int(r.get("focus_seconds") or 0)
+
+        focus_top_tag_id: str | None = None
+        if focus_tag_totals:
+            top = max(focus_tag_totals.items(), key=lambda x: x[1])
+            if top[0] != "__none__":
+                focus_top_tag_id = top[0]
+                focus_top_tag_seconds = top[1]
+
+        # Resolve tag name if we have a tag_id
+        if focus_top_tag_id:
+            try:
+                tag_res = await run_query(
+                    supabase_admin.table("focus_tags")
+                    .select("name")
+                    .eq("id", focus_top_tag_id)
+                    .single()
+                )
+                focus_top_tag_name = str((tag_res.data or {}).get("name") or "")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     personal_count = sum(1 for m in missions if m.get("type") == "personal")
     interests_worked = len(
         {
@@ -395,6 +458,11 @@ async def assemble_weekly_data(user_id: str, week_start: date, week_end: date) -
         "hardest_day_count": hardest_day_count,
         "ratings_given": ratings_given,
         "avg_rating": avg_rating,
+        "focus_total_seconds": focus_total_seconds,
+        "focus_session_count": focus_session_count,
+        "focus_avg_seconds": focus_avg_seconds,
+        "focus_top_tag_name": focus_top_tag_name,
+        "focus_top_tag_seconds": focus_top_tag_seconds,
         "personal_count": personal_count,
         "interests_worked": interests_worked,
         "quit_paths_count": len(quit_rows),

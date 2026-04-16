@@ -119,9 +119,9 @@ export const fetchFocusSettings = (): Promise<FocusSettings> =>
   apiClient.get<FocusSettings>("/api/v1/focus/settings").then((r) => ({
     ...FOCUS_SETTINGS_DEFAULTS,
     ...r,
-    sound_enabled: r.sound_enabled ?? FOCUS_SETTINGS_DEFAULTS.sound_enabled,
-    vibration_enabled:
-      r.vibration_enabled ?? FOCUS_SETTINGS_DEFAULTS.vibration_enabled,
+    /** Align with Focus UI: only explicit false turns sound/haptics off. */
+    sound_enabled: r.sound_enabled !== false,
+    vibration_enabled: r.vibration_enabled !== false,
   }));
 
 export const patchFocusSettings = (updates: Partial<FocusSettings>) =>

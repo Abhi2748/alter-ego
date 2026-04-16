@@ -26,7 +26,7 @@ import {
   currentWeeklyToRow,
 } from "@/utils/weeklyReportMapper";
 import type { PastReportSummary, WeeklyReportData } from "@/types/weeklyReportUi";
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const BAR_CHART_HEIGHT = 80;
 const BAR_MIN = 8;
 
@@ -58,6 +58,28 @@ function getDaysUntilSunday(): number {
 
 function isSunday(): boolean {
   return new Date().getDay() === 0;
+}
+
+function formatFocusTime(seconds: number): string {
+  if (seconds <= 0) return "0m";
+  const mins = Math.floor(seconds / 60);
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return hrs > 0 ? `${hrs}h ${rem}m` : `${mins}m`;
+}
+
+function formatPhaseLabel(phase: string): string {
+  const labels: Record<string, string> = {
+    mapping: "Mapping",
+    disruption: "Disruption",
+    consolidation: "Consolidation",
+    foundation: "Foundation",
+    building: "Building",
+    applying: "Applying",
+    mastery: "Mastery",
+    no_deadline: "Open",
+  };
+  return labels[phase] ?? phase.charAt(0).toUpperCase() + phase.slice(1);
 }
 
 function weekEndFromStart(weekStart: string): string {
@@ -144,6 +166,73 @@ function ReportBarChart({ daily_xp }: { daily_xp: number[] }) {
   );
 }
 
+function FocusBlock({ data }: { data: WeeklyReportData }) {
+  const hasSessions = data.focus_session_count > 0;
+  const INDIGO = "#6366F1";
+
+  if (!hasSessions) {
+    return (
+      <View style={focusStyles.emptyWrap}>
+        <Text style={focusStyles.sectionLabel}>FOCUS SESSIONS</Text>
+        <View style={focusStyles.emptyCard}>
+          <Text style={focusStyles.emptyIcon}>⏱</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={focusStyles.emptyTitle}>No focus sessions this week</Text>
+            <Text style={focusStyles.emptySub}>
+              Use the Focus tab to log deep work sessions
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  const topTag = data.focus_top_tag_name;
+  const topMins = Math.floor(data.focus_top_tag_seconds / 60);
+  const avgMins = Math.floor(data.focus_avg_seconds / 60);
+
+  return (
+    <View style={focusStyles.wrap}>
+      <View style={focusStyles.topRow}>
+        <Text style={focusStyles.sectionLabel}>FOCUS SESSIONS</Text>
+        <View style={focusStyles.badge}>
+          <View style={[focusStyles.badgeDot, { backgroundColor: INDIGO }]} />
+          <Text style={focusStyles.badgeTxt}>
+            {data.focus_session_count} session{data.focus_session_count !== 1 ? "s" : ""} this week
+          </Text>
+        </View>
+      </View>
+
+      <View style={focusStyles.card}>
+        <View style={focusStyles.statsRow}>
+          <View style={focusStyles.stat}>
+            <Text style={[focusStyles.statVal, { color: INDIGO }]}>
+              {formatFocusTime(data.focus_total_seconds)}
+            </Text>
+            <Text style={focusStyles.statLbl}>Total focus</Text>
+          </View>
+          <View style={[focusStyles.stat, focusStyles.statBorder]}>
+            <Text style={focusStyles.statVal}>{data.focus_session_count}</Text>
+            <Text style={focusStyles.statLbl}>Sessions</Text>
+          </View>
+          <View style={[focusStyles.stat, focusStyles.statBorder]}>
+            <Text style={focusStyles.statVal}>{avgMins}m</Text>
+            <Text style={focusStyles.statLbl}>Avg length</Text>
+          </View>
+        </View>
+
+        {topTag ? (
+          <View style={focusStyles.tagRow}>
+            <View style={[focusStyles.tagDot, { backgroundColor: INDIGO }]} />
+            <Text style={focusStyles.tagName}>{topTag}</Text>
+            <Text style={focusStyles.tagMins}>{topMins}m · top tag</Text>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 const chartStyles = StyleSheet.create({
   wrap: { marginBottom: 8 },
   sectionLabel: {
@@ -184,6 +273,30 @@ const chartStyles = StyleSheet.create({
   },
 });
 
+const focusStyles = StyleSheet.create({
+  wrap: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14 },
+  emptyWrap: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14 },
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  sectionLabel: { fontSize: 8, fontFamily: "Inter_700Bold", letterSpacing: 2, textTransform: "uppercase", color: "#374151" },
+  badge: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(99,102,241,0.08)", borderWidth: 1, borderColor: "rgba(99,102,241,0.20)", borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8 },
+  badgeDot: { width: 5, height: 5, borderRadius: 3 },
+  badgeTxt: { fontSize: 9, fontFamily: "Inter_700Bold", color: "rgba(165,180,252,0.85)" },
+  card: { backgroundColor: "rgba(99,102,241,0.05)", borderWidth: 1, borderColor: "rgba(99,102,241,0.15)", borderRadius: 12, overflow: "hidden" },
+  statsRow: { flexDirection: "row" },
+  stat: { flex: 1, paddingVertical: 10, alignItems: "center" },
+  statBorder: { borderLeftWidth: 1, borderLeftColor: "rgba(99,102,241,0.12)" },
+  statVal: { fontSize: 18, fontFamily: "Inter_800ExtraBold", fontWeight: "900", color: "#E5E7EB", lineHeight: 22 },
+  statLbl: { fontSize: 8, fontFamily: "Inter_600SemiBold", letterSpacing: 0.8, textTransform: "uppercase", color: "#374151", marginTop: 2 },
+  tagRow: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: "rgba(99,102,241,0.10)", paddingVertical: 8, paddingHorizontal: 12 },
+  tagDot: { width: 7, height: 7, borderRadius: 4, flexShrink: 0 },
+  tagName: { fontSize: 11, fontFamily: "Inter_700Bold", color: "#C7D2FE", flex: 1 },
+  tagMins: { fontSize: 10, color: "#4B5563" },
+  emptyCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(42,48,80,0.15)", borderWidth: 1, borderColor: "rgba(42,48,80,0.3)", borderRadius: 12, padding: 12 },
+  emptyIcon: { fontSize: 20 },
+  emptyTitle: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#374151" },
+  emptySub: { fontSize: 10, color: "#1F2937", marginTop: 2, lineHeight: 14 },
+});
+
 // -----------------------------------------------------------------------------
 // BLOCK DIVIDER
 // -----------------------------------------------------------------------------
@@ -214,15 +327,6 @@ export function ReportCard({
   const powerChangeLabel =
     powerChange > 0 ? `↗ +${powerChange}` : powerChange < 0 ? `↘ ${powerChange}` : "↗ +0";
   const powerChangeColor = powerChange > 0 ? "#8B5CF6" : powerChange < 0 ? "#F87171" : "#4B5563";
-
-  const gapGrew = data.gap_change > 0;
-  const gapClosed = data.gap_change < 0;
-  const gapLabel = gapGrew
-    ? `↑ grew by ${data.gap_change} days`
-    : gapClosed
-      ? `↓ closed by ${Math.abs(data.gap_change)} days`
-      : "— unchanged this week";
-  const gapLabelColor = gapGrew ? "#F87171" : gapClosed ? "#8B5CF6" : "#6B7280";
 
   const petSubtext = data.pet_was_sad
     ? "Your companion struggled this week."
@@ -290,18 +394,165 @@ export function ReportCard({
       </View>
       <BlockDivider />
 
-      {/* Block 4: Gap movement */}
+      {/* Block 4: Gap movement — real XP values */}
       <View style={styles.block}>
-        <Text style={styles.blockLabel}>GAP MOVEMENT</Text>
-        <Text style={styles.gapValue}>Gap: {data.gap_days} days</Text>
-        <Text style={[styles.gapChange, { color: gapLabelColor }]}>{gapLabel}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <Text style={styles.blockLabel}>GAP MOVEMENT</Text>
+          {data.gap_change_xp !== 0 ? (
+            <View
+              style={[
+                gapStyles.changePill,
+                data.gap_change_xp > 0 ? gapStyles.changePillBad : gapStyles.changePillGood,
+              ]}
+            >
+              <Text
+                style={[
+                  gapStyles.changePillTxt,
+                  { color: data.gap_change_xp > 0 ? "#F87171" : "#4ADE80" },
+                ]}
+              >
+                {data.gap_change_xp > 0
+                  ? `↑ grew ${data.gap_change_xp.toLocaleString()} XP`
+                  : `↓ closed ${Math.abs(data.gap_change_xp).toLocaleString()} XP`}
+              </Text>
+            </View>
+          ) : (
+            <View style={[gapStyles.changePill, gapStyles.changePillNeu]}>
+              <Text style={[gapStyles.changePillTxt, { color: "#6B7280" }]}>→ unchanged</Text>
+            </View>
+          )}
+        </View>
+
+        <Text style={styles.gapValue}>
+          {data.gap_xp.toLocaleString()} XP {data.user_is_ahead ? "ahead" : "behind"}
+        </Text>
+        <Text
+          style={[
+            styles.gapChange,
+            {
+              color:
+                data.gap_change_xp > 0
+                  ? "#F87171"
+                  : data.gap_change_xp < 0
+                    ? "#4ADE80"
+                    : "#6B7280",
+            },
+          ]}
+        >
+          {data.gap_change_xp > 0
+            ? "Gap widened this week"
+            : data.gap_change_xp < 0
+              ? "Gap closed this week"
+              : "Gap unchanged vs last week"}
+        </Text>
       </View>
       <BlockDivider />
 
-      {/* Block 5: Oracle narrative */}
+      <FocusBlock data={data} />
+      <BlockDivider />
+
+      {/* Block 5: This week — structured breakdown */}
       <View style={styles.block}>
         <Text style={styles.blockLabel}>THIS WEEK</Text>
-        <Text style={styles.narrative}>{data.narrative}</Text>
+
+        <View style={thisWeekStyles.chips}>
+          <View style={thisWeekStyles.chip}>
+            <Text style={thisWeekStyles.chipTxt}>
+              {data.missions_completed}/{data.missions_total} missions
+            </Text>
+          </View>
+          <View style={thisWeekStyles.chip}>
+            <Text style={thisWeekStyles.chipTxt}>{data.completion_rate_pct}% rate</Text>
+          </View>
+          <View style={thisWeekStyles.chip}>
+            <Text style={thisWeekStyles.chipTxt}>{data.days_active} active days</Text>
+          </View>
+          {data.core_days_complete <= 2 ? (
+            <View style={[thisWeekStyles.chip, thisWeekStyles.chipHi]}>
+              <Text style={[thisWeekStyles.chipTxt, { color: "#A78BFA" }]}>
+                Core: {data.core_days_complete}/7 days
+              </Text>
+            </View>
+          ) : (
+            <View style={thisWeekStyles.chip}>
+              <Text style={thisWeekStyles.chipTxt}>
+                Core: {data.core_days_complete}/7 days
+              </Text>
+            </View>
+          )}
+          <View style={thisWeekStyles.chip}>
+            <Text style={thisWeekStyles.chipTxt}>
+              {data.xp_earned.toLocaleString()} XP · {data.pf_earned.toLocaleString()} PF
+            </Text>
+          </View>
+        </View>
+
+        {(data.best_day_label || data.hardest_day_label) ? (
+          <View style={thisWeekStyles.dayRow}>
+            {data.best_day_label ? (
+              <View style={[thisWeekStyles.dayCard, thisWeekStyles.dayCardBest]}>
+                <Text style={thisWeekStyles.dayCardLbl}>Best day</Text>
+                <Text style={[thisWeekStyles.dayCardDay, { color: "#A78BFA" }]}>
+                  {data.best_day_label}
+                </Text>
+                <Text style={thisWeekStyles.dayCardCount}>
+                  {data.best_day_count} missions
+                </Text>
+              </View>
+            ) : null}
+            {data.hardest_day_label && data.hardest_day_count === 0 ? (
+              <View style={[thisWeekStyles.dayCard, thisWeekStyles.dayCardHard]}>
+                <Text style={thisWeekStyles.dayCardLbl}>Skip day</Text>
+                <Text style={[thisWeekStyles.dayCardDay, { color: "#F87171" }]}>
+                  {data.hardest_day_label}
+                </Text>
+                <Text style={thisWeekStyles.dayCardCount}>0 missions</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {data.interest_arcs.length > 0 ? (
+          <>
+            <Text style={thisWeekStyles.subLabel}>INTERESTS THIS WEEK</Text>
+            {data.interest_arcs.map((arc, i) => (
+              <View key={i} style={thisWeekStyles.arcRow}>
+                <View style={[thisWeekStyles.arcDot, { backgroundColor: "#14B8A6" }]} />
+                <Text style={thisWeekStyles.arcName} numberOfLines={1}>
+                  {arc.interest_name}
+                </Text>
+                <Text style={thisWeekStyles.arcSessions}>
+                  {arc.sessions_completed_this_week} session{arc.sessions_completed_this_week !== 1 ? "s" : ""}
+                </Text>
+                <View style={thisWeekStyles.arcPhase}>
+                  <Text style={thisWeekStyles.arcPhaseTxt}>
+                    {formatPhaseLabel(arc.arc_phase)}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </>
+        ) : null}
+
+        {data.quit_progress.length > 0 ? (
+          <>
+            <Text style={thisWeekStyles.subLabel}>QUIT PROGRESS</Text>
+            {data.quit_progress.map((q, i) => (
+              <View key={i} style={thisWeekStyles.quitRow}>
+                <View style={thisWeekStyles.quitDot} />
+                <Text style={thisWeekStyles.arcName} numberOfLines={1}>
+                  {q.habit_name}
+                </Text>
+                <View style={thisWeekStyles.quitPhase}>
+                  <Text style={thisWeekStyles.quitPhaseTxt}>
+                    {formatPhaseLabel(q.current_phase)}
+                    {q.days_in_phase != null ? ` · Day ${q.days_in_phase}` : ""}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </>
+        ) : null}
       </View>
       <BlockDivider />
 
@@ -584,6 +835,39 @@ export function WeeklyReportScreen() {
 // -----------------------------------------------------------------------------
 // STYLES
 // -----------------------------------------------------------------------------
+
+const gapStyles = StyleSheet.create({
+  changePill: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 100, borderWidth: 1 },
+  changePillBad: { backgroundColor: "rgba(248,113,113,0.10)", borderColor: "rgba(248,113,113,0.22)" },
+  changePillGood: { backgroundColor: "rgba(74,222,128,0.10)", borderColor: "rgba(74,222,128,0.22)" },
+  changePillNeu: { backgroundColor: "rgba(42,48,80,0.30)", borderColor: "rgba(42,48,80,0.50)" },
+  changePillTxt: { fontSize: 9, fontFamily: "Inter_700Bold" },
+});
+
+const thisWeekStyles = StyleSheet.create({
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
+  chip: { paddingVertical: 3, paddingHorizontal: 8, borderRadius: 7, backgroundColor: "rgba(42,48,80,0.30)", borderWidth: 1, borderColor: "rgba(42,48,80,0.50)" },
+  chipHi: { backgroundColor: "rgba(139,92,246,0.08)", borderColor: "rgba(139,92,246,0.20)" },
+  chipTxt: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#6B7280" },
+  dayRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  dayCard: { flex: 1, borderRadius: 9, padding: 9, alignItems: "center" },
+  dayCardBest: { backgroundColor: "rgba(139,92,246,0.06)", borderWidth: 1, borderColor: "rgba(139,92,246,0.15)" },
+  dayCardHard: { backgroundColor: "rgba(248,113,113,0.05)", borderWidth: 1, borderColor: "rgba(248,113,113,0.12)" },
+  dayCardLbl: { fontSize: 8, fontFamily: "Inter_700Bold", letterSpacing: 1, textTransform: "uppercase", color: "#374151", marginBottom: 3 },
+  dayCardDay: { fontSize: 13, fontFamily: "Inter_800ExtraBold", fontWeight: "900" },
+  dayCardCount: { fontSize: 9, color: "#4B5563", marginTop: 1 },
+  subLabel: { fontSize: 8, fontFamily: "Inter_700Bold", letterSpacing: 1.5, textTransform: "uppercase", color: "#374151", marginTop: 12, marginBottom: 6 },
+  arcRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.02)", borderWidth: 1, borderColor: "rgba(42,48,80,0.35)", borderRadius: 9, paddingVertical: 7, paddingHorizontal: 10, marginBottom: 5 },
+  arcDot: { width: 7, height: 7, borderRadius: 4, flexShrink: 0 },
+  arcName: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#9CA3AF", flex: 1 },
+  arcSessions: { fontSize: 10, color: "#374151", marginRight: 5 },
+  arcPhase: { backgroundColor: "rgba(42,48,80,0.3)", borderWidth: 1, borderColor: "rgba(42,48,80,0.45)", borderRadius: 20, paddingVertical: 2, paddingHorizontal: 7 },
+  arcPhaseTxt: { fontSize: 9, color: "#4B5563" },
+  quitRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(249,115,22,0.03)", borderWidth: 1, borderColor: "rgba(249,115,22,0.10)", borderRadius: 9, paddingVertical: 7, paddingHorizontal: 10, marginBottom: 5 },
+  quitDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "rgba(249,115,22,0.50)", flexShrink: 0 },
+  quitPhase: { backgroundColor: "rgba(249,115,22,0.06)", borderWidth: 1, borderColor: "rgba(249,115,22,0.15)", borderRadius: 20, paddingVertical: 2, paddingHorizontal: 7 },
+  quitPhaseTxt: { fontSize: 9, color: "rgba(253,186,116,0.65)" },
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

@@ -342,6 +342,24 @@ async def generate_system_voice_sections(
     quit_progress_str = _fmt_quit_progress_block(quit_progress)
     challenge_str = _fmt_twin_challenge_block(twin_challenge)
     anchors_str = _fmt_memory_anchors_block(memory_anchors)
+    focus_seconds = int(weekly_data.get("focus_total_seconds") or 0)
+    focus_count = int(weekly_data.get("focus_session_count") or 0)
+    if focus_count > 0:
+        focus_mins = focus_seconds // 60
+        focus_hrs = focus_mins // 60
+        focus_rem = focus_mins % 60
+        focus_time_str = f"{focus_hrs}h {focus_rem}m" if focus_hrs > 0 else f"{focus_mins}m"
+        top_tag = weekly_data.get("focus_top_tag_name")
+        top_secs = int(weekly_data.get("focus_top_tag_seconds") or 0)
+        top_str = f" (top tag: {top_tag}, {top_secs // 60}m)" if top_tag else ""
+        focus_block_str = (
+            f"\nFOCUS SESSIONS THIS WEEK:\n"
+            f"- {focus_count} completed sessions, {focus_time_str} total deep work{top_str}\n"
+            f"- Avg session: {focus_seconds // max(focus_count, 1) // 60}m\n"
+            f"Reference focus data in wins/slipped only if it is meaningfully high or notably absent.\n"
+        )
+    else:
+        focus_block_str = "\nFOCUS SESSIONS THIS WEEK: None logged.\n"
 
     seed_line = ""
     if narrative_seed:
@@ -369,6 +387,7 @@ WEEK DATA:
 
 {prev if prev else 'No previous weeks available.'}
 {seed_line}
+{focus_block_str}
 INTEREST ARCS:
 {interest_arcs_str}
 
@@ -556,6 +575,11 @@ async def generate_twin_voice_sections(
     quit_progress_str = _fmt_quit_progress_block(quit_progress)
     challenge_str = _fmt_twin_challenge_block(twin_challenge)
     seed_line = f"NARRATIVE SEED: {narrative_seed}\n" if narrative_seed else ""
+    focus_note = ""
+    fs = int(weekly_data.get("focus_session_count") or 0)
+    if fs > 0:
+        fm = int(weekly_data.get("focus_total_seconds") or 0) // 60
+        focus_note = f"- Focus sessions: {fs} sessions, {fm}m total deep work\n"
 
     guilt_line = f"guilt_orientation={guilt_orientation} (if >0.7, apply GUILT GUARDRAIL in system prompt)\n"
 
@@ -572,7 +596,7 @@ WEEK SUMMARY FOR TWIN TO RESPOND TO:
 - Pet: {d['pet_name']} {'(evolved this week)' if d.get('pet_evolved_to') else ''}
 - Next milestone: {milestone_line}
 - Difficulty change next week: {d.get('difficulty_change_next_week') or 'none'}
-{pending_block}
+{focus_note}{pending_block}
 
 INTEREST ARCS THIS WEEK:
 {interest_arcs_str}
@@ -909,7 +933,15 @@ async def generate_weekly_report(
         "pet_stage": d["pet_stage"],
         "pet_evolved": d["pet_evolved_to"],
         "gap_xp": d["gap_xp"],
-        "user_is_ahead": d["user_is_ahead"],
+        "gap_change": d.get("gap_change", 0),
+        "user_is_ahead": d.get("user_is_ahead", False),
+        "focus_total_seconds": d.get("focus_total_seconds", 0),
+        "focus_session_count": d.get("focus_session_count", 0),
+        "focus_avg_seconds": d.get("focus_avg_seconds", 0),
+        "focus_top_tag_name": d.get("focus_top_tag_name"),
+        "focus_top_tag_seconds": d.get("focus_top_tag_seconds", 0),
+        "interest_arcs": enriched.get("interest_arcs") or [],
+        "quit_progress": enriched.get("quit_progress") or [],
         "display_lines": d["this_week_display"],
         "power_score": d["power_score"],
         "power_score_change": d["power_score_change"],

@@ -57,12 +57,35 @@ Return this exact structure:
       "type": "book",
       "title": "Exact Book Title",
       "author": "Author Name",
-      "why": "One sentence on why this resource fits this user's goal and level"
+      "why": "One sentence on why this specific book fits this user's goal and current level"
     },
     {
       "type": "youtube_channel",
       "name": "Channel Name",
-      "why": "One sentence on why"
+      "why": "One sentence on why — mention a specific series or playlist if one is especially relevant"
+    },
+    {
+      "type": "online_course",
+      "name": "Course or Platform Name",
+      "url_hint": "e.g. freeCodeCamp, Coursera, Exercism, Khan Academy",
+      "why": "One sentence"
+    },
+    {
+      "type": "podcast",
+      "name": "Podcast Name",
+      "why": "One sentence — mention a specific episode or episode topic if relevant"
+    },
+    {
+      "type": "app",
+      "name": "App Name",
+      "platform": "iOS / Android / both",
+      "why": "One sentence"
+    },
+    {
+      "type": "website",
+      "name": "Site or community name",
+      "url_hint": "e.g. subreddit, documentation site, forum",
+      "why": "One sentence"
     }
   ],
   "common_obstacles": ["Obstacle 1", "Obstacle 2", "Obstacle 3"],
@@ -75,7 +98,14 @@ Rules:
 - category: One of: Music / Fitness / Writing / Coding / Language / Art / Sport / Business / Mindfulness / Finance / Cooking / Craft / Other
 - achievable_outcome: REQUIRED. Honest, specific, 3-4 sentences. Never generic ("you will improve"). Always name actual skills.
 - progression_milestones: REQUIRED. 4-7 items. Ordered from earliest to latest. Specific to this domain and this user's level. NOT generic session counts. Example for pencil sketching beginner: ["Confident straight and curved line control", "Basic geometric forms (cube, sphere, cylinder)", "Tonal shading and value scale", "Perspective and composition basics", "Portrait proportions and facial features"].
-- recommended_resources: REQUIRED. 1-3 items. Only real, widely available resources. Book titles must be real published books. YouTube channels must be real active channels. One per type maximum. For physical skills (Sport, Fitness) always include at least one note about in-person instruction if applicable.
+- recommended_resources: REQUIRED. 1-3 items. Mix types where appropriate.
+  Valid types: book, youtube_channel, online_course, podcast, app, website.
+  Choose the type that best matches the resource. Only real, widely available
+  resources. Never invent resource names. For physical/technical skills
+  (Sport, Fitness, Art, Music, Craft) always try to include at least one
+  video resource (youtube_channel) and note if in-person instruction is
+  important. For digital skills (Coding, Language, Finance) prefer
+  interactive platforms over passive reading.
 - evidence_base: MUST reference actual research or established expert consensus.
 - confidence: 0.0-1.0. Under 0.70 means the input was ambiguous.
 - Never refuse — always return valid JSON even for unusual interests.

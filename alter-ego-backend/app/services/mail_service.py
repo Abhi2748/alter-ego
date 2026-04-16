@@ -41,7 +41,9 @@ You've just built the foundations of your discipline engine. Here's what happens
 
 **Your daily XP and Pet Food caps** match your character stage. Stage 1: **100 XP** and **160 Pet Food** per day. Then Stage 2: 150 / 240, Stage 3: 200 / 360, Stage 4: 280 / 480, Stage 5: 380 / 640, Stage 6: 500 / 800. Completing missions beyond the cap still counts toward your streak and abilities — only XP and Pet Food stop accumulating for that day.
 
-**Your interest path now includes a real plan.** For each interest, you get an achievable outcome, a skill roadmap (ordered milestones), and recommended resources. Daily interest missions are generated to match your current milestone and available practice days.
+**Your interest path now includes a real plan.** For each interest, you get an honest achievable outcome for your timeline, a skill roadmap with domain-specific milestones (not just session counts), and recommended resources with specific references. Daily missions track which skills you've covered and never repeat them unless a higher phase demands it. If you miss a session, the next mission revisits the same skill rather than moving on.
+
+**Your quit paths run in three automatic phases.** Trigger Mapping (observe and log), Competing Response (practice the replacement behaviour), and Consolidation (make it automatic). Phases advance when the data says you're ready — no manual control needed.
 
 **Your streak is your most important number.** Right now, any 2 core missions or 1 interest mission counts. As you progress, the requirement grows with you.
 
@@ -120,7 +122,7 @@ Your Twin's personality has been set based on how you've shown up. The system le
 
 **Your Twin recalibrates every 7 days.** Completion rate, how you respond to the gap, how often you engage with chat — all of it informs how the Twin is tuned.
 
-**Seasons** on the Home banner set how tough your five pillar core missions are in each phase (Journal stays the same kind of daily entry). As you move through a season, targets can shift — check the banner for your current day and phase.
+**Seasons** on the Home banner run for a set number of days and split into phases. They set how demanding your five pillar core missions are in each phase. When a season ends, you see your tier (Perfect, Clear, or Partial) and earn bonus XP. You then start the next season.
 
 **One thing to watch:** your most-skipped mission this week appears in your weekly report every Sunday. It's the one place where the data doesn't lie.
 
@@ -196,7 +198,13 @@ At this point, your mission plan should feel more specific: it uses your milesto
     },
     "interest_phase_complete": {
         "subject": "{interest_name}: {old_phase} phase complete",
-        "body": """You've moved into the {new_phase} phase. What you practiced in {old_phase} is now the foundation.
+        "body": """You've completed the {old_phase} phase of {interest_name} and moved into {new_phase}.
+
+The skills you covered in {old_phase} are now the floor. The {new_phase} phase brings a different demand — your missions will reflect that shift.
+
+Your skill roadmap in the Interest Detail screen shows where you are and what comes next. Your recommended resources may have content specifically relevant to this phase — check the learning kit section.
+
+Keep going.
 
 — ALTER EGO""",
     },
@@ -274,7 +282,9 @@ The other four abilities are watching.
 
 Every completed session earns **Focus SP** — contributing to your Focus ability alongside your mindfulness and no-phone missions. The Focus tab tracks your total time, sessions, and streaks.
 
-Three modes. Start with Pomodoro if you're unsure. Switch to Deep Work when you need longer blocks.
+**Three modes.** Start with Pomodoro if you're unsure (25 minutes on, 5 off). Switch to Deep Work when you need longer blocks. Tag sessions by topic to see where your time actually goes.
+
+**Your focus sessions now appear in your weekly report** — total minutes, session count, and your most-used tag for the week.
 
 — ALTER EGO""",
     },
@@ -284,11 +294,13 @@ Three modes. Start with Pomodoro if you're unsure. Switch to Deep Work when you 
         "subject": "You started a quit path.",
         "body": """You've committed to a quit path.
 
-The first 72 hours are the withdrawal window for most habits. Physical and psychological — both real, both temporary.
+**Three phases run automatically.** You start in Trigger Mapping — no behaviour change yet, just observation. Log when the urge hits, how strong it is, and what was happening. Once you've logged enough data over enough days, the system automatically moves you to Competing Response, where you practice a specific replacement behaviour that intercepts the trigger. After that comes Consolidation — making the competing response automatic in your hardest situations.
 
-**Your quit path runs in phases.** Each phase brings resistance missions calibrated to where you are. Completing them builds Discipline SP.
+**Phases advance on their own when you're ready.** No manual button. The system checks your data.
 
-The Conquer milestone is earned when you finish a full phase without a slip. Log slips honestly — the system is built for honesty, not perfection.
+**Log slips and urges honestly.** The more specific your notes (what triggered it, what you were doing, how strong the urge was), the better your daily missions become.
+
+**Resistance missions appear every day.** They're calibrated to your current phase and your personal triggers.
 
 One day at a time.
 

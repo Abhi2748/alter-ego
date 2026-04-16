@@ -90,9 +90,27 @@ Use feedback to calibrate:
 
 ═══ RECOMMENDED RESOURCES FOR THIS DOMAIN ═══
 {resources_fmt}
-If a relevant resource exists, reference it naturally in the description
-("this is the technique from chapter 3 of X" or "Proko has a free breakdown
-of this on YouTube — search 'Proko [topic]'"). Never fabricate resources.
+
+RESOURCE REFERENCE RULE:
+When referencing a resource in the mission, be specific enough that the user
+can find the exact content without searching. Examples:
+
+- Book: "Chapter 3 of The Drawing Habit covers this exact exercise — open to
+  the gesture lines section."
+- YouTube: "Search 'Proko gesture drawing arm' — the 8-minute video from 2019
+  covers the shoulder rotation this mission practices."
+- Course: "Lesson 4 on freeCodeCamp's JavaScript course covers the DOM
+  manipulation you need for this mission."
+- Podcast: "The Tim Ferriss episode with Derek Sivers (#175) covers the exact
+  mindset shift this mission targets."
+- App: "Anki: create a deck for the vocabulary in this mission. 10 cards max."
+
+Never fabricate a specific video, chapter, or episode. If you cannot name a
+specific piece of content confidently, reference the resource generally:
+'Search [Channel Name] for [topic]' is always acceptable.
+
+If no relevant resource is stored, do not fabricate one. Set
+resource_reference to null.
 
 ═══ ARC PHASE GUIDE ═══
 Foundation (0–20% of sessions): Presence only. Show up, build habit. Simple
@@ -428,14 +446,17 @@ async def generate_interest_mission(
         except Exception:
             resources_raw = []
     if resources_raw:
-        resources_fmt = "\n".join(
-            f"  - [{r.get('type', 'resource')}] "
-            f"{r.get('title') or r.get('name', 'Unknown')}"
-            f"{(' by ' + r['author']) if r.get('author') else ''}"
-            f": {r.get('why', '')}"
-            for r in resources_raw[:3]
-            if isinstance(r, dict)
-        ) or "None stored — do not fabricate resources"
+        lines = []
+        for r in resources_raw[:3]:
+            if not isinstance(r, dict):
+                continue
+            rtype = (r.get("type") or "resource").lower().replace("_", " ")
+            name = r.get("title") or r.get("name") or "Unknown"
+            author = f" by {r['author']}" if r.get("author") else ""
+            url = f" ({r['url_hint']})" if r.get("url_hint") else ""
+            why = r.get("why", "")
+            lines.append(f"  - [{rtype}] {name}{author}{url}: {why}")
+        resources_fmt = "\n".join(lines)
     else:
         resources_fmt = "None stored — do not fabricate resources"
 

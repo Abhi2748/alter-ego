@@ -113,21 +113,29 @@ def get_user_date(timezone_str: str) -> str:
 
 def local_completed_week_bounds(timezone_str: str) -> tuple[date, date]:
     """
-    Completed Mon–Sun week stored in weekly_reports (week_start Monday, week_end Sunday).
+    Completed Sun–Sat week stored in weekly_reports (week_start Sunday, week_end Saturday).
 
-    week_end is the most recent Sunday (inclusive): on Sunday local time, that Sunday is the
-    end of the week just completed, so Saturday signup + Sunday 03:00 job targets the same
-    week the app expects when fetching /reports/weekly (fixes off-by-one on Sundays).
+    Report is generated Sunday 03:00 local time. At that point:
+    - week_end = yesterday (Saturday)
+    - week_start = 6 days before Saturday = previous Sunday
+
+    Example: report runs Sun Apr 13 03:00 -> covers Sun Apr 6 -> Sat Apr 12.
     """
     try:
         tz = ZoneInfo(timezone_str)
     except Exception:
         tz = timezone.utc
     local_today = datetime.now(tz).date()
-    # Monday=0 .. Sunday=6 → days back to Sunday (0 if today is Sunday)
-    days_back = (local_today.weekday() + 1) % 7
-    week_end = local_today - timedelta(days=days_back)
-    week_start = week_end - timedelta(days=6)
+    # weekday(): Monday=0 .. Sunday=6
+    # We want week_end = most recent SATURDAY (day before Sunday).
+    day = local_today.weekday()
+    # Saturday is weekday 5. Days back from current weekday to most recent Saturday.
+    days_back_to_saturday = (day - 5) % 7
+    if days_back_to_saturday == 0:
+        # Today is Saturday — return the previous completed week.
+        days_back_to_saturday = 7
+    week_end = local_today - timedelta(days=days_back_to_saturday)
+    week_start = week_end - timedelta(days=6)  # 6 days back = Sunday
     return week_start, week_end
 
 

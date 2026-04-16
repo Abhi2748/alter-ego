@@ -214,7 +214,6 @@ class ShadowFeedResponse(BaseModel):
     today_user_done: int
     has_more_today: bool
     pending_count: int
-    end_of_day_insight: str | None = None
 
 
 def _shadow_feed_ampm(dt: datetime) -> str:
@@ -1030,7 +1029,6 @@ def _empty_shadow_feed() -> ShadowFeedResponse:
         today_user_done=0,
         has_more_today=False,
         pending_count=0,
-        end_of_day_insight=None,
     )
 
 
@@ -1337,11 +1335,6 @@ async def get_shadow_feed(
                 ),
             )
 
-        yesterday_str = str(anchor - timedelta(days=1))
-        end_of_day_insight = journal_by_date.get(yesterday_str) or None
-        if end_of_day_insight and len(end_of_day_insight) > 160:
-            end_of_day_insight = end_of_day_insight[:157] + "..."
-
         for rec in twin_past:
             rec_date = _rec_date_key(rec)
             if not rec_date:
@@ -1382,7 +1375,6 @@ async def get_shadow_feed(
             today_user_done=user_done_today,
             has_more_today=len(pending_twin) > 0,
             pending_count=len(pending_twin),
-            end_of_day_insight=end_of_day_insight,
         )
 
     except HTTPException:

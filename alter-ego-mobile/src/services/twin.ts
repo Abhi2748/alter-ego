@@ -118,7 +118,6 @@ export interface ShadowFeedResponse {
   today_user_done: number;
   has_more_today: boolean;
   pending_count: number;
-  end_of_day_insight?: string | null;
 }
 
 export async function fetchShadowFeed(daysBack = 3): Promise<ShadowFeedResponse> {
@@ -414,8 +413,12 @@ export const twinService = {
               });
               break;
             case 'error':
-              doneReceived = true;
-              callbacks.onError(event.message ?? 'Unknown error');
+              if (!doneReceived) {
+                doneReceived = true;
+                callbacks.onError(event.message ?? 'Unknown error');
+              }
+              // If doneReceived is already true, the stream completed successfully —
+              // ignore any trailing error event.
               break;
           }
         }

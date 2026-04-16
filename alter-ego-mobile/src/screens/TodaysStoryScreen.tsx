@@ -248,17 +248,6 @@ const PendingEntry = React.memo(function PendingEntry({ count }: { count: number
   );
 });
 
-const InsightCard = React.memo(function InsightCard({ text }: { text: string }) {
-  return (
-    <View style={styles.insightSection}>
-      <View style={styles.insightCard}>
-        <Text style={styles.insightLabel}>END OF DAY INSIGHT · YESTERDAY</Text>
-        <Text style={styles.insightText}>{text}</Text>
-      </View>
-    </View>
-  );
-});
-
 const DayDivider = React.memo(function DayDivider({ label }: { label: string }) {
   return (
     <View style={styles.dayDivider}>
@@ -272,8 +261,7 @@ const DayDivider = React.memo(function DayDivider({ label }: { label: string }) 
 type ListItem =
   | { type: "entry"; data: FeedEntry }
   | { type: "pending"; count: number }
-  | { type: "divider"; label: string }
-  | { type: "insight"; text: string };
+  | { type: "divider"; label: string };
 
 export function TodaysStoryScreen() {
   const insets = useSafeAreaInsets();
@@ -304,7 +292,6 @@ export function TodaysStoryScreen() {
   const pendingCount = feedData?.pending_count ?? 0;
   const twinDone = feedData?.today_twin_done ?? 0;
   const userDone = feedData?.today_user_done ?? 0;
-  const endOfDayInsight = feedData?.end_of_day_insight ?? null;
 
   const listData: ListItem[] = useMemo(() => {
     const out: ListItem[] = [];
@@ -327,12 +314,8 @@ export function TodaysStoryScreen() {
       out.push({ type: "pending", count: pendingCount });
     }
 
-    if (endOfDayInsight) {
-      out.push({ type: "insight", text: endOfDayInsight });
-    }
-
     return out;
-  }, [entries, pendingCount, endOfDayInsight]);
+  }, [entries, pendingCount]);
 
   const renderItem = useCallback(({ item }: { item: ListItem }) => {
     if (item.type === "pending") {
@@ -340,9 +323,6 @@ export function TodaysStoryScreen() {
     }
     if (item.type === "divider") {
       return <DayDivider label={item.label} />;
-    }
-    if (item.type === "insight") {
-      return <InsightCard text={item.text} />;
     }
     const entry = item.data;
     switch (entry.entry_type) {
@@ -367,7 +347,6 @@ export function TodaysStoryScreen() {
     if (item.type === "entry") return `entry-${item.data.timestamp_iso}-${index}`;
     if (item.type === "pending") return "pending";
     if (item.type === "divider") return `divider-${index}`;
-    if (item.type === "insight") return `insight-${index}`;
     return `row-${index}`;
   }, []);
 
@@ -769,35 +748,6 @@ const styles = StyleSheet.create({
   pendingTxt: {
     fontSize: 12,
     color: "#374151",
-    fontStyle: "italic",
-    fontFamily: "Inter_400Regular",
-  },
-
-  insightSection: {
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    borderTopColor: "#2A3050",
-  },
-  insightCard: {
-    backgroundColor: "rgba(139,92,246,0.05)",
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.15)",
-    borderRadius: 14,
-    padding: 14,
-  },
-  insightLabel: {
-    fontSize: 9,
-    fontFamily: "Inter_700Bold",
-    letterSpacing: 1.2,
-    color: "#6D28D9",
-    textTransform: "uppercase",
-    marginBottom: 7,
-  },
-  insightText: {
-    fontSize: 13,
-    color: "#9CA3AF",
-    lineHeight: 20,
     fontStyle: "italic",
     fontFamily: "Inter_400Regular",
   },

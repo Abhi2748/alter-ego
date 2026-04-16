@@ -12,6 +12,7 @@ import { CommunityBoardScreen } from "../screens/CommunityBoardScreen";
 import { NewPostScreen } from "../screens/NewPostScreen";
 import { SettingsFaqScreen } from "../screens/SettingsFaqScreen";
 import { MailInboxScreen } from "../screens/MailInboxScreen";
+import { MailDetailScreen } from "../screens/MailDetailScreen";
 import { ToneHistoryScreen } from "../screens/ToneHistoryScreen";
 import { TwinChatScreen } from "../screens/TwinChatScreen";
 import { RankCardScreen } from "../screens/RankCardScreen";
@@ -65,6 +66,7 @@ export function MainStack() {
         <Stack.Screen name="NewPost" component={NewPostScreen} />
         <Stack.Screen name="SettingsFaq" component={SettingsFaqScreen} />
         <Stack.Screen name="MailInbox" component={MailInboxScreen} />
+        <Stack.Screen name="MailDetail" component={MailDetailScreen} />
         <Stack.Screen name="ToneHistory" component={ToneHistoryScreen} />
         <Stack.Screen name="TwinChat" component={TwinChatScreen} />
         <Stack.Screen name="RankCard" component={RankCardScreen} />

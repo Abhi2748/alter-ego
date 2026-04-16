@@ -328,6 +328,7 @@ export function TwinChatScreen() {
         return;
       }
 
+      let errorFired = false;
       try {
         await twinService.sendMessageStream(text, token, {
           onChunk: (chunk) => {
@@ -373,11 +374,17 @@ export function TwinChatScreen() {
                 setIsStreaming(false);
                 setStreamingContent("");
                 streamingContentRef.current = "";
+                // If onError fired mid-stream but the server still completed (done received),
+                // the refetch above has restored both messages. Undo the input restoration.
+                if (errorFired && overrideText === undefined) {
+                  setInputText("");
+                }
                 listRef.current?.scrollToOffset({ offset: 0, animated: true });
               }
             })();
           },
           onError: () => {
+            errorFired = true;
             if (streamingFlushRafRef.current != null) {
               cancelAnimationFrame(streamingFlushRafRef.current);
               streamingFlushRafRef.current = null;

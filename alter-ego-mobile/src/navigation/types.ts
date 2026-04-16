@@ -10,6 +10,7 @@ export type RootStackParamList = {
 };
 
 import type { OnboardingAnswers } from "../context/OnboardingAnswersContext";
+import type { AppMail } from "../services/mail";
 
 export type InterestNormalisationRejection = {
   rejection_type: "self_harm" | "redirect_to_quit" | "invalid_input";
@@ -60,6 +61,7 @@ export type MainStackParamList = {
   /** In-app FAQ from GET /api/v1/settings/faq */
   SettingsFaq: undefined;
   MailInbox: undefined;
+  MailDetail: { mail: AppMail };
   ToneHistory: undefined;
   TwinChat: { initialMessage?: string } | undefined;
   RankCard: { rankPosition?: 1 | 2 | 3 } | undefined;

@@ -12,8 +12,6 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
-  Modal,
-  ScrollView,
   Platform,
   type ListRenderItem,
 } from "react-native";
@@ -21,86 +19,23 @@ import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import type { StackNavigationProp } from "@react-navigation/stack";
 import { Ionicons } from "@expo/vector-icons";
 import { mailService, type AppMail } from "@/services/mail";
 import { useUserStore } from "@/store/userStore";
 import { getErrorMessage } from "@/services/api";
 import { COLORS, GRADIENTS, RADIUS, SPACING, SHADOWS, FONTS } from "@/constants/theme";
-function formatMailType(raw: string): string {
-  const t = raw.toLowerCase().replace(/_/g, " ").trim();
-  if (!t) return "Message";
-  return t.replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function formatSentAt(iso: string | undefined): string {
-  if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
-    return d.toLocaleDateString(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return iso.slice(0, 10);
-  }
-}
-
-/** Split markdown-ish body into paragraphs; inline **bold**. */
-function MailBodyText({ body }: { body: string }) {
-  const paragraphs = body.replace(/\r/g, "").split(/\n\n+/);
-  return (
-    <View style={{ gap: SPACING.md }}>
-      {paragraphs.map((para, pi) => {
-        if (!para.trim()) return null;
-        const lines = para.split("\n");
-        return (
-          <View key={pi} style={{ gap: SPACING.xs }}>
-            {lines.map((line, li) => (
-              <Text key={li} style={styles.sheetBodyLine}>
-                {renderInlineBold(line)}
-              </Text>
-            ))}
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-function renderInlineBold(line: string): React.ReactNode {
-  const parts = line.split(/\*\*/);
-  if (parts.length === 1) return line;
-  return parts.map((segment, i) =>
-    i % 2 === 1 ? (
-      <Text key={i} style={styles.sheetBodyBold}>
-        {segment}
-      </Text>
-    ) : (
-      <Text key={i}>{segment}</Text>
-    )
-  );
-}
-
-function TypeChip({ type }: { type: string }) {
-  return (
-    <View style={styles.typeChip}>
-      <Text style={styles.typeChipText}>{formatMailType(type)}</Text>
-    </View>
-  );
-}
+import type { MainStackParamList } from "@/navigation/types";
+import { formatSentAt, TypeChip } from "@/components/mail/MailMessagePresentation";
 
 export function MailInboxScreen() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
+  const navigation = useNavigation<StackNavigationProp<MainStackParamList, "MailInbox">>();
   const fetchProfile = useUserStore((s) => s.fetchProfile);
   const [mails, setMails] = useState<AppMail[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<AppMail | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
   const load = useCallback(async () => {
     setError(null);
@@ -127,21 +62,10 @@ export function MailInboxScreen() {
   const unreadCount = useMemo(() => mails.filter((m) => !m.read_at).length, [mails]);
 
   const openMail = useCallback(
-    async (m: AppMail) => {
-      setSelected(m);
-      if (!m.read_at) {
-        try {
-          await mailService.markRead(m.id);
-          setMails((prev) =>
-            prev.map((x) => (x.id === m.id ? { ...x, read_at: new Date().toISOString() } : x))
-          );
-          void fetchProfile();
-        } catch {
-          /* ignore */
-        }
-      }
+    (m: AppMail) => {
+      navigation.navigate("MailDetail", { mail: m });
     },
-    [fetchProfile]
+    [navigation]
   );
 
   const renderMailItem = useCallback<ListRenderItem<AppMail>>(
@@ -275,51 +199,6 @@ export function MailInboxScreen() {
           removeClippedSubviews={Platform.OS === "android"}
         />
       )}
-
-      <Modal
-        visible={selected != null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelected(null)}
-        statusBarTranslucent
-      >
-        <View style={styles.modalRoot}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setSelected(null)} />
-          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + SPACING.md }]}>
-            <View style={styles.sheetGrab}>
-              <View style={styles.sheetGrabBar} />
-            </View>
-            {selected ? (
-              <>
-                <ScrollView
-                  style={{ maxHeight: 420 }}
-                  showsVerticalScrollIndicator={false}
-                  bounces={false}
-                  contentContainerStyle={{ paddingBottom: SPACING.lg }}
-                >
-                  <View style={styles.sheetMetaRow}>
-                    <TypeChip type={selected.mail_type} />
-                    <Text style={styles.sheetDate}>{formatSentAt(selected.sent_at)}</Text>
-                  </View>
-                  <Text style={styles.sheetTitle}>{selected.subject}</Text>
-                  <View style={styles.sheetDivider} />
-                  <MailBodyText body={selected.body_markdown ?? ""} />
-                </ScrollView>
-                <Pressable onPress={() => setSelected(null)} style={styles.doneBtnWrap}>
-                  <LinearGradient
-                    colors={[...GRADIENTS.button.colors]}
-                    start={GRADIENTS.button.start}
-                    end={GRADIENTS.button.end}
-                    style={styles.doneBtnGrad}
-                  >
-                    <Text style={styles.doneTxt}>Done</Text>
-                  </LinearGradient>
-                </Pressable>
-              </>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -532,21 +411,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.violet,
   },
   readSpacer: { width: 8 },
-  typeChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: RADIUS.chip,
-    backgroundColor: "rgba(109,40,217,0.25)",
-    borderWidth: 1,
-    borderColor: "rgba(139,92,246,0.3)",
-  },
-  typeChipText: {
-    fontSize: FONTS.micro.size,
-    fontFamily: "Inter_600SemiBold",
-    letterSpacing: 0.4,
-    color: COLORS.violetGlow,
-    textTransform: "uppercase",
-  },
   mailDate: {
     marginLeft: "auto",
     fontSize: FONTS.micro.size,
@@ -611,85 +475,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     maxWidth: 300,
     fontFamily: "Inter_400Regular",
-  },
-
-  modalRoot: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.65)",
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  sheet: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: RADIUS.modal,
-    borderTopRightRadius: RADIUS.modal,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: SPACING.cardPadding,
-    paddingTop: SPACING.sm,
-    maxHeight: "88%",
-  },
-  sheetGrab: { alignItems: "center", paddingVertical: SPACING.sm },
-  sheetGrabBar: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.surface2,
-  },
-  sheetMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: SPACING.md,
-    flexWrap: "wrap",
-    gap: SPACING.sm,
-  },
-  sheetDate: {
-    fontSize: FONTS.label.size,
-    color: COLORS.muted,
-    fontFamily: "Inter_500Medium",
-  },
-  sheetTitle: {
-    fontSize: FONTS.h3.size,
-    fontFamily: "Inter_700Bold",
-    color: COLORS.text,
-    lineHeight: 26,
-    letterSpacing: -0.2,
-    marginBottom: SPACING.sm,
-  },
-  sheetDivider: {
-    height: 1,
-    backgroundColor: "rgba(42,48,80,0.6)",
-    marginBottom: SPACING.md,
-  },
-  sheetBodyLine: {
-    fontSize: FONTS.bodyMd.size,
-    color: COLORS.text2,
-    lineHeight: 24,
-    fontFamily: "Inter_400Regular",
-  },
-  sheetBodyBold: {
-    fontFamily: "Inter_700Bold",
-    color: COLORS.text,
-  },
-  doneBtnWrap: {
-    marginTop: SPACING.md,
-    borderRadius: RADIUS.card,
-    overflow: "hidden",
-    ...SHADOWS.button,
-  },
-  doneBtnGrad: {
-    paddingVertical: SPACING.md,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: RADIUS.card,
-  },
-  doneTxt: {
-    color: "#F3F4F6",
-    fontFamily: "Inter_600SemiBold",
-    fontSize: FONTS.bodyMd.size,
   },
 });
 

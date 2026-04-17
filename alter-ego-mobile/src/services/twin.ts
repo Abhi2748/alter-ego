@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from '@/services/api';
+import { supabase } from '@/utils/supabase';
 import type { DayComparison, PillarDNA } from '@/utils/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -355,10 +356,58 @@ export const twinService = {
       `/api/v1/twin/chat/history?limit=${limit}`
     ),
 
-  // Send message to twin (non-streaming)
+  // Send message to twin (non-streaming) — direct fetch with timeout, no apiClient retries
   sendMessage: async (message: string): Promise<TwinChatResponse> => {
-    const raw = await apiClient.post<unknown>('/api/v1/twin/chat', { message });
-    return parseTwinChatResponse(raw);
+    const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000').replace(
+      /\/$/,
+      ''
+    );
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error('No active session');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 40_000);
+
+    try {
+      const res = await fetch(`${BASE_URL}/api/v1/twin/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({ message }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        let errMsg = 'Something went wrong';
+        try {
+          const body = (await res.json()) as Record<string, unknown>;
+          if (typeof body.detail === 'string') errMsg = body.detail;
+          else if (typeof body.error === 'string') errMsg = body.error;
+          else if (res.status === 429)
+            errMsg = 'Too many messages. Wait a moment and try again.';
+        } catch {
+          /* ignore parse errors */
+        }
+        throw new Error(errMsg);
+      }
+
+      const raw = await res.json();
+      return parseTwinChatResponse(raw);
+    } catch (e) {
+      clearTimeout(timeoutId);
+      if (e instanceof Error && e.name === 'AbortError') {
+        throw new Error('Request timed out. Please try again.');
+      }
+      throw e;
+    }
   },
 
   sendMessageStream: async (

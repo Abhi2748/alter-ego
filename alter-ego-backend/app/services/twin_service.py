@@ -2514,7 +2514,8 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     user_res = await run_query(supabase_admin.table("users")
         .select(
             "username, archetype, registration_date, timezone, "
-            "twin_tone_override, twin_tone_override_until"
+            "twin_tone_override, twin_tone_override_until, "
+            "total_xp, current_streak, character_stage"
         )
         .eq("id", user_id)
         .limit(1))
@@ -2526,8 +2527,48 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
 
     tz = user.get("timezone", "UTC") or "UTC"
     today = get_user_date(tz)
+    char = user
 
-    twin_result = await run_query(supabase_admin.table("twin_state").select("*").eq("user_id", user_id))
+    user_msg_safe = sanitize_for_prompt(message, max_len=500, field_name="user_message")
+    username_safe = sanitize_username(str(user.get("username") or "you"))
+
+    (
+        twin_result,
+        dna_result,
+        interests_res,
+        history_res,
+        today_missions_res,
+        safety,
+        tone,
+    ) = await asyncio.gather(
+        run_query(supabase_admin.table("twin_state").select("*").eq("user_id", user_id)),
+        run_query(supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id)),
+        run_query(
+            supabase_admin.table("interests")
+            .select("normalised_name")
+            .eq("user_id", user_id)
+            .eq("is_active", True)
+        ),
+        run_query(
+            supabase_admin.table("twin_messages")
+            .select("role, content, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(15)
+        ),
+        run_query(
+            supabase_admin.table("missions")
+            .select("title, type, completed")
+            .eq("user_id", user_id)
+            .eq("mission_date", today)
+        ),
+        classify_message_safety(
+            user_message=message,
+            username=str(user.get("username") or "you"),
+        ),
+        detect_tone(user_msg_safe, []),
+    )
+
     twin = twin_result.data[0] if twin_result.data else {
         "twin_xp": 0,
         "current_gap_state": "neck_and_neck",
@@ -2535,14 +2576,6 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         "twin_pet_stage": 0,
         "twin_streak": 0,
     }
-
-    char_res = await run_query(supabase_admin.table("users")
-        .select("total_xp, current_streak, character_stage")
-        .eq("id", user_id)
-        .limit(1))
-    char = (char_res.data or [None])[0] or {"total_xp": 0, "current_streak": 0, "character_stage": 1}
-
-    dna_result = await run_query(supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id))
     dna = dna_result.data[0] if dna_result.data else {
         "twin_tone_type": "rival",
         "twin_intensity": 2,
@@ -2550,6 +2583,10 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         "tone_preference_signal": 0.5,
         "chat_rating_count": 0,
     }
+    interests_rows = interests_res.data or []
+    interests = [r["normalised_name"] for r in interests_rows if r.get("normalised_name")]
+    history = list(reversed(history_res.data or []))
+    today_missions = today_missions_res.data or []
 
     reg_day_n = get_days_since_registration(user.get("registration_date", ""), tz)
     days_active = max(0, int(reg_day_n) - 1)
@@ -2571,15 +2608,6 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
                     twin_tone_override_active = str(raw_ov).strip() or None
     except Exception:
         twin_tone_override_active = None
-
-    interests_rows = (
-        ((await run_query(supabase_admin.table("interests")
-        .select("normalised_name")
-        .eq("user_id", user_id)
-        .eq("is_active", True))).data)
-        or []
-    )
-    interests = [r["normalised_name"] for r in interests_rows if r.get("normalised_name")]
 
     if not interests:
         onboarding = (
@@ -2606,28 +2634,9 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
                         if nm:
                             interests.append(nm)
 
-    history = (
-        ((await run_query(supabase_admin.table("twin_messages")
-        .select("role, content, created_at")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .limit(15))).data)
-        or []
-    )
-    history = list(reversed(history))
-
-    today_missions = (
-        ((await run_query(supabase_admin.table("missions")
-        .select("title, type, completed")
-        .eq("user_id", user_id)
-        .eq("mission_date", today))).data)
-        or []
-    )
-
     completed_count = sum(1 for m in today_missions if m.get("completed"))
     total_count = len(today_missions)
     missed_types = [str(m["type"]) for m in today_missions if not m.get("completed")]
-    last_missed = missed_types[-1] if missed_types else "none"
 
     if total_count > 0:
         missions_summary = (
@@ -2641,24 +2650,11 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     else:
         missions_summary = "No missions generated yet today."
 
-    seven_start = (date_type.fromisoformat(today) - timedelta(days=7)).isoformat()
-    recent_missions = (
-        ((await run_query(supabase_admin.table("missions")
-        .select("completed")
-        .eq("user_id", user_id)
-        .gte("mission_date", seven_start))).data)
-        or []
-    )
-    completion_rate_7d = (
-        sum(1 for m in recent_missions if m.get("completed")) / len(recent_missions)
-        if recent_missions
-        else 0.5
-    )
+    chat_history = [
+        {"sender": "user" if m.get("role") == "user" else "twin", "message": m.get("content") or ""}
+        for m in history
+    ]
 
-    safety = await classify_message_safety(
-        user_message=message,
-        username=str(user.get("username") or "you"),
-    )
     logger.info(
         json.dumps(
             {
@@ -2725,11 +2721,6 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     elif safety.category == "dependency" and safety.confidence > 0.8:
         block_response = SAFETY_RESPONSES["dependency"]
 
-    chat_history = [
-        {"sender": "user" if m.get("role") == "user" else "twin", "message": m.get("content") or ""}
-        for m in history
-    ]
-
     if block_response is not None:
         dna_line = str(dna.get("twin_tone_type") or "rival")
         user_ins_s = await run_query(supabase_admin.table("twin_messages")
@@ -2777,10 +2768,6 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
             "tone_used": tone_used_safety,
         }
 
-    user_msg_safe = sanitize_for_prompt(message, max_len=500, field_name="user_message")
-    username_raw = str(user.get("username") or "you")
-    username_safe = sanitize_username(username_raw)
-
     user_ins = await run_query(supabase_admin.table("twin_messages")
         .insert(
             {
@@ -2792,9 +2779,6 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         ))
     user_row = (user_ins.data or [None])[0] or {}
     user_message_id = user_row.get("id")
-
-    recent_msgs = chat_history[-3:] if chat_history else []
-    tone = await detect_tone(user_msg_safe, recent_msgs)
 
     archetype = str(user.get("archetype") or "structured_climber")
     narrative_seed = (dna.get("narrative_seed") or "").strip() or f"User archetype: {archetype}."
@@ -2881,31 +2865,7 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         system_prompt, conversation_messages
     )
 
-    check = await check_consistency(
-        twin_response=response_text,
-        user_message=user_msg_safe,
-        twin_tone_type=tone_used,
-        twin_relationship_style=twin_relationship_style,
-        guilt_orientation=guilt_orientation,
-        user_mood=tone.user_mood,
-        user_intent=tone.intent,
-        requires_sensitivity=tone.requires_sensitivity,
-    )
-
     emotional_register = "twin_chat_v2"
-    if check.should_regenerate:
-        logger.warning(
-            "Twin consistency check requested regenerate: %s",
-            [i.model_dump() for i in (check.issues or [])],
-        )
-        fallback = await asyncio.to_thread(
-            _generate_twin_response_sync,
-            system_prompt,
-            conversation_messages,
-        )
-        response_text = fallback.response
-        conversation_note = fallback.conversation_note
-        emotional_register = str(getattr(fallback, "emotional_register", None) or "twin_chat_v2_regenerated")
 
     twin_ins = await run_query(supabase_admin.table("twin_messages")
         .insert(
@@ -2921,6 +2881,55 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         ))
     twin_row = (twin_ins.data or [None])[0] or {}
     twin_msg_id = twin_row.get("id")
+
+    async def _quality_check_and_patch() -> None:
+        try:
+            check = await asyncio.wait_for(
+                check_consistency(
+                    twin_response=response_text,
+                    user_message=user_msg_safe,
+                    twin_tone_type=tone_used,
+                    twin_relationship_style=twin_relationship_style,
+                    guilt_orientation=guilt_orientation,
+                    user_mood=tone.user_mood,
+                    user_intent=tone.intent,
+                    requires_sensitivity=tone.requires_sensitivity,
+                ),
+                timeout=5.0,
+            )
+            if check.should_regenerate and twin_msg_id:
+                logger.warning(
+                    "Twin consistency check requested regenerate: %s",
+                    [i.model_dump() for i in (check.issues or [])],
+                )
+                fallback = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _generate_twin_response_sync,
+                        system_prompt,
+                        conversation_messages,
+                    ),
+                    timeout=8.0,
+                )
+                await run_query(supabase_admin.table("twin_messages")
+                    .update(
+                        {
+                            "content": fallback.response,
+                            "emotional_register": str(
+                                getattr(fallback, "emotional_register", None) or "twin_chat_v2_regenerated"
+                            ),
+                            "conversation_note": fallback.conversation_note,
+                        }
+                    )
+                    .eq("id", twin_msg_id))
+        except asyncio.TimeoutError:
+            logger.debug("Quality check timed out for user %s — skipping", user_id)
+        except Exception as qc_err:
+            logger.warning("Quality check failed: %s", str(qc_err)[:200])
+
+    try:
+        asyncio.create_task(_quality_check_and_patch())
+    except Exception:
+        pass
 
     uid_str = str(user_message_id) if user_message_id else None
     try:

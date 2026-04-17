@@ -319,11 +319,25 @@ class TwinStateResponse(BaseModel):
 
 @router.post("/chat", response_model=ChatResponse)
 @limiter.limit("10/minute")
-async def chat_with_twin(request: Request, body: ChatRequest, authorization: str = Header(None)):
+async def chat_with_twin(
+    request: Request,
+    body: ChatRequest = Body(...),
+    authorization: str = Header(None),
+):
     """
     Send a message to the twin and get a response.
     The twin responds in character based on archetype and current gap state.
     """
+    logger.info(
+        json.dumps(
+            {
+                "event": "twin_chat_nonstream_request",
+                "has_body": body is not None,
+                "message_preview": (body.message[:50] if body and body.message else None),
+            }
+        )
+    )
+
     user_id = get_user_id_from_token(authorization)
 
     if not body.message or not body.message.strip():

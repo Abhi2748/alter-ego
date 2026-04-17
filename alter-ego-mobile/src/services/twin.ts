@@ -3,6 +3,8 @@
  * All twin-related API calls go through here.
  */
 
+import { Platform } from 'react-native';
+
 import { apiClient } from '@/services/api';
 import { supabase } from '@/utils/supabase';
 import type { DayComparison, PillarDNA } from '@/utils/api';
@@ -363,6 +365,11 @@ export const twinService = {
       ''
     );
 
+    // eslint-disable-next-line no-console -- debug twin chat failures on device
+    console.log('[twin.sendMessage] BASE_URL =', BASE_URL);
+    // eslint-disable-next-line no-console -- debug twin chat failures on device
+    console.log('[twin.sendMessage] message =', message);
+
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -385,23 +392,75 @@ export const twinService = {
       });
       clearTimeout(timeoutId);
 
+      // eslint-disable-next-line no-console -- debug twin chat failures on device
+      console.log('[twin.sendMessage] status =', res.status);
+
       if (!res.ok) {
-        let errMsg = 'Something went wrong';
+        let errMsg = `Request failed (${res.status})`;
+        let rawBody: unknown = null;
+
         try {
-          const body = (await res.json()) as Record<string, unknown>;
-          if (typeof body.detail === 'string') errMsg = body.detail;
-          else if (typeof body.error === 'string') errMsg = body.error;
-          else if (res.status === 429)
-            errMsg = 'Too many messages. Wait a moment and try again.';
+          rawBody = await res.json();
         } catch {
-          /* ignore parse errors */
+          rawBody = null;
         }
+
+        // eslint-disable-next-line no-console -- debug twin chat failures on device
+        console.log('[twin.sendMessage] error body =', rawBody);
+
+        if (res.status === 429) {
+          errMsg = 'Too many messages. Wait a moment and try again.';
+        } else if (
+          rawBody &&
+          typeof rawBody === 'object' &&
+          'detail' in rawBody
+        ) {
+          const detail = (rawBody as Record<string, unknown>).detail;
+
+          if (typeof detail === 'string') {
+            errMsg = detail;
+          } else if (Array.isArray(detail)) {
+            const first = detail[0];
+            if (typeof first === 'string') {
+              errMsg = first;
+            } else if (first && typeof first === 'object') {
+              const msg = (first as Record<string, unknown>).msg;
+              const loc = (first as Record<string, unknown>).loc;
+              if (typeof msg === 'string' && Array.isArray(loc)) {
+                errMsg = `${msg} (${loc.join(' > ')})`;
+              } else if (typeof msg === 'string') {
+                errMsg = msg;
+              } else {
+                errMsg = JSON.stringify(detail);
+              }
+            } else {
+              errMsg = JSON.stringify(detail);
+            }
+          }
+        } else if (
+          rawBody &&
+          typeof rawBody === 'object' &&
+          typeof (rawBody as Record<string, unknown>).message === 'string'
+        ) {
+          errMsg = String((rawBody as Record<string, unknown>).message);
+        } else if (
+          rawBody &&
+          typeof rawBody === 'object' &&
+          typeof (rawBody as Record<string, unknown>).error === 'string'
+        ) {
+          errMsg = String((rawBody as Record<string, unknown>).error);
+        }
+
         throw new Error(errMsg);
       }
 
       const raw = await res.json();
+      // eslint-disable-next-line no-console -- debug twin chat failures on device
+      console.log('[twin.sendMessage] success body =', raw);
       return parseTwinChatResponse(raw);
     } catch (e) {
+      // eslint-disable-next-line no-console -- debug twin chat failures on device
+      console.log('[twin.sendMessage] caught error =', e);
       clearTimeout(timeoutId);
       if (e instanceof Error && e.name === 'AbortError') {
         throw new Error('Request timed out. Please try again.');
@@ -424,8 +483,71 @@ export const twinService = {
     const timeoutId = setTimeout(() => controller.abort(), 90_000);
 
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let completed = false;
+
+    const parseHttpErrorMessage = async (res: Response): Promise<string> => {
+      if (res.status === 429) {
+        return 'Too many messages. Wait a moment and try again.';
+      }
+      let errMsg = `Request failed (${res.status})`;
+      try {
+        const body = (await res.json()) as Record<string, unknown>;
+        if (typeof body.detail === 'string') errMsg = body.detail;
+        else if (typeof body.message === 'string') errMsg = body.message;
+        else if (typeof body.error === 'string') errMsg = body.error;
+      } catch {
+        /* ignore parse errors */
+      }
+      return errMsg;
+    };
+
+    const completeViaNonStreaming = async (): Promise<void> => {
+      try {
+        const res = await fetch(`${BASE_URL}/api/v1/twin/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            'Cache-Control': 'no-cache',
+          },
+          body: JSON.stringify({ message }),
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const errMsg = await parseHttpErrorMessage(res);
+          if (!completed) callbacks.onError(errMsg);
+          return;
+        }
+        const raw = await res.json();
+        const result = parseTwinChatResponse(raw);
+        const replyText =
+          (result.response || result.message || '').trim() || "I'm here. Say that again.";
+        callbacks.onReplace(replyText);
+        callbacks.onMeta({
+          twin_message_id: result.twin_message_id ?? null,
+          user_message_id: result.user_message_id ?? null,
+          tone_used: result.tone_used ?? null,
+          is_safety_response: result.is_safety_response ?? false,
+        });
+        completed = true;
+        callbacks.onDone();
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') {
+          if (!completed) callbacks.onError('Request timed out. Please try again.');
+          return;
+        }
+        if (!completed) callbacks.onError('Network error. Check your connection.');
+      }
+    };
 
     try {
+      // Expo Go / React Native: fetch cannot consume SSE reliably — never hit /chat/stream
+      // (avoids backend completing stream then a duplicate /chat failing with 422).
+      if (Platform.OS !== 'web') {
+        await completeViaNonStreaming();
+        return;
+      }
+
       let response: Response;
       try {
         response = await fetch(`${BASE_URL}/api/v1/twin/chat/stream`, {
@@ -441,31 +563,28 @@ export const twinService = {
         });
       } catch (e) {
         if (e instanceof Error && e.name === 'AbortError') {
-          callbacks.onError('Request timed out. Please try again.');
+          if (!completed) callbacks.onError('Request timed out. Please try again.');
           return;
         }
-        callbacks.onError('Network error. Check your connection.');
+        if (!completed) callbacks.onError('Network error. Check your connection.');
         return;
       }
 
       if (!response.ok) {
-        let errMsg = `Request failed (${response.status})`;
-        try {
-          const body = (await response.json()) as Record<string, unknown>;
-          if (typeof body.detail === 'string') errMsg = body.detail;
-          else if (typeof body.message === 'string') errMsg = body.message;
-          else if (response.status === 429)
-            errMsg = 'Too many messages. Wait a moment and try again.';
-        } catch {
-          /* ignore parse errors */
-        }
-        callbacks.onError(errMsg);
+        const errMsg = await parseHttpErrorMessage(response);
+        if (!completed) callbacks.onError(errMsg);
         return;
       }
 
-      const r = response.body?.getReader();
+      const body = response.body;
+      if (!body || typeof body.getReader !== 'function') {
+        await completeViaNonStreaming();
+        return;
+      }
+
+      const r = body.getReader();
       if (!r) {
-        callbacks.onError('Streaming not supported on this device.');
+        await completeViaNonStreaming();
         return;
       }
       reader = r;
@@ -505,6 +624,7 @@ export const twinService = {
                 break;
               case 'done':
                 doneReceived = true;
+                completed = true;
                 callbacks.onDone();
                 break;
               case 'meta':
@@ -516,23 +636,20 @@ export const twinService = {
                 });
                 break;
               case 'error':
-                if (!doneReceived) {
+                if (!doneReceived && !completed) {
                   doneReceived = true;
                   callbacks.onError(event.message ?? 'Unknown error');
                 }
-                // If doneReceived is already true, the stream completed successfully —
-                // ignore any trailing error event.
                 break;
             }
           }
         }
       } catch {
-        // Only fire onError if we haven't already cleanly finished
-        if (!doneReceived) {
+        if (!doneReceived && !completed) {
           callbacks.onError('Stream interrupted.');
         }
       } finally {
-        reader.releaseLock();
+        if (reader) reader.releaseLock();
       }
     } finally {
       clearTimeout(timeoutId);

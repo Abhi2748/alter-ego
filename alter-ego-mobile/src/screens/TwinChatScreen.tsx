@@ -32,7 +32,6 @@ import { useTwinChatHistory, useRateTwinMessage, TWIN_KEYS } from "@/hooks/useTw
 import { TWIN_STRIP_IMAGE } from "@/constants/characterPetAssets";
 import { getErrorMessage } from "@/services/api";
 import { twinService, type TwinMessage } from "@/services/twin";
-import { supabase } from "@/utils/supabase";
 import { useUserStore } from "@/store/userStore";
 import Animated, {
   type SharedValue,
@@ -281,8 +280,6 @@ export function TwinChatScreen() {
       }
 
       const tempUserId = `temp-user-${Date.now()}`;
-      const tempTwinId = `temp-twin-${Date.now()}`;
-
       queryClient.setQueryData(
         [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
         (old: { messages: TwinMessage[] } | undefined) => ({
@@ -294,12 +291,6 @@ export function TwinChatScreen() {
               content: text,
               created_at: new Date().toISOString(),
             } satisfies TwinMessage,
-            {
-              id: tempTwinId,
-              role: "twin" as const,
-              content: "",
-              created_at: new Date().toISOString(),
-            } satisfies TwinMessage,
           ],
         })
       );
@@ -307,130 +298,66 @@ export function TwinChatScreen() {
       setIsSending(true);
       setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 50);
 
-      let finalTwinText = "";
-      let finalTwinMessageId: string | null = null;
-      let finalUserMessageId: string | null = null;
-      let finalToneUsed: string | null = null;
-      let streamFailed = false;
-      let doneReceived = false;
-
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (!token) throw new Error("No active session");
+        const result = await twinService.sendMessage(text);
 
-        await twinService.sendMessageStream(text, token, {
-          onChunk: (chunk: string) => {
-            finalTwinText += chunk;
-            queryClient.setQueryData(
-              [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-              (old: { messages: TwinMessage[] } | undefined) => {
-                const msgs = old?.messages ?? [];
-                return {
-                  messages: msgs.map((m) =>
-                    m.id === tempTwinId
-                      ? { ...m, content: finalTwinText }
-                      : m
-                  ),
-                };
-              }
+        const replyText = (result.response || result.message || "").trim();
+        const twinId =
+          result.twin_message_id && String(result.twin_message_id).length > 0
+            ? result.twin_message_id
+            : replyText
+              ? `temp-twin-${Date.now()}`
+              : null;
+
+        queryClient.setQueryData(
+          [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+          (old: { messages: TwinMessage[] } | undefined) => {
+            const withoutTemp = (old?.messages ?? []).filter(
+              (m) => m.id !== tempUserId
             );
-          },
-          onReplace: (fullText: string) => {
-            finalTwinText = fullText;
-            queryClient.setQueryData(
-              [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-              (old: { messages: TwinMessage[] } | undefined) => {
-                const msgs = old?.messages ?? [];
-                return {
-                  messages: msgs.map((m) =>
-                    m.id === tempTwinId ? { ...m, content: fullText } : m
-                  ),
-                };
-              }
-            );
-          },
-          onMeta: (meta) => {
-            finalTwinMessageId = meta.twin_message_id ?? null;
-            finalUserMessageId = meta.user_message_id ?? null;
-            finalToneUsed = meta.tone_used ?? null;
-          },
-          onError: (message: string) => {
-            if (doneReceived) return;
-            streamFailed = true;
-            queryClient.setQueryData(
-              [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-              (old: { messages: TwinMessage[] } | undefined) => ({
-                messages: (old?.messages ?? []).filter(
-                  (m) => m.id !== tempUserId && m.id !== tempTwinId
-                ),
-              })
-            );
-            if (overrideText === undefined) setInputText(text);
-            Alert.alert("Couldn't send", message);
-          },
-          onDone: () => {
-            doneReceived = true;
-            if (streamFailed) return;
-            const safeTwinText =
-              finalTwinText.trim() || "I'm here. Say that again.";
-            queryClient.setQueryData(
-              [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-              (old: { messages: TwinMessage[] } | undefined) => {
-                const msgs = old?.messages ?? [];
-                return {
-                  messages: msgs.map((m) => {
-                    if (m.id === tempUserId) {
-                      return {
-                        ...m,
-                        id: finalUserMessageId ?? tempUserId,
-                        content: text,
-                      };
-                    }
-                    if (m.id === tempTwinId) {
-                      return {
-                        ...m,
-                        id: finalTwinMessageId ?? tempTwinId,
-                        role: "twin" as const,
-                        content: safeTwinText,
-                        tone_used: finalToneUsed ?? null,
-                      };
-                    }
-                    return m;
-                  }),
-                };
-              }
-            );
-            setTimeout(() => {
-              queryClient.invalidateQueries({
-                queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-              });
-            }, 350);
-            setTimeout(
-              () =>
-                listRef.current?.scrollToOffset({
-                  offset: 0,
-                  animated: true,
-                }),
-              100
-            );
-          },
-        });
+            const userMsg: TwinMessage = {
+              id: result.user_message_id ?? tempUserId,
+              role: "user",
+              content: text,
+              created_at: new Date().toISOString(),
+            };
+            const twinMsg: TwinMessage | null =
+              replyText && twinId
+                ? {
+                    id: twinId,
+                    role: "twin",
+                    content: replyText,
+                    created_at: new Date().toISOString(),
+                    tone_used: result.tone_used ?? null,
+                  }
+                : null;
+            return {
+              messages: twinMsg
+                ? [...withoutTemp, userMsg, twinMsg]
+                : [...withoutTemp, userMsg],
+            };
+          }
+        );
+
+        setTimeout(() => {
+          queryClient.invalidateQueries({
+            queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+          });
+        }, 500);
+
+        setTimeout(
+          () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
+          100
+        );
       } catch (err) {
-        if (!streamFailed) {
-          queryClient.setQueryData(
-            [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-            (old: { messages: TwinMessage[] } | undefined) => ({
-              messages: (old?.messages ?? []).filter(
-                (m) => m.id !== tempUserId && m.id !== tempTwinId
-              ),
-            })
-          );
-          if (overrideText === undefined) setInputText(text);
-          Alert.alert("Couldn't send", getErrorMessage(err));
-        }
+        queryClient.setQueryData(
+          [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+          (old: { messages: TwinMessage[] } | undefined) => ({
+            messages: (old?.messages ?? []).filter((m) => m.id !== tempUserId),
+          })
+        );
+        if (overrideText === undefined) setInputText(text);
+        Alert.alert("Couldn't send", getErrorMessage(err));
       } finally {
         isSendingRef.current = false;
         setIsSending(false);

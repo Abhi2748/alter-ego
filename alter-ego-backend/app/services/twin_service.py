@@ -2488,9 +2488,10 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
 
     from app.agents.agent_guardrails import sanitize_for_prompt, sanitize_username
     from app.agents.memory_anchor_agent import classify_and_store_anchor
-    from app.agents.tone_detector import detect_tone
+    from app.agents.tone_detector import ToneDetection, detect_tone
     from app.agents.twin_chat_agent import (
         SAFETY_RESPONSES,
+        MessageSafetyClassification,
         build_conversation_messages,
         classify_message_safety,
         get_last_openings,
@@ -2532,15 +2533,7 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
     user_msg_safe = sanitize_for_prompt(message, max_len=500, field_name="user_message")
     username_safe = sanitize_username(str(user.get("username") or "you"))
 
-    (
-        twin_result,
-        dna_result,
-        interests_res,
-        history_res,
-        today_missions_res,
-        safety,
-        tone,
-    ) = await asyncio.gather(
+    gather_results = await asyncio.gather(
         run_query(supabase_admin.table("twin_state").select("*").eq("user_id", user_id)),
         run_query(supabase_admin.table("discipline_dna").select("*").eq("user_id", user_id)),
         run_query(
@@ -2567,26 +2560,72 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
             username=str(user.get("username") or "you"),
         ),
         detect_tone(user_msg_safe, []),
+        return_exceptions=True,
     )
 
-    twin = twin_result.data[0] if twin_result.data else {
+    (
+        twin_result_raw,
+        dna_result_raw,
+        interests_res_raw,
+        history_res_raw,
+        today_missions_res_raw,
+        safety_raw,
+        tone_raw,
+    ) = gather_results
+
+    twin_result = twin_result_raw if not isinstance(twin_result_raw, Exception) else None
+    dna_result = dna_result_raw if not isinstance(dna_result_raw, Exception) else None
+    interests_res = interests_res_raw if not isinstance(interests_res_raw, Exception) else None
+    history_res = history_res_raw if not isinstance(history_res_raw, Exception) else None
+    today_missions_res = (
+        today_missions_res_raw if not isinstance(today_missions_res_raw, Exception) else None
+    )
+
+    twin = (twin_result.data[0] if twin_result and twin_result.data else None) or {
         "twin_xp": 0,
         "current_gap_state": "neck_and_neck",
         "twin_character_stage": 1,
         "twin_pet_stage": 0,
         "twin_streak": 0,
     }
-    dna = dna_result.data[0] if dna_result.data else {
+    dna = (dna_result.data[0] if dna_result and dna_result.data else None) or {
         "twin_tone_type": "rival",
         "twin_intensity": 2,
         "twin_gap_behavior": "rubber_band",
         "tone_preference_signal": 0.5,
         "chat_rating_count": 0,
     }
-    interests_rows = interests_res.data or []
+    interests_rows = (interests_res.data if interests_res else None) or []
     interests = [r["normalised_name"] for r in interests_rows if r.get("normalised_name")]
-    history = list(reversed(history_res.data or []))
-    today_missions = today_missions_res.data or []
+    history = list(reversed((history_res.data if history_res else None) or []))
+    today_missions = (today_missions_res.data if today_missions_res else None) or []
+
+    for label, val in [
+        ("twin_state", twin_result_raw),
+        ("dna", dna_result_raw),
+        ("interests", interests_res_raw),
+        ("history", history_res_raw),
+        ("missions", today_missions_res_raw),
+    ]:
+        if isinstance(val, Exception):
+            logger.warning("gather fetch failed for %s: %s", label, str(val)[:100])
+
+    if isinstance(safety_raw, Exception):
+        logger.warning("safety check failed, defaulting to safe: %s", str(safety_raw)[:100])
+        safety = MessageSafetyClassification(
+            category="safe",
+            confidence=0.5,
+            reasoning="Validator error — defaulting to safe",
+            crisis_severity=None,
+        )
+    else:
+        safety = safety_raw
+
+    if isinstance(tone_raw, Exception):
+        logger.warning("tone detection failed, using defaults: %s", str(tone_raw)[:100])
+        tone = ToneDetection()
+    else:
+        tone = tone_raw
 
     reg_day_n = get_days_since_registration(user.get("registration_date", ""), tz)
     days_active = max(0, int(reg_day_n) - 1)
@@ -2998,9 +3037,10 @@ async def stream_twin_message(user_id: str, message: str):
 
     from app.agents.agent_guardrails import sanitize_for_prompt, sanitize_username
     from app.agents.memory_anchor_agent import classify_and_store_anchor
-    from app.agents.tone_detector import detect_tone
+    from app.agents.tone_detector import ToneDetection, detect_tone
     from app.agents.twin_chat_agent import (
         SAFETY_RESPONSES,
+        MessageSafetyClassification,
         build_conversation_messages,
         classify_message_safety,
         get_last_openings,
@@ -3052,15 +3092,7 @@ async def stream_twin_message(user_id: str, message: str):
         user_msg_safe = sanitize_for_prompt(message, max_len=500, field_name="user_message")
         username_safe = sanitize_username(str(user.get("username") or "you"))
 
-        (
-            twin_result,
-            dna_result,
-            interests_res,
-            history_res,
-            today_missions_res,
-            safety,
-            tone,
-        ) = await asyncio.gather(
+        gather_results = await asyncio.gather(
             run_query(
                 supabase_admin.table("twin_state")
                 .select("*")
@@ -3095,26 +3127,72 @@ async def stream_twin_message(user_id: str, message: str):
                 username=str(user.get("username") or "you"),
             ),
             detect_tone(user_msg_safe, []),
+            return_exceptions=True,
         )
 
-        twin = twin_result.data[0] if twin_result.data else {
+        (
+            twin_result_raw,
+            dna_result_raw,
+            interests_res_raw,
+            history_res_raw,
+            today_missions_res_raw,
+            safety_raw,
+            tone_raw,
+        ) = gather_results
+
+        twin_result = twin_result_raw if not isinstance(twin_result_raw, Exception) else None
+        dna_result = dna_result_raw if not isinstance(dna_result_raw, Exception) else None
+        interests_res = interests_res_raw if not isinstance(interests_res_raw, Exception) else None
+        history_res = history_res_raw if not isinstance(history_res_raw, Exception) else None
+        today_missions_res = (
+            today_missions_res_raw if not isinstance(today_missions_res_raw, Exception) else None
+        )
+
+        twin = (twin_result.data[0] if twin_result and twin_result.data else None) or {
             "twin_xp": 0,
             "current_gap_state": "neck_and_neck",
             "twin_character_stage": 1,
             "twin_pet_stage": 0,
             "twin_streak": 0,
         }
-        dna = dna_result.data[0] if dna_result.data else {
+        dna = (dna_result.data[0] if dna_result and dna_result.data else None) or {
             "twin_tone_type": "rival",
             "twin_intensity": 2,
             "twin_gap_behavior": "rubber_band",
             "tone_preference_signal": 0.5,
             "chat_rating_count": 0,
         }
-        interests_rows = interests_res.data or []
+        interests_rows = (interests_res.data if interests_res else None) or []
         interests = [r["normalised_name"] for r in interests_rows if r.get("normalised_name")]
-        history = list(reversed(history_res.data or []))
-        today_missions = today_missions_res.data or []
+        history = list(reversed((history_res.data if history_res else None) or []))
+        today_missions = (today_missions_res.data if today_missions_res else None) or []
+
+        for label, val in [
+            ("twin_state", twin_result_raw),
+            ("dna", dna_result_raw),
+            ("interests", interests_res_raw),
+            ("history", history_res_raw),
+            ("missions", today_missions_res_raw),
+        ]:
+            if isinstance(val, Exception):
+                logger.warning("gather fetch failed for %s: %s", label, str(val)[:100])
+
+        if isinstance(safety_raw, Exception):
+            logger.warning("safety check failed, defaulting to safe: %s", str(safety_raw)[:100])
+            safety = MessageSafetyClassification(
+                category="safe",
+                confidence=0.5,
+                reasoning="Validator error — defaulting to safe",
+                crisis_severity=None,
+            )
+        else:
+            safety = safety_raw
+
+        if isinstance(tone_raw, Exception):
+            logger.warning("tone detection failed, using defaults: %s", str(tone_raw)[:100])
+            tone = ToneDetection()
+        else:
+            tone = tone_raw
 
         reg_day_n = get_days_since_registration(user.get("registration_date", ""), tz)
         days_active = max(0, int(reg_day_n) - 1)

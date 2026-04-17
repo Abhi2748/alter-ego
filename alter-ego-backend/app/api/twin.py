@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -397,11 +397,17 @@ async def chat_with_twin_stream(
 
 
 @router.get("/chat/history", response_model=ChatHistoryResponse)
-async def get_chat_history(authorization: str = Header(None), limit: int = 50):
+async def get_chat_history(
+    response: Response,
+    authorization: str = Header(None),
+    limit: int = 50,
+):
     """
     Returns the last N messages of the twin chat conversation.
     Used when the chat screen opens to show previous messages.
     """
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
     user_id = get_user_id_from_token(authorization)
 
     # Most recent N messages (chronological for the client).

@@ -35,7 +35,7 @@ export function useTwinChatHistory(limit = 50) {
   return useQuery({
     queryKey: [...TWIN_KEYS.chat, limit] as const,
     queryFn: async () => twinService.getChatHistory(limit),
-    staleTime: 30 * 1000,
+    staleTime: 0,
     refetchOnMount: true,
   });
 }

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, date as date_type
+import math
 import logging
 
 from app.core.constants import (
@@ -84,16 +85,16 @@ def compute_power_score_value(
         + (stage_progress / len(XP_THRESHOLDS))
     ) * POWER_SCORE_WEIGHTS["xp_stage_progress"] * POWER_SCORE_MAX
 
-    if pet_unlocked and pet_stage > 0 and TOTAL_PET_STAGES > 1:
+    if pet_unlocked and pet_stage > 0 and TOTAL_PET_STAGES > 0:
         pet_component = (
-            (pet_stage - 1) / (TOTAL_PET_STAGES - 1)
+            pet_stage / TOTAL_PET_STAGES
         ) * POWER_SCORE_WEIGHTS["pet_stage"] * POWER_SCORE_MAX
     else:
         pet_component = 0.0
 
     streak_capped = min(current_streak, POWER_SCORE_STREAK_CAP)
     streak_component = (
-        streak_capped / POWER_SCORE_STREAK_CAP
+        math.sqrt(streak_capped / POWER_SCORE_STREAK_CAP)
     ) * POWER_SCORE_WEIGHTS["streak"] * POWER_SCORE_MAX
 
     completion_component = (

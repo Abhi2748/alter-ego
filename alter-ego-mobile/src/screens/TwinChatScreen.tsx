@@ -369,22 +369,53 @@ export function TwinChatScreen() {
               cancelAnimationFrame(streamingFlushRafRef.current);
               streamingFlushRafRef.current = null;
             }
-            // Clear streaming state IMMEDIATELY and synchronously —
-            // do not wait for refetch to finish before updating UI.
             setIsStreaming(false);
             setStreamingContent("");
             streamingContentRef.current = "";
-            // Refetch in background to replace optimistic message with real IDs.
-            queryClient
-              .refetchQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] })
-              .catch(() => {
+
+            // Direct fetch with explicit no-cache headers.
+            // queryClient.refetchQueries goes through the mobile HTTP stack which
+            // caches GET responses — this bypasses that cache completely.
+            void (async () => {
+              try {
+                const {
+                  data: { session },
+                } = await supabase.auth.getSession();
+                const freshToken = session?.access_token;
+                if (!freshToken) return;
+
+                const BASE_URL = (
+                  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000"
+                ).replace(/\/$/, "");
+
+                const res = await fetch(
+                  `${BASE_URL}/api/v1/twin/chat/history?limit=${CHAT_HISTORY_LIMIT}`,
+                  {
+                    method: "GET",
+                    headers: {
+                      Authorization: `Bearer ${freshToken}`,
+                      "Cache-Control": "no-cache, no-store, must-revalidate",
+                      Pragma: "no-cache",
+                    },
+                    cache: "no-store",
+                  }
+                );
+
+                if (res.ok) {
+                  const freshData = (await res.json()) as { messages: TwinMessage[] };
+                  queryClient.setQueryData(
+                    [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+                    freshData
+                  );
+                }
+              } catch {
                 queryClient.invalidateQueries({
                   queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
                 });
-              })
-              .finally(() => {
+              } finally {
                 listRef.current?.scrollToOffset({ offset: 0, animated: true });
-              });
+              }
+            })();
           },
           onError: () => {
             errorFired = true;

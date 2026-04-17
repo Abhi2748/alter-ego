@@ -420,97 +420,122 @@ export const twinService = {
       ''
     );
 
-    let response: Response;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90_000);
+
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+
     try {
-      response = await fetch(`${BASE_URL}/api/v1/twin/chat/stream`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          Accept: 'text/event-stream',
-          'Cache-Control': 'no-cache',
-        },
-        body: JSON.stringify({ message }),
-      });
-    } catch {
-      callbacks.onError('Network error. Check your connection.');
-      return;
-    }
+      let response: Response;
+      try {
+        response = await fetch(`${BASE_URL}/api/v1/twin/chat/stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+            Accept: 'text/event-stream',
+            'Cache-Control': 'no-cache',
+          },
+          body: JSON.stringify({ message }),
+          signal: controller.signal,
+        });
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') {
+          callbacks.onError('Request timed out. Please try again.');
+          return;
+        }
+        callbacks.onError('Network error. Check your connection.');
+        return;
+      }
 
-    if (!response.ok) {
-      callbacks.onError(`Request failed (${response.status})`);
-      return;
-    }
+      if (!response.ok) {
+        let errMsg = `Request failed (${response.status})`;
+        try {
+          const body = (await response.json()) as Record<string, unknown>;
+          if (typeof body.detail === 'string') errMsg = body.detail;
+          else if (typeof body.message === 'string') errMsg = body.message;
+          else if (response.status === 429)
+            errMsg = 'Too many messages. Wait a moment and try again.';
+        } catch {
+          /* ignore parse errors */
+        }
+        callbacks.onError(errMsg);
+        return;
+      }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      callbacks.onError('Streaming not supported on this device.');
-      return;
-    }
+      const r = response.body?.getReader();
+      if (!r) {
+        callbacks.onError('Streaming not supported on this device.');
+        return;
+      }
+      reader = r;
 
-    const decoder = new TextDecoder();
-    let buffer = '';
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-    let doneReceived = false;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done || doneReceived) break;
+      let doneReceived = false;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done || doneReceived) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
 
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith('data:')) continue;
-          const raw = trimmed.slice(5).trim();
-          if (!raw) continue;
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const raw = trimmed.slice(5).trim();
+            if (!raw) continue;
 
-          let event: TwinStreamEvent;
-          try {
-            event = JSON.parse(raw) as TwinStreamEvent;
-          } catch {
-            continue;
-          }
+            let event: TwinStreamEvent;
+            try {
+              event = JSON.parse(raw) as TwinStreamEvent;
+            } catch {
+              continue;
+            }
 
-          switch (event.type) {
-            case 'chunk':
-              if (event.text) callbacks.onChunk(event.text);
-              break;
-            case 'replace':
-              if (event.text) callbacks.onReplace(event.text);
-              break;
-            case 'done':
-              doneReceived = true;
-              callbacks.onDone();
-              break;
-            case 'meta':
-              callbacks.onMeta({
-                twin_message_id: event.twin_message_id ?? null,
-                user_message_id: event.user_message_id ?? null,
-                tone_used: event.tone_used ?? null,
-                is_safety_response: event.is_safety_response ?? false,
-              });
-              break;
-            case 'error':
-              if (!doneReceived) {
+            switch (event.type) {
+              case 'chunk':
+                if (event.text) callbacks.onChunk(event.text);
+                break;
+              case 'replace':
+                if (event.text) callbacks.onReplace(event.text);
+                break;
+              case 'done':
                 doneReceived = true;
-                callbacks.onError(event.message ?? 'Unknown error');
-              }
-              // If doneReceived is already true, the stream completed successfully —
-              // ignore any trailing error event.
-              break;
+                callbacks.onDone();
+                break;
+              case 'meta':
+                callbacks.onMeta({
+                  twin_message_id: event.twin_message_id ?? null,
+                  user_message_id: event.user_message_id ?? null,
+                  tone_used: event.tone_used ?? null,
+                  is_safety_response: event.is_safety_response ?? false,
+                });
+                break;
+              case 'error':
+                if (!doneReceived) {
+                  doneReceived = true;
+                  callbacks.onError(event.message ?? 'Unknown error');
+                }
+                // If doneReceived is already true, the stream completed successfully —
+                // ignore any trailing error event.
+                break;
+            }
           }
         }
-      }
-    } catch {
-      // Only fire onError if we haven't already cleanly finished
-      if (!doneReceived) {
-        callbacks.onError('Stream interrupted.');
+      } catch {
+        // Only fire onError if we haven't already cleanly finished
+        if (!doneReceived) {
+          callbacks.onError('Stream interrupted.');
+        }
+      } finally {
+        reader.releaseLock();
       }
     } finally {
-      reader.releaseLock();
+      clearTimeout(timeoutId);
     }
   },
 

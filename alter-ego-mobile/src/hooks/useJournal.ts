@@ -10,6 +10,7 @@ import {
 } from "@/hooks/useMissions";
 import { PROFILE_KEYS } from "@/hooks/useProfile";
 import { emitMissionCompletionCelebration } from "@/utils/missionCompletionBridge";
+import { requestGapMomentCheck } from "@/utils/gapMomentCheckBridge";
 
 export const JOURNAL_KEYS = {
   all: ["journal"] as const,
@@ -53,6 +54,7 @@ export function useSaveJournal() {
       if (completion && completion.success && !completion.already_completed) {
         await applyMissionCompletionSideEffects(queryClient, completion);
         emitMissionCompletionCelebration(completion, {});
+        requestGapMomentCheck();
       }
       queryClient.invalidateQueries({ queryKey: MISSION_KEYS.today });
       queryClient.invalidateQueries({ queryKey: PROFILE_KEYS.overview });

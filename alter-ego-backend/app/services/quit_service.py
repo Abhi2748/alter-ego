@@ -278,16 +278,14 @@ def _dedupe_incomplete_quit_resistance_missions(user_id: str, mission_date: str)
                 )
 
 
-def _user_timezone(user_id: str) -> str:
-    row = (
+async def _user_timezone(user_id: str) -> str:
+    row_res = await run_query(
         supabase_admin.table("users")
         .select("timezone")
         .eq("id", user_id)
         .single()
-        .execute()
-        .data
-        or {}
     )
+    row = row_res.data or {}
     return str(row.get("timezone") or "UTC")
 
 
@@ -312,30 +310,26 @@ def _created_at_to_user_calendar_day(created_at: Any, timezone_str: str) -> str:
         return raw[:10]
 
 
-def _recent_quit_missions_with_ratings(user_id: str, path_id: str) -> list[dict]:
-    missions = (
+async def _recent_quit_missions_with_ratings(user_id: str, path_id: str) -> list[dict]:
+    missions_res = await run_query(
         supabase_admin.table("missions")
         .select("id,title")
         .eq("user_id", user_id)
         .eq("quit_path_id", path_id)
         .order("created_at", desc=True)
         .limit(5)
-        .execute()
-        .data
-        or []
     )
+    missions = missions_res.data or []
     out: list[dict] = []
     for m in missions:
         mid = m["id"]
-        rr = (
+        rr_res = await run_query(
             supabase_admin.table("mission_ratings")
             .select("rating")
             .eq("mission_id", mid)
             .limit(1)
-            .execute()
-            .data
-            or []
         )
+        rr = rr_res.data or []
         out.append(
             {
                 "title": m.get("title"),
@@ -434,7 +428,7 @@ async def generate_quit_missions_for_today(
     path_id: str,
     mission_date: str | None = None,
 ) -> list[dict]:
-    tz = _user_timezone(user_id)
+    tz = await _user_timezone(user_id)
     md = mission_date or get_user_date(tz)
 
     path_res = (
@@ -469,7 +463,7 @@ async def generate_quit_missions_for_today(
     )
     archetype = str(user_row.get("archetype") or "structured_climber")
 
-    recent = _recent_quit_missions_with_ratings(user_id, path_id)
+    recent = await _recent_quit_missions_with_ratings(user_id, path_id)
 
     # Fetch user feedback on recent quit missions (last 5 ratings for this quit path)
     try:
@@ -613,7 +607,7 @@ async def generate_quit_missions_for_today(
 
 
 async def log_frequency(user_id: str, path_id: str, count: int) -> dict[str, Any]:
-    tz = _user_timezone(user_id)
+    tz = await _user_timezone(user_id)
     today = get_user_date(tz)
 
     path_res = (
@@ -979,7 +973,7 @@ async def check_and_maybe_advance_phase(user_id: str, path_id: str) -> dict:
 
 
 async def get_quits_for_user(user_id: str) -> list[dict[str, Any]]:
-    tz = _user_timezone(user_id)
+    tz = await _user_timezone(user_id)
     today = get_user_date(tz)
 
     paths = (
@@ -1128,7 +1122,7 @@ async def mark_quit_conquered(user_id: str, path_id: str) -> dict[str, Any]:
         raise ValueError("Quit path not found")
     path = rows[0]
 
-    tz = _user_timezone(user_id)
+    tz = await _user_timezone(user_id)
     today = get_user_date(tz)
     created_day = _created_at_to_user_calendar_day(path.get("created_at"), tz)
     try:

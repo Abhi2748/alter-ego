@@ -277,39 +277,75 @@ export function QuitDetailScreen() {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.phaseGuideCard}>
-            <Text style={styles.phaseGuideTitle}>Phase guide</Text>
-            <View style={styles.phaseGuideRow}>
-              {(["mapping", "disruption", "consolidation"] as const).map((p) => {
-                const active = p === target.current_phase;
-                const passed =
-                  (p === "mapping" && (target.current_phase === "disruption" || target.current_phase === "consolidation")) ||
-                  (p === "disruption" && target.current_phase === "consolidation");
-                return (
-                  <View key={p} style={[styles.phaseGuideStep, active && styles.phaseGuideStepActive]}>
-                    <View
-                      style={[
-                        styles.phaseGuideDot,
-                        active && styles.phaseGuideDotActive,
-                        passed && styles.phaseGuideDotPassed,
-                      ]}
-                    />
+          <View style={styles.journeyCard}>
+            <View style={styles.journeyGlow} />
+            <Text style={styles.journeyTitle}>Your journey</Text>
+
+            {(
+              [
+                {
+                  key: "mapping" as const,
+                  label: "Phase 1 — Trigger Mapping",
+                  desc: "No willpower yet. Log when and why the urge hits. You're building a map — not fighting the habit.",
+                },
+                {
+                  key: "disruption" as const,
+                  label: "Phase 2 — Competing Response",
+                  desc: "Build a replacement behaviour that intercepts the trigger at the moment it fires.",
+                },
+                {
+                  key: "consolidation" as const,
+                  label: "Phase 3 — Consolidation",
+                  desc: "Make the competing response automatic in all high-risk situations and edge cases.",
+                },
+              ] as const
+            ).map(({ key, label, desc }, idx) => {
+              const isActive = phase === key;
+              const isPassed =
+                (key === "mapping" && (phase === "disruption" || phase === "consolidation")) ||
+                (key === "disruption" && phase === "consolidation");
+              const isLocked = !isActive && !isPassed;
+
+              return (
+                <View
+                  key={key}
+                  style={[
+                    styles.journeyRow,
+                    isActive && styles.journeyRowActive,
+                    idx < 2 && { marginBottom: 4 },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.journeyDot,
+                      isActive && styles.journeyDotActive,
+                      isPassed && styles.journeyDotPassed,
+                      isLocked && styles.journeyDotLocked,
+                    ]}
+                  />
+                  <View style={{ flex: 1 }}>
                     <Text
                       style={[
-                        styles.phaseGuideLabel,
-                        active && styles.phaseGuideLabelActive,
-                        passed && styles.phaseGuideLabelPassed,
+                        styles.journeyRowLabel,
+                        isActive && styles.journeyRowLabelActive,
+                        isPassed && styles.journeyRowLabelPassed,
+                        isLocked && styles.journeyRowLabelLocked,
                       ]}
                     >
-                      {PHASE_LABELS[p]}
+                      {label}
+                      {isActive ? <Text style={styles.journeyHere}> ← you are here</Text> : null}
                     </Text>
+                    {isActive || isPassed ? (
+                      <Text
+                        style={[styles.journeyRowDesc, isPassed && styles.journeyRowDescPassed]}
+                      >
+                        {desc}
+                      </Text>
+                    ) : null}
                   </View>
-                );
-              })}
-            </View>
-            <Text style={styles.phaseGuideSub}>
-              Phase progress auto-advances after readiness criteria are met.
-            </Text>
+                </View>
+              );
+            })}
           </View>
 
           {!!target.phase_readiness?.criteria?.length ? (
@@ -641,7 +677,7 @@ const styles = StyleSheet.create({
     color: EMBER_DIM,
     marginBottom: 14,
   },
-  phaseGuideCard: {
+  journeyCard: {
     backgroundColor: "rgba(14,8,4,0.95)",
     borderWidth: 1,
     borderColor: "rgba(249,115,22,0.10)",
@@ -649,60 +685,89 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     overflow: "hidden",
+    position: "relative",
   },
-  phaseGuideTitle: {
+  journeyGlow: {
+    position: "absolute",
+    top: 0,
+    left: "10%",
+    right: "10%",
+    height: 1,
+    backgroundColor: "rgba(249,115,22,0.20)",
+  },
+  journeyTitle: {
     fontSize: 9,
     fontWeight: "700",
     letterSpacing: 2,
     textTransform: "uppercase",
     color: "rgba(249,115,22,0.35)",
-    marginBottom: 12,
+    marginBottom: 14,
+    fontFamily: "Inter_700Bold",
   },
-  phaseGuideRow: {
+  journeyRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-    gap: 8,
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 8,
+    borderRadius: 10,
   },
-  phaseGuideStep: { flex: 1, alignItems: "center", gap: 6 },
-  phaseGuideStepActive: {
+  journeyRowActive: {
     backgroundColor: "rgba(249,115,22,0.06)",
     borderWidth: 1,
     borderColor: "rgba(249,115,22,0.15)",
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 4,
   },
-  phaseGuideDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  journeyDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    marginTop: 4,
+    flexShrink: 0,
+  },
+  journeyDotActive: {
+    backgroundColor: "#F97316",
+    shadowColor: "#F97316",
+    shadowOpacity: 0.45,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
+  },
+  journeyDotPassed: {
+    backgroundColor: "rgba(249,115,22,0.35)",
     borderWidth: 1,
-    borderColor: "rgba(107,114,128,0.45)",
-    backgroundColor: "rgba(17,24,39,0.8)",
+    borderColor: "rgba(249,115,22,0.60)",
   },
-  phaseGuideDotActive: {
-    borderColor: "rgba(249,115,22,0.9)",
-    backgroundColor: "rgba(249,115,22,0.22)",
+  journeyDotLocked: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "rgba(42,48,80,0.60)",
   },
-  phaseGuideDotPassed: {
-    borderColor: "rgba(167,139,250,0.7)",
-    backgroundColor: "rgba(167,139,250,0.22)",
-  },
-  phaseGuideLabel: {
-    fontSize: 10,
-    color: "#6B7280",
+  journeyRowLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 2,
     fontFamily: "Inter_600SemiBold",
-    textAlign: "center",
   },
-  phaseGuideLabelActive: { color: "#FDBA74" },
-  phaseGuideLabelPassed: { color: "#C4B5FD" },
-  phaseGuideSub: {
+  journeyRowLabelActive: {
+    color: "rgba(253,186,116,0.90)",
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
+  },
+  journeyRowLabelPassed: { color: "#374151" },
+  journeyRowLabelLocked: { color: "#1E2337" },
+  journeyHere: {
+    fontSize: 9,
+    fontWeight: "500",
+    color: "rgba(249,115,22,0.50)",
+    fontFamily: "Inter_500Medium",
+  },
+  journeyRowDesc: {
     fontSize: 11,
     color: "#9CA3AF",
+    lineHeight: 15,
     fontFamily: "Inter_400Regular",
-    lineHeight: 16,
   },
+  journeyRowDescPassed: { color: "#374151" },
   readinessRow: {
     flexDirection: "row",
     alignItems: "center",

@@ -18,14 +18,28 @@ const URGE_OPTIONS: Array<{ value: UrgeLevel; emoji: string; label: string }> = 
 interface Props {
   habitName: string;
   pathId: string;
-  competingResponse?: string;
-  onSave: (pathId: string, level: UrgeLevel, strategyHelped: boolean | null) => void;
+  competingResponse?: string | null;
+  onSave: (
+    pathId: string,
+    level: UrgeLevel,
+    strategyHelped: "yes" | "partially" | "no" | null
+  ) => void;
   onDismiss: (pathId: string) => void;
 }
 
-export function WeeklyUrgeCard({ habitName, pathId, competingResponse, onSave, onDismiss }: Props) {
+export function WeeklyUrgeCard({
+  habitName,
+  pathId,
+  competingResponse,
+  onSave,
+  onDismiss,
+}: Props) {
   const [urgeSelected, setUrgeSelected] = useState<UrgeLevel | null>(null);
-  const [strategyHelped, setStrategyHelped] = useState<boolean | null>(null);
+  const [strategyHelped, setStrategyHelped] = useState<"yes" | "partially" | "no" | null>(null);
+
+  const handleUrgeSelect = (level: UrgeLevel) => {
+    setUrgeSelected(level);
+  };
 
   const handleSave = () => {
     if (!urgeSelected) return;
@@ -42,22 +56,24 @@ export function WeeklyUrgeCard({ habitName, pathId, competingResponse, onSave, o
       />
       <View style={styles.inner}>
         <View style={styles.topRow}>
-          <Text style={styles.eyebrow}>🔥 Quit Check-in</Text>
+          <Text style={styles.eyebrow}>🔥 Weekly Check-in</Text>
           <Pressable onPress={() => onDismiss(pathId)} hitSlop={8}>
             <Text style={styles.dismiss}>Dismiss</Text>
           </Pressable>
         </View>
+
         <Text style={styles.question}>
           This week with <Text style={styles.habitHighlight}>{habitName}</Text>
           {" "}—{"\n"}how strong were the urges?
         </Text>
-        <View style={styles.scale}>
+
+        <View style={[styles.scale, { marginBottom: 16 }]}>
           {URGE_OPTIONS.map((opt) => {
             const isOn = urgeSelected === opt.value;
             return (
               <Pressable
                 key={opt.value}
-                onPress={() => setUrgeSelected(opt.value)}
+                onPress={() => handleUrgeSelect(opt.value)}
                 style={[styles.opt, isOn && styles.optOn]}
               >
                 <Text style={styles.emoji}>{opt.emoji}</Text>
@@ -66,42 +82,47 @@ export function WeeklyUrgeCard({ habitName, pathId, competingResponse, onSave, o
             );
           })}
         </View>
-        <View style={styles.strategyBlock}>
-          <Text style={styles.strategyTitle}>Strategy used?</Text>
+
+        <View style={styles.stratSection}>
+          <Text style={styles.stratQ}>Did your strategy help this week?</Text>
           {competingResponse ? (
-            <Text style={styles.strategySub} numberOfLines={2}>
-              {competingResponse}
+            <Text style={styles.stratHint} numberOfLines={2}>
+              Your strategy: {competingResponse}
             </Text>
           ) : null}
-          <View style={styles.strategyRow}>
-            <Pressable
-              style={[styles.strategyBtn, strategyHelped === true && styles.strategyBtnOn]}
-              onPress={() => setStrategyHelped(true)}
-            >
-              <Text style={[styles.strategyBtnText, strategyHelped === true && styles.strategyBtnTextOn]}>
-                Helped
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.strategyBtn, strategyHelped === false && styles.strategyBtnOn]}
-              onPress={() => setStrategyHelped(false)}
-            >
-              <Text style={[styles.strategyBtnText, strategyHelped === false && styles.strategyBtnTextOn]}>
-                Not helped
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.strategyBtn, strategyHelped === null && styles.strategyBtnOn]}
-              onPress={() => setStrategyHelped(null)}
-            >
-              <Text style={[styles.strategyBtnText, strategyHelped === null && styles.strategyBtnTextOn]}>
-                Skip
-              </Text>
-            </Pressable>
+          <View style={styles.stratRow}>
+            {(
+              [
+                { val: "yes" as const, label: "✓ Helped", activeStyle: styles.stratYes, activeText: styles.stratYesTxt },
+                {
+                  val: "partially" as const,
+                  label: "~ Partially",
+                  activeStyle: styles.stratPartial,
+                  activeText: styles.stratPartialTxt,
+                },
+                { val: "no" as const, label: "✗ Didn't", activeStyle: styles.stratNo, activeText: styles.stratNoTxt },
+              ] as const
+            ).map(({ val, label, activeStyle, activeText }) => {
+              const isOn = strategyHelped === val;
+              return (
+                <Pressable
+                  key={val}
+                  onPress={() => setStrategyHelped(isOn ? null : val)}
+                  style={[styles.stratBtn, isOn && activeStyle]}
+                >
+                  <Text style={[styles.stratBtnTxt, isOn && activeText]}>{label}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
-        <Pressable style={[styles.saveBtn, !urgeSelected && styles.saveBtnDisabled]} onPress={handleSave}>
-          <Text style={styles.saveBtnText}>Save check-in</Text>
+
+        <Pressable
+          style={[styles.saveBtn, !urgeSelected && styles.saveBtnDisabled]}
+          onPress={handleSave}
+          disabled={!urgeSelected}
+        >
+          <Text style={styles.saveBtnTxt}>Save check-in</Text>
         </Pressable>
       </View>
     </View>
@@ -180,61 +201,72 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
   },
   labelOn: { color: "rgba(251,146,60,0.8)" },
-  strategyBlock: {
-    marginTop: 14,
+
+  stratSection: {
     borderTopWidth: 1,
-    borderTopColor: "rgba(42,48,80,0.35)",
+    borderTopColor: "rgba(249,115,22,0.08)",
     paddingTop: 12,
+    marginBottom: 14,
   },
-  strategyTitle: {
+  stratQ: {
     fontSize: 11,
-    color: "#D1D5DB",
-    fontFamily: "Inter_600SemiBold",
-    marginBottom: 4,
-  },
-  strategySub: {
-    fontSize: 10,
+    fontWeight: "700",
     color: "#9CA3AF",
-    fontFamily: "Inter_400Regular",
+    marginBottom: 6,
+    fontFamily: "Inter_700Bold",
+  },
+  stratHint: {
+    fontSize: 9,
+    color: "rgba(249,115,22,0.38)",
+    fontStyle: "italic",
     marginBottom: 8,
+    lineHeight: 13,
+    fontFamily: "Inter_400Regular",
   },
-  strategyRow: {
-    flexDirection: "row",
-    gap: 6,
-    marginBottom: 12,
-  },
-  strategyBtn: {
+  stratRow: { flexDirection: "row", gap: 6 },
+  stratBtn: {
     flex: 1,
+    paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "rgba(42,48,80,0.45)",
-    backgroundColor: "rgba(17,24,39,0.55)",
-    paddingVertical: 8,
+    backgroundColor: "rgba(42,48,80,0.25)",
     alignItems: "center",
   },
-  strategyBtnOn: {
-    borderColor: "rgba(249,115,22,0.5)",
-    backgroundColor: "rgba(249,115,22,0.14)",
-  },
-  strategyBtnText: {
+  stratBtnTxt: {
     fontSize: 10,
-    color: "#9CA3AF",
-    fontFamily: "Inter_600SemiBold",
+    fontWeight: "700",
+    color: "#374151",
+    fontFamily: "Inter_700Bold",
   },
-  strategyBtnTextOn: { color: "#FDBA74" },
+  stratYes: {
+    backgroundColor: "rgba(74,222,128,0.12)",
+    borderColor: "rgba(74,222,128,0.30)",
+  },
+  stratYesTxt: { color: "#4ADE80" },
+  stratPartial: {
+    backgroundColor: "rgba(245,158,11,0.10)",
+    borderColor: "rgba(245,158,11,0.25)",
+  },
+  stratPartialTxt: { color: "#F59E0B" },
+  stratNo: {
+    backgroundColor: "rgba(42,48,80,0.50)",
+    borderColor: "rgba(42,48,80,0.70)",
+  },
+  stratNoTxt: { color: "#6B7280" },
+
   saveBtn: {
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: "#EA580C",
+    borderRadius: 11,
+    paddingVertical: 11,
+    backgroundColor: "rgba(109,40,217,0.85)",
     alignItems: "center",
     justifyContent: "center",
   },
-  saveBtnDisabled: {
-    opacity: 0.45,
-  },
-  saveBtnText: {
+  saveBtnDisabled: { backgroundColor: "rgba(42,48,80,0.4)" },
+  saveBtnTxt: {
     fontSize: 12,
-    color: "#FFFFFF",
+    fontWeight: "700",
+    color: "#fff",
     fontFamily: "Inter_700Bold",
   },
 });

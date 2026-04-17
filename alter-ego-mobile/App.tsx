@@ -21,6 +21,9 @@ import { apiClient } from "./src/services/api";
 import { useAuthStore } from "./src/store/authStore";
 import { twinService, type GapMoment } from "./src/services/twin";
 import { GapMomentScreen } from "./src/screens/GapMomentScreen";
+import {
+  setGapMomentCheckHandler,
+} from "./src/utils/gapMomentCheckBridge";
 import { isAndroidExpoGoRemotePushUnavailable } from "./src/utils/expoPushEnvironment";
 
 // Suppress React 19 ref warning from dependencies (e.g. React Navigation) until they support ref-as-prop
@@ -161,6 +164,13 @@ function AppRootWithGapMoment({ navTheme }: { navTheme: Theme }) {
       if (state === "active") void checkMoment();
     });
     return () => sub.remove();
+  }, [checkMoment]);
+
+  useEffect(() => {
+    setGapMomentCheckHandler(() => {
+      void checkMoment();
+    });
+    return () => setGapMomentCheckHandler(null);
   }, [checkMoment]);
 
   return (

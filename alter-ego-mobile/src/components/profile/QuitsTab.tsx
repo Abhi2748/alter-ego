@@ -232,7 +232,11 @@ export function QuitsTab() {
   }, [manageTarget, conquerMutation]);
 
   const handleUrgeCheckSave = useCallback(
-    (pathId: string, level: string, strategyHelped: boolean | null) => {
+    (
+      pathId: string,
+      level: string,
+      strategyHelped: "yes" | "partially" | "no" | null
+    ) => {
       logCheckin.mutate({
         pathId,
         body: {
@@ -245,12 +249,12 @@ export function QuitsTab() {
             | "slipped",
         },
       });
-      if (strategyHelped !== null) {
+      if (strategyHelped) {
         logCheckin.mutate({
           pathId,
           body: {
             checkin_type: "response_used",
-            free_text: strategyHelped ? "helped" : "not_helped",
+            context_tags: [strategyHelped],
           },
         });
       }
@@ -447,7 +451,7 @@ export function QuitsTab() {
                   key={`urge-${t.path_id}`}
                   habitName={t.habit_name}
                   pathId={t.path_id}
-                  competingResponse={t.competing_response}
+                  competingResponse={t.competing_response ?? null}
                   onSave={handleUrgeCheckSave}
                   onDismiss={handleUrgeCheckDismiss}
                 />

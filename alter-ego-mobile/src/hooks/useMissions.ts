@@ -22,6 +22,7 @@ import { STATS_KEYS } from "@/hooks/useStats";
 import { SIGIL_KEYS } from "@/hooks/useSigil";
 import { SEASON_KEYS } from "@/hooks/useSeason";
 import { triggerMissionCompletionHaptic } from "@/utils/haptics";
+import { requestGapMomentCheck } from "@/utils/gapMomentCheckBridge";
 
 // Query keys — centralised so invalidation works correctly
 export const MISSION_KEYS = {
@@ -189,6 +190,7 @@ export function useCompleteMission() {
 
     onSuccess: (result: CompleteMissionResponse) => {
       void applyMissionCompletionSideEffects(queryClient, result);
+      requestGapMomentCheck();
     },
 
     onError: (_error, _missionId, context) => {

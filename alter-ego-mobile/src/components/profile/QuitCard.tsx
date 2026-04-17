@@ -306,49 +306,45 @@ export function QuitCard({
           <View style={styles.freqDivider} />
 
           <View style={styles.freqColRight}>
-            {(phase === "disruption" || phase === "consolidation") ? (
-              <>
-                <Text style={styles.freqSubLabel}>Strategy used?</Text>
-                <View style={styles.strategyButtonsRow}>
-                  {[
-                    { key: "helped", label: "✓ Yes" },
-                    { key: "some", label: "~ Some" },
-                    { key: "not_helped", label: "✗ No" },
-                  ].map((item) => {
-                    const active = strategyUsed === item.key;
-                    return (
-                      <Pressable
-                        key={item.key}
-                        onPress={() => setStrategyUsed(item.key as StrategyChoice)}
-                        style={[
-                          styles.strategyBtn,
-                          active &&
-                            (item.key === "helped"
-                              ? styles.strategyBtnYes
-                              : item.key === "some"
-                                ? styles.strategyBtnSome
-                                : styles.strategyBtnNo),
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.strategyBtnText,
-                            active &&
-                              (item.key === "helped"
-                                ? styles.strategyBtnTextYes
-                                : item.key === "some"
-                                  ? styles.strategyBtnTextSome
-                                  : styles.strategyBtnTextNo),
-                          ]}
-                        >
-                          {item.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </>
-            ) : null}
+            <Text style={styles.freqSubLabel}>Strategy used?</Text>
+            <View style={styles.strategyButtonsRow}>
+              {[
+                { key: "helped", label: "✓ Yes" },
+                { key: "some", label: "~ Some" },
+                { key: "not_helped", label: "✗ No" },
+              ].map((item) => {
+                const active = strategyUsed === item.key;
+                return (
+                  <Pressable
+                    key={item.key}
+                    onPress={() => setStrategyUsed(item.key as StrategyChoice)}
+                    style={[
+                      styles.strategyBtn,
+                      active &&
+                        (item.key === "helped"
+                          ? styles.strategyBtnYes
+                          : item.key === "some"
+                            ? styles.strategyBtnSome
+                            : styles.strategyBtnNo),
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.strategyBtnText,
+                        active &&
+                          (item.key === "helped"
+                            ? styles.strategyBtnTextYes
+                            : item.key === "some"
+                              ? styles.strategyBtnTextSome
+                              : styles.strategyBtnTextNo),
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         </View>
 

@@ -2,7 +2,7 @@
  * SlipContextPicker — Post-slip trigger context collector.
  * Shown after user increments frequency count. Optional and dismissable.
  */
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,9 +10,11 @@ import {
   Modal,
   Pressable,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
+  Keyboard,
+  Platform,
+  useWindowDimensions,
+  type KeyboardEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -37,9 +39,38 @@ interface Props {
 
 export function SlipContextPicker({ visible, habitName, onSave, onSkip }: Props) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const [selected, setSelected] = useState<string[]>([]);
   const [freeText, setFreeText] = useState("");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const inputRef = useRef<TextInput>(null);
+
+  const maxSheetWhenClosed = Math.round(windowHeight * 0.92);
+  const keyboardOpen = keyboardHeight > 0;
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const onShow = (e: KeyboardEvent) => {
+      setKeyboardHeight(Math.round(e.endCoordinates.height));
+    };
+    const onHide = () => setKeyboardHeight(0);
+
+    const subShow = Keyboard.addListener(showEvent, onShow);
+    const subHide = Keyboard.addListener(hideEvent, onHide);
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardHeight(0);
+      Keyboard.dismiss();
+    }
+  }, [visible]);
 
   const toggle = useCallback((chip: string) => {
     setSelected((prev) => (prev.includes(chip) ? prev.filter((c) => c !== chip) : [...prev, chip]));
@@ -57,98 +88,113 @@ export function SlipContextPicker({ visible, habitName, onSave, onSkip }: Props)
     onSkip();
   }, [onSkip]);
 
+  const footerPadBottom = keyboardOpen ? 12 : Math.max(insets.bottom, 12) + 8;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleSkip}>
-      <Pressable style={styles.backdrop} onPress={handleSkip} />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.kavWrapper}
-      >
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.backdrop} onPress={handleSkip} />
         <View
-          style={[styles.sheet, { paddingBottom: insets.bottom + 28 }]}
-          onStartShouldSetResponder={() => true}
+          style={[
+            styles.sheetLift,
+            keyboardOpen
+              ? { top: insets.top, bottom: keyboardHeight }
+              : { bottom: 0 },
+          ]}
         >
-          <View style={styles.topGlow} />
-          <View style={styles.handle} />
-
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
+          <View
+            style={[styles.sheet, keyboardOpen ? styles.sheetFillAboveKeyboard : { height: maxSheetWhenClosed }]}
+            onStartShouldSetResponder={() => true}
           >
-            <Text style={styles.eyebrow}>🔥 {habitName}</Text>
-            <Text style={styles.question}>
-              What was happening{"\n"}right before?
-            </Text>
-            <Text style={styles.sub}>Optional · 10 seconds · makes missions smarter</Text>
+            <View style={styles.topGlow} />
+            <View style={styles.handle} />
 
-            <View style={styles.chipGrid}>
-              {CONTEXT_OPTIONS.map((opt) => {
-                const on = selected.includes(opt);
-                return (
-                  <Pressable
-                    key={opt}
-                    onPress={() => toggle(opt)}
-                    style={[styles.chip, on && styles.chipOn]}
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              <Text style={styles.eyebrow}>🔥 {habitName}</Text>
+              <Text style={styles.question}>
+                What was happening{"\n"}right before?
+              </Text>
+              <Text style={styles.sub}>Optional · 10 seconds · makes missions smarter</Text>
+
+              <View style={styles.chipGrid}>
+                {CONTEXT_OPTIONS.map((opt) => {
+                  const on = selected.includes(opt);
+                  return (
+                    <Pressable
+                      key={opt}
+                      onPress={() => toggle(opt)}
+                      style={[styles.chip, on && styles.chipOn]}
+                    >
+                      <Text style={[styles.chipText, on && styles.chipTextOn]}>{opt}</Text>
+                    </Pressable>
+                  );
+                })}
+                <Pressable style={[styles.chip, styles.chipOther]} onPress={() => inputRef.current?.focus()}>
+                  <Text style={styles.chipOtherText}>+ Other</Text>
+                </Pressable>
+              </View>
+
+              <TextInput
+                ref={inputRef}
+                style={styles.freeInput}
+                placeholder="What happened right before the urge? Mention place, people, emotion, or time."
+                placeholderTextColor="rgba(249,115,22,0.2)"
+                value={freeText}
+                onChangeText={setFreeText}
+                maxLength={400}
+                multiline
+                numberOfLines={3}
+                returnKeyType="done"
+                blurOnSubmit
+              />
+            </ScrollView>
+
+            <View style={[styles.footer, { paddingBottom: footerPadBottom }]}>
+              <View style={styles.btnRow}>
+                <Pressable style={styles.skipBtn} onPress={handleSkip}>
+                  <Text style={styles.skipText}>Skip</Text>
+                </Pressable>
+                <Pressable style={styles.saveBtn} onPress={handleSave}>
+                  <LinearGradient
+                    colors={["#7C2D12", "#EA580C", "#F97316"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.saveBtnGrad}
                   >
-                    <Text style={[styles.chipText, on && styles.chipTextOn]}>{opt}</Text>
-                  </Pressable>
-                );
-              })}
-              <Pressable style={[styles.chip, styles.chipOther]} onPress={() => inputRef.current?.focus()}>
-                <Text style={styles.chipOtherText}>+ Other</Text>
-              </Pressable>
+                    <Text style={styles.saveText}>Save context →</Text>
+                  </LinearGradient>
+                </Pressable>
+              </View>
             </View>
-
-            <TextInput
-              ref={inputRef}
-              style={styles.freeInput}
-              placeholder="What happened right before the urge? Mention place, people, emotion, or time."
-              placeholderTextColor="rgba(249,115,22,0.2)"
-              value={freeText}
-              onChangeText={setFreeText}
-              maxLength={400}
-              multiline
-              numberOfLines={3}
-              returnKeyType="done"
-              blurOnSubmit
-            />
-
-            <View style={styles.btnRow}>
-              <Pressable style={styles.skipBtn} onPress={handleSkip}>
-                <Text style={styles.skipText}>Skip</Text>
-              </Pressable>
-              <Pressable style={styles.saveBtn} onPress={handleSave}>
-                <LinearGradient
-                  colors={["#7C2D12", "#EA580C", "#F97316"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.saveBtnGrad}
-                >
-                  <Text style={styles.saveText}>Save context →</Text>
-                </LinearGradient>
-              </Pressable>
-            </View>
-          </ScrollView>
+          </View>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  modalRoot: {
+    flex: 1,
+  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.78)",
   },
-  kavWrapper: {
+  sheetLift: {
     position: "absolute",
-    bottom: 0,
     left: 0,
     right: 0,
   },
-  scrollContent: {
-    flexGrow: 1,
+  /** When keyboard is open, parent uses top + bottom so sheet fills the band below status bar / island. */
+  sheetFillAboveKeyboard: {
+    flex: 1,
   },
   sheet: {
     backgroundColor: "#150C04",
@@ -159,7 +205,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 16,
     overflow: "hidden",
-    maxHeight: "90%",
+    width: "100%",
+    flexDirection: "column",
+  },
+  scroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  scrollContent: {
+    paddingBottom: 12,
+  },
+  footer: {
+    flexShrink: 0,
+    paddingTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(249,115,22,0.12)",
+    backgroundColor: "#150C04",
   },
   topGlow: {
     position: "absolute",
@@ -175,7 +236,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: "rgba(249,115,22,0.2)",
     alignSelf: "center",
-    marginBottom: 20,
+    marginBottom: 16,
   },
   eyebrow: {
     fontSize: 9,
@@ -200,13 +261,13 @@ const styles = StyleSheet.create({
     color: "rgba(249,115,22,0.35)",
     fontFamily: "Inter_400Regular",
     fontStyle: "italic",
-    marginBottom: 20,
+    marginBottom: 16,
   },
   chipGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   chip: {
     paddingVertical: 9,
@@ -246,7 +307,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#E5E7EB",
     fontFamily: "Inter_400Regular",
-    marginBottom: 18,
+    minHeight: 88,
+    textAlignVertical: "top",
   },
   btnRow: { flexDirection: "row", gap: 10 },
   skipBtn: {

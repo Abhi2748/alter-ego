@@ -5,8 +5,8 @@
  * `{ type: 0, payload: processColor(...) }` for `fill` / `stroke`:
  * https://docs.swmansion.com/react-native-reanimated/docs/core/useAnimatedProps/
  *
- * react-native-reanimated@4.1.x does not re-export `SVGAdapter` from the public entry; the
- * transform handler below matches that documented behavior for matrix arrays.
+ * react-native-reanimated@4.1.x does not re-export `SVGAdapter` from the public entry; we keep
+ * animated `transform` as a 6-number column-major matrix for react-native-svg (Android-safe).
  */
 
 import Animated, {
@@ -15,14 +15,23 @@ import Animated, {
 } from "react-native-reanimated";
 import { Circle, Ellipse, G, Line, Path } from "react-native-svg";
 
-/** Same role as the built-in SVGAdapter from the docs: matrix array → string for react-native-svg. */
+/**
+ * Reanimated passes `transform` as a column-major 6-float matrix [a,b,c,d,tx,ty].
+ * On Android, leaving that as `transform` can flow into RN's generic processTransform
+ * path (expects transform array objects) and crash with:
+ * Double cannot be cast to ReadableNativeMap.
+ *
+ * Forward as native SVG `matrix` instead; this bypasses processTransform and matches
+ * react-native-svg's expected internal representation.
+ */
 export function SVGAdapter(props: Record<string, unknown>) {
   "worklet";
   if (props.transform != null && Array.isArray(props.transform)) {
     const t = props.transform as number[];
     if (t.length >= 6) {
       const [a, b, c, d, e, f] = t;
-      props.transform = `matrix(${a} ${b} ${c} ${d} ${e} ${f})`;
+      props.matrix = [a, b, c, d, e, f];
+      props.transform = undefined;
     }
   }
 }

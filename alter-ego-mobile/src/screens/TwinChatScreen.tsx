@@ -328,10 +328,13 @@ export function TwinChatScreen() {
         return;
       }
 
+      let doneFired = false;
+      let chunkReceived = false;
       let errorFired = false;
       try {
         await twinService.sendMessageStream(text, token, {
           onChunk: (chunk) => {
+            chunkReceived = true;
             streamingContentRef.current += chunk;
             scheduleStreamingFlush();
           },
@@ -361,27 +364,27 @@ export function TwinChatScreen() {
             );
           },
           onDone: () => {
+            doneFired = true;
             if (streamingFlushRafRef.current != null) {
               cancelAnimationFrame(streamingFlushRafRef.current);
               streamingFlushRafRef.current = null;
             }
-            void (async () => {
-              try {
-                await queryClient.refetchQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] });
-              } catch {
-                await queryClient.invalidateQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] });
-              } finally {
-                setIsStreaming(false);
-                setStreamingContent("");
-                streamingContentRef.current = "";
-                // If onError fired mid-stream but the server still completed (done received),
-                // the refetch above has restored both messages. Undo the input restoration.
-                if (errorFired && overrideText === undefined) {
-                  setInputText("");
-                }
+            // Clear streaming state IMMEDIATELY and synchronously —
+            // do not wait for refetch to finish before updating UI.
+            setIsStreaming(false);
+            setStreamingContent("");
+            streamingContentRef.current = "";
+            // Refetch in background to replace optimistic message with real IDs.
+            queryClient
+              .refetchQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] })
+              .catch(() => {
+                queryClient.invalidateQueries({
+                  queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+                });
+              })
+              .finally(() => {
                 listRef.current?.scrollToOffset({ offset: 0, animated: true });
-              }
-            })();
+              });
           },
           onError: () => {
             errorFired = true;
@@ -392,6 +395,21 @@ export function TwinChatScreen() {
             setIsStreaming(false);
             setStreamingContent("");
             streamingContentRef.current = "";
+
+            if (chunkReceived) {
+              // Server delivered content before the error — recover via refetch
+              // instead of rolling back. Messages are already in the DB.
+              queryClient
+                .refetchQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] })
+                .catch(() => {
+                  queryClient.invalidateQueries({
+                    queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+                  });
+                });
+              return;
+            }
+
+            // True failure — no chunks received, roll back
             queryClient.setQueryData(
               [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
               (old: { messages: TwinMessage[] } | undefined) => ({
@@ -409,6 +427,26 @@ export function TwinChatScreen() {
         setIsStreaming(false);
         setStreamingContent("");
         streamingContentRef.current = "";
+
+        if (doneFired) {
+          // onDone already ran and cleared state — refetch is in progress, do nothing
+          return;
+        }
+
+        if (chunkReceived) {
+          // Content was delivered but done event never fired —
+          // stream closed unexpectedly. Refetch instead of rollback.
+          queryClient
+            .refetchQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] })
+            .catch(() => {
+              queryClient.invalidateQueries({
+                queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+              });
+            });
+          return;
+        }
+
+        // True failure — nothing received
         queryClient.setQueryData(
           [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
           (old: { messages: TwinMessage[] } | undefined) => ({

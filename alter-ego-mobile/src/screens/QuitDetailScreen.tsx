@@ -361,7 +361,7 @@ export function QuitDetailScreen() {
             </View>
           ) : null}
 
-          {urgeTrend.length > 0 ? (
+          {urgeTrend.length >= 2 ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Weekly urge trend</Text>
               <View style={styles.trendChart}>

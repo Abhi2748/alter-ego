@@ -29,6 +29,7 @@ import {
   CHARACTER_IDENTITY_PAGE_IMAGE,
   getPetImageSource,
 } from "@/constants/characterPetAssets";
+import { PET_UNLOCK_DAY } from "@/constants/characterProgression";
 
 type DayDetailRouteProp = RouteProp<MainStackParamList, "DayDetail">;
 
@@ -65,6 +66,8 @@ interface DayHistory {
   pf_earned: number;
   pf_daily_cap: number;
   pf_total_start_of_day: number;
+  /** Pet Food is not earned before companion unlock (day 6 since registration). */
+  pf_applies: boolean;
   missions_total: number;
   missions_completed: number;
   completion_pct: number;
@@ -160,7 +163,11 @@ function buildHistory(
   const interest = (missionsRes.missions.interest ?? []).map((m) => mapMissionToDay(m, "interest"));
   const resistance = (missionsRes.missions.resistance ?? []).map((m) => mapMissionToDay(m, "resistance"));
   const personal = (missionsRes.missions.personal ?? []).map((m) => mapMissionToDay(m, "personal"));
-  const missions = [...core, ...interest, ...resistance, ...personal];
+  const missionsRaw = [...core, ...interest, ...resistance, ...personal];
+  const pf_applies = day_number >= PET_UNLOCK_DAY;
+  const missions = pf_applies
+    ? missionsRaw
+    : missionsRaw.map((m) => ({ ...m, pf_value: 0 }));
 
   const total = missions.length;
   const completed = missions.filter((m) => m.completed).length;
@@ -177,10 +184,13 @@ function buildHistory(
     xp_from_missions > 0 || pf_from_missions > 0 || !heatmapRow
       ? xp_from_missions
       : Number(heatmapRow.xp_earned ?? 0);
-  const pf_earned =
+  let pf_earned =
     xp_from_missions > 0 || pf_from_missions > 0 || !heatmapRow
       ? pf_from_missions
       : Number(heatmapRow.pf_earned ?? 0);
+  if (!pf_applies) {
+    pf_earned = 0;
+  }
 
   const is_streak_day = heatmapRow ? !!heatmapRow.maintained : false;
   const streak_at_day = heatmapRow?.streak_count ?? 0;
@@ -212,6 +222,7 @@ function buildHistory(
     pf_earned,
     pf_daily_cap: pfCap,
     pf_total_start_of_day: profile?.total_pf ?? 0,
+    pf_applies,
     missions_total: total,
     missions_completed: completed,
     completion_pct,
@@ -554,7 +565,11 @@ export function DayDetailScreen() {
               </Text>
               <Text style={styles.rewardLabel}>PET FOOD</Text>
               <Text style={styles.rewardCap}>
-                {history.pf_earned > 0 ? `Cap: ${history.pf_daily_cap} PF` : "Pet was sad"}
+                {history.pf_earned > 0
+                  ? `Cap: ${history.pf_daily_cap} PF`
+                  : !history.pf_applies
+                    ? `Unlocks day ${PET_UNLOCK_DAY}`
+                    : "Pet was sad"}
               </Text>
             </View>
           </View>
@@ -716,14 +731,16 @@ export function DayDetailScreen() {
                         >
                           +{m.xp_value} XP
                         </Text>
-                        <Text
-                          style={[
-                            styles.dayMissionPf,
-                            !m.completed && styles.dayMissionRewardMuted,
-                          ]}
-                        >
-                          +{m.pf_value} PF
-                        </Text>
+                        {history.pf_applies ? (
+                          <Text
+                            style={[
+                              styles.dayMissionPf,
+                              !m.completed && styles.dayMissionRewardMuted,
+                            ]}
+                          >
+                            +{m.pf_value} PF
+                          </Text>
+                        ) : null}
                       </View>
                     </View>
                   );

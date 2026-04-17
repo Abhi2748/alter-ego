@@ -3,7 +3,17 @@
  * Shown after user increments frequency count. Optional and dismissable.
  */
 import React, { useCallback, useRef, useState } from "react";
-import { View, Text, StyleSheet, Modal, Pressable, TextInput } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  Pressable,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -50,63 +60,78 @@ export function SlipContextPicker({ visible, habitName, onSave, onSkip }: Props)
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={handleSkip}>
       <Pressable style={styles.backdrop} onPress={handleSkip} />
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + 28 }]} onStartShouldSetResponder={() => true}>
-        <View style={styles.topGlow} />
-        <View style={styles.handle} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.kavWrapper}
+      >
+        <View
+          style={[styles.sheet, { paddingBottom: insets.bottom + 28 }]}
+          onStartShouldSetResponder={() => true}
+        >
+          <View style={styles.topGlow} />
+          <View style={styles.handle} />
 
-        <Text style={styles.eyebrow}>🔥 {habitName}</Text>
-        <Text style={styles.question}>
-          What was happening{"\n"}right before?
-        </Text>
-        <Text style={styles.sub}>Optional · 10 seconds · makes missions smarter</Text>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+          >
+            <Text style={styles.eyebrow}>🔥 {habitName}</Text>
+            <Text style={styles.question}>
+              What was happening{"\n"}right before?
+            </Text>
+            <Text style={styles.sub}>Optional · 10 seconds · makes missions smarter</Text>
 
-        <View style={styles.chipGrid}>
-          {CONTEXT_OPTIONS.map((opt) => {
-            const on = selected.includes(opt);
-            return (
-              <Pressable
-                key={opt}
-                onPress={() => toggle(opt)}
-                style={[styles.chip, on && styles.chipOn]}
-              >
-                <Text style={[styles.chipText, on && styles.chipTextOn]}>{opt}</Text>
+            <View style={styles.chipGrid}>
+              {CONTEXT_OPTIONS.map((opt) => {
+                const on = selected.includes(opt);
+                return (
+                  <Pressable
+                    key={opt}
+                    onPress={() => toggle(opt)}
+                    style={[styles.chip, on && styles.chipOn]}
+                  >
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>{opt}</Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable style={[styles.chip, styles.chipOther]} onPress={() => inputRef.current?.focus()}>
+                <Text style={styles.chipOtherText}>+ Other</Text>
               </Pressable>
-            );
-          })}
-          <Pressable style={[styles.chip, styles.chipOther]} onPress={() => inputRef.current?.focus()}>
-            <Text style={styles.chipOtherText}>+ Other</Text>
-          </Pressable>
-        </View>
+            </View>
 
-        <TextInput
-          ref={inputRef}
-          style={styles.freeInput}
-          placeholder="What happened right before the urge? Mention place, people, emotion, or time."
-          placeholderTextColor="rgba(249,115,22,0.2)"
-          value={freeText}
-          onChangeText={setFreeText}
-          maxLength={400}
-          multiline
-          numberOfLines={3}
-          returnKeyType="done"
-        />
+            <TextInput
+              ref={inputRef}
+              style={styles.freeInput}
+              placeholder="What happened right before the urge? Mention place, people, emotion, or time."
+              placeholderTextColor="rgba(249,115,22,0.2)"
+              value={freeText}
+              onChangeText={setFreeText}
+              maxLength={400}
+              multiline
+              numberOfLines={3}
+              returnKeyType="done"
+              blurOnSubmit
+            />
 
-        <View style={styles.btnRow}>
-          <Pressable style={styles.skipBtn} onPress={handleSkip}>
-            <Text style={styles.skipText}>Skip</Text>
-          </Pressable>
-          <Pressable style={styles.saveBtn} onPress={handleSave}>
-            <LinearGradient
-              colors={["#7C2D12", "#EA580C", "#F97316"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.saveBtnGrad}
-            >
-              <Text style={styles.saveText}>Save context →</Text>
-            </LinearGradient>
-          </Pressable>
+            <View style={styles.btnRow}>
+              <Pressable style={styles.skipBtn} onPress={handleSkip}>
+                <Text style={styles.skipText}>Skip</Text>
+              </Pressable>
+              <Pressable style={styles.saveBtn} onPress={handleSave}>
+                <LinearGradient
+                  colors={["#7C2D12", "#EA580C", "#F97316"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.saveBtnGrad}
+                >
+                  <Text style={styles.saveText}>Save context →</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
+          </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -116,11 +141,16 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.78)",
   },
-  sheet: {
+  kavWrapper: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  sheet: {
     backgroundColor: "#150C04",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -129,6 +159,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 16,
     overflow: "hidden",
+    maxHeight: "90%",
   },
   topGlow: {
     position: "absolute",

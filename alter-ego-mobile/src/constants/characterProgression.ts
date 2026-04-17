@@ -18,6 +18,9 @@ export const CHARACTER_STAGE_NAMES = [
 
 export const TOTAL_CHARACTER_STAGES = 6;
 
+/** First calendar day index (since registration) when companion + Pet Food apply — must match backend PET_UNLOCK_DAY */
+export const PET_UNLOCK_DAY = 6;
+
 /** Daily XP cap per character stage — must match alter-ego-backend/app/core/constants.py DAILY_XP_CAPS */
 export const DAILY_XP_CAPS: Record<number, number> = {
   1: 100,

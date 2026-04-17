@@ -204,7 +204,7 @@ export function QuitCard({
         </View>
       ) : null}
 
-      {urgeTrend.length > 0 ? (
+      {urgeTrend.length >= 2 ? (
         <View style={styles.urgeStrip}>
           <View style={styles.urgeBars}>
             {urgeTrend.map((u, i) => (

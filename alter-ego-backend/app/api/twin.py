@@ -2,8 +2,6 @@
 Twin API endpoints.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 import random
@@ -67,9 +65,6 @@ class ChatRequest(BaseModel):
     message: str
 
 
-ChatRequest.model_rebuild()
-
-
 class ChatResponse(BaseModel):
     response: str
     message: str | None = None
@@ -80,9 +75,6 @@ class ChatResponse(BaseModel):
     is_safety_response: bool = False
     safety_category: str | None = None
     tone_used: str | None = None
-
-
-ChatResponse.model_rebuild()
 
 
 class TwinToneRatingBody(BaseModel):

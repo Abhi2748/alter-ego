@@ -339,12 +339,6 @@ export function TwinChatScreen() {
           }
         );
 
-        setTimeout(() => {
-          queryClient.invalidateQueries({
-            queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-          });
-        }, 500);
-
         setTimeout(
           () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
           100

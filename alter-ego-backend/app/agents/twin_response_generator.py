@@ -130,7 +130,7 @@ async def generate_twin_response_v2(
     conversation_messages: list[dict],
 ) -> tuple[str, Optional[str]]:
     """
-    Generate Twin's response using Claude Sonnet 4.
+    Generate Twin's response using Claude Haiku 4.5.
     Returns (response_text, conversation_note_or_none).
     Falls back to GPT-4o-mini sync path if Anthropic fails.
     """
@@ -141,8 +141,8 @@ async def generate_twin_response_v2(
         messages = [{"role": m["role"], "content": m["content"]} for m in conversation_messages]
 
         response = await client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=500,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
             system=system_prompt,
             messages=messages,
         )
@@ -175,7 +175,7 @@ async def generate_twin_response_stream(
     conversation_messages: list[dict],
 ):
     """
-    Stream the Twin's response token by token using Claude Sonnet 4.
+    Stream the Twin's response token by token using Claude Haiku 4.5.
     Yields SSE-formatted strings. The final event contains metadata.
 
     Yield format:
@@ -191,8 +191,8 @@ async def generate_twin_response_stream(
 
         full_text = ""
         async with client.messages.stream(
-            model="claude-sonnet-4-6",
-            max_tokens=500,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
             system=system_prompt,
             messages=messages,
         ) as stream:

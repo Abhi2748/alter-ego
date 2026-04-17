@@ -1,19 +1,26 @@
 """
 Consistency Checker — validates Twin response before sending.
-Uses GPT-4o-mini via existing run_agent.
+Uses Claude Haiku 4.5 (fast, low max_tokens).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+import re
 
 from pydantic import BaseModel, Field
 
 from app.agents import twin_chat_prompts_v2 as twin_prompts
-from app.agents.base import run_agent
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_json_fences(text: str) -> str:
+    t = text.strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\n?", "", t)
+        t = re.sub(r"\n?```\s*$", "", t)
+    return t.strip()
 
 
 class ConsistencyIssue(BaseModel):
@@ -55,15 +62,25 @@ async def check_consistency(
     )
 
     try:
-        result = await run_agent(
-            system_prompt=prompt,
-            user_message=f"Check this Twin response: {twin_response}",
-            response_model=ConsistencyResult,
-            temperature=0.1,
-            max_tokens=300,
-            context_label="twin_consistency_checker",
+        import anthropic
+
+        client = anthropic.AsyncAnthropic()
+        user_content = (
+            "Return ONLY valid JSON (no markdown fences) with this exact shape:\n"
+            '{"is_valid": true|false, "should_regenerate": true|false, '
+            '"issues": [{"type": "", "description": "", "severity": "minor"}]}\n'
+            "Be lenient: set should_regenerate to false unless the Twin response "
+            "clearly breaks character, safety, or the stated tone rules."
         )
-        return result
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=150,
+            system=prompt,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        raw = response.content[0].text
+        cleaned = _strip_json_fences(raw)
+        return ConsistencyResult.model_validate_json(cleaned)
     except Exception as e:
         logger.warning("Consistency check failed: %s", e)
         return ConsistencyResult(is_valid=True)

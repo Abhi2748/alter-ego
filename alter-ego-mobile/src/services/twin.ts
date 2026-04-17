@@ -158,6 +158,36 @@ export interface TwinChatResponse {
   tone_used?: string | null;
 }
 
+/** Normalise POST /twin/chat JSON (handles minor shape drift / string uuids). */
+function parseTwinChatResponse(raw: unknown): TwinChatResponse {
+  if (!raw || typeof raw !== 'object') {
+    return { response: '' };
+  }
+  const o = raw as Record<string, unknown>;
+  const response =
+    typeof o.response === 'string'
+      ? o.response
+      : typeof o.message === 'string'
+        ? o.message
+        : '';
+  const strOrNull = (v: unknown): string | null | undefined => {
+    if (v === null || v === undefined) return v as null | undefined;
+    if (typeof v === 'string') return v;
+    return String(v);
+  };
+  return {
+    response,
+    message: strOrNull(o.message) ?? (response || null),
+    message_id: strOrNull(o.message_id) ?? null,
+    user_message_id: strOrNull(o.user_message_id) ?? null,
+    twin_message_id: strOrNull(o.twin_message_id) ?? null,
+    emotional_register: strOrNull(o.emotional_register) ?? null,
+    is_safety_response: Boolean(o.is_safety_response),
+    safety_category: strOrNull(o.safety_category) ?? null,
+    tone_used: strOrNull(o.tone_used) ?? null,
+  };
+}
+
 export interface TwinStreamEvent {
   type: 'chunk' | 'replace' | 'done' | 'meta' | 'error';
   text?: string;
@@ -325,9 +355,11 @@ export const twinService = {
       `/api/v1/twin/chat/history?limit=${limit}`
     ),
 
-  // Send message to twin
-  sendMessage: (message: string) =>
-    apiClient.post<TwinChatResponse>('/api/v1/twin/chat', { message }),
+  // Send message to twin (non-streaming)
+  sendMessage: async (message: string): Promise<TwinChatResponse> => {
+    const raw = await apiClient.post<unknown>('/api/v1/twin/chat', { message });
+    return parseTwinChatResponse(raw);
+  },
 
   sendMessageStream: async (
     message: string,

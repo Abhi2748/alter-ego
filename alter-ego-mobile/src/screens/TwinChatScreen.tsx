@@ -18,6 +18,7 @@ import {
   ListRenderItem,
   TouchableOpacity,
   Image,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -28,8 +29,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTwinChatHistory, useRateTwinMessage, TWIN_KEYS } from "@/hooks/useTwin";
-import { supabase } from "@/utils/supabase";
 import { TWIN_STRIP_IMAGE } from "@/constants/characterPetAssets";
+import { getErrorMessage } from "@/services/api";
 import { twinService, type TwinMessage } from "@/services/twin";
 import { useUserStore } from "@/store/userStore";
 import Animated, {
@@ -41,8 +42,6 @@ import Animated, {
   withTiming,
   withDelay,
   Easing,
-  FadeIn,
-  FadeOut,
 } from "react-native-reanimated";
 
 // -----------------------------------------------------------------------------
@@ -218,23 +217,11 @@ export function TwinChatScreen() {
   const [inputText, setInputText] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
   const [ratedMessageIds, setRatedMessageIds] = useState<Record<string, boolean>>({});
-  const [streamingContent, setStreamingContent] = useState<string>("");
-  const [isStreaming, setIsStreaming] = useState(false);
-  const streamingContentRef = useRef("");
-  const streamingFlushRafRef = useRef<number | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  /** Synchronous guard so rapid double-tap / stale isSending closures cannot block sends. */
+  const isSendingRef = useRef(false);
   const listRef = useRef<FlatList<ListItem> | null>(null);
   const initialMessageSentRef = useRef(false);
-
-  const flushStreamingToState = useCallback(() => {
-    streamingFlushRafRef.current = null;
-    setStreamingContent(streamingContentRef.current);
-    listRef.current?.scrollToOffset({ offset: 0, animated: false });
-  }, []);
-
-  const scheduleStreamingFlush = useCallback(() => {
-    if (streamingFlushRafRef.current != null) return;
-    streamingFlushRafRef.current = requestAnimationFrame(flushStreamingToState);
-  }, [flushStreamingToState]);
 
   const profile = useUserStore((state) => state.profile);
   const queryClient = useQueryClient();
@@ -285,199 +272,88 @@ export function TwinChatScreen() {
       const raw = overrideText !== undefined ? overrideText : inputText;
       const text = (typeof raw === "string" ? raw : "").trim();
       if (!text) return;
-      if (isStreaming) return;
+      if (isSendingRef.current) return;
+      isSendingRef.current = true;
 
       if (overrideText === undefined) {
         setInputText("");
       }
 
+      // Add optimistic user message
       const tempUserId = `temp-user-${Date.now()}`;
-      const optimisticUserMsg: TwinMessage = {
-        id: tempUserId,
-        role: "user",
-        content: text,
-        created_at: new Date().toISOString(),
-      };
-
       queryClient.setQueryData(
         [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
         (old: { messages: TwinMessage[] } | undefined) => ({
-          messages: [...(old?.messages ?? []), optimisticUserMsg],
+          messages: [
+            ...(old?.messages ?? []),
+            {
+              id: tempUserId,
+              role: "user" as const,
+              content: text,
+              created_at: new Date().toISOString(),
+            } satisfies TwinMessage,
+          ],
         })
       );
 
-      setStreamingContent("");
-      streamingContentRef.current = "";
-      setIsStreaming(true);
-
+      setIsSending(true);
       setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 50);
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token ?? null;
-      if (!token) {
-        setIsStreaming(false);
-        queryClient.setQueryData(
-          [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-          (old: { messages: TwinMessage[] } | undefined) => ({
-            messages: (old?.messages ?? []).filter((m) => m.id !== tempUserId),
-          })
-        );
-        if (overrideText === undefined) setInputText(text);
-        return;
-      }
-
-      let doneFired = false;
-      let chunkReceived = false;
-      let errorFired = false;
       try {
-        await twinService.sendMessageStream(text, token, {
-          onChunk: (chunk) => {
-            chunkReceived = true;
-            streamingContentRef.current += chunk;
-            scheduleStreamingFlush();
-          },
-          onReplace: (fullText) => {
-            streamingContentRef.current = fullText;
-            if (streamingFlushRafRef.current != null) {
-              cancelAnimationFrame(streamingFlushRafRef.current);
-              streamingFlushRafRef.current = null;
-            }
-            setStreamingContent(fullText);
-            listRef.current?.scrollToOffset({ offset: 0, animated: false });
-          },
-          onMeta: (meta) => {
-            const uid = meta?.user_message_id;
-            if (!uid) return;
-            queryClient.setQueryData(
-              [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-              (old: { messages: TwinMessage[] } | undefined) => {
-                if (!old?.messages?.length) return old;
-                const next = old.messages.map((m) =>
-                  typeof m.id === "string" && m.id.startsWith("temp-user-") && m.role === "user"
-                    ? { ...m, id: String(uid) }
-                    : m
-                );
-                return { ...old, messages: next };
-              }
+        const result = await twinService.sendMessage(text);
+
+        const replyText = (result.response || result.message || "").trim();
+        const twinId =
+          result.twin_message_id && String(result.twin_message_id).length > 0
+            ? result.twin_message_id
+            : replyText
+              ? `temp-twin-${Date.now()}`
+              : null;
+
+        // Replace optimistic message + add twin reply directly into cache
+        queryClient.setQueryData(
+          [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+          (old: { messages: TwinMessage[] } | undefined) => {
+            const withoutTemp = (old?.messages ?? []).filter(
+              (m) => m.id !== tempUserId
             );
-          },
-          onDone: () => {
-            doneFired = true;
-            if (streamingFlushRafRef.current != null) {
-              cancelAnimationFrame(streamingFlushRafRef.current);
-              streamingFlushRafRef.current = null;
-            }
-            setIsStreaming(false);
-            setStreamingContent("");
-            streamingContentRef.current = "";
-
-            // Direct fetch with explicit no-cache headers.
-            // queryClient.refetchQueries goes through the mobile HTTP stack which
-            // caches GET responses — this bypasses that cache completely.
-            void (async () => {
-              try {
-                const {
-                  data: { session },
-                } = await supabase.auth.getSession();
-                const freshToken = session?.access_token;
-                if (!freshToken) return;
-
-                const BASE_URL = (
-                  process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000"
-                ).replace(/\/$/, "");
-
-                const res = await fetch(
-                  `${BASE_URL}/api/v1/twin/chat/history?limit=${CHAT_HISTORY_LIMIT}`,
-                  {
-                    method: "GET",
-                    headers: {
-                      Authorization: `Bearer ${freshToken}`,
-                      "Cache-Control": "no-cache, no-store, must-revalidate",
-                      Pragma: "no-cache",
-                    },
-                    cache: "no-store",
+            const userMsg: TwinMessage = {
+              id: result.user_message_id ?? tempUserId,
+              role: "user",
+              content: text,
+              created_at: new Date().toISOString(),
+            };
+            const twinMsg: TwinMessage | null =
+              twinId && replyText
+                ? {
+                    id: twinId,
+                    role: "twin",
+                    content: replyText,
+                    created_at: new Date().toISOString(),
+                    tone_used: result.tone_used ?? null,
                   }
-                );
+                : null;
+            return {
+              messages: twinMsg
+                ? [...withoutTemp, userMsg, twinMsg]
+                : [...withoutTemp, userMsg],
+            };
+          }
+        );
 
-                if (res.ok) {
-                  const freshData = (await res.json()) as { messages: TwinMessage[] };
-                  queryClient.setQueryData(
-                    [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-                    freshData
-                  );
-                }
-              } catch {
-                queryClient.invalidateQueries({
-                  queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-                });
-              } finally {
-                listRef.current?.scrollToOffset({ offset: 0, animated: true });
-              }
-            })();
-          },
-          onError: () => {
-            errorFired = true;
-            if (streamingFlushRafRef.current != null) {
-              cancelAnimationFrame(streamingFlushRafRef.current);
-              streamingFlushRafRef.current = null;
-            }
-            setIsStreaming(false);
-            setStreamingContent("");
-            streamingContentRef.current = "";
+        // Defer refetch slightly so we don’t race a history read before writes are visible,
+        // which could overwrite the cache with an older slice and look like “send failed”.
+        setTimeout(() => {
+          queryClient.invalidateQueries({
+            queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
+          });
+        }, 500);
 
-            if (chunkReceived) {
-              // Server delivered content before the error — recover via refetch
-              // instead of rolling back. Messages are already in the DB.
-              queryClient
-                .refetchQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] })
-                .catch(() => {
-                  queryClient.invalidateQueries({
-                    queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-                  });
-                });
-              return;
-            }
-
-            // True failure — no chunks received, roll back
-            queryClient.setQueryData(
-              [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-              (old: { messages: TwinMessage[] } | undefined) => ({
-                messages: (old?.messages ?? []).filter((m) => m.id !== tempUserId),
-              })
-            );
-            if (overrideText === undefined) setInputText(text);
-          },
-        });
-      } catch {
-        if (streamingFlushRafRef.current != null) {
-          cancelAnimationFrame(streamingFlushRafRef.current);
-          streamingFlushRafRef.current = null;
-        }
-        setIsStreaming(false);
-        setStreamingContent("");
-        streamingContentRef.current = "";
-
-        if (doneFired) {
-          // onDone already ran and cleared state — refetch is in progress, do nothing
-          return;
-        }
-
-        if (chunkReceived) {
-          // Content was delivered but done event never fired —
-          // stream closed unexpectedly. Refetch instead of rollback.
-          queryClient
-            .refetchQueries({ queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT] })
-            .catch(() => {
-              queryClient.invalidateQueries({
-                queryKey: [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
-              });
-            });
-          return;
-        }
-
-        // True failure — nothing received
+        setTimeout(
+          () => listRef.current?.scrollToOffset({ offset: 0, animated: true }),
+          100
+        );
+      } catch (err) {
         queryClient.setQueryData(
           [...TWIN_KEYS.chat, CHAT_HISTORY_LIMIT],
           (old: { messages: TwinMessage[] } | undefined) => ({
@@ -485,9 +361,13 @@ export function TwinChatScreen() {
           })
         );
         if (overrideText === undefined) setInputText(text);
+        Alert.alert("Couldn't send", getErrorMessage(err));
+      } finally {
+        isSendingRef.current = false;
+        setIsSending(false);
       }
     },
-    [inputText, isStreaming, queryClient, scheduleStreamingFlush]
+    [inputText, queryClient]
   );
 
   useEffect(() => {
@@ -502,17 +382,6 @@ export function TwinChatScreen() {
     if (messages.length <= 0) return;
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [messages.length]);
-
-  useEffect(() => {
-    return () => {
-      if (streamingFlushRafRef.current != null) {
-        cancelAnimationFrame(streamingFlushRafRef.current);
-        streamingFlushRafRef.current = null;
-      }
-      setIsStreaming(false);
-      streamingContentRef.current = "";
-    };
-  }, []);
 
   const getMarginTop = useCallback(
     (index: number) => {
@@ -568,35 +437,7 @@ export function TwinChatScreen() {
     [getMarginTopReversed, rateTone]
   );
 
-  const streamingListHeader = useMemo(
-    () =>
-      isStreaming ? (
-        <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(150)}>
-          {streamingContent ? (
-            <View style={[styles.twinBubbleWrap, { marginTop: 12 }]}>
-              <View style={styles.twinBubble}>
-                <View style={styles.twinBubbleAccentLine}>
-                  <LinearGradient
-                    colors={["transparent", "rgba(139,92,246,0.50)", "transparent"]}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                </View>
-                <View style={styles.twinBubbleTopGlow} />
-                <View style={styles.streamingTextRow}>
-                  <Text style={styles.twinBubbleText}>{streamingContent}</Text>
-                  <Text style={styles.streamingCursor}>▊</Text>
-                </View>
-              </View>
-            </View>
-          ) : (
-            <TypingDots />
-          )}
-        </Animated.View>
-      ) : null,
-    [isStreaming, streamingContent]
-  );
+  const typingHeader = isSending ? <TypingDots /> : null;
 
   const keyExtractor = useCallback((item: ListItem) => {
     if (item.type === "date") return item.id;
@@ -659,7 +500,7 @@ export function TwinChatScreen() {
         showsVerticalScrollIndicator={true}
         keyboardDismissMode="none"
         keyboardShouldPersistTaps="handled"
-        ListHeaderComponent={streamingListHeader}
+        ListHeaderComponent={typingHeader}
         initialNumToRender={12}
         maxToRenderPerBatch={8}
         windowSize={10}
@@ -727,10 +568,10 @@ export function TwinChatScreen() {
           )}
           <Pressable
             onPress={() => sendMessage()}
-            disabled={!(inputText ?? "").trim() || isStreaming}
+            disabled={!(inputText ?? "").trim() || isSending}
             style={({ pressed }) => [
               styles.sendBtnWrap,
-              (!(inputText ?? "").trim() || isStreaming) && styles.sendBtnDisabled,
+              (!(inputText ?? "").trim() || isSending) && styles.sendBtnDisabled,
               pressed && styles.sendBtnPressed,
             ]}
           >

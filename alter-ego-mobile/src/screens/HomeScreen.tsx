@@ -425,6 +425,12 @@ export function HomeScreen() {
   } | null>(null);
   /** Dedupes parallel completes: only one overlay per (anchor day × streak count). */
   const streakOverlayTokenRef = useRef<string | null>(null);
+  /**
+   * Holds a streak result that arrived while another overlay was showing.
+   * Consumed after the current overlay dismisses so the user is guaranteed
+   * to see the streak page no matter how fast they complete missions.
+   */
+  const pendingStreakDataRef = useRef<{ count: number; tier: string } | null>(null);
   const [evolutionData, setEvolutionData] = useState<{
     new_stage: number;
     new_stage_name: string;
@@ -584,6 +590,7 @@ export function HomeScreen() {
     queryClient,
     missionById,
     setStreakAnimationData,
+    pendingStreakDataRef,
     setEvolutionStageName,
     setEvolutionData,
     setEvolutionOverlayVisible,
@@ -683,6 +690,7 @@ export function HomeScreen() {
 
   useEffect(() => {
     streakOverlayTokenRef.current = null;
+    pendingStreakDataRef.current = null;
   }, [calendarAnchorStr]);
 
   useEffect(() => {
@@ -952,7 +960,39 @@ export function HomeScreen() {
   const openTwin = () => navigation.navigate("Twin");
 
   const dismissStreakOverlay = useCallback(() => {
-    setStreakAnimationData(null);
+    const pending = pendingStreakDataRef.current;
+    pendingStreakDataRef.current = null;
+    if (pending) {
+      // Another streak result queued while overlay was showing — display it now.
+      setTimeout(() => {
+        setStreakAnimationData({ show: true, count: pending.count, tier: pending.tier });
+      }, 300);
+    } else {
+      setStreakAnimationData(null);
+    }
+  }, []);
+
+  const handleEvolutionOverlayClose = useCallback(() => {
+    setEvolutionOverlayVisible(false);
+    const s = pendingStreakDataRef.current;
+    // If pet evolution modal follows, keep streak pending until pet dismisses.
+    if (s && !petEvolutionData) {
+      pendingStreakDataRef.current = null;
+      setTimeout(() => {
+        setStreakAnimationData({ show: true, count: s.count, tier: s.tier });
+      }, 400);
+    }
+  }, [petEvolutionData]);
+
+  const handlePetEvolutionClose = useCallback(() => {
+    setPetEvolutionData(null);
+    const s = pendingStreakDataRef.current;
+    if (s) {
+      pendingStreakDataRef.current = null;
+      setTimeout(() => {
+        setStreakAnimationData({ show: true, count: s.count, tier: s.tier });
+      }, 400);
+    }
   }, []);
 
   const dismissFractureOverlay = useCallback(() => {
@@ -1486,7 +1526,7 @@ export function HomeScreen() {
       />
       <CharacterEvolutionOverlay
         visible={evolutionOverlayVisible}
-        onClose={() => setEvolutionOverlayVisible(false)}
+        onClose={handleEvolutionOverlayClose}
         stageName={evolutionStageName}
       />
 
@@ -1497,7 +1537,7 @@ export function HomeScreen() {
           !evolutionOverlayVisible
         }
         petName={petEvolutionData?.new_pet_name ?? ""}
-        onClose={() => setPetEvolutionData(null)}
+        onClose={handlePetEvolutionClose}
       />
 
       <DeleteMissionSheet

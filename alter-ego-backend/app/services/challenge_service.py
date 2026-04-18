@@ -196,6 +196,13 @@ async def get_active_challenge(user_id: str) -> dict | None:
                 asyncio.create_task(
                     _award_challenge_aether(user_id, aether_amount, str(challenge["id"]))
                 )
+                # Award one streak freeze for completing a Twin challenge
+                try:
+                    from app.services.arc_service import _award_streak_freeze
+
+                    _award_streak_freeze(user_id)
+                except Exception:
+                    pass
 
                 return challenge
             # Update current_value in DB (best-effort)

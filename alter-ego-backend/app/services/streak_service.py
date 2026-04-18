@@ -271,6 +271,17 @@ async def process_streak(user_id: str) -> dict:
     except Exception:
         pass
 
+    # Award streak freezes at meaningful milestones
+    if new_streak in (30, 100, 365):
+        try:
+            from app.services.arc_service import _award_streak_freeze
+
+            _award_streak_freeze(user_id)
+            if new_streak == 365:
+                _award_streak_freeze(user_id)  # 2 freezes for a full year
+        except Exception:
+            pass
+
     animation_tier = get_animation_tier(new_streak)
 
     return {

@@ -54,6 +54,7 @@ export type MissionCompletionCelebrationContext = {
       tier: string;
     } | null>
   >;
+  pendingStreakDataRef: React.RefObject<{ count: number; tier: string } | null>;
   setEvolutionStageName: React.Dispatch<React.SetStateAction<string>>;
   setEvolutionData: React.Dispatch<
     React.SetStateAction<{ new_stage: number; new_stage_name: string } | null>
@@ -92,11 +93,19 @@ export function runMissionCompletionCelebrationUI(
   }
 
   if (result.streak_animation?.show) {
-    ctx.setStreakAnimationData({
-      show: true,
+    const incoming = {
       count: result.streak_animation.streak_count,
       tier: result.streak_animation.animation_tier,
-    });
+    };
+    // If an evolution overlay or pet overlay is about to show, queue the streak
+    // so it doesn't compete. Also queue if streak overlay is already visible
+    // (rapid mission completes — only one streak_achieved_today can come back true,
+    // but the ref guards against any edge case double-fire).
+    if (result.stage_evolved || result.pet_evolved) {
+      ctx.pendingStreakDataRef.current = incoming;
+    } else {
+      ctx.setStreakAnimationData({ show: true, ...incoming });
+    }
   }
   if (result.stage_evolved) {
     ctx.setEvolutionStageName(result.stage_evolved.new_stage_name);

@@ -9,10 +9,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from pydantic import BaseModel, Field
-
 from app.agents import twin_chat_prompts_v2 as twin_prompts
-from app.agents.base import run_agent
 from app.core.supabase_client import supabase_admin
 from app.services.mission_service import get_days_since_registration, get_user_date
 from app.services.twin_tone_mix import pick_mixed_tone_for_message
@@ -75,10 +72,6 @@ async def record_proactive_sent(user_id: str) -> None:
         ).execute()
 
 
-class ProactiveOutput(BaseModel):
-    message: str = Field(..., max_length=200)
-
-
 async def generate_and_store_proactive_message(
     user_id: str,
     trigger_reason: str,
@@ -125,19 +118,31 @@ async def generate_and_store_proactive_message(
     prompt += f"\n\n## GUILT ORIENTATION\nScore: {guilt_orientation:.2f}. If > 0.7, do not guilt-trip.\n"
 
     try:
-        result = await run_agent(
-            system_prompt=prompt,
-            user_message=f"Generate a proactive message. Trigger: {trigger_reason}",
-            response_model=ProactiveOutput,
-            temperature=0.9,
-            max_tokens=100,
-            context_label="proactive_message",
+        import anthropic as _anthropic
+        import re as _re
+
+        _client = _anthropic.AsyncAnthropic()
+        _resp = await _client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=80,
+            system=prompt,
+            messages=[
+                {"role": "user", "content": f"Generate a proactive message. Trigger: {trigger_reason}"}
+            ],
         )
+        raw_text = (_resp.content[0].text or "").strip()
+        raw_text = _re.sub(r"<[^>]+>", "", raw_text).strip()
+        message_text = raw_text[:200]
+    except Exception as e:
+        logger.warning("Proactive message LLM failed for %s: %s", user_id, e)
+        return None
 
-        message_text = result.message.strip()
-        if not message_text:
-            return None
+    if not message_text:
+        return None
 
+    tone_used = pick_mixed_tone_for_message(twin_tone_type, f"{user_id}:proactive")
+
+    try:
         supabase_admin.table("twin_messages").insert(
             {
                 "user_id": user_id,
@@ -149,6 +154,33 @@ async def generate_and_store_proactive_message(
                 "tone_used": tone_used,
             }
         ).execute()
+
+        # Send push notification so user knows the Twin reached out
+        try:
+            push_row = (
+                supabase_admin.table("users")
+                .select("push_token, notifications_enabled")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            push_user = (push_row.data or [None])[0] or {}
+            push_token = push_user.get("push_token")
+            notifs_on = push_user.get("notifications_enabled", False)
+
+            if push_token and notifs_on:
+                from app.agents.nudge_agent import _send_push_notification
+
+                notif_body = message_text if len(message_text) <= 90 else message_text[:87] + "…"
+                await _send_push_notification(
+                    push_token,
+                    title="Shadow Twin",
+                    body=notif_body,
+                    push_context="proactive_twin",
+                )
+        except Exception as push_err:
+            logger.warning("Proactive push failed for %s: %s", user_id, push_err)
+            # Non-fatal — message is saved, push is best-effort
 
         await record_proactive_sent(user_id)
         logger.info("Proactive message sent to %s: %s", user_id, trigger_reason)

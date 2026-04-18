@@ -3560,8 +3560,9 @@ async def stream_twin_message(user_id: str, message: str):
 
 async def proactive_twin_message_job() -> None:
     """
-    Hourly tick: for users in local hour 10, may send a proactive Twin line (max 3/week).
-    Triggers: all missions complete today, inactive 2+ days, or occasional random_thought.
+    Hourly tick: for users in local hour 10 or 19, may send a proactive Twin line (max 3/week).
+    Triggers: all missions complete today (morning/evening window), inactive 2+ days (evening only),
+    or occasional random_thought (10am only).
     """
     import random
 
@@ -3575,9 +3576,11 @@ async def proactive_twin_message_job() -> None:
 
     logger.info(json.dumps({"event": "proactive_twin_message_job_start"}))
 
-    users_result = await run_query(supabase_admin.table("users")
-        .select("id, timezone, last_active_date, character_stage")
-        .eq("onboarding_complete", True))
+    users_result = await run_query(
+        supabase_admin.table("users")
+        .select("id, timezone, last_active_date")
+        .eq("onboarding_complete", True)
+    )
 
     sent = 0
     for user in users_result.data or []:
@@ -3589,11 +3592,12 @@ async def proactive_twin_message_job() -> None:
             except Exception:
                 tz = ZoneInfo("UTC")
             local_now = datetime.now(tz)
-            if local_now.hour != 10:
+            # Fire at 10am (morning check-in) or 7pm (evening for inactive users)
+            if local_now.hour not in (10, 19):
                 continue
 
-            if int(user.get("character_stage") or 1) < 2:
-                continue
+            # Allow from day 3+ regardless of stage (stage gate was too restrictive)
+            # Stage 1 users still need the Twin to feel alive
 
             if not await should_send_proactive(str(user_id)):
                 continue
@@ -3617,11 +3621,14 @@ async def proactive_twin_message_job() -> None:
                 if last_active:
                     try:
                         la = date_type.fromisoformat(str(last_active)[:10])
-                        if (local_now.date() - la).days >= 2:
+                        days_absent = (local_now.date() - la).days
+                        # Inactive trigger: only at 7pm (not morning), after 2+ days absent
+                        if days_absent >= 2 and local_now.hour == 19:
                             trigger = "user_inactive"
                     except Exception:
                         pass
-                if trigger is None and random.random() < 0.08:
+                # Random thought: only at 10am, 8% chance
+                if trigger is None and local_now.hour == 10 and random.random() < 0.40:
                     trigger = "random_thought"
 
             if trigger is None:

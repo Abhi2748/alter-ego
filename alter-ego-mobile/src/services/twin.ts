@@ -365,11 +365,6 @@ export const twinService = {
       ''
     );
 
-    // eslint-disable-next-line no-console -- debug twin chat failures on device
-    console.log('[twin.sendMessage] BASE_URL =', BASE_URL);
-    // eslint-disable-next-line no-console -- debug twin chat failures on device
-    console.log('[twin.sendMessage] message =', message);
-
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -392,9 +387,6 @@ export const twinService = {
       });
       clearTimeout(timeoutId);
 
-      // eslint-disable-next-line no-console -- debug twin chat failures on device
-      console.log('[twin.sendMessage] status =', res.status);
-
       if (!res.ok) {
         let errMsg = `Request failed (${res.status})`;
         let rawBody: unknown = null;
@@ -404,9 +396,6 @@ export const twinService = {
         } catch {
           rawBody = null;
         }
-
-        // eslint-disable-next-line no-console -- debug twin chat failures on device
-        console.log('[twin.sendMessage] error body =', rawBody);
 
         if (res.status === 429) {
           errMsg = 'Too many messages. Wait a moment and try again.';
@@ -455,12 +444,8 @@ export const twinService = {
       }
 
       const raw = await res.json();
-      // eslint-disable-next-line no-console -- debug twin chat failures on device
-      console.log('[twin.sendMessage] success body =', raw);
       return parseTwinChatResponse(raw);
     } catch (e) {
-      // eslint-disable-next-line no-console -- debug twin chat failures on device
-      console.log('[twin.sendMessage] caught error =', e);
       clearTimeout(timeoutId);
       if (e instanceof Error && e.name === 'AbortError') {
         throw new Error('Request timed out. Please try again.');

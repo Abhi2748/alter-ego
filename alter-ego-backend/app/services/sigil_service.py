@@ -238,6 +238,9 @@ def get_sigil_data(user_id: str) -> dict:
             "total_aether": total,
             "aether_today": int(sigil.get("aether_today") or 0),
             "surge_active": bool(sigil.get("surge_active")),
+            # True once the user has earned any Aether (first Surge ever completed).
+            # Drives the dormant vs active sigil screen on the frontend.
+            "has_ever_surged": total > 0,
             "progress": prog,
             "aether_history": aether_history,
         }
@@ -249,6 +252,7 @@ def get_sigil_data(user_id: str) -> dict:
             "total_aether": 0,
             "aether_today": 0,
             "surge_active": False,
+            "has_ever_surged": False,
             "progress": get_sigil_progress(0),
             "aether_history": [],
         }

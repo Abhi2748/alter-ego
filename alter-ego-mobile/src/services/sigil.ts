@@ -20,6 +20,7 @@ export interface SigilData {
   total_aether: number;
   aether_today: number;
   surge_active: boolean;
+  has_ever_surged: boolean;
   progress: SigilProgress;
   aether_history: Array<{ date: string; aether: number }>;
 }
@@ -30,6 +31,7 @@ export const SIGIL_PLACEHOLDER_DATA: SigilData = {
   total_aether: 0,
   aether_today: 0,
   surge_active: false,
+  has_ever_surged: false,
   progress: {
     level: 1,
     name: "The Ember",

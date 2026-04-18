@@ -43,6 +43,10 @@ export interface UserProfile {
   return_reason?: string | null;
   /** Earned streak freezes (challenges, arcs, etc.) */
   streak_freeze_count?: number;
+  /** Today's XP toward daily cap (optional; dormant sigil progress when set) */
+  xp_today?: number;
+  /** Stage-based daily XP cap (optional; default 100 in UI when omitted) */
+  daily_xp_cap?: number;
 }
 
 interface UserState {

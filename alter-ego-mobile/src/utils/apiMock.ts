@@ -842,6 +842,7 @@ export async function getProfileSigilMock(): Promise<SigilData> {
     total_aether: 400,
     aether_today: 50,
     surge_active: true,
+    has_ever_surged: true,
     progress: {
       level: 2,
       name: "The Fracture",

@@ -118,11 +118,36 @@ requires_sensitivity={str(requires_sensitivity).lower()}. If true, crisis/suppor
 
 
 def _parse_response(raw_text: str) -> str:
-    """Extract content from <response> tags."""
-    match = re.search(r"<response>(.*?)</response>", raw_text, re.DOTALL)
+    """Strip thinking blocks and extract <response> content."""
+    text = raw_text or ""
+
+    # Handle properly closed <thinking>...</thinking> blocks
+    text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL)
+
+    # Handle unclosed <thinking> block — Haiku sometimes stops mid-thought
+    # If <thinking> exists but </thinking> never closes, strip from <thinking> onward
+    # UNLESS there's a <response> tag after it
+    if "<thinking>" in text and "</thinking>" not in text:
+        if "<response>" in text:
+            # Strip only the thinking portion before <response>
+            text = re.sub(r"<thinking>.*?(?=<response>)", "", text, flags=re.DOTALL)
+        else:
+            # No response tag either — strip everything from <thinking> onward
+            text = text[: text.index("<thinking>")].strip()
+
+    text = text.strip()
+
+    # Extract <response> content if present
+    match = re.search(r"<response>(.*?)</response>", text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    return raw_text.strip()
+
+    # If we have content after stripping, return it
+    if text:
+        return text
+
+    # Empty after all stripping — return safe fallback
+    return ""
 
 
 async def generate_twin_response_v2(
@@ -148,6 +173,25 @@ async def generate_twin_response_v2(
         )
         raw = response.content[0].text
         response_text = _parse_response(raw)
+
+        if not response_text:
+            # Haiku stopped after thinking — retry with explicit instruction
+            logger.warning("Empty response after parsing, retrying with explicit prompt")
+            retry_messages = messages + [
+                {
+                    "role": "assistant",
+                    "content": "<thinking>\n[reasoning complete]\n</thinking>\n<response>",
+                },
+            ]
+            retry = await client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=150,
+                system=system_prompt,
+                messages=retry_messages,
+                stop_sequences=["</response>"],
+            )
+            response_text = retry.content[0].text.strip()
+
         logger.info("Twin response generated via Anthropic")
         return response_text, None
 

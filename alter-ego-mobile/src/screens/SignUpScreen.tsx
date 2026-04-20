@@ -209,7 +209,7 @@ export function SignUpScreen() {
   const [emailInput, setEmailInput] = useState("");
   const [emailSending, setEmailSending] = useState(false);
 
-  const redirectTo = makeRedirectUri({ scheme: "alterego", path: "auth" });
+  const redirectTo = makeRedirectUri({ scheme: "alter-ego", path: "auth" });
 
   /** Stale JWT (e.g. pre-backend): session exists but backend returns 401 — clear so user can sign in fresh. */
   useEffect(() => {

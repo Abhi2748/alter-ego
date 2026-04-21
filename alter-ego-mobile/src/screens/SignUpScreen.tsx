@@ -24,7 +24,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
-import { makeRedirectUri } from "expo-auth-session";
 import { useURL } from "expo-linking";
 import Animated, {
   useSharedValue,
@@ -189,8 +188,19 @@ function AuthButton({
 type Nav = StackNavigationProp<RootStackParamList, "SignUp">;
 
 function createSessionFromUrl(url: string) {
-  // Supabase uses PKCE by default — redirects return a `code` param, not
-  // access_token directly. exchangeCodeForSession handles both cases.
+  // Supabase implicit flow returns tokens in the URL fragment (#access_token=...)
+  // PKCE flow returns a code= query param — handle both.
+  if (url.includes("access_token")) {
+    const fragment = url.split("#")[1] ?? "";
+    const params = new URLSearchParams(fragment);
+    const access_token = params.get("access_token") ?? "";
+    const refresh_token = params.get("refresh_token") ?? "";
+    if (!access_token) {
+      return Promise.resolve({ data: { session: null }, error: new Error("No access token") });
+    }
+    return supabase.auth.setSession({ access_token, refresh_token });
+  }
+  // Fallback: PKCE code exchange
   return supabase.auth.exchangeCodeForSession(url);
 }
 
@@ -205,7 +215,7 @@ export function SignUpScreen() {
   const [emailInput, setEmailInput] = useState("");
   const [emailSending, setEmailSending] = useState(false);
 
-  const redirectTo = makeRedirectUri({ scheme: "alter-ego", path: "auth" });
+  const redirectTo = "alter-ego://";
 
   /** Stale JWT (e.g. pre-backend): session exists but backend returns 401 — clear so user can sign in fresh. */
   useEffect(() => {

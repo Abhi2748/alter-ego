@@ -11,8 +11,6 @@
 
 import { supabase } from '@/utils/supabase';
 import * as WebBrowser from 'expo-web-browser';
-import { makeRedirectUri } from 'expo-auth-session';
-
 // Required for Google OAuth redirect to work on iOS
 WebBrowser.maybeCompleteAuthSession();
 
@@ -53,13 +51,7 @@ export async function signInAnonymously(): Promise<AuthResult> {
 
 export async function signInWithGoogle(): Promise<AuthResult> {
   try {
-    // Build the redirect URI — this is where Google sends the user back
-    // In Expo Go / development: uses the Expo proxy
-    // In production build: uses your app scheme
-    const redirectUri = makeRedirectUri({
-      scheme: 'alter-ego',
-      // For Expo Go testing, use: scheme: undefined, useProxy: true
-    });
+    const redirectUri = "alter-ego://";
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -81,16 +73,27 @@ export async function signInWithGoogle(): Promise<AuthResult> {
       return { success: false, error: 'Sign in cancelled' };
     }
 
-    // Supabase uses PKCE by default — exchange the code for a session.
-    // Do NOT manually parse access_token; let Supabase handle the code exchange.
-    const { data: sessionData, error: sessionError } =
-      await supabase.auth.exchangeCodeForSession(result.url);
+    let sessionData;
+    let sessionError;
+    if (result.url.includes('access_token')) {
+      const fragment = result.url.split('#')[1] ?? '';
+      const params = new URLSearchParams(fragment);
+      const access_token = params.get('access_token') ?? '';
+      const refresh_token = params.get('refresh_token') ?? '';
+      const { data, error } = await supabase.auth.setSession({ access_token, refresh_token });
+      sessionData = data;
+      sessionError = error;
+    } else {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(result.url);
+      sessionData = data;
+      sessionError = error;
+    }
 
     if (sessionError) throw sessionError;
 
     return {
       success: true,
-      userId: sessionData.user?.id,
+      userId: sessionData?.user?.id,
       isAnonymous: false,
     };
   } catch (error: any) {
@@ -107,7 +110,7 @@ export async function signInWithGoogle(): Promise<AuthResult> {
 
 export async function linkGoogleAccount(): Promise<AuthResult> {
   try {
-    const redirectUri = makeRedirectUri({ scheme: 'alter-ego' });
+    const redirectUri = "alter-ego://";
 
     const { data, error } = await supabase.auth.linkIdentity({
       provider: 'google',

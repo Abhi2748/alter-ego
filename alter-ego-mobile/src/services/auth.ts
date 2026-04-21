@@ -81,22 +81,10 @@ export async function signInWithGoogle(): Promise<AuthResult> {
       return { success: false, error: 'Sign in cancelled' };
     }
 
-    // Extract the session from the redirect URL
-    const { url } = result;
-    const params = new URLSearchParams(url.split('#')[1] ?? url.split('?')[1]);
-    const accessToken = params.get('access_token');
-    const refreshToken = params.get('refresh_token');
-
-    if (!accessToken) {
-      return { success: false, error: 'No access token in redirect' };
-    }
-
-    // Set the session in Supabase client
+    // Supabase uses PKCE by default — exchange the code for a session.
+    // Do NOT manually parse access_token; let Supabase handle the code exchange.
     const { data: sessionData, error: sessionError } =
-      await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken ?? '',
-      });
+      await supabase.auth.exchangeCodeForSession(result.url);
 
     if (sessionError) throw sessionError;
 
@@ -138,9 +126,14 @@ export async function linkGoogleAccount(): Promise<AuthResult> {
       return { success: false, error: 'Linking cancelled' };
     }
 
-    // Refresh the session after linking
+    // Exchange the PKCE code returned in the redirect URL.
+    // refreshSession() alone is insufficient after linkIdentity.
+    const { error: exchangeError } =
+      await supabase.auth.exchangeCodeForSession(result.url);
+    if (exchangeError) throw exchangeError;
+
     const { data: refreshed, error: refreshError } =
-      await supabase.auth.refreshSession();
+      await supabase.auth.getSession();
 
     if (refreshError) throw refreshError;
 
@@ -155,7 +148,7 @@ export async function linkGoogleAccount(): Promise<AuthResult> {
 
     return {
       success: true,
-      userId: refreshed.user?.id,
+      userId: refreshed.session?.user?.id,
       isAnonymous: false,
     };
   } catch (error: any) {

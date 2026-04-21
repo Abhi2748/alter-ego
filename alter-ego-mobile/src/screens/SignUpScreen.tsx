@@ -25,7 +25,6 @@ import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
 import { makeRedirectUri } from "expo-auth-session";
-import * as QueryParams from "expo-auth-session/build/QueryParams";
 import { useURL } from "expo-linking";
 import Animated, {
   useSharedValue,
@@ -190,12 +189,9 @@ function AuthButton({
 type Nav = StackNavigationProp<RootStackParamList, "SignUp">;
 
 function createSessionFromUrl(url: string) {
-  const { params, errorCode } = QueryParams.getQueryParams(url);
-  if (errorCode) throw new Error(errorCode);
-  const access_token = params.access_token;
-  const refresh_token = params.refresh_token;
-  if (!access_token) return null;
-  return supabase.auth.setSession({ access_token, refresh_token });
+  // Supabase uses PKCE by default — redirects return a `code` param, not
+  // access_token directly. exchangeCodeForSession handles both cases.
+  return supabase.auth.exchangeCodeForSession(url);
 }
 
 export function SignUpScreen() {
@@ -429,7 +425,7 @@ export function SignUpScreen() {
   // Handle deep link when user opens app from magic link
   const incomingUrl = useURL();
   useEffect(() => {
-    if (!incomingUrl || !incomingUrl.includes("access_token")) return;
+    if (!incomingUrl || (!incomingUrl.includes("access_token") && !incomingUrl.includes("code="))) return;
     (async () => {
       try {
         const { error } = await createSessionFromUrl(incomingUrl);

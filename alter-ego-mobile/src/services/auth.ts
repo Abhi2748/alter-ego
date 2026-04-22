@@ -222,3 +222,50 @@ export function onAuthStateChange(callback: (event: string, session: any) => voi
   return subscription; // Call subscription.unsubscribe() in cleanup
 }
 
+// ── Email OTP ──────────────────────────────────────────────────────────────
+
+export async function sendEmailOtp(email: string): Promise<AuthResult> {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const isAnon = sessionData?.session?.user?.is_anonymous === true;
+
+    if (isAnon) {
+      // Link email to existing anonymous account
+      const { error } = await supabase.auth.updateUser({ email });
+      if (error) throw error;
+    } else {
+      // Fresh sign-in / sign-up via OTP
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: true },
+      });
+      if (error) throw error;
+    }
+
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message ?? 'Failed to send OTP' };
+  }
+}
+
+export async function verifyEmailOtp(
+  email: string,
+  token: string
+): Promise<AuthResult> {
+  try {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'email',
+    });
+    if (error) throw error;
+    return {
+      success: true,
+      userId: data.user?.id,
+      isAnonymous: false,
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message ?? 'Invalid or expired code' };
+  }
+}
+

@@ -11,7 +11,6 @@ import {
   StyleSheet,
   Dimensions,
   Pressable,
-  Alert,
   Modal,
   TextInput,
   ActivityIndicator,
@@ -24,7 +23,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
-import { useURL } from "expo-linking";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -37,6 +35,7 @@ import { supabase, setGuestMode } from "@/utils/supabase";
 import { apiClient, isAuthError } from "@/services/api";
 import { onboardingService } from "@/services/onboarding";
 import { IS_CLOSED_BETA } from "@/constants/closedBeta";
+import { sendEmailOtp, verifyEmailOtp } from "@/services/auth";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -214,8 +213,9 @@ export function SignUpScreen() {
   const [emailModalVisible, setEmailModalVisible] = useState(false);
   const [emailInput, setEmailInput] = useState("");
   const [emailSending, setEmailSending] = useState(false);
-
-  const redirectTo = "alter-ego://";
+  const [otpStep, setOtpStep] = useState<"email" | "otp">("email");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpVerifying, setOtpVerifying] = useState(false);
 
   /** Stale JWT (e.g. pre-backend): session exists but backend returns 401 — clear so user can sign in fresh. */
   useEffect(() => {
@@ -329,14 +329,14 @@ export function SignUpScreen() {
         if (isAnonymous) {
           const { data, error } = await supabase.auth.linkIdentity({
             provider,
-            options: { redirectTo, skipBrowserRedirect: true },
+            options: { redirectTo: "alter-ego://", skipBrowserRedirect: true },
           });
           if (error) throw error;
           if (!data?.url) {
             showError("Could not link account");
             return;
           }
-          const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+          const res = await WebBrowser.openAuthSessionAsync(data.url, "alter-ego://");
           if (res.type === "success" && res.url) {
             const { error: sessionError } = await createSessionFromUrl(res.url);
             if (sessionError) throw sessionError;
@@ -355,14 +355,14 @@ export function SignUpScreen() {
 
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider,
-          options: { redirectTo, skipBrowserRedirect: true },
+          options: { redirectTo: "alter-ego://", skipBrowserRedirect: true },
         });
         if (error) throw error;
         if (!data?.url) {
           showError("Could not start sign in");
           return;
         }
-        const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+        const res = await WebBrowser.openAuthSessionAsync(data.url, "alter-ego://");
         if (res.type === "success" && res.url) {
           const { error: sessionError } = await createSessionFromUrl(res.url);
           if (sessionError) throw sessionError;
@@ -385,69 +385,53 @@ export function SignUpScreen() {
         setLoadingProvider(null);
       }
     },
-    [redirectTo, ensureUserAndNavigate, showError]
+    [ensureUserAndNavigate, showError]
   );
 
-  const sendMagicLink = useCallback(async () => {
+  const sendOtp = useCallback(async () => {
     const email = emailInput.trim();
     if (!email) return;
     setEmailSending(true);
     setErrorMessage(null);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const isAnonymous = sessionData?.session?.user?.is_anonymous === true;
-
-      if (isAnonymous) {
-        const { error } = await supabase.auth.updateUser({
-          email,
-          options: { emailRedirectTo: redirectTo },
-        });
-        if (error) throw error;
-        setEmailModalVisible(false);
-        setEmailInput("");
-        Alert.alert(
-          "Check your email",
-          "We sent you a link to link this account to your email. Open it to continue.",
-          [{ text: "OK" }]
-        );
-      } else {
-        const { error } = await supabase.auth.signInWithOtp({
-          email,
-          options: { emailRedirectTo: redirectTo },
-        });
-        if (error) throw error;
-        setEmailModalVisible(false);
-        setEmailInput("");
-        Alert.alert(
-          "Check your email",
-          "We sent you a sign-in link. Open it to continue.",
-          [{ text: "OK" }]
-        );
-      }
+      const result = await sendEmailOtp(email);
+      if (!result.success) throw new Error(result.error);
+      setOtpStep("otp");
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to send link";
+      const msg = e instanceof Error ? e.message : "Failed to send code";
       showError(msg);
     } finally {
       setEmailSending(false);
     }
-  }, [emailInput, redirectTo, showError]);
+  }, [emailInput, showError]);
 
-  // Handle deep link when user opens app from magic link
-  const incomingUrl = useURL();
-  useEffect(() => {
-    if (!incomingUrl || (!incomingUrl.includes("access_token") && !incomingUrl.includes("code="))) return;
-    (async () => {
-      try {
-        const { error } = await createSessionFromUrl(incomingUrl);
-        if (error) throw error;
-        const { data } = await supabase.auth.getSession();
-        if (data?.session?.user)
-          await ensureUserAndNavigate(data.session.user.id, data.session.user.email ?? undefined);
-      } catch (_) {
-        showError("Invalid or expired link");
+  const verifyOtp = useCallback(async () => {
+    const email = emailInput.trim();
+    const token = otpCode.trim();
+    if (!email || token.length !== 6) return;
+    setOtpVerifying(true);
+    setErrorMessage(null);
+    try {
+      const result = await verifyEmailOtp(email, token);
+      if (!result.success) throw new Error(result.error);
+      setEmailModalVisible(false);
+      setEmailInput("");
+      setOtpCode("");
+      setOtpStep("email");
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.user) {
+        await ensureUserAndNavigate(
+          data.session.user.id,
+          data.session.user.email ?? undefined
+        );
       }
-    })();
-  }, [incomingUrl, ensureUserAndNavigate, showError]);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Invalid code";
+      showError(msg);
+    } finally {
+      setOtpVerifying(false);
+    }
+  }, [emailInput, otpCode, ensureUserAndNavigate, showError]);
 
   return (
     <>
@@ -531,41 +515,115 @@ export function SignUpScreen() {
         </SafeAreaView>
       </View>
 
-      <Modal visible={!IS_CLOSED_BETA && emailModalVisible} transparent animationType="fade">
-        <Pressable style={styles.modalBackdrop} onPress={() => setEmailModalVisible(false)}>
+      <Modal
+        visible={!IS_CLOSED_BETA && emailModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setEmailModalVisible(false);
+          setOtpStep("email");
+          setOtpCode("");
+        }}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => {
+            setEmailModalVisible(false);
+            setOtpStep("email");
+            setOtpCode("");
+          }}
+        >
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Continue with Email</Text>
-            <Text style={styles.modalHint}>We'll send you a sign-in link</Text>
-            <TextInput
-              style={styles.emailInput}
-              placeholder="you@example.com"
-              placeholderTextColor={COLORS.muted}
-              value={emailInput}
-              onChangeText={setEmailInput}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!emailSending}
-            />
-            <View style={styles.modalButtons}>
-              <Pressable
-                style={[styles.modalBtn, styles.modalBtnCancel]}
-                onPress={() => setEmailModalVisible(false)}
-              >
-                <Text style={styles.modalBtnCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modalBtn, styles.modalBtnSend]}
-                onPress={sendMagicLink}
-                disabled={emailSending || !emailInput.trim()}
-              >
-                {emailSending ? (
-                  <ActivityIndicator size="small" color={COLORS.text} />
-                ) : (
-                  <Text style={styles.modalBtnSendText}>Send link</Text>
-                )}
-              </Pressable>
-            </View>
+            {otpStep === "email" ? (
+              <>
+                <Text style={styles.modalTitle}>Continue with Email</Text>
+                <Text style={styles.modalHint}>
+                  We'll send a 6-digit code to your inbox
+                </Text>
+                <TextInput
+                  style={styles.emailInput}
+                  placeholder="you@example.com"
+                  placeholderTextColor={COLORS.muted}
+                  value={emailInput}
+                  onChangeText={setEmailInput}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!emailSending}
+                />
+                <View style={styles.modalButtons}>
+                  <Pressable
+                    style={[styles.modalBtn, styles.modalBtnCancel]}
+                    onPress={() => setEmailModalVisible(false)}
+                  >
+                    <Text style={styles.modalBtnCancelText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.modalBtn,
+                      styles.modalBtnSend,
+                      (!emailInput.trim() || emailSending) && { opacity: 0.5 },
+                    ]}
+                    onPress={sendOtp}
+                    disabled={emailSending || !emailInput.trim()}
+                  >
+                    {emailSending ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.modalBtnSendText}>Send Code</Text>
+                    )}
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalTitle}>Enter your code</Text>
+                <Text style={styles.modalHint}>
+                  Sent to {emailInput}
+                </Text>
+                <TextInput
+                  style={[styles.emailInput, { letterSpacing: 8, textAlign: "center", fontSize: 22 }]}
+                  placeholder="000000"
+                  placeholderTextColor={COLORS.muted}
+                  value={otpCode}
+                  onChangeText={(t) => setOtpCode(t.replace(/\D/g, "").slice(0, 6))}
+                  keyboardType="number-pad"
+                  autoFocus
+                  editable={!otpVerifying}
+                />
+                <View style={styles.modalButtons}>
+                  <Pressable
+                    style={[styles.modalBtn, styles.modalBtnCancel]}
+                    onPress={() => {
+                      setOtpStep("email");
+                      setOtpCode("");
+                    }}
+                  >
+                    <Text style={styles.modalBtnCancelText}>Back</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.modalBtn,
+                      styles.modalBtnSend,
+                      (otpCode.length !== 6 || otpVerifying) && { opacity: 0.5 },
+                    ]}
+                    onPress={verifyOtp}
+                    disabled={otpVerifying || otpCode.length !== 6}
+                  >
+                    {otpVerifying ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.modalBtnSendText}>Verify</Text>
+                    )}
+                  </Pressable>
+                </View>
+                <Pressable onPress={sendOtp} style={{ marginTop: 12, alignSelf: "center" }}>
+                  <Text style={{ fontSize: 13, color: COLORS.muted }}>
+                    Didn't get it? <Text style={{ color: COLORS.violet }}>Resend</Text>
+                  </Text>
+                </Pressable>
+              </>
+            )}
           </Pressable>
         </Pressable>
       </Modal>

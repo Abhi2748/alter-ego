@@ -23,9 +23,10 @@ type Step = "idle" | "email" | "otp";
 export function AccountSettingsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [displayEmail, setDisplayEmail] = useState<string | null>(null);
   const [isAnon, setIsAnon] = useState(true);
   const [googleConnected, setGoogleConnected] = useState(false);
+  const [emailIdentityLinked, setEmailIdentityLinked] = useState(false);
 
   const [step, setStep] = useState<Step>("idle");
   const [emailInput, setEmailInput] = useState("");
@@ -39,10 +40,13 @@ export function AccountSettingsScreen() {
     supabase.auth.getUser().then(({ data }) => {
       const u = data?.user;
       if (!u) return;
+
       setIsAnon(u.is_anonymous ?? true);
-      setUserEmail(u.email ?? null);
-      const providers = (u.app_metadata?.providers as string[]) ?? [];
-      setGoogleConnected(providers.includes("google"));
+      setDisplayEmail(u.email ?? null);
+
+      const identities = u.identities ?? [];
+      setGoogleConnected(identities.some((i) => i.provider === "google"));
+      setEmailIdentityLinked(identities.some((i) => i.provider === "email"));
     });
   }, []);
 
@@ -71,7 +75,8 @@ export function AccountSettingsScreen() {
     try {
       const result = await verifyEmailOtp(email, token);
       if (!result.success) throw new Error(result.error);
-      setUserEmail(email);
+      setEmailIdentityLinked(true);
+      setDisplayEmail(email);
       setIsAnon(false);
       setStep("idle");
       setEmailInput("");
@@ -99,6 +104,16 @@ export function AccountSettingsScreen() {
     }
   }, []);
 
+  const signedInLabel = isAnon
+    ? "Anonymous"
+    : googleConnected && emailIdentityLinked
+      ? displayEmail ?? "Connected"
+      : googleConnected
+        ? `Google · ${displayEmail ?? ""}`
+        : displayEmail ?? "Connected";
+
+  const showConnectSection = !googleConnected || !emailIdentityLinked;
+
   return (
     <LinearGradient
       colors={["#09091A", "#07080F"]}
@@ -120,7 +135,7 @@ export function AccountSettingsScreen() {
             <View style={[styles.dot, { backgroundColor: isAnon ? "#6B7280" : "#8B5CF6" }]} />
             <View>
               <Text style={styles.cardTitle}>
-                {isAnon ? "Anonymous" : (userEmail ?? "Connected")}
+                {signedInLabel}
               </Text>
               {isAnon ? (
                 <Text style={styles.cardSub}>
@@ -131,48 +146,67 @@ export function AccountSettingsScreen() {
           </View>
         </View>
 
-        {(isAnon || !googleConnected || !userEmail) ? (
+        {showConnectSection ? (
           <>
-            <Text style={[styles.sectionLabel, { marginTop: 24 }]}>CONNECT A METHOD</Text>
+            <Text style={[styles.sectionLabel, { marginTop: 24 }]}>
+              {isAnon ? "CONNECT A METHOD" : "CONNECT ANOTHER METHOD"}
+            </Text>
 
-            <Pressable
-              style={styles.card}
-              onPress={!googleConnected ? handleLinkGoogle : undefined}
-              disabled={googleConnected || linkingGoogle}
-            >
-              <View style={styles.cardRow}>
-                <Ionicons name="logo-google" size={20} color={googleConnected ? "#4ADE80" : "#9CA3AF"} />
-                <Text style={[styles.cardTitle, { flex: 1, marginLeft: 12 }]}>Google</Text>
-                {linkingGoogle ? (
-                  <ActivityIndicator size="small" color="#8B5CF6" />
-                ) : (
-                  <Text style={[styles.statusText, { color: googleConnected ? "#4ADE80" : "#8B5CF6" }]}>
-                    {googleConnected ? "Connected" : "Connect"}
-                  </Text>
-                )}
-              </View>
-            </Pressable>
-
-            {!userEmail ? (
+            {!googleConnected ? (
               <Pressable
                 style={styles.card}
-                onPress={() => setStep("email")}
+                onPress={handleLinkGoogle}
+                disabled={linkingGoogle}
               >
+                <View style={styles.cardRow}>
+                  <Ionicons name="logo-google" size={20} color="#9CA3AF" />
+                  <Text style={[styles.cardTitle, { flex: 1, marginLeft: 12 }]}>Google</Text>
+                  {linkingGoogle ? (
+                    <ActivityIndicator size="small" color="#8B5CF6" />
+                  ) : (
+                    <Text style={[styles.statusText, { color: "#8B5CF6" }]}>Connect</Text>
+                  )}
+                </View>
+              </Pressable>
+            ) : null}
+
+            {!emailIdentityLinked ? (
+              <Pressable style={styles.card} onPress={() => setStep("email")}>
                 <View style={styles.cardRow}>
                   <Ionicons name="mail-outline" size={20} color="#9CA3AF" />
                   <Text style={[styles.cardTitle, { flex: 1, marginLeft: 12 }]}>Email</Text>
                   <Text style={[styles.statusText, { color: "#8B5CF6" }]}>Connect</Text>
                 </View>
               </Pressable>
-            ) : (
+            ) : null}
+          </>
+        ) : null}
+
+        {(googleConnected || emailIdentityLinked) ? (
+          <>
+            <Text style={[styles.sectionLabel, { marginTop: 24 }]}>CONNECTED</Text>
+
+            {googleConnected ? (
               <View style={styles.card}>
                 <View style={styles.cardRow}>
-                  <Ionicons name="mail-outline" size={20} color="#4ADE80" />
-                  <Text style={[styles.cardTitle, { flex: 1, marginLeft: 12 }]}>{userEmail}</Text>
+                  <Ionicons name="logo-google" size={20} color="#4ADE80" />
+                  <Text style={[styles.cardTitle, { flex: 1, marginLeft: 12 }]}>Google</Text>
                   <Text style={[styles.statusText, { color: "#4ADE80" }]}>Connected</Text>
                 </View>
               </View>
-            )}
+            ) : null}
+
+            {emailIdentityLinked ? (
+              <View style={styles.card}>
+                <View style={styles.cardRow}>
+                  <Ionicons name="mail-outline" size={20} color="#4ADE80" />
+                  <Text style={[styles.cardTitle, { flex: 1, marginLeft: 12 }]}>
+                    {displayEmail ?? "Email"}
+                  </Text>
+                  <Text style={[styles.statusText, { color: "#4ADE80" }]}>Connected</Text>
+                </View>
+              </View>
+            ) : null}
           </>
         ) : null}
 

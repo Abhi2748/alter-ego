@@ -227,14 +227,14 @@ export function onAuthStateChange(callback: (event: string, session: any) => voi
 export async function sendEmailOtp(email: string): Promise<AuthResult> {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
-    const isAnon = sessionData?.session?.user?.is_anonymous === true;
+    const hasSession = !!sessionData?.session;
 
-    if (isAnon) {
-      // Link email to existing anonymous account
+    if (hasSession) {
+      // Existing account (anon OR Google) — add email without touching the session
       const { error } = await supabase.auth.updateUser({ email });
       if (error) throw error;
     } else {
-      // Fresh sign-in / sign-up via OTP
+      // No session — fresh OTP sign-in
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { shouldCreateUser: true },
@@ -253,11 +253,26 @@ export async function verifyEmailOtp(
   token: string
 ): Promise<AuthResult> {
   try {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type: 'email',
-    });
+    const { data: sessionData } = await supabase.auth.getSession();
+    const hasSession = !!sessionData?.session;
+
+    let data;
+    let error;
+
+    if (hasSession) {
+      ({ data, error } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: 'email_change',
+      }));
+    } else {
+      ({ data, error } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: 'email',
+      }));
+    }
+
     if (error) throw error;
     return {
       success: true,

@@ -10,7 +10,6 @@ import {
   ScrollView,
   Pressable,
   Platform,
-  Linking,
   Modal,
   TextInput,
   Alert,
@@ -39,8 +38,6 @@ const TEXT = "#E5E7EB";
 const MUTED = "#6B7280";
 const DIM = "#374151";
 const VERY_DIM = "#2D3146";
-
-const ACCOUNT_MANAGE_URL = "https://alterego.app/account";
 
 function AppleIcon() {
   return (
@@ -122,11 +119,6 @@ export function AccountScreen() {
       ? email
       : `Signed in with ${providerLabel}`;
 
-  const handleManage = useCallback(() => {
-    if (isAnonymous) return;
-    void Linking.openURL(ACCOUNT_MANAGE_URL);
-  }, [isAnonymous]);
-
   const handleConnectApple = useCallback(() => {
     Alert.alert("Coming soon", "Sign in with Apple will be available in a future update.");
   }, []);
@@ -161,7 +153,7 @@ export function AccountScreen() {
     if (!isAnonymous && provider != null) {
       Alert.alert(
         "Already signed in",
-        `You’re connected with ${provider === "google" ? "Google" : "Apple"}. Use Manage to change your account on the web, or add email there.`
+        `You're already connected with ${provider === "google" ? "Google" : "Apple"}. To add email as a sign-in method, go to Account Settings.`
       );
       return;
     }
@@ -234,13 +226,6 @@ export function AccountScreen() {
             <Text style={styles.statusProvider}>{providerLabel}</Text>
             <Text style={styles.statusEmail}>{statusSubtitle}</Text>
           </View>
-          {!isAnonymous ? (
-            <Pressable onPress={handleManage} disabled={busy != null}>
-              <Text style={styles.manageLink}>Manage</Text>
-            </Pressable>
-          ) : (
-            <View style={{ width: 52 }} />
-          )}
         </View>
 
         <Text style={styles.sectionLabel}>CONNECT ANOTHER METHOD</Text>
@@ -462,7 +447,6 @@ const styles = StyleSheet.create({
   statusInfo: { flex: 1 },
   statusProvider: { fontSize: 13, fontWeight: "600", color: TEXT },
   statusEmail: { fontSize: 11, color: "#4B5563", marginTop: 1 },
-  manageLink: { fontSize: 12, color: VIOLET },
   groupCard: {
     backgroundColor: SURFACE,
     borderWidth: 1,

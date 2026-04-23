@@ -6,7 +6,7 @@ import type { MainStackParamList } from "./types";
 import { MainTabNavigator } from "./MainTabNavigator";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { ProfileEditScreen } from "../screens/ProfileEditScreen";
-import { AccountScreen } from "../screens/AccountScreen";
+import { AccountSettingsScreen } from "../screens/AccountSettingsScreen";
 import { ContactUsScreen } from "../screens/ContactUsScreen";
 import { CommunityBoardScreen } from "../screens/CommunityBoardScreen";
 import { NewPostScreen } from "../screens/NewPostScreen";
@@ -60,7 +60,7 @@ export function MainStack() {
         />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="SettingsProfile" component={ProfileEditScreen} />
-        <Stack.Screen name="AccountSettings" component={AccountScreen} />
+        <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} />
         <Stack.Screen name="ContactUs" component={ContactUsScreen} />
         <Stack.Screen name="CommunityBoard" component={CommunityBoardScreen} />
         <Stack.Screen name="NewPost" component={NewPostScreen} />

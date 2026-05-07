@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/utils/supabase";
-import { sendEmailOtp, verifyEmailOtp, linkGoogleAccount } from "@/services/auth";
+import { sendEmailOtp, verifyEmailOtp, linkGoogleAccount, getAuthToken } from "@/services/auth";
 
 type Step = "idle" | "email" | "otp";
 
@@ -66,6 +66,19 @@ export function AccountSettingsScreen() {
     }
   }, [emailInput]);
 
+  const notifyBackendEmailLinked = useCallback(async () => {
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/v1/auth/link-email`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // Non-critical — don't block the UI if this fails
+    }
+  }, []);
+
   const handleVerifyOtp = useCallback(async () => {
     const email = emailInput.trim();
     const token = otpCode.trim();
@@ -75,6 +88,7 @@ export function AccountSettingsScreen() {
     try {
       const result = await verifyEmailOtp(email, token);
       if (!result.success) throw new Error(result.error);
+      await notifyBackendEmailLinked();
       setEmailIdentityLinked(true);
       setDisplayEmail(email);
       setIsAnon(false);
@@ -87,7 +101,7 @@ export function AccountSettingsScreen() {
     } finally {
       setVerifying(false);
     }
-  }, [emailInput, otpCode]);
+  }, [emailInput, otpCode, notifyBackendEmailLinked]);
 
   const handleLinkGoogle = useCallback(async () => {
     setLinkingGoogle(true);

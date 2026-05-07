@@ -13,6 +13,11 @@ POST /api/v1/auth/link-google
   - This endpoint updates users.email_connected = true
   - Returns success confirmation
 
+POST /api/v1/auth/link-email
+  - Called after a user successfully verifies their email OTP
+  - Updates users.email_connected = true and saves email
+  - Returns success confirmation
+
 GET /api/v1/auth/me
   - Returns the current user's basic profile
   - Used on app startup to check if onboarding is complete
@@ -86,6 +91,33 @@ async def link_google(authorization: str = Header(None)):
             update_data["email"] = email
 
         await run_query(supabase_admin.table("users").update(update_data).eq("id", user_id))
+
+        return {"success": True, "email_connected": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/link-email", response_model=dict)
+async def link_email(authorization: str = Header(None)):
+    """
+    Called after a user successfully verifies their email OTP.
+    Updates email_connected = true and saves the email in the users table.
+    """
+    user_id = get_user_id_from_token(authorization)
+
+    try:
+        # Get the verified email from Supabase auth
+        user_response = supabase_admin.auth.admin.get_user_by_id(user_id)
+        email = user_response.user.email if user_response.user else None
+
+        # Update users table
+        update_data = {"email_connected": True}
+        if email:
+            update_data["email"] = email
+
+        await run_query(
+            supabase_admin.table("users").update(update_data).eq("id", user_id)
+        )
 
         return {"success": True, "email_connected": True}
     except Exception as e:

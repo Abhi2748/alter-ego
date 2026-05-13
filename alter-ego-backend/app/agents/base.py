@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from typing import TypeVar
 
 import instructor
@@ -18,14 +19,35 @@ logger = logging.getLogger(__name__)
 # Default model for structured agents (override via OPENAI_AGENT_MODEL if needed).
 MODEL = os.environ.get("OPENAI_AGENT_MODEL", "gpt-4o-mini")
 
+# Singleton instructor client — created once, reused for all agent calls.
+_instructor_client: "instructor.Instructor | None" = None
+_instructor_client_lock = threading.Lock()
+
 T = TypeVar("T", bound=BaseModel)
 
 
-def get_instructor_client():
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-    return instructor.from_openai(OpenAI(api_key=api_key))
+def get_instructor_client() -> "instructor.Instructor":
+    """
+    Return the shared instructor client, creating it on first call.
+
+    Uses double-checked locking so:
+    - No lock overhead after the client is initialized (the common path).
+    - No duplicate client creation if two threads race on first call.
+
+    Safe to call from asyncio.to_thread workers — the GIL + the lock
+    together guarantee exactly one initialization.
+    """
+    global _instructor_client
+    if _instructor_client is None:
+        with _instructor_client_lock:
+            if _instructor_client is None:
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if not api_key:
+                    raise RuntimeError("OPENAI_API_KEY is not set")
+                _instructor_client = instructor.from_openai(
+                    OpenAI(api_key=api_key)
+                )
+    return _instructor_client
 
 
 async def run_agent(

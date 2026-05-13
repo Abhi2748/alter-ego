@@ -483,16 +483,13 @@ export function SignUpScreen() {
                 variant="google"
                 loading={loadingProvider === "google"}
               />
-              {!IS_CLOSED_BETA ? (
-                <AuthButton
-                  onPress={() => setEmailModalVisible(true)}
-                  icon={<Ionicons name="mail-outline" size={20} color={COLORS.text2} />}
-                  label="Continue with Email"
-                  variant="email"
-                  loading={loadingProvider === "email"}
-                />
-              ) : null}
-
+              <AuthButton
+                onPress={() => setEmailModalVisible(true)}
+                icon={<Ionicons name="mail-outline" size={20} color={COLORS.text} />}
+                label="Continue with Email"
+                variant="email"
+                loading={loadingProvider === "email"}
+              />
               <Pressable
                 onPress={signInLater}
                 disabled={loadingProvider !== null}
@@ -516,7 +513,7 @@ export function SignUpScreen() {
       </View>
 
       <Modal
-        visible={!IS_CLOSED_BETA && emailModalVisible}
+        visible={emailModalVisible}
         transparent
         animationType="fade"
         onRequestClose={() => {

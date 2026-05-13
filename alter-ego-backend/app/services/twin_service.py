@@ -2864,6 +2864,13 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
 
     conv_hist_text = build_conversation_history_text(chat_history, max_turns=10)
 
+    # Fetch memory context in parallel — all three are now async.
+    tone_rating_history, memory_anchors, last_three_openings = await asyncio.gather(
+        get_tone_rating_summary(user_id),
+        get_relevant_anchors(user_id),
+        get_last_openings(user_id),
+    )
+
     system_prompt = _build_response_prompt(
         username=username_safe,
         narrative_seed=narrative_seed,
@@ -2888,9 +2895,9 @@ async def _send_twin_message_impl(user_id: str, message: str) -> dict:
         energy_level=tone.energy_level,
         topic=tone.topic,
         conversation_depth=tone.conversation_depth,
-        tone_rating_history=get_tone_rating_summary(user_id),
-        memory_anchors=get_relevant_anchors(user_id),
-        last_three_openings=get_last_openings(user_id),
+        tone_rating_history=tone_rating_history,
+        memory_anchors=memory_anchors,
+        last_three_openings=last_three_openings,
         conversation_history=conv_hist_text,
         user_message=user_msg_safe,
         relationship_phase_section=relationship_phase_section,
@@ -3384,6 +3391,13 @@ async def stream_twin_message(user_id: str, message: str):
 
         conv_hist_text = build_conversation_history_text(chat_history, max_turns=10)
 
+        # Fetch memory context in parallel — all three are now async.
+        tone_rating_history, memory_anchors, last_three_openings = await asyncio.gather(
+            get_tone_rating_summary(user_id),
+            get_relevant_anchors(user_id),
+            get_last_openings(user_id),
+        )
+
         system_prompt = _build_response_prompt(
             username=username_safe,
             narrative_seed=narrative_seed,
@@ -3408,9 +3422,9 @@ async def stream_twin_message(user_id: str, message: str):
             energy_level=tone.energy_level,
             topic=tone.topic,
             conversation_depth=tone.conversation_depth,
-            tone_rating_history=get_tone_rating_summary(user_id),
-            memory_anchors=get_relevant_anchors(user_id),
-            last_three_openings=get_last_openings(user_id),
+            tone_rating_history=tone_rating_history,
+            memory_anchors=memory_anchors,
+            last_three_openings=last_three_openings,
             conversation_history=conv_hist_text,
             user_message=user_msg_safe,
             relationship_phase_section=relationship_phase_section,

@@ -20,6 +20,7 @@ from app.agents.agent_guardrails import (
     sanitize_username,
 )
 from app.agents.base import MODEL, get_instructor_client, run_agent
+from app.core.supabase_client import run_query, supabase_admin
 
 logger = logging.getLogger(__name__)
 
@@ -610,20 +611,16 @@ def build_conversation_messages(
     return messages
 
 
-def get_tone_rating_summary(user_id: str) -> str:
+async def get_tone_rating_summary(user_id: str) -> str:
     """Summarize the user's tone rating patterns for prompt injection."""
-    from app.core.supabase_client import supabase_admin
-
-    rows = (
+    result = await run_query(
         supabase_admin.table("twin_tone_ratings")
         .select("tone_type, rating")
         .eq("user_id", user_id)
         .order("created_at", desc=True)
         .limit(20)
-        .execute()
-        .data
-        or []
     )
+    rows = (result.data if result else None) or []
 
     if not rows:
         return "No tone ratings yet — this user hasn't rated any messages."
@@ -648,21 +645,17 @@ def get_tone_rating_summary(user_id: str) -> str:
     return summary
 
 
-def get_last_openings(user_id: str, count: int = 3) -> str:
+async def get_last_openings(user_id: str, count: int = 3) -> str:
     """Get the first few words of the Twin's last N responses."""
-    from app.core.supabase_client import supabase_admin
-
-    rows = (
+    result = await run_query(
         supabase_admin.table("twin_messages")
         .select("content")
         .eq("user_id", user_id)
         .eq("role", "twin")
         .order("created_at", desc=True)
         .limit(count)
-        .execute()
-        .data
-        or []
     )
+    rows = (result.data if result else None) or []
 
     if not rows:
         return "(no previous responses)"
@@ -676,21 +669,17 @@ def get_last_openings(user_id: str, count: int = 3) -> str:
     return "\n".join(f"- {o}" for o in openings)
 
 
-def get_relevant_anchors(user_id: str, limit: int = 3) -> str:
+async def get_relevant_anchors(user_id: str, limit: int = 3) -> str:
     """Fetch stored memory anchors for this user."""
-    from app.core.supabase_client import supabase_admin
-
     try:
-        rows = (
+        result = await run_query(
             supabase_admin.table("memory_anchors")
             .select("anchor_type, summary, reference_phrase, emotional_weight")
             .eq("user_id", user_id)
             .order("created_at", desc=True)
             .limit(limit)
-            .execute()
-            .data
-            or []
         )
+        rows = (result.data if result else None) or []
     except Exception:
         return "(no memory anchors stored yet)"
 

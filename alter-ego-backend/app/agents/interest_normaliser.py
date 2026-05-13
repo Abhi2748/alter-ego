@@ -2,9 +2,7 @@ import os
 import json
 import logging
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
-from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 from app.core.constants import INTEREST_LEVEL_MAP, INTEREST_PHASES
 from app.services.interest_guardrails import (
@@ -17,15 +15,10 @@ from app.services.interest_guardrails import (
 
 logger = logging.getLogger(__name__)
 
-load_dotenv()
 
-# Initialise the LLM — used for both functions
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0.3,       # Low temperature for consistent structured output
-    max_tokens=1000,
-    api_key=os.environ["OPENAI_API_KEY"],
-)
+def _get_llm() -> AsyncOpenAI:
+    """Return an AsyncOpenAI client. Reads OPENAI_API_KEY from env automatically."""
+    return AsyncOpenAI()
 
 
 NORMALISATION_SYSTEM_PROMPT = """
@@ -289,13 +282,16 @@ async def normalise_interest(
     user_message = "\n".join(parts)
 
     try:
-        response = await llm.ainvoke(
-            [
-                SystemMessage(content=NORMALISATION_SYSTEM_PROMPT),
-                HumanMessage(content=user_message),
-            ]
+        _resp = await _get_llm().chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.3,
+            max_tokens=1000,
+            messages=[
+                {"role": "system", "content": NORMALISATION_SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
         )
-        parsed = _safe_parse_json((response.content or "").strip())
+        parsed = _safe_parse_json((_resp.choices[0].message.content or "").strip())
         if not isinstance(parsed, dict):
             raise ValueError("LLM did not return valid JSON object")
 
@@ -410,13 +406,16 @@ async def normalise_quit_target(
     user_message = "\n".join(parts)
 
     try:
-        response = await llm.ainvoke(
-            [
-                SystemMessage(content=QUIT_NORMALISATION_PROMPT),
-                HumanMessage(content=user_message),
-            ]
+        _resp = await _get_llm().chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.3,
+            max_tokens=1000,
+            messages=[
+                {"role": "system", "content": QUIT_NORMALISATION_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
         )
-        parsed = _safe_parse_json((response.content or "").strip())
+        parsed = _safe_parse_json((_resp.choices[0].message.content or "").strip())
         if not isinstance(parsed, dict):
             raise ValueError("LLM did not return valid JSON object")
 

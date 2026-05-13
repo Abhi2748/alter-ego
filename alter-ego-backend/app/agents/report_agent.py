@@ -16,8 +16,7 @@ import os
 from datetime import date, datetime, timezone
 from typing import Any, List, Optional, TypeVar
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 T = TypeVar("T", bound=BaseModel)
@@ -1162,21 +1161,18 @@ async def generate_day_summary(user_id: str, target_date: str) -> str:
         narrative_seed=narrative_seed or "None",
     )
 
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.4,
-        max_tokens=80,
-        api_key=os.environ.get("OPENAI_API_KEY", ""),
-    )
-
     try:
-        response = await llm.ainvoke(
-            [
-                SystemMessage(content=prompt),
-                HumanMessage(content="Generate the day summary."),
-            ]
+        _client = AsyncOpenAI()
+        _resp = await _client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.4,
+            max_tokens=80,
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": "Generate the day summary."},
+            ],
         )
-        summary = (response.content or "").strip()
+        summary = (_resp.choices[0].message.content or "").strip()
     except Exception:
         summary = f"You completed {completed} of {total} missions."
 

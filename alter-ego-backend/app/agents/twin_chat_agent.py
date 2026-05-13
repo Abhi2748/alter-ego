@@ -613,60 +613,71 @@ def build_conversation_messages(
 
 async def get_tone_rating_summary(user_id: str) -> str:
     """Summarize the user's tone rating patterns for prompt injection."""
-    result = await run_query(
-        supabase_admin.table("twin_tone_ratings")
-        .select("tone_type, rating")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .limit(20)
-    )
-    rows = (result.data if result else None) or []
-
-    if not rows:
-        return "No tone ratings yet — this user hasn't rated any messages."
-
-    positive = sum(1 for r in rows if r.get("rating") == "positive")
-    negative = sum(1 for r in rows if r.get("rating") == "negative")
-    total = len(rows)
-
-    neg_by_tone: dict[str, int] = {}
-    for r in rows:
-        if r.get("rating") == "negative":
-            t = str(r.get("tone_type") or "unknown")
-            neg_by_tone[t] = neg_by_tone.get(t, 0) + 1
-
-    worst_tone = max(neg_by_tone, key=neg_by_tone.get) if neg_by_tone else None
-
-    summary = f"Last {total} ratings: {positive} positive, {negative} negative."
-    if worst_tone is not None:
-        summary += (
-            f" User dislikes '{worst_tone}' tone most ({neg_by_tone[worst_tone]} negative ratings)."
+    try:
+        result = await run_query(
+            supabase_admin.table("twin_tone_ratings")
+            .select("tone_type, rating")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(20)
         )
-    return summary
+        rows = (result.data if result else None) or []
+
+        if not rows:
+            return "No tone ratings yet — this user hasn't rated any messages."
+
+        positive = sum(1 for r in rows if r.get("rating") == "positive")
+        negative = sum(1 for r in rows if r.get("rating") == "negative")
+        total = len(rows)
+
+        neg_by_tone: dict[str, int] = {}
+        for r in rows:
+            if r.get("rating") == "negative":
+                t = str(r.get("tone_type") or "unknown")
+                neg_by_tone[t] = neg_by_tone.get(t, 0) + 1
+
+        worst_tone = max(neg_by_tone, key=neg_by_tone.get) if neg_by_tone else None
+
+        summary = f"Last {total} ratings: {positive} positive, {negative} negative."
+        if worst_tone is not None:
+            summary += (
+                f" User dislikes '{worst_tone}' tone most"
+                f" ({neg_by_tone[worst_tone]} negative ratings)."
+            )
+        return summary
+
+    except Exception:
+        logger.warning("get_tone_rating_summary failed for user %s — using fallback", user_id)
+        return "No tone ratings yet — this user hasn't rated any messages."
 
 
 async def get_last_openings(user_id: str, count: int = 3) -> str:
     """Get the first few words of the Twin's last N responses."""
-    result = await run_query(
-        supabase_admin.table("twin_messages")
-        .select("content")
-        .eq("user_id", user_id)
-        .eq("role", "twin")
-        .order("created_at", desc=True)
-        .limit(count)
-    )
-    rows = (result.data if result else None) or []
+    try:
+        result = await run_query(
+            supabase_admin.table("twin_messages")
+            .select("content")
+            .eq("user_id", user_id)
+            .eq("role", "twin")
+            .order("created_at", desc=True)
+            .limit(count)
+        )
+        rows = (result.data if result else None) or []
 
-    if not rows:
+        if not rows:
+            return "(no previous responses)"
+
+        openings: list[str] = []
+        for r in rows:
+            content = str(r.get("content") or "")
+            words = content.split()[:6]
+            openings.append(" ".join(words) + "...")
+
+        return "\n".join(f"- {o}" for o in openings)
+
+    except Exception:
+        logger.warning("get_last_openings failed for user %s — using fallback", user_id)
         return "(no previous responses)"
-
-    openings: list[str] = []
-    for r in rows:
-        content = str(r.get("content") or "")
-        words = content.split()[:6]
-        openings.append(" ".join(words) + "...")
-
-    return "\n".join(f"- {o}" for o in openings)
 
 
 async def get_relevant_anchors(user_id: str, limit: int = 3) -> str:
@@ -680,20 +691,22 @@ async def get_relevant_anchors(user_id: str, limit: int = 3) -> str:
             .limit(limit)
         )
         rows = (result.data if result else None) or []
+
+        if not rows:
+            return "(no memory anchors stored yet)"
+
+        anchors: list[str] = []
+        for r in rows:
+            weight = r.get("emotional_weight", "medium")
+            summary = r.get("summary", "")
+            phrase = r.get("reference_phrase", "")
+            anchors.append(f"[{weight}] {summary} (reference as: '{phrase}')")
+
+        return "\n".join(anchors)
+
     except Exception:
+        logger.warning("get_relevant_anchors failed for user %s — using fallback", user_id)
         return "(no memory anchors stored yet)"
-
-    if not rows:
-        return "(no memory anchors stored yet)"
-
-    anchors: list[str] = []
-    for r in rows:
-        weight = r.get("emotional_weight", "medium")
-        summary = r.get("summary", "")
-        phrase = r.get("reference_phrase", "")
-        anchors.append(f"[{weight}] {summary} (reference as: '{phrase}')")
-
-    return "\n".join(anchors)
 
 
 def _generate_twin_response_sync(

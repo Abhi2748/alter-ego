@@ -7,8 +7,7 @@ import re
 from datetime import datetime, timezone, date
 from zoneinfo import ZoneInfo
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from openai import AsyncOpenAI
 
 from app.core.constants import (
     INTEREST_LEVEL_MAP,
@@ -594,21 +593,20 @@ async def generate_interest_mission(
     # Step 8 — LLM call with self-verification
     mission_data = None
     try:
-        llm = ChatOpenAI(
+        _llm = AsyncOpenAI()
+        _resp = await _llm.chat.completions.create(
             model="gpt-4o-mini",
             temperature=0.4,
             max_tokens=700,
-            api_key=os.environ["OPENAI_API_KEY"],
+            messages=[
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": f"Generate one mission for {interest_clean.get('normalised_name') or 'this interest'} today.",
+                },
+            ],
         )
-        response = await llm.ainvoke(
-            [
-                SystemMessage(content=prompt),
-                HumanMessage(
-                    content=f"Generate one mission for {interest_clean.get('normalised_name') or 'this interest'} today."
-                ),
-            ]
-        )
-        mission_data = _parse_json_response(str(response.content))
+        mission_data = _parse_json_response(str(_resp.choices[0].message.content or ""))
 
         # ── Self-verification (cheap check) ──────────────────────────────
         # Runs only if we got a valid response
@@ -634,20 +632,24 @@ async def generate_interest_mission(
 
             if is_repeat or is_generic:
                 # Regenerate once with explicit anti-repetition instruction
-                regen_response = await llm.ainvoke(
-                    [
-                        SystemMessage(content=prompt),
-                        HumanMessage(
-                            content=(
+                _regen_resp = await _llm.chat.completions.create(
+                    model="gpt-4o-mini",
+                    temperature=0.4,
+                    max_tokens=700,
+                    messages=[
+                        {"role": "system", "content": prompt},
+                        {
+                            "role": "user",
+                            "content": (
                                 f"The previous mission '{title_check}' "
                                 f"{'repeats a recent mission' if is_repeat else 'is too generic'}. "
                                 f"Generate a DIFFERENT mission for {interest_clean.get('normalised_name') or 'this interest'} "
                                 f"that is substantially different in approach and specificity."
-                            )
-                        ),
-                    ]
+                            ),
+                        },
+                    ],
                 )
-                regen_data = _parse_json_response(str(regen_response.content))
+                regen_data = _parse_json_response(str(_regen_resp.choices[0].message.content or ""))
                 if regen_data and isinstance(regen_data, dict) and regen_data.get("title"):
                     mission_data = regen_data  # Use regenerated version
 
@@ -658,17 +660,25 @@ async def generate_interest_mission(
                 needs_technique_regen = len(technique_note) < 30
                 if needs_technique_regen:
                     try:
-                        tech_response = await llm.ainvoke([
-                            SystemMessage(content=prompt),
-                            HumanMessage(content=(
-                                f"The previous mission is missing a technique_note — "
-                                f"it must include 3-5 sentences of specific physical "
-                                f"mechanics for '{mission_data.get('title', '')}'. "
-                                f"Regenerate the complete mission with a proper "
-                                f"technique_note. Return valid JSON only."
-                            )),
-                        ])
-                        tech_data = _parse_json_response(str(tech_response.content))
+                        _tech_resp = await _llm.chat.completions.create(
+                            model="gpt-4o-mini",
+                            temperature=0.4,
+                            max_tokens=700,
+                            messages=[
+                                {"role": "system", "content": prompt},
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        f"The previous mission is missing a technique_note — "
+                                        f"it must include 3-5 sentences of specific physical "
+                                        f"mechanics for '{mission_data.get('title', '')}'. "
+                                        f"Regenerate the complete mission with a proper "
+                                        f"technique_note. Return valid JSON only."
+                                    ),
+                                },
+                            ],
+                        )
+                        tech_data = _parse_json_response(str(_tech_resp.choices[0].message.content or ""))
                         if (
                             tech_data
                             and isinstance(tech_data, dict)

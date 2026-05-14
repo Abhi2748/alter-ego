@@ -799,6 +799,43 @@ async def weekly_report_local_job():
             now_local=now_local,
         ):
             return
+
+        # ── Idempotency guard ───────────────────────────────────────────────
+        # Skip if a report was already generated for this week.
+        # generate_weekly_report uses UPSERT so data is safe, but the LLM
+        # chain is expensive — avoid running it twice on server restart.
+        try:
+            existing_report = (
+                supabase_admin.table("weekly_reports")
+                .select("id")
+                .eq("user_id", uid)
+                .eq("week_start", str(ws))
+                .limit(1)
+                .execute()
+            )
+            if existing_report.data:
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "weekly_report_already_exists",
+                            "user_id": str(uid),
+                            "week_start": str(ws),
+                        }
+                    )
+                )
+                return
+        except Exception as e:
+            # If the existence check fails, proceed with generation — UPSERT handles duplicates.
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "weekly_report_existence_check_failed",
+                        "user_id": str(uid),
+                        "error": str(e)[:200],
+                    }
+                )
+            )
+
         await generate_weekly_report(uid)
 
     for i in range(0, len(due_ids), BATCH_SIZE):

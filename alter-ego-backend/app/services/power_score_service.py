@@ -150,9 +150,33 @@ async def calculate_power_score(user_id: str, *, log_event: bool = True) -> int:
     await run_query(supabase_admin.table("users").update({"power_score": total}).eq("id", user_id))
 
     if log_event:
-        await run_query(supabase_admin.table("power_score_log").insert(
-            {"user_id": user_id, "score": total, "calculated_at": datetime.utcnow().isoformat()}
-        ))
+        # ── Idempotency guard ───────────────────────────────────────────
+        # Only write one power_score_log row per user per calendar day.
+        # Prevents duplicate rows when user_local_maintenance_job reruns
+        # during the 1am window (e.g. on server restart).
+        today_str = datetime.utcnow().date().isoformat()
+        try:
+            existing_log = await run_query(
+                supabase_admin.table("power_score_log")
+                .select("id")
+                .eq("user_id", user_id)
+                .gte("calculated_at", f"{today_str}T00:00:00")
+                .limit(1)
+            )
+            already_logged_today = bool(existing_log.data)
+        except Exception:
+            already_logged_today = False  # If check fails, write the row anyway
+
+        if not already_logged_today:
+            await run_query(
+                supabase_admin.table("power_score_log").insert(
+                    {
+                        "user_id": user_id,
+                        "score": total,
+                        "calculated_at": datetime.utcnow().isoformat(),
+                    }
+                )
+            )
 
     return total
 

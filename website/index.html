@@ -732,7 +732,11 @@ section {
 }
 .showcase-phone img {
   width: 100%;
+  height: auto;
   display: block;
+  object-fit: cover;
+  object-position: top center;
+  image-rendering: auto;
 }
 .showcase-label {
   font-family: var(--font-mono);
@@ -1798,43 +1802,44 @@ section {
   
   <div class="showcase-scroll">
     <div class="showcase-item reveal delay-1">
-      <div class="showcase-phone"><img src="screenshots/home.png" alt="Home screen" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+      <div class="showcase-phone"><img src="screenshots/home.jpg" alt="Home screen" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Home</span>
     </div>
-    <div class="showcase-item reveal delay-2">
-      <div class="showcase-phone"><img src="screenshots/story.png" alt="Today's story" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+    <!-- After uploading story.jpg: remove the hidden attribute from this div. -->
+    <div class="showcase-item reveal delay-2" id="showcase-story" hidden>
+      <div class="showcase-phone"><img src="screenshots/story.jpg" alt="Today's story" decoding="async" loading="lazy" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Today's Story</span>
     </div>
     <div class="showcase-item reveal delay-3">
-      <div class="showcase-phone"><img src="screenshots/twin.png" alt="Twin comparison" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+      <div class="showcase-phone"><img src="screenshots/twin.jpg" alt="Twin comparison" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Shadow Twin</span>
     </div>
     <div class="showcase-item reveal delay-4">
-      <div class="showcase-phone"><img src="screenshots/chat.png" alt="Twin chat" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+      <div class="showcase-phone"><img src="screenshots/chat.jpg" alt="Twin chat" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Twin Chat</span>
     </div>
     <div class="showcase-item reveal delay-5">
-      <div class="showcase-phone"><img src="screenshots/profile.png" alt="Profile" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+      <div class="showcase-phone"><img src="screenshots/profile.jpg" alt="Profile" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Profile</span>
     </div>
     <div class="showcase-item reveal delay-1">
-      <div class="showcase-phone"><img src="screenshots/abilities.png" alt="Abilities" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+      <div class="showcase-phone"><img src="screenshots/abilities.jpg" alt="Abilities" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Abilities</span>
     </div>
     <div class="showcase-item reveal delay-2">
-      <div class="showcase-phone"><img src="screenshots/focus.png" alt="Focus timer" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+      <div class="showcase-phone"><img src="screenshots/focus.jpg" alt="Focus timer" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Focus</span>
     </div>
     <div class="showcase-item reveal delay-3">
-      <div class="showcase-phone"><img src="screenshots/streak.png" alt="Streak calendar" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+      <div class="showcase-phone"><img src="screenshots/streak.jpg" alt="Streak calendar" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Streaks</span>
     </div>
     <div class="showcase-item reveal delay-4">
-      <div class="showcase-phone"><img src="screenshots/interests.png" alt="Interest arcs" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+      <div class="showcase-phone"><img src="screenshots/interests.jpg" alt="Interest arcs" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Interests</span>
     </div>
     <div class="showcase-item reveal delay-5">
-      <div class="showcase-phone"><img src="screenshots/leaderboard.png" alt="Leaderboard" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
+      <div class="showcase-phone"><img src="screenshots/leaderboard.jpg" alt="Leaderboard" onerror="this.parentElement.classList.add('no-img');this.remove()"></div>
       <span class="showcase-label">Leaderboard</span>
     </div>
   </div>

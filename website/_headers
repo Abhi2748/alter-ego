@@ -1,0 +1,12 @@
+# Cloudflare Pages — avoid long-lived edge cache on HTML and screenshots so
+# deploys show new images without waiting for CDN TTL. Bump ?v= in index.html
+# when you replace JPGs but keep the same filenames (strongest cache bust).
+
+/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/screenshots/*
+  Cache-Control: public, max-age=0, must-revalidate
